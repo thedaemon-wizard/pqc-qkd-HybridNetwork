@@ -1,0 +1,33 @@
+# =====================================================================
+# Override file: adds the qkdnetsim-kme cross-validation container.
+# Apply with:
+#   docker compose -f docker-compose.yml -f docker-compose.qkdnetsim.yml \
+#                   --profile crossvalidate up -d
+# =====================================================================
+name: pqcqkd
+
+services:
+  qkdnetsim-kme:
+    build:
+      context: .
+      dockerfile: services/qkdnetsim-kme/Dockerfile
+    image: pqcqkd/qkdnetsim-kme:local
+    container_name: qkdnetsim-kme
+    profiles: ["crossvalidate"]
+    environment:
+      SAE_ID: ALICE
+      PEER_SAE_ID: BOB
+      KEY_SIZE_BITS: 256
+      MAX_POOL: 64
+      INITIAL_KEY_RATE_BPS: 1000.0
+    networks:
+      qkd-net: {}
+      mgmt-net: {}
+    ports:
+      - "8081:80"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s

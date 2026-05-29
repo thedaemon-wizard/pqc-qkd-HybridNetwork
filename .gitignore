@@ -1,0 +1,102 @@
+# ============================================
+# Secrets & Generated Crypto Material
+# ============================================
+pki/*.pem
+pki/*.key
+pki/*.crt
+pki/*.csr
+pki/*.srl
+pki/index.txt*
+pki/serial*
+!pki/.gitkeep
+!pki/gen-certs.sh
+**/*.psk
+**/rosenpass-secret/
+**/private.key
+**/preshared.key
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================
+# Node / Frontend
+# ============================================
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================
+# Go (arnika builds inside Docker; just in case)
+# ============================================
+*.exe
+*.test
+*.out
+arnika
+build/
+
+# ============================================
+# Docker / Compose
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# Build artifacts
+# ============================================
+submodules/liboqs/build/
+submodules/oqs-provider/build/
+submodules/rosenpass/target/
+/opt/oqs/
+
+# ============================================
+# Manim renders (large binaries; share via Release)
+# ============================================
+animations/media/
+animations/__pycache__/
+docs/images/*.mp4
+!docs/images/.gitkeep
+
+# ============================================
+# Benchmark results
+# ============================================
+benchmarks/results/
+benchmarks/*.csv
+benchmarks/*.png
+
+# ============================================
+# Editor / OS
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ============================================
+# SBOM and security scanning outputs
+# ============================================
+sbom*.json
+.gitleaks.report.json

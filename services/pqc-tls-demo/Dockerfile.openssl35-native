@@ -1,0 +1,41 @@
+# =====================================================================
+# OpenSSL 3.5+ native PQC TLS demo.
+#
+# 2025-07 released OpenSSL 3.5.0 ships ML-KEM-{512,768,1024} and ML-DSA
+# natively. This is the "FIPS-stable" PQC path — recommended for production.
+# Complementary to the oqs-provider stack which keeps algorithm agility
+# (HQC, Falcon, SLH-DSA, Classic McEliece for research).
+#
+# Usage:
+#   PQC_PROVIDER=native make pqc-tls-demo-both
+#
+# Inside the container:
+#   openssl s_server -tls1_3 -groups X25519MLKEM768 -accept 4433
+#   openssl s_client -tls1_3 -groups X25519MLKEM768 -connect tls35:4433
+# =====================================================================
+FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openssl ca-certificates curl iproute2 jq && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify the OpenSSL we got is ≥ 3.5 (Debian trixie ships 3.5.x)
+RUN openssl version | grep -E "OpenSSL [3-9]\.[5-9]" || \
+    (echo "ERROR: OpenSSL >= 3.5 required for native PQC" >&2; exit 1)
+
+# Generate a self-signed cert for the demo
+RUN openssl req -x509 -newkey rsa:2048 -keyout /etc/ssl/private/server.key \
+        -out /etc/ssl/certs/server.crt -days 365 -nodes \
+        -subj "/CN=tls35.pqcqkd.local" -batch
+
+EXPOSE 4433
+
+# Group selection per IETF Draft draft-kwiatkowski-tls-ecdhe-mlkem-02
+ENV TLS_GROUPS="X25519MLKEM768:SecP256r1MLKEM768:SecP384r1MLKEM1024"
+
+CMD ["sh", "-c", "openssl s_server -tls1_3 -groups ${TLS_GROUPS} \
+                                   -accept 0.0.0.0:4433 \
+                                   -cert /etc/ssl/certs/server.crt \
+                                   -key /etc/ssl/private/server.key \
+                                   -www"]

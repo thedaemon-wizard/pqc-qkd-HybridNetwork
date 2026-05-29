@@ -1,0 +1,83 @@
+# ================================================================
+# Central QKD physics & protocol parameter file (Phase 8)
+# ----------------------------------------------------------------
+# This file is the SINGLE SOURCE OF TRUTH for every numeric value
+# in the BB84-KME stack.  No literal numbers may appear inside the
+# Python sources under services/bb84-kme/app/ except trivial ones
+# (0, 1, ...).  CI test `tests/test_no_hardcoded_params.py` enforces this.
+#
+# Hot-reload: the bb84-kme process watches this file; on change the
+# new values take effect at the next BB84 round.
+#
+# Provenance of defaults:
+#   - fiber attenuation: ITU-T G.652 SMF spec (0.18-0.22 dB/km @1550nm)
+#   - detector η_d:      SNSPD typical 20-90 % (Hadfield Nature Photonics 2009)
+#   - dark count:        SNSPD typical 10-1000 Hz
+#   - decoy intensities: Lo-Ma-Chen PRL 94 230504 (2005), arXiv:2511.21253 (2026)
+#   - f_EC:              Cascade efficiency 1.10-1.20 (Brassard-Salvail 1994)
+#   - misalignment e_d:  typical 0.5-1.5 % polarisation drift
+# ================================================================
+
+physical:
+  fiber_attenuation_db_per_km: 0.20      # ITU-T G.652 reference
+  link_length_km: 10.0                   # editable via WebUI slider
+  detector_efficiency: 0.20              # SNSPD typical
+  dark_count_rate_hz: 100.0
+  after_pulse_prob: 0.001
+  misalignment_error_ed: 0.015           # polarisation basis misalignment
+
+source:
+  source_type: "WCP"                     # weak coherent pulse
+  pulse_rate_hz: 1.0e9                   # 1 GHz industry standard
+  intensity_signal_mu: 0.5               # set to "auto" to invoke Bayesian Opt
+  intensity_decoy_1_nu1: 0.1
+  intensity_decoy_2_nu2: 0.0
+  basis_bias_pz: 0.5                     # symmetric BB84
+
+protocol:
+  block_size_N: 1000000000               # finite-key block 1e9 symbols
+  security_epsilon: 1.0e-10              # composable security
+  ec_efficiency_f: 1.16                  # Cascade
+  qber_threshold_abort: 0.11             # Lo-Ma asymptotic bound
+  out_bits_per_key: 256                  # what arnika needs (matches kms.go)
+
+simulator:
+  backend: "simqn"                       # qutip | simqn | sequence | cvqkd | composite
+  bb84_batch_size: 2048                  # photons per discrete-event round
+  pool_low_watermark: 8
+  pool_max_size: 64
+  rng_seed: 42                           # set to null for OS entropy
+
+optimizer:
+  enabled: false
+  method: "bayesian_gp"                  # bayesian_gp | closed_form | table_lookup
+  n_calls: 50
+  acquisition: "EI"                      # expected improvement
+  search_space:
+    mu:  [0.30, 0.90]
+    nu1: [0.05, 0.20]
+    nu2: [0.00, 0.01]
+    pz:  [0.50, 0.95]
+
+eve:
+  enabled: false
+  intercept_prob: 0.0
+
+cvqkd:                                   # Strawberry Fields backend
+  protocol: "GG02"                       # Grosshans-Grangier 2002
+  modulation_variance_V_A: 4.0           # shot noise units
+  reconciliation: "reverse"
+  excess_noise_xi: 0.01                  # ≈1% typical
+  homodyne_phi_deg: 0.0                  # X-quadrature
+  reconciliation_efficiency_beta: 0.95
+
+hil:                                     # hardware-in-the-loop bridge
+  enabled: false
+  kms_url: ""                            # commercial device ETSI 014 endpoint
+  ca_cert_file: ""
+  client_cert_file: ""
+  client_key_file: ""
+
+webui:
+  refresh_interval_ms: 1500
+  ws_frame_buffer: 16

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webui-frontend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--host", "0.0.0.0", "--port", "5174"],
+      "cwd": "services/webui-frontend",
+      "port": 5174
+    }
+  ]
+}
