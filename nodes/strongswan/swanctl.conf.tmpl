@@ -1,0 +1,50 @@
+# =====================================================================
+# strongSwan swanctl configuration — RFC 9370 ML-KEM-768 hybrid IKEv2.
+#
+# Variables substituted by entrypoint.sh:
+#   __LOCAL_IP__   __PEER_IP__   __LOCAL_ID__   __PEER_ID__   __PSK_HEX__
+#
+# RFC 9370 syntax:
+#   proposals = aes256-sha256-modp2048-ke1_ml_kem_768
+#   The "ke1_" prefix denotes an additional KE round per RFC 9370.
+# =====================================================================
+connections {
+    pqcqkd-vpn {
+        version = 2
+        # Hybrid: classical ECP256 + PQ ML-KEM-768 (RFC 9370 KE1)
+        proposals = aes256gcm16-sha256-prfsha256-ecp256-ke1_ml_kem_768
+        encap = yes                                  # NAT-T friendly
+        fragmentation = yes                          # ML-KEM PK > UDP MTU
+        local_addrs = __LOCAL_IP__
+        remote_addrs = __PEER_IP__
+
+        local {
+            auth = psk
+            id = __LOCAL_ID__
+        }
+        remote {
+            auth = psk
+            id = __PEER_ID__
+        }
+
+        children {
+            tunnel {
+                local_ts = 10.0.0.0/24
+                remote_ts = 10.0.0.0/24
+                esp_proposals = aes256gcm16-sha256-modp2048
+                start_action = trap
+                close_action = restart
+            }
+        }
+    }
+}
+
+secrets {
+    ike-pqcqkd {
+        id-local = __LOCAL_ID__
+        id-remote = __PEER_ID__
+        # PSK is injected by arnika-vici-bridge.sh from arnika's HKDF output;
+        # __PSK_HEX__ is a placeholder loaded at boot, refreshed on PSK rotation.
+        secret = 0x__PSK_HEX__
+    }
+}

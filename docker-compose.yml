@@ -1,0 +1,268 @@
+# ===================================================================
+# PQC-QKD Hybrid PoC — Docker Compose
+#
+# 3 networks:
+#   - qkd-net (internal):  KME <-> arnika                ETSI 014 traffic
+#   - wan-net:             WireGuard endpoints           Public Internet sim
+#   - mgmt-net:            WebUI <-> backend <-> logs    Management plane
+#
+# Arnika is built from the unmodified submodules/arnika-vq/Dockerfile.
+# BB84-KME is a Python service implementing QuTiP + ETSI GS QKD 014 REST.
+# ===================================================================
+name: pqcqkd
+
+networks:
+  qkd-net:
+    driver: bridge
+    internal: true        # Isolate "quantum classical channel"
+    ipam:
+      config:
+        - subnet: 10.20.0.0/24
+  wan-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.30.0.0/24
+  mgmt-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.40.0.0/24
+
+volumes:
+  bb84-keypool-a:
+  bb84-keypool-b:
+  rosenpass-keys-alice:
+  rosenpass-keys-bob:
+  pqc-psk-alice:
+  pqc-psk-bob:
+
+services:
+
+  # -------------------------------------------------------------
+  # BB84 + ETSI-014 KME (per-SAE instance)
+  # -------------------------------------------------------------
+  bb84-kme-a:
+    build:
+      context: .
+      dockerfile: services/bb84-kme/Dockerfile
+    image: pqcqkd/bb84-kme:local
+    container_name: bb84-kme-a
+    environment:
+      SAE_ID: ALICE
+      PEER_SAE_ID: BOB
+      PEER_KME_URL: http://bb84-kme-b:8080
+      QKD_PARAMS_FILE: /etc/pqcqkd/qkd_params.yaml
+      SIMQN_PATH: /submodules/SimQN
+      SEQUENCE_PATH: /submodules/SeQUeNCe
+      STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
+      BB84_BATCH: ${BB84_BATCH:-2048}
+      BB84_CHANNEL_NOISE: ${BB84_CHANNEL_NOISE:-0.01}
+      BB84_QBER_THRESHOLD: ${BB84_QBER_THRESHOLD:-0.11}
+      BB84_POOL_LOW: ${BB84_POOL_LOW:-8}
+      BB84_POOL_MAX: ${BB84_POOL_MAX:-64}
+      BB84_EVE_ENABLED: ${BB84_EVE_ENABLED:-false}
+      BB84_EVE_PROB: ${BB84_EVE_PROB:-0.0}
+      LOG_LEVEL: INFO
+    volumes:
+      - bb84-keypool-a:/var/lib/bb84
+      - ./config:/etc/pqcqkd:ro
+      - ./submodules/SimQN:/submodules/SimQN:ro
+      - ./submodules/SeQUeNCe:/submodules/SeQUeNCe:ro
+      - ./submodules/strawberryfields:/submodules/strawberryfields:ro
+    networks:
+      qkd-net:
+        aliases: [bb84-kme-a]
+      mgmt-net: {}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  bb84-kme-b:
+    image: pqcqkd/bb84-kme:local
+    container_name: bb84-kme-b
+    depends_on:
+      bb84-kme-a:
+        condition: service_started
+    environment:
+      SAE_ID: BOB
+      PEER_SAE_ID: ALICE
+      PEER_KME_URL: http://bb84-kme-a:8080
+      QKD_PARAMS_FILE: /etc/pqcqkd/qkd_params.yaml
+      SIMQN_PATH: /submodules/SimQN
+      SEQUENCE_PATH: /submodules/SeQUeNCe
+      STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
+      BB84_BATCH: ${BB84_BATCH:-2048}
+      BB84_CHANNEL_NOISE: ${BB84_CHANNEL_NOISE:-0.01}
+      BB84_QBER_THRESHOLD: ${BB84_QBER_THRESHOLD:-0.11}
+      BB84_POOL_LOW: ${BB84_POOL_LOW:-8}
+      BB84_POOL_MAX: ${BB84_POOL_MAX:-64}
+      LOG_LEVEL: INFO
+    volumes:
+      - bb84-keypool-b:/var/lib/bb84
+      - ./config:/etc/pqcqkd:ro
+      - ./submodules/SimQN:/submodules/SimQN:ro
+      - ./submodules/SeQUeNCe:/submodules/SeQUeNCe:ro
+      - ./submodules/strawberryfields:/submodules/strawberryfields:ro
+    networks:
+      qkd-net: {}
+      mgmt-net: {}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # -------------------------------------------------------------
+  # Alice node: WireGuard + arnika + (sidecar) Rosenpass
+  # -------------------------------------------------------------
+  alice:
+    build:
+      context: ./nodes/alice
+      dockerfile: Dockerfile
+    image: pqcqkd/node-alice:local
+    container_name: alice
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+      net.ipv4.ip_forward: 1
+    depends_on:
+      bb84-kme-a:
+        condition: service_healthy
+      bb84-kme-b:
+        condition: service_healthy
+    environment:
+      NODE_NAME: alice
+      WG_IFACE: wg0
+      WG_LISTEN_PORT: ${WG_LISTEN_PORT_ALICE:-51820}
+      WG_LOCAL_IP: ${WG_ALICE_IP:-10.0.0.1}
+      WG_PEER_IP: ${WG_BOB_IP:-10.0.0.2}
+      WG_PEER_ENDPOINT: bob:${WG_LISTEN_PORT_BOB:-51821}
+      # Arnika env (consumed by entrypoint -> exported to arnika binary)
+      ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+      ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
+      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/ALICE
+      PEER_SAE_ID: BOB
+      LISTEN_ADDRESS: 0.0.0.0:9999
+      SERVER_ADDRESS: bob:9999
+      PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+      KMS_HTTP_TIMEOUT: ${KMS_HTTP_TIMEOUT:-10s}
+      KMS_BACKOFF_MAX_RETRIES: ${KMS_BACKOFF_MAX_RETRIES:-5}
+      KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
+      KMS_RETRY_INTERVAL: ${KMS_RETRY_INTERVAL:-10s}
+    volumes:
+      - pqc-psk-alice:/var/lib/rosenpass
+      - rosenpass-keys-alice:/etc/rosenpass-secret
+    networks:
+      qkd-net: {}
+      wan-net:
+        ipv4_address: 10.30.0.10
+
+  # -------------------------------------------------------------
+  # Bob node
+  # -------------------------------------------------------------
+  bob:
+    image: pqcqkd/node-alice:local      # same image, role-switched via env
+    build:
+      context: ./nodes/alice
+      dockerfile: Dockerfile
+    container_name: bob
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+      net.ipv4.ip_forward: 1
+    depends_on:
+      bb84-kme-a:
+        condition: service_healthy
+      bb84-kme-b:
+        condition: service_healthy
+    environment:
+      NODE_NAME: bob
+      WG_IFACE: wg0
+      WG_LISTEN_PORT: ${WG_LISTEN_PORT_BOB:-51821}
+      WG_LOCAL_IP: ${WG_BOB_IP:-10.0.0.2}
+      WG_PEER_IP: ${WG_ALICE_IP:-10.0.0.1}
+      WG_PEER_ENDPOINT: alice:${WG_LISTEN_PORT_ALICE:-51820}
+      ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+      ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
+      KMS_URL: http://bb84-kme-b:8080/api/v1/keys/BOB
+      PEER_SAE_ID: ALICE
+      LISTEN_ADDRESS: 0.0.0.0:9999
+      SERVER_ADDRESS: alice:9999
+      PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+      KMS_HTTP_TIMEOUT: ${KMS_HTTP_TIMEOUT:-10s}
+      KMS_BACKOFF_MAX_RETRIES: ${KMS_BACKOFF_MAX_RETRIES:-5}
+      KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
+      KMS_RETRY_INTERVAL: ${KMS_RETRY_INTERVAL:-10s}
+    volumes:
+      - pqc-psk-bob:/var/lib/rosenpass
+      - rosenpass-keys-bob:/etc/rosenpass-secret
+    networks:
+      qkd-net: {}
+      wan-net:
+        ipv4_address: 10.30.0.11
+
+  # -------------------------------------------------------------
+  # WebUI Backend (FastAPI orchestrator)
+  # -------------------------------------------------------------
+  webui-backend:
+    build:
+      context: ./services/webui-backend
+      dockerfile: Dockerfile
+    image: pqcqkd/webui-backend:local
+    container_name: webui-backend
+    depends_on:
+      - bb84-kme-a
+      - bb84-kme-b
+    environment:
+      KME_A_URL: http://bb84-kme-a:8080
+      KME_B_URL: http://bb84-kme-b:8080
+      PQC_VALIDATOR_URL: http://pqc-validator:8090
+      LOG_LEVEL: INFO
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${WEBUI_BACKEND_PORT:-8000}:8000"
+    networks:
+      mgmt-net: {}
+      qkd-net: {}
+
+  # -------------------------------------------------------------
+  # WebUI Frontend (React + Vite, served by nginx)
+  # -------------------------------------------------------------
+  webui-frontend:
+    build:
+      context: ./services/webui-frontend
+      dockerfile: Dockerfile
+    image: pqcqkd/webui-frontend:local
+    container_name: webui-frontend
+    depends_on:
+      - webui-backend
+    ports:
+      - "${WEBUI_FRONTEND_PORT:-5173}:80"
+    networks:
+      mgmt-net: {}
+
+  # -------------------------------------------------------------
+  # PQC Validator (Phase 8): liboqs vs PQClean cross-check
+  # -------------------------------------------------------------
+  pqc-validator:
+    build:
+      context: .
+      dockerfile: services/pqc-validator/Dockerfile
+    image: pqcqkd/pqc-validator:local
+    container_name: pqc-validator
+    environment:
+      PQCLEAN_DIR: /submodules/PQClean
+      LOG_LEVEL: INFO
+    volumes:
+      - ./submodules/PQClean:/submodules/PQClean:ro
+    networks:
+      mgmt-net: {}
+      qkd-net: {}
