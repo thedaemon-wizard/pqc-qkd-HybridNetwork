@@ -1,0 +1,15 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+httpx==0.28.1
+numpy>=1.26,<2.3
+qutip==5.1.1
+prometheus-client==0.21.1
+aiosqlite==0.20.0
+python-multipart==0.0.20
+pyyaml==6.0.2
+scikit-optimize==0.10.2
+# Optional heavy backends (pulled in via submodule install in Dockerfile):
+# - SimQN          (pip install -e /submodules/SimQN)
+# - SeQUeNCe       (pip install -e /submodules/SeQUeNCe)
+# - strawberryfields (pip install -e /submodules/strawberryfields)

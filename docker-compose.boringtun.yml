@@ -1,0 +1,22 @@
+# ===================================================================
+# Override file: use userspace WireGuard (boringtun) when the host
+# kernel module is unavailable. Apply with:
+#   docker compose -f docker-compose.yml -f docker-compose.boringtun.yml up -d
+# ===================================================================
+name: pqcqkd
+
+services:
+  alice:
+    build:
+      args:
+        USE_BORINGTUN: "1"
+    environment:
+      WG_QUICK_USERSPACE_IMPLEMENTATION: boringtun
+      WG_SUDO: "1"
+  bob:
+    build:
+      args:
+        USE_BORINGTUN: "1"
+    environment:
+      WG_QUICK_USERSPACE_IMPLEMENTATION: boringtun
+      WG_SUDO: "1"
