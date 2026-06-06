@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import PageHeader from "../components/PageHeader";
+import ExportToolbar from "../components/ExportToolbar";
 
 /**
  * Quantum-Secure E2E Simulation (Phase 10).
@@ -77,16 +79,31 @@ export default function QuantumSecureE2E() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Quantum-Secure E2E Simulation (Phase 10)</h2>
-      <p style={{ color: "#9aa9d8", maxWidth: 820 }}>
-        Alice ↔ Bob 間の <b>4 phase Data Exchange</b> を実時間で実行・可視化します。
-        bb84-kme (SimQN) が実 ETSI 014 鍵を生成、orchestrator が HKDF-SHA3-256 で
-        QKD ‖ PQC を融合、最終 phase で派生 PSK を使った ChaCha20-Poly1305 暗号化
-        パケットを生成します。下の Run / Pause / Reset / Step ボタンでライブ操作可能。
-      </p>
+      <PageHeader
+        title="Quantum-Secure E2E Simulation (Phase 10)"
+        subtitle={<>Run and visualise the live <b>4-phase Data Exchange</b> between Alice
+          and Bob. <code>bb84-kme</code> (SimQN backend) produces real ETSI 014 keys,
+          the orchestrator fuses QKD ‖ PQC via HKDF-SHA3-256, and the final phase
+          encrypts packets with ChaCha20-Poly1305 keyed by the derived PSK.
+          Use the Run / Pause / Reset / Step buttons below to drive the state machine.</>}
+      />
 
-      {/* Architecture diagram — Image 1 layout */}
-      <ArchSvg mode={mode} phase={phase} />
+      {/* Export toolbar — between explanation text and simulation diagram.
+          PNG / Animation capture target is restricted to the ArchSvg so the
+          exported artefacts contain ONLY the architecture diagram. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="e2e-architecture"
+          logService="webui-backend"
+          pngTargetSelector="#e2e-arch-svg"
+          jsonProvider={() => state ?? { status: "loading" }}
+        />
+      </div>
+
+      {/* Architecture diagram — Image 1 layout (PNG/GIF capture target) */}
+      <div id="e2e-arch-svg-wrap">
+        <ArchSvg mode={mode} phase={phase} />
+      </div>
 
       {/* Mode A/B/C buttons */}
       <div style={{ display: "flex", gap: 8, margin: "16px 0", flexWrap: "wrap",
@@ -226,7 +243,7 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
   return (
     <div style={{ background: "#0d1320", border: "1px solid #1d2741",
                    borderRadius: 8, padding: 12, marginBottom: 10 }}>
-      <svg viewBox="0 0 1240 620" style={{ width: "100%" }}
+      <svg id="e2e-arch-svg" viewBox="0 0 1240 620" style={{ width: "100%" }}
            role="img" aria-label="Quantum-secure VPN architecture (Image 1 faithful)">
         {/* ───── Dashed boundary boxes (z=0, back) ───── */}
         {/* Quantum Key Distribution Infrastructure (left + right, blue) */}
@@ -308,33 +325,41 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
                  hot={phase === 2 || phase === 3} />
 
         {/* HKDF SHA3 indicator (z=4) — inside ARNIKA */}
-        <HkdfBadge x={244} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
-        <HkdfBadge x={944} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
+        {/* Phase 14-C: was x=244 (ARNIKA mid-x=250 ± 38 = 212..304, badge r=14
+            covers 230..258 → collided with title text @ x=250). Shifted to
+            x=222 (top-left corner of box, clear of title and tag rows). */}
+        <HkdfBadge x={222} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
+        <HkdfBadge x={922} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
 
         {/* ───── KMS→ARNIKA QKD KEY arrows (orange dashed, z=5) ───── */}
+        {/* Phase 14-C: labels moved out of ARNIKA box (was y=232 colliding with
+            tag y=238) → up to y=208 (clear gap above box top y=188). */}
         <line x1="100" y1="240" x2="196" y2="240"
               stroke="#f0a020" strokeWidth="2"
               opacity={dimUnless(phase === 2)} />
-        <text x="148" y="232" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
+        <text x="148" y="208" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
         <line x1="1140" y1="240" x2="1044" y2="240"
               stroke="#f0a020" strokeWidth="2"
               opacity={dimUnless(phase === 2)} />
-        <text x="1092" y="232" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
+        <text x="1092" y="208" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
 
         {/* ARNIKA→KMS key_ID arrows (green, z=5) — slightly below */}
+        {/* Phase 14-C: key_ID label y=278 → y=288 (was 10 px from box border, now 20 px). */}
         <line x1="196" y1="265" x2="100" y2="265"
               stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="4 3"
               opacity={dimUnless(phase === 2)} />
-        <text x="148" y="278" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
+        <text x="148" y="288" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
         <line x1="1044" y1="265" x2="1140" y2="265"
               stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="4 3"
               opacity={dimUnless(phase === 2)} />
-        <text x="1092" y="278" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
+        <text x="1092" y="288" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
 
         {/* WireGuard tunnel across the divider (z=5) — Phase 4 active */}
         <line x1="528" y1="220" x2="712" y2="220"
               stroke={hot(phase === 4)} strokeWidth="3.5" />
-        <text x="620" y="206" fill={hot(phase === 4)} fontSize="11"
+        {/* Phase 14-C: label was y=206 colliding with WIREGUARD box title (y=220).
+            Moved up to y=174 just below Site A/B headings (y=48). */}
+        <text x="620" y="174" fill={hot(phase === 4)} fontSize="11"
               textAnchor="middle" opacity={dimUnless(phase === 4)}>
           VPN tunnel (ChaCha20-Poly1305)
         </text>

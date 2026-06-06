@@ -10,10 +10,12 @@ import PQCValidator from "./pages/PQCValidator";
 import HIL from "./pages/HIL";
 import VpnProtocols from "./pages/VpnProtocols";
 import QuantumSecureE2E from "./pages/QuantumSecureE2E";
+import PaperDataExchange from "./pages/PaperDataExchange";
 
 const nav = [
   { to: "/",            label: "Overview" },
   { to: "/e2e",         label: "Quantum-Secure E2E ★" },
+  { to: "/paper-flow",  label: "Paper Data Exchange ◆" },
   { to: "/bb84",        label: "BB84 Live" },
   { to: "/keyflow",     label: "Key Flow" },
   { to: "/topology",    label: "Topology" },
@@ -69,6 +71,7 @@ export default function App() {
           <Route path="/hil" element={<HIL />} />
           <Route path="/vpn" element={<VpnProtocols />} />
           <Route path="/e2e" element={<QuantumSecureE2E />} />
+          <Route path="/paper-flow" element={<PaperDataExchange />} />
         </Routes>
       </main>
     </div>

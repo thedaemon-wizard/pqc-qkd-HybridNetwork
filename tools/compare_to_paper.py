@@ -17,8 +17,26 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
+import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+
+def _setup_logger() -> logging.Logger:
+    log_dir = Path(os.environ.get("LOG_DIR", "benchmarks/results"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s")
+    root = logging.getLogger(); root.setLevel(logging.INFO); root.handlers.clear()
+    sh = logging.StreamHandler(); sh.setFormatter(fmt); root.addHandler(sh)
+    fh = RotatingFileHandler(log_dir / "compare_to_paper.log",
+                              maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt); root.addHandler(fh)
+    return logging.getLogger("compare-to-paper")
+
+
+log = _setup_logger()
 
 
 def load_csv_two_col(path: Path) -> tuple[list[float], list[float]]:
@@ -65,7 +83,7 @@ def main() -> int:
         xs, ys = load_csv_two_col(our_path)
         summary["ours"] = summarise("ours", xs, ys)
     else:
-        print(f"[warn] our file missing: {our_path}", file=sys.stderr)
+        log.warning("our file missing: %s", our_path)
         summary["ours"] = {"name": "ours", "n": 0}
 
     # Scan the paper supplementary for relevant CSV / log files
@@ -89,7 +107,7 @@ def main() -> int:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, indent=2))
-    print(f"wrote {out_path}")
+    log.info("wrote %s", out_path)
     return 0
 
 

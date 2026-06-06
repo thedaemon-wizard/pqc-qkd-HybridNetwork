@@ -11,31 +11,37 @@ export default function HIL() {
     <div>
       <h2 style={{ marginTop: 0 }}>Hardware-In-The-Loop (HIL) Bridge</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        本 PoC は <b>ETSI GS QKD 014 標準 REST API</b> を契約として持つため、
-        以下の手順で <b>実機 QKD 装置</b> を組み込めます。Python KME はバイパスし、
-        arnika が直接実機 KMS に問い合わせる構成です。
+        Because this PoC speaks the <b>ETSI GS QKD 014 standard REST API</b>, you
+        can drop in a <b>real QKD device</b> by bypassing the Python KME and
+        pointing <code>arnika</code> directly at the device's KMS endpoint.
       </p>
 
       <ol style={{ color: "#cbd6f5", lineHeight: 1.7, maxWidth: 760 }}>
-        <li>実機 (ID Quantique Cerberis / Toshiba MUSE 等) を別ネットワーク経路で alice ノードから疎通可能にする</li>
-        <li><code>.env</code> で <code>KMS_URL=https://&lt;device&gt;/api/v1/keys/&lt;SAE_ID&gt;</code> を設定</li>
-        <li>装置発行の mTLS 証明書を <code>./pki/</code> に配置し、<code>ETSI_MTLS_ENABLED=true</code></li>
-        <li><code>docker compose restart alice bob</code> で arnika が再起動</li>
-        <li><code>docker logs alice | grep "PSK configured"</code> で実機由来 PSK ローテーションが確認できれば成功</li>
+        <li>Expose the device (ID Quantique Cerberis / Toshiba MUSE / etc.) on a
+            management network reachable from the <code>alice</code> node.</li>
+        <li>Set <code>KMS_URL=https://&lt;device&gt;/api/v1/keys/&lt;SAE_ID&gt;</code>
+            in <code>.env</code>.</li>
+        <li>Drop the device-issued mTLS certificates into <code>./pki/</code>
+            and toggle <code>ETSI_MTLS_ENABLED=true</code>.</li>
+        <li>Run <code>docker compose restart alice bob</code> so
+            <code>arnika</code> picks up the new endpoint.</li>
+        <li>Confirm success with <code>docker logs alice | grep "PSK configured"</code> —
+            you should see hardware-sourced PSK rotations.</li>
       </ol>
 
-      <h3 style={{ marginTop: 24 }}>動作確認済み (報告ベース)</h3>
+      <h3 style={{ marginTop: 24 }}>Reported interoperable devices</h3>
       <ul style={{ color: "#cbd6f5", lineHeight: 1.7 }}>
-        <li>ID Quantique XG / Cerberis シリーズ (ETSI 014 native)</li>
-        <li>Toshiba MUSE Q-KMS — 要 ETSI 014 compatibility mode 有効化</li>
-        <li>Thinkquantum TQ-KME — ETSI 014 + 020 dual</li>
+        <li>ID Quantique XG / Cerberis series (native ETSI 014)</li>
+        <li>Toshiba MUSE Q-KMS — requires the ETSI 014 compatibility mode</li>
+        <li>Thinkquantum TQ-KME — exposes ETSI 014 + 020 dual stack</li>
       </ul>
 
-      <h3 style={{ marginTop: 24 }}>非対応 / 注意点</h3>
+      <h3 style={{ marginTop: 24 }}>Out of scope / caveats</h3>
       <ul style={{ color: "#cbd6f5", lineHeight: 1.7 }}>
-        <li>装置固有のドライバ統合 (USB/serial) は本 PoC 範囲外</li>
-        <li>Xanadu cloud (CV-QKD) の量子クラウドは <b>2026-01 に decommissioning</b> されました。Local CV-QKD シミュレーションは引き続き利用可</li>
-        <li>装置ベンダ独自の鍵管理 API (HSM ベース等) は要個別アダプタ</li>
+        <li>Vendor-specific drivers (USB / serial) are not implemented in this PoC.</li>
+        <li>Xanadu's cloud CV-QKD backend was <b>decommissioned in 2026-01</b>;
+            local CV-QKD simulation remains available.</li>
+        <li>Proprietary key-management APIs (HSM-backed, etc.) need bespoke adapters.</li>
       </ul>
     </div>
   );

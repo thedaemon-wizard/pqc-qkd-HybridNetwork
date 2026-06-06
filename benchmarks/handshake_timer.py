@@ -7,10 +7,31 @@ Run from the project root:
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import subprocess
 import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+
+def _setup_logger() -> logging.Logger:
+    log_dir = Path(os.environ.get("LOG_DIR", "benchmarks/results"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s")
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+    sh = logging.StreamHandler(); sh.setFormatter(fmt); root.addHandler(sh)
+    fh = RotatingFileHandler(log_dir / "handshake_timer.log",
+                              maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt); root.addHandler(fh)
+    return logging.getLogger("handshake-timer")
+
+
+import os  # noqa: E402
+
+log = _setup_logger()
 
 
 def wg_show(container: str, iface: str = "wg0") -> str:
@@ -53,11 +74,11 @@ def main() -> None:
                 if age is not None:
                     f.write(f"{time.time():.2f},{age:.2f}\n")
                     f.flush()
-                    print(f"handshake_age={age:.2f}s")
+                    log.info("handshake_age=%.2fs", age)
             except subprocess.CalledProcessError as e:
-                print(f"wg show failed: {e}")
+                log.warning("wg show failed: %s", e)
             time.sleep(2.0)
-    print(f"results: {out_path}")
+    log.info("results: %s", out_path)
 
 
 if __name__ == "__main__":

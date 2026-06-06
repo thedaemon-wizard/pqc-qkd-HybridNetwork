@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import Plot from "react-plotly.js";
 import { getStats } from "../api";
+import KPI from "../components/KPI";
+import PageHeader from "../components/PageHeader";
+import ExportToolbar from "../components/ExportToolbar";
 
 export default function Benchmarks() {
   const [roundMsHist, setRoundMsHist] = useState<number[]>([]);
@@ -22,7 +25,20 @@ export default function Benchmarks() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Benchmarks</h2>
+      <PageHeader
+        title="Benchmarks"
+        subtitle="Live BB84 round latency and QBER history."
+      />
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="benchmarks"
+          logService="alice"
+          jsonProvider={() => ({ accepted, aborted, roundMsHist, qberHist })}
+          csvProvider={() => roundMsHist.map((ms, i) => ({
+            i, round_ms: ms, qber: qberHist[i] ?? null,
+          }))}
+        />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
         <KPI label="Rounds accepted" value={accepted} />
@@ -53,15 +69,6 @@ export default function Benchmarks() {
         style={{ width: "100%" }}
         config={{ displaylogo: false }}
       />
-    </div>
-  );
-}
-
-function KPI({ label, value }: { label: string; value: any }) {
-  return (
-    <div style={{ background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8, padding: 12 }}>
-      <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 22, color: "#d8e1ff", fontWeight: 700 }}>{value}</div>
     </div>
   );
 }
