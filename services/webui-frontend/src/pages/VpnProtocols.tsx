@@ -40,11 +40,14 @@ export default function VpnProtocols() {
     <div>
       <h2 style={{ marginTop: 0 }}>VPN Protocols (Phase 9-A)</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        本 PoC は <b>2 系統の Quantum-Secure VPN</b> を等価に提供します:
+        The PoC ships <b>two equally-supported Quantum-Secure VPN lanes</b>:
       </p>
       <ul style={{ color: "#cbd6f5", lineHeight: 1.7, maxWidth: 760 }}>
-        <li><b>WireGuard</b> — arnika が HKDF(QKD ‖ PQC) で導出した 32B PSK を netlink 経由で wg0 に書き込み (30秒毎ローテーション)</li>
-        <li><b>strongSwan IPsec/IKEv2</b> — <b>RFC 9370</b> の ML-KEM-768 hybrid (ECP-256 + KE1=ml_kem_768) で IKE_SA を確立、arnika が vici socket 経由で PSK を再注入</li>
+        <li><b>WireGuard</b> — arnika derives a 32 B PSK via HKDF(QKD ‖ PQC) and
+            writes it into <code>wg0</code> through netlink, rotating every 30 s.</li>
+        <li><b>strongSwan IPsec/IKEv2</b> — establishes IKE_SA with the
+            <b> RFC 9370</b> ML-KEM-768 hybrid (ECP-256 + KE1=ml_kem_768);
+            arnika re-injects the PSK over the vici socket.</li>
       </ul>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
@@ -58,7 +61,7 @@ export default function VpnProtocols() {
             </>
           ) : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
-            PSK 経路: arnika (Go) → wgctrl netlink → wg0
+            PSK path: arnika (Go) → wgctrl netlink → wg0
           </p>
         </Panel>
         <Panel title="strongSwan IPsec/IKEv2 (RFC 9370 hybrid)" color="#7c5cff">
@@ -71,22 +74,22 @@ export default function VpnProtocols() {
             </>
           ) : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
-            PSK 経路: arnika → arnika-vici-bridge.sh → swanctl --load-creds → charon
+            PSK path: arnika → arnika-vici-bridge.sh → swanctl --load-creds → charon
           </p>
         </Panel>
       </div>
 
       <div style={{ marginTop: 24, background: "#0d1320", border: "1px solid #1d2741",
                      borderRadius: 8, padding: 14 }}>
-        <h3 style={{ marginTop: 0, fontSize: 14, color: "#9aa9d8" }}>RFC 9370 ハイブリッド鍵交換</h3>
+        <h3 style={{ marginTop: 0, fontSize: 14, color: "#9aa9d8" }}>RFC 9370 hybrid key exchange</h3>
         <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5" }}>
 {`IKE_SA_INIT  (RFC 9370 §2)
-   ├─ KE  payload  (classical)   ECP-256 公開鍵 (64 B)
-   └─ KEi payload  (post-quantum) ML-KEM-768 公開鍵 (1184 B, IKEv2 fragmentation 必須)
+   ├─ KE  payload  (classical)   ECP-256 public key (64 B)
+   └─ KEi payload  (post-quantum) ML-KEM-768 public key (1184 B; IKEv2 fragmentation required)
 
-導出 PSK = HKDF-Extract(salt, classical_secret ‖ pq_secret) ‖ HKDF-Expand(...)
+Derived PSK = HKDF-Extract(salt, classical_secret ‖ pq_secret) ‖ HKDF-Expand(...)
 
-これにより古典 ECC が量子計算機で破られても PQ 鍵が残ることで forward secrecy を保つ.`}
+Forward secrecy is preserved as long as at least one of the classical and PQ secrets remains unbroken.`}
         </pre>
       </div>
     </div>

@@ -100,3 +100,12 @@ Thumbs.db
 # ============================================
 sbom*.json
 .gitleaks.report.json
+
+# ============================================
+# Private / non-public (do not publish)
+# ============================================
+.claude/
+MONETIZATION.md
+MONETIZATION.private.md
+*.docx
+.~lock.*#

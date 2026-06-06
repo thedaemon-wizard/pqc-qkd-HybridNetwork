@@ -59,9 +59,10 @@ export default function PhysicsParams() {
     <div>
       <h2 style={{ marginTop: 0 }}>Physics Parameters</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        中央 YAML (<code>config/qkd_params.yaml</code>) のライブビュー。
-        全数値は openQKDsecurity 事前計算 / arXiv:2511.21253 の closed-form formula
-        で科学的根拠あり。Optimize ボタンで scikit-optimize Bayesian GP が走り、最適 μ/ν を提案します。
+        Live view of the central YAML (<code>config/qkd_params.yaml</code>).
+        Every default is grounded — values come from the openQKDsecurity precomputed
+        table and the closed-form formulae in arXiv:2511.21253. Press <b>Optimize</b>
+        to run a scikit-optimize Bayesian GP search for the best μ / ν.
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
