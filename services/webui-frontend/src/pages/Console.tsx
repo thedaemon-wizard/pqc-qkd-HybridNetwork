@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { getLogs } from "../api";
+import PageHeader from "../components/PageHeader";
+import Button from "../components/Button";
+import ExportToolbar from "../components/ExportToolbar";
 
 const NAMES = ["alice", "bob", "bb84-kme-a", "bb84-kme-b"];
 
@@ -26,18 +29,21 @@ export default function Console() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Container Console</h2>
+      <PageHeader
+        title="Container Console"
+        subtitle="Live tail of container stdout (Docker logs)."
+      />
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name={`console-${active}`}
+          logService={active.includes("kme") ? active : "webui-backend"}
+          jsonProvider={() => ({ container: active, log })}
+        />
+      </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {NAMES.map(n => (
-          <button key={n}
-                  onClick={() => setActive(n)}
-                  style={{
-                    background: active === n ? "#1a2440" : "#0d1320",
-                    color: active === n ? "#fff" : "#9aa9d8",
-                    border: "1px solid #2a3760",
-                    borderRadius: 4, padding: "4px 12px",
-                    fontSize: 12, cursor: "pointer",
-                  }}>{n}</button>
+          <Button key={n} variant={active === n ? "primary" : "ghost"}
+                  size="sm" onClick={() => setActive(n)}>{n}</Button>
         ))}
       </div>
       <pre style={{

@@ -37,8 +37,9 @@ export default function KeyFlow() {
     <div>
       <h2 style={{ marginTop: 0 }}>Hybrid Key Derivation Flow</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        QKD レーン (緑) と PQC レーン (紫) は HKDF-SHA3-256 (橙) で融合され、32 バイトの WireGuard PSK となる。
-        参考: <code>submodules/arnika-vq/kdf/kdf.go:12-27</code>
+        The QKD lane (green) and the PQC lane (purple) are fused by HKDF-SHA3-256
+        (orange) into the 32-byte WireGuard PSK. Reference:
+        <code>submodules/arnika-vq/kdf/kdf.go:12-27</code>
       </p>
       <Plot
         data={data}

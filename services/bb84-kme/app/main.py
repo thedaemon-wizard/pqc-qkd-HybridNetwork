@@ -31,11 +31,9 @@ from prometheus_client import (
 from . import config_loader, etsi014, optimizer
 from .keypool import KeyPool
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s %(message)s",
-)
-log = logging.getLogger("bb84-kme")
+from . import logging_setup
+
+log = logging_setup.configure(os.environ.get("SAE_ID", "bb84-kme").lower())
 
 # ------------------------- Prometheus metrics -------------------------
 M_ROUNDS = Counter("qkd_rounds_total", "BB84 rounds run", ["outcome"])

@@ -32,11 +32,9 @@ try:
 except ImportError:
     _docker_available = False
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s %(message)s",
-)
-log = logging.getLogger("webui-backend")
+from . import logging_setup
+
+log = logging_setup.configure("webui-backend")
 
 KME_A_URL = os.environ.get("KME_A_URL", "http://bb84-kme-a:8080")
 KME_B_URL = os.environ.get("KME_B_URL", "http://bb84-kme-b:8080")
@@ -61,12 +59,21 @@ async def lifespan(app: FastAPI):
     app.state.e2e_task = asyncio.create_task(app.state.e2e.run(),
                                               name="e2e-orchestrator")
 
+    # Phase 14: Paper Data Exchange orchestrator
+    from .paper_flow import PaperFlowOrchestrator
+    app.state.paper_flow = PaperFlowOrchestrator()
+    app.state.paper_flow_task = asyncio.create_task(
+        app.state.paper_flow.run(), name="paper-flow-orchestrator")
+
     yield
-    app.state.e2e_task.cancel()
-    try:
-        await app.state.e2e_task
-    except (asyncio.CancelledError, Exception):
-        pass
+    for task_name in ("e2e_task", "paper_flow_task"):
+        task = getattr(app.state, task_name, None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
     await app.state.http.aclose()
 
 
@@ -123,7 +130,142 @@ async def stats():
         return results
 
 
-# ----------------------- Logs -----------------------
+# ----------------------- Phase 12-A: file-backed log endpoints -----------------------
+# Registered BEFORE the dynamic /api/logs/{name} route so "files" and
+# "download/<svc>" are matched literally first.
+@app.get("/api/logs/files")
+async def list_log_files() -> dict[str, list]:
+    """List every *.log* file present in the shared LOG_DIR volume."""
+    return {"files": logging_setup.list_log_files()}
+
+
+@app.get("/api/logs/download/{service}")
+async def download_log(service: str, lines: int = 1000):
+    """Return the last `lines` lines of <service>.log as a text/plain download."""
+    safe = service.replace("/", "_").replace("..", "_")
+    text = logging_setup.read_tail(safe, lines=int(lines))
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        text or f"# log file {safe}.log not found\n",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.log"'},
+    )
+
+
+# ----------------------- Phase 13: Backend-stored exports -----------------------
+# Persist artefacts (PNG, JSON, CSV, GIF, log) into a shared volume, then offer
+# them for download via a stable URL. Lets users save/share simulation outputs
+# beyond a single browser session.
+EXPORT_DIR = os.environ.get("EXPORT_DIR", "/var/lib/pqcqkd-exports")
+EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", 50 * 1024 * 1024))
+EXPORT_MAX_FILES = int(os.environ.get("EXPORT_MAX_FILES", 200))
+
+
+def _ensure_export_dir():
+    from pathlib import Path
+    d = Path(EXPORT_DIR)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _gc_export_dir() -> None:
+    """Keep only the most recent EXPORT_MAX_FILES files (oldest deleted first)."""
+    from pathlib import Path
+    d = Path(EXPORT_DIR)
+    if not d.exists():
+        return
+    files = sorted(d.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in files[EXPORT_MAX_FILES:]:
+        try: old.unlink()
+        except Exception: pass
+
+
+@app.post("/api/exports/save")
+async def export_save(req: dict):
+    """Body: {name: str, ext: str, content_b64: str}
+    Saves <timestamp>-<safe_name>.<ext> into EXPORT_DIR.  Returns the URL."""
+    import base64
+    import re
+    import time
+    raw_name = str(req.get("name", "export"))
+    ext = str(req.get("ext", "bin")).lstrip(".").lower()
+    content_b64 = req.get("content_b64")
+    if not content_b64:
+        raise HTTPException(400, "content_b64 required")
+    try:
+        data = base64.b64decode(content_b64, validate=False)
+    except Exception as e:
+        raise HTTPException(400, f"invalid base64: {e}")
+    if len(data) > EXPORT_MAX_BYTES:
+        raise HTTPException(413, f"payload {len(data)} > limit {EXPORT_MAX_BYTES}")
+
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_name)[:80] or "export"
+    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext)[:8] or "bin"
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    filename = f"{ts}-{safe_name}.{safe_ext}"
+
+    d = _ensure_export_dir()
+    (d / filename).write_bytes(data)
+    _gc_export_dir()
+
+    log.info("export saved name=%s ext=%s bytes=%d", safe_name, safe_ext, len(data))
+    return {
+        "ok": True,
+        "filename": filename,
+        "size": len(data),
+        "url": f"/api/exports/download/{filename}",
+    }
+
+
+@app.get("/api/exports/list")
+async def export_list():
+    from pathlib import Path
+    d = Path(EXPORT_DIR)
+    if not d.exists():
+        return {"exports": []}
+    out: list[dict] = []
+    for p in sorted(d.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            st = p.stat()
+            out.append({"name": p.name, "size": st.st_size, "mtime": st.st_mtime,
+                        "url": f"/api/exports/download/{p.name}"})
+        except FileNotFoundError:
+            continue
+    return {"exports": out}
+
+
+@app.get("/api/exports/download/{filename}")
+async def export_download(filename: str):
+    import re
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]
+    if safe != filename or ".." in safe:
+        raise HTTPException(400, "invalid filename")
+    p = Path(EXPORT_DIR) / safe
+    if not p.exists():
+        raise HTTPException(404, "not found")
+    ct_map = {".png": "image/png", ".gif": "image/gif",
+              ".json": "application/json", ".csv": "text/csv",
+              ".log": "text/plain", ".txt": "text/plain"}
+    return FileResponse(p, media_type=ct_map.get(p.suffix.lower(),
+                                                  "application/octet-stream"),
+                        filename=safe)
+
+
+@app.delete("/api/exports/{filename}")
+async def export_delete(filename: str):
+    import re
+    from pathlib import Path
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]
+    if safe != filename or ".." in safe:
+        raise HTTPException(400, "invalid filename")
+    p = Path(EXPORT_DIR) / safe
+    if p.exists():
+        p.unlink()
+    return {"ok": True}
+
+
+# ----------------------- Logs (Docker stdout, dynamic by container name) -----------------------
 @app.get("/api/logs/{name}")
 async def logs(name: str, tail: int = 200) -> dict[str, str]:
     cli = app.state.docker
@@ -366,6 +508,87 @@ async def ws_e2e(ws: WebSocket):
         log.warning("ws_e2e error: %s", e)
     finally:
         app.state.e2e.unsubscribe(q)
+
+
+# ----------------------- Phase 14: Paper Data Exchange orchestrator -----------------------
+class PaperFlowMode(BaseModel):
+    hop_count: int | None = None
+    dual_path: bool | None = None
+
+
+class PaperFlowFailure(BaseModel):
+    layer: str       # "qkd" | "arnika" | "wireguard" | "rosenpass" | "data"
+
+
+@app.get("/api/paper-flow/state")
+async def paper_flow_state():
+    return app.state.paper_flow.snapshot()
+
+
+@app.post("/api/paper-flow/start")
+async def paper_flow_start():
+    await app.state.paper_flow.start()
+    return {"ok": True, "status": app.state.paper_flow.state.status}
+
+
+@app.post("/api/paper-flow/pause")
+async def paper_flow_pause():
+    await app.state.paper_flow.pause()
+    return {"ok": True, "status": app.state.paper_flow.state.status}
+
+
+@app.post("/api/paper-flow/resume")
+async def paper_flow_resume():
+    await app.state.paper_flow.resume()
+    return {"ok": True, "status": app.state.paper_flow.state.status}
+
+
+@app.post("/api/paper-flow/reset")
+async def paper_flow_reset():
+    await app.state.paper_flow.reset()
+    return {"ok": True}
+
+
+@app.post("/api/paper-flow/config")
+async def paper_flow_config(req: PaperFlowMode):
+    if req.hop_count is not None:
+        await app.state.paper_flow.set_hop_count(req.hop_count)
+    if req.dual_path is not None:
+        await app.state.paper_flow.set_dual_path(req.dual_path)
+    return {"ok": True,
+            "hop_count": app.state.paper_flow.state.hop_count,
+            "dual_path": app.state.paper_flow.state.dual_path}
+
+
+@app.post("/api/paper-flow/inject-failure")
+async def paper_flow_inject_failure(req: PaperFlowFailure):
+    if req.layer not in ("qkd", "arnika", "wireguard", "rosenpass", "data"):
+        raise HTTPException(400, "layer must be qkd/arnika/wireguard/rosenpass/data")
+    await app.state.paper_flow.inject_failure(req.layer)  # type: ignore[arg-type]
+    return {"ok": True, "layer": req.layer}
+
+
+@app.post("/api/paper-flow/clear-failure")
+async def paper_flow_clear_failure():
+    await app.state.paper_flow.clear_failure()
+    return {"ok": True}
+
+
+@app.websocket("/ws/paper-flow")
+async def ws_paper_flow(ws: WebSocket):
+    await ws.accept()
+    q = app.state.paper_flow.subscribe()
+    try:
+        await ws.send_json(app.state.paper_flow.snapshot())
+        while True:
+            payload = await q.get()
+            await ws.send_json(payload)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.warning("ws_paper_flow error: %s", e)
+    finally:
+        app.state.paper_flow.unsubscribe(q)
 
 
 # ----------------------- WebSocket fan-out -----------------------

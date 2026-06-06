@@ -4,13 +4,15 @@
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/Status-Research%20PoC-orange.svg)](#12-limitations)
 
-> 量子鍵配送 (QKD) と耐量子暗号 (PQC) を **HKDF-SHA3-256** で融合し、
-> WireGuard VPN を 30秒毎に再鍵化する研究用 PoC。
-> BB84 物理シミュレーション (QuTiP) を ETSI GS QKD 014 REST API でラップし、
-> [arnika-vq](submodules/arnika-vq) (Go, 無変更で再利用) と
-> [Rosenpass](submodules/rosenpass) (Rust) で実運用に近い経路を完結させる。
+> Research PoC that fuses Quantum Key Distribution (QKD) and Post-Quantum
+> Cryptography (PQC) into a single **HKDF-SHA3-256**-derived PSK and rotates
+> the WireGuard VPN every 30 s. A QuTiP-based BB84 physical simulator is
+> wrapped behind the ETSI GS QKD 014 REST API and wired into
+> [arnika-vq](submodules/arnika-vq) (Go, reused unchanged) and
+> [Rosenpass](submodules/rosenpass) (Rust) for an end-to-end path that
+> mirrors a production deployment.
 
-参考論文:
+Reference papers:
 - `references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf` (Spooren et al.)
 - `references/QuLore_An_Adaptive_Security_Framework...pdf` (Sanz et al.)
 
@@ -31,6 +33,8 @@
 11.5 [Phase 8 — Multi-backend QKD simulation & optimisation](#115-phase-8--multi-backend-qkd-simulation--parameter-optimisation)
 11.6 [Phase 9 — Real Quantum-Secure VPN extensions](#116-phase-9--real-quantum-secure-vpn-extensions)
 11.7 [Phase 10 — Quantum-Secure E2E live simulation page](#117-phase-10--quantum-secure-e2e-live-simulation-page)
+11.8 [Phase 12 — Logger / shared UI / per-page exports](#118-phase-12--logger--shared-ui--per-page-exports)
+11.9 [Phase 14 — Paper Data Exchange page + /e2e SVG polish + Rust ETSI 014 KME](#119-phase-14--paper-data-exchange-page--e2e-svg-polish--rust-etsi-014-kme)
 12. [Limitations](#12-limitations)
 13. [References](#13-references)
 14. [License](#14-license)
@@ -40,18 +44,20 @@
 
 ## 1. Introduction
 
-本 PoC は「PQC-Enhanced QKD Networks: A Layered Approach」(Spooren et al.) の 3 層モデルを
-**実機 QKD 装置が無い研究環境**で再現することを目的とします。
+The goal of this PoC is to reproduce the three-layer model from
+*"PQC-Enhanced QKD Networks: A Layered Approach"* (Spooren et al.) inside a
+**research environment that has no physical QKD hardware**.
 
-| 層 | 役割 | 実装 |
+| Layer | Role | Implementation |
 |---|---|---|
-| End-to-End (PQC) | ノード間で Post-Quantum 鍵交換 | Rosenpass (ML-KEM-768) |
-| Transport | QKD/PQC 鍵を取得し HKDF で融合し WG PSK に注入 | **arnika-vq (Go, 無変更で再利用)** |
-| Hop (WireGuard) | ChaCha20-Poly1305 + Noise + PSK で実暗号化 | WireGuard kernel module |
+| End-to-End (PQC) | Post-quantum key exchange between nodes | Rosenpass (ML-KEM-768) |
+| Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the resulting WG PSK | **arnika-vq (Go, reused unchanged)** |
+| Hop (WireGuard) | Real encryption with ChaCha20-Poly1305 + Noise + PSK | WireGuard kernel module |
 
-QKD 層は **QuTiP による BB84 物理シミュレータ**を ETSI GS QKD 014 REST API でラップして提供します。
-Eve による intercept-resend 攻撃を WebUI から ON/OFF でき、QBER の変化と arnika のフォールバックが
-リアルタイムに観測できます。
+The QKD layer is supplied by a **QuTiP-based BB84 physical simulator** wrapped
+behind the ETSI GS QKD 014 REST API. Eve's intercept-resend attack can be
+toggled from the WebUI, and the resulting QBER jump and arnika's fall-back
+behaviour are visible in real time.
 
 ---
 
@@ -81,7 +87,7 @@ Eve による intercept-resend 攻撃を WebUI から ON/OFF でき、QBER の�
         └────────────────────┘               └──────────────────┘
 ```
 
-詳細は [ARCHITECTURE.md](ARCHITECTURE.md) を参照。
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed design.
 
 ---
 
@@ -107,7 +113,9 @@ pqc-qkd-hybrid/
 │   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
 │   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — used offline only
 │   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
-│   └── PQClean/                       # (Phase 8) NIST PQC reference implementations
+│   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
+│   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
+│   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
 ├── config/                            # (Phase 8) Central tunables
 │   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
 │   └── qkd_keyrate_table.json         # Pre-computed SKR table (arXiv:2511.21253)
@@ -115,7 +123,8 @@ pqc-qkd-hybrid/
 │   ├── bb84-kme/                      # Python: 5-backend BB84/CV-QKD + ETSI-014 REST
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy
 │   ├── webui-backend/                 # FastAPI orchestrator
-│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (9 pages)
+│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (12 pages incl.
+│   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
 │   ├── pqc-validator/                 # (Phase 8) liboqs vs PQClean cross-check
 │   └── qkdnetsim-kme/                 # (Phase 8) NS-3 ETSI 014 reference KME (separate container)
@@ -228,14 +237,22 @@ All variables in `.env` (copy from `.env.example`):
 
 ## 7. Running the WebUI
 
-Open <http://localhost:5173>. Six pages are available:
+Open <http://localhost:5173>. Twelve pages are available:
 
-1. **Overview** — Layered architecture SVG + live container status badges
-2. **BB84 Live** — Real-time QBER chart, key-pool size, sample photon frames table, **Eve toggle** + intercept probability slider, "Force rotate" button
-3. **Key Flow** — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
-4. **Topology** — D3-force graph of nodes (alice/bob/Charlie) and KMEs
-5. **Benchmarks** — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
-6. **Console** — Live log tail of any container (alice / bob / KMEs)
+1. **Overview** (`/`) — Layered architecture SVG + live container status badges
+2. **Quantum-Secure E2E** (`/e2e`) — Phase 10 live 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) over the arnika-vq architecture diagram, with Run/Pause/Resume/Reset/Step and Mode A/B/C selection
+3. **Paper Data Exchange** (`/paper-flow`) — Phase 14 multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), failure-cascade timeline, ChaCha20-Poly1305 payload
+4. **BB84 Live** (`/bb84`) — Real-time QBER chart, key-pool size, sample photon frames table, **Eve toggle** + intercept probability slider, "Force rotate" button
+5. **Key Flow** (`/keyflow`) — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
+6. **Topology** (`/topology`) — D3-force graph of nodes (alice/bob/Charlie) and KMEs
+7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
+8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
+9. **Physics Params** (`/physics`) — Live `config/qkd_params.yaml` editor + Bayesian optimisation + backend selector
+10. **PQC Validator** (`/pqc`) — Crypto-agility cross-check: liboqs (production) vs PQClean (NIST reference) roundtrip
+11. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
+12. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
+
+Most pages provide per-page export buttons (PNG / JSON / CSV / GIF / logs) below the description; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
 
 > ⚠️ The WebUI Backend mounts `/var/run/docker.sock:ro` to query container state.
 > This is acceptable for a single-host PoC but should not be exposed in production.
@@ -317,7 +334,7 @@ pip install httpx pytest qutip numpy manim matplotlib
 
 ## 11.5 Phase 8 — Multi-backend QKD simulation & parameter optimisation
 
-Phase 8 addresses the §12 "QKD は物理シミュレーション" limitation by adding 4 additional
+Phase 8 addresses the §12 "QKD is only physically simulated" limitation by adding 4 additional
 2026-active OSS backends and a science-grounded parameter pipeline.
 
 ### Design principle — no hardcoded numbers
@@ -560,35 +577,203 @@ Screenshots: `docs/images/screenshots/e2e-v2-idle.png`, `e2e-v2-phase1.png`.
 
 ---
 
+## 11.8 Phase 12 — Logger / shared UI / per-page exports
+
+Three improvements that make the PoC easier to operate, inspect, and reproduce:
+
+### 12-A: Rotating file logger
+
+All Python services (webui-backend, bb84-kme-a, bb84-kme-b, pqc-validator) now log
+through `services/<svc>/app/logging_setup.py`. Output is duplicated to:
+
+- stdout — keeps `docker logs <svc>` behaviour intact
+- **`/var/log/pqcqkd/<svc>.log`** — `RotatingFileHandler`, 10 MB × 5 backups, mounted
+  as the shared `pqcqkd-logs` volume
+
+Two REST endpoints expose the files to the browser:
+
+```bash
+curl http://localhost:5173/api/logs/files
+# {"files":[{"name":"alice.log","size":863,...},
+#           {"name":"bob.log","size":742,...},
+#           {"name":"webui-backend.log","size":388,...}]}
+
+curl http://localhost:5173/api/logs/download/alice?lines=200
+# (downloads the last 200 lines of /var/log/pqcqkd/alice.log)
+```
+
+Also: `make tail-logs` follows the live rotation inside the container.
+
+### 12-B: Shared React components
+
+Seven reusable building blocks live under
+`services/webui-frontend/src/components/` so individual pages stop re-implementing
+their own button / panel / row / badge / KPI:
+
+| Component | Purpose |
+|---|---|
+| `PageHeader` | `<h2>` + lead `<p>` + right-aligned `ExportToolbar` slot |
+| `Panel` | Card with optional left-border accent colour |
+| `Row` | Aligned key/value display |
+| `Badge` | Coloured status pill (`running`, `paused`, `healthy`, ...) |
+| `Button` | Variant-aware button (`primary`/`secondary`/`danger`/`success`/`warn`/`ghost`) |
+| `KPI` | Dashboard number tile |
+| `ExportToolbar` | The download buttons described below |
+
+Dark theme tokens are centralised in `services/webui-frontend/src/lib/commonStyles.ts`.
+
+The `Quantum-Secure E2E` page (Phase 11 SVG) is **unchanged** in layout; only the
+heading and the toolbar are added on top.
+
+### 12-C: Per-page export toolbar
+
+A new `<ExportToolbar>` ships on every refactored page. Each button is opt-in: the
+page only declares the providers it can supply.
+
+| Button | Action |
+|---|---|
+| 💾 **Logs** | Download `/api/logs/download/<service>` as `.log` |
+| 🖼 **PNG** | Capture `<main>` into a PNG via `html-to-image` |
+| 📋 **JSON** | Serialise the page's snapshot from `jsonProvider()` |
+| 📊 **CSV** | Serialise tabular data from `csvProvider()` |
+| 🎞 **Animation** | Record ~4 s of frames via `html-to-image` and stitch them into an animated GIF with `gifshot` |
+
+All downloads are produced via `Blob` + `URL.createObjectURL`; **no server-side
+generation is required**.
+
+### Browser verification (a headless browser)
+
+- `<header>` exposes 4 buttons on `/e2e` — `["💾 Logs","🖼 PNG","📋 JSON","🎞 Animation"]`
+- Pressing 💾 Logs produces a `text/plain` blob of 388 B (matches the file size on disk)
+- Pressing 📋 JSON produces an `application/json` blob of 308 B
+- `/api/logs/files` returns the three rotating log files actually written under
+  `/var/log/pqcqkd/` (verified inside the container)
+- **0 console errors**
+- Screenshot: `docs/images/screenshots/e2e-v3-export-toolbar-top.png`
+
+---
+
+## 11.9 Phase 14 — Paper Data Exchange page + /e2e SVG polish + Rust ETSI 014 KME
+
+Phase 14 introduces a brand-new page that implements the *paper-faithful* Data
+Exchange (vs the single-tunnel concept on `/e2e`), polishes the existing E2E
+SVG layout, and adds a third independent ETSI 014 KME (Rust) as 2026-active
+OSS reference.
+
+### A new page: `/paper-flow` — Paper Data Exchange
+
+Route: `/paper-flow` (sidebar entry "Paper Data Exchange ◆" right after the
+existing "Quantum-Secure E2E ★"). The page is intentionally distinct from
+`/e2e`:
+
+| | `/e2e` (image 1) | `/paper-flow` (image 2 + arXiv:2604.05599) |
+|---|---|---|
+| Source figure | `Veriqloud/arnika-vq` single-tunnel diagram | **Multi-hop trusted-node diagram** (End Node Alice \| Trusted Node × N \| End Node Bob) |
+| Focus | key fusion in one Site A ↔ Site B tunnel | **5-phase daisy chain** with paper-quoted packet budgets |
+| Failure model | Eve attack on BB84 | **240-720 s layer cascade** per §VI |
+| Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper §IV-B Table III |
+
+Backend orchestrator (`services/webui-backend/app/paper_flow.py`):
+- 5-phase state machine: **Quantum Plane → Arnika QKD key_ID → WG hop handshake → Rosenpass PQC handshake → Final data tunnel**
+- Paper budgets embedded as the source of truth (`PHASE_BUDGETS` constant):
+  Phase 2 = 2 pkt / 78 B; Phase 3 = 3 pkt / 398 B; Phase 4 = 4 pkt / 4772 B;
+  **total handshake = 9 pkt / 5248 B**
+- Failure cascade scheduler with 7 stages (0/180/240/360/420/540/720 s)
+- WebSocket `/ws/paper-flow` at ~4 Hz
+- REST: `/api/paper-flow/{state,start,pause,resume,reset,config,inject-failure,clear-failure}`
+
+Frontend (`services/webui-frontend/src/pages/PaperDataExchange.tsx`):
+- `MultiHopTopologySvg` — image-2 faithful 3-column-or-more SVG (Alice \|
+  TN×N \| Bob), hop slider 1 → 8, per-phase glow highlighting
+- `PhaseSequenceSvg` — 5-lane swimlane with time axis 0..540 s, byte-proportional bars
+- `PacketFlowTable` — Phase × (packets, bytes, period, grace, status)
+- `FailureCascadeTimeline` — 7-event timeline with a moving head; events flip
+  red as wall-clock crosses them
+- 5 KPI cards (paper packets, paper bytes, mean 10-hop setup, live cycles,
+  live bytes)
+- Layer-failure injection buttons: `qkd / arnika / wireguard / rosenpass /
+  data + clear`
+- `ExportToolbar` (Phase 13) wired with `pngTargetSelector="#paper-flow-topology-svg"`
+
+### `/e2e` SVG polish (Phase 11 v2 unchanged in spirit)
+
+Four coordinate fixes to remove subtle text-to-box collisions. Element count
+145 and viewBox `1240×620` are preserved:
+
+| Element | Before | After |
+|---|---|---|
+| KMS→ARNIKA `QKD KEY` label | y=232 (collided with ARNIKA tag y=238) | **y=208** (clear above box) |
+| ARNIKA→KMS `key_ID` label | y=278 (10 px below box) | **y=288** (20 px below box) |
+| Center `VPN tunnel (ChaCha20-Poly1305)` label | y=206 (touching WIREGUARD title y=220) | **y=174** (just under Site A/B headings) |
+| HKDF SHA3 badge inside ARNIKA | x=244 (mid-box, over title text) | **x=222** (top-left corner of box) |
+
+Browser verification confirmed the four labels render at the new
+coordinates: `QKD KEY y=[208,208], key_ID y=[288,288], VPN tunnel y=174`.
+
+### A third ETSI 014 KME (Rust, 2026-04-01 active)
+
+`submodules/qkd_kme_server` is now part of the repo —
+[`thomasarmel/qkd_kme_server`](https://github.com/thomasarmel/qkd_kme_server)
+with its most recent commit on **2026-04-01**, Rust + ETSI GS QKD 014 v1.1.1
+compliant. Together with our existing Python `bb84-kme` (Phase 1) and NS-3
+C++ `qkdnetsim-kme` (Phase 9), this gives **three independent ETSI 014
+implementations** for cross-validation:
+
+| Implementation | Language | Phase | Last commit |
+|---|---|---|---|
+| `services/bb84-kme` (this repo) | Python + SimQN | 1 | live |
+| `services/qkdnetsim-kme` (NS-3 contrib) | C++ | 9 | 2026-05-03 |
+| `submodules/qkd_kme_server` | Rust | 14 | **2026-04-01** |
+
+Note: `pq-wireguard` (Kudelski Security) was previously listed as a
+candidate but was **archived on 2024-09-03** ("not actively maintained
+anymore"), so it has been excluded; only the verifiably 2026-active option
+above was added.
+
+### Browser verification (a headless browser)
+
+- 12 sidebar nav links including the new "Paper Data Exchange ◆"
+- `#paper-flow-topology-svg` viewBox `0 0 1060 720`, 160 elements
+- `#paper-flow-sequence-svg` 91 elements
+- Hop slider 1 → 8 renders 3 → 10 columns
+  ("End Node Alice + Trusted Node 1..N + End Node Bob")
+- Inject `qkd` failure → 7 cascade events scheduled
+  (t=0/180/240/360/420/540/720 s)
+- Backend orchestrator: 389 live cycles after ~1.3 s with
+  `paper_packets=9 / paper_bytes=5248` (paper-quoted values)
+- **0 console errors**
+
+---
+
 ## 12. Limitations
 
-本 PoC を引用・公開する際、以下の制限を**必ず併記してください**。
+When citing or releasing the PoC, **please always disclose the limitations below.**
 
-### 12.1 QKD 物理シミュレーション
-- **5 つの異種 backend で多角的に補強済**:
-  - `qutip` — 教育用 (lightweight, 軽量 photon-level)
-  - `simqn` — Cascade error correction + Toeplitz PA + fiber attenuation (`submodules/SimQN`, 2026-05-25 active)
-  - `sequence` — SeQUeNCe 物理モデル (`submodules/SeQUeNCe`, 2026-05-12 active, Argonne National Lab)
-  - `cvqkd` — Strawberry Fields GG02 連続変数 QKD (`submodules/strawberryfields`)
-  - `composite_sim_to_net` — SimQN 物理 + qkdnetsim ネットワーク (NS-3 v3.46)
-- パラメータは **科学的根拠あり** (`config/qkd_keyrate_table.json` を openQKDsecurity の Winick SDP + arXiv:2511.21253 closed-form formula で事前計算済み)
-- それでも **実機の装置温度ドリフト・帯域フィルタ・波長依存量子効率** などデバイス固有非理想性は未モデル化
+### 12.1 QKD physical simulation
+- **Reinforced from five complementary backends**:
+  - `qutip` — lightweight, educational, photon-level
+  - `simqn` — Cascade error correction + Toeplitz privacy amplification + fibre attenuation (`submodules/SimQN`, 2026-05-25 active)
+  - `sequence` — the SeQUeNCe physical-layer model (`submodules/SeQUeNCe`, 2026-05-12 active, Argonne National Lab)
+  - `cvqkd` — Strawberry Fields GG02 continuous-variable QKD (`submodules/strawberryfields`)
+  - `composite_sim_to_net` — SimQN physical layer + qkdnetsim NS-3 v3.46 network layer
+- All parameters are **scientifically grounded** — `config/qkd_keyrate_table.json` is precomputed offline from the openQKDsecurity Winick SDP and the arXiv:2511.21253 closed-form formula.
+- Device-specific non-idealities such as **temperature drift, bandpass filtering, and wavelength-dependent quantum efficiency** are still not modelled.
 
-### 12.2 ハードウェア接続
-- **ETSI GS QKD 014 標準 I/F** に準拠するため、商用装置 (ID Quantique Cerberis, Toshiba MUSE, Thinkquantum TQ-KME 等) は **`KMS_URL` 1 行変更で透過接続可能** (HIL モード — WebUI "Hardware-In-Loop" ページ参照)
-- 装置固有ドライバ (USB/serial) や HSM ベース API 統合は本 PoC 範囲外
-- **Xanadu cloud (CV-QKD 実機) は 2026-01 に decommissioning**。CV-QKD ローカルシミュレーションは継続利用可
+### 12.2 Hardware connectivity
+- Because we speak the **ETSI GS QKD 014 standard interface**, commercial QKD devices (ID Quantique Cerberis, Toshiba MUSE, Thinkquantum TQ-KME, etc.) can be plugged in by **changing a single `KMS_URL` line** — see the WebUI "Hardware-In-Loop" page for the HIL mode.
+- Vendor-specific drivers (USB / serial) and HSM-backed key-management APIs are out of scope.
+- **Xanadu's cloud CV-QKD service was decommissioned in 2026-01**, but local CV-QKD simulation remains available.
 
-### 12.3 残存制限事項
-- **シングルホスト PoC**。全コンテナが同一物理ホスト上で稼働するため、実 QKD ネットワークの遅延・損失・物理的隔離は再現していません。
-- **KME 間鍵同期は HTTP**。本来は量子チャネル + 認証付き古典チャネルで対称鍵が成立しますが、本 PoC では `bb84-kme-a` ↔ `bb84-kme-b` の `POST /internal/sync` で同期します (`qkd-net` を `internal: true` で隔離)。
-- **PQC は ML-KEM-768 中心** だが **liboqs vs PQClean cross-validator** (`services/pqc-validator/`) で NIST 準拠を独立検証可能。WebUI "PQC Validator" ページから他アルゴリズムも試行可能。
-- **HKDF-SHA3-256 は arnika 既定**。他流派 (Concatenate-then-HMAC, XOR, Cascade KDF 等) との比較はスコープ外。
-- **VPN プロトコル 2 系統対応** (Phase 9-A):
-  - WireGuard PSK モード (デフォルト): Noise Protocol 自体は古典暗号 (Curve25519/ChaCha20-Poly1305) のまま、arnika が PSK ローテで加算的保護を提供
-  - **strongSwan IPsec/IKEv2 + RFC 9370 hybrid** (推奨実機): ML-KEM-768 を IKE_SA_INIT の KE1 payload で直接交換、古典 ECDH と組み合わせ forward secrecy 強化
-- **FIPS / Common Criteria 認証なし**。本実装は研究 PoC であり、本番運用は禁止です。
-- **法規制・輸出管理**。暗号ソフトウェアの再配布は ECCN 5D002 等の対象になり得るため、利用時は所在国の規制を確認してください。
+### 12.3 Residual limitations
+- **Single-host PoC**: all containers run on a single physical host, so a real QKD network's latency, loss and physical isolation are not reproduced.
+- **KME-to-KME synchronisation is over HTTP**: in a real deployment both ends derive a symmetric key over a quantum channel plus an authenticated classical channel, but here `bb84-kme-a` ↔ `bb84-kme-b` simply exchange material via `POST /internal/sync` (isolated by `qkd-net` with `internal: true`).
+- **The PQC focus is ML-KEM-768**, but NIST conformance can be independently verified via the **liboqs vs PQClean cross-validator** (`services/pqc-validator/`) and other algorithms can be tried from the "PQC Validator" page.
+- **HKDF-SHA3-256 is the arnika default**; alternative constructions (concatenate-then-HMAC, XOR-only, Cascade KDF, etc.) are out of scope.
+- **Two parallel VPN protocol lanes** (Phase 9-A):
+  - WireGuard PSK mode (default): the Noise Protocol itself still uses classical primitives (Curve25519 / ChaCha20-Poly1305); arnika layers PSK rotation on top for additive protection.
+  - **strongSwan IPsec/IKEv2 + RFC 9370 hybrid** (recommended for real hardware): ML-KEM-768 is exchanged directly inside the IKE_SA_INIT KE1 payload and combined with classical ECDH to strengthen forward secrecy.
+- **No FIPS or Common Criteria certification**: this is a research PoC, not for production deployment.
+- **Regulation and export control**: re-distributing cryptographic software may be covered by ECCN 5D002 or similar — check your jurisdiction before redistribution.
 
 ---
 
@@ -659,61 +844,59 @@ export-control regulations (e.g. US ECCN 5D002) before public deployment.
 
 ## 15. Recommendations & Future Research
 
-### 15.1 公開前チェックリスト (必須)
+### 15.1 Pre-release checklist (mandatory)
 
-- [ ] `.gitignore` で `pki/*.pem`, `*.psk`, `.env`, `node_modules/`, build artefacts が除外されている
-- [ ] `pki/` 配下に生成された秘密鍵が `git status` に出てこない
-- [ ] `make smoke` がパスする
-- [ ] `pytest tests/` が全てパスする
-- [ ] `submodules/` の commit hash が pin 済み
-- [ ] `references/` の PDF/docx が公開許諾範囲内
-- [ ] [Apache-2.0 NOTICE](LICENSE) と各依存 OSS のライセンス文を同梱
-- [ ] (推奨) `gitleaks detect` を CI に組み込む
+- [ ] `.gitignore` excludes `pki/*.pem`, `*.psk`, `.env`, `node_modules/`, build artefacts
+- [ ] Generated private keys under `pki/` do not appear in `git status`
+- [ ] `make smoke` passes
+- [ ] `pytest tests/` passes in full
+- [ ] `submodules/` commit hashes are pinned
+- [ ] PDFs / .docx under `references/` are inside the redistribution licence
+- [ ] [Apache-2.0 NOTICE](LICENSE) and the licence text of every dependency are bundled
+- [ ] (Recommended) `gitleaks detect` is wired into CI
 
-### 15.2 運用上の推奨事項
+### 15.2 Operational recommendations
 
-- **可観測性**: Prometheus + Grafana を追加 (`docker-compose.observability.yml`)、`qkd_qber`, `arnika_psk_rotation_total`, `wg_handshake_age_seconds` を可視化。
-- **再現性**: `Dockerfile` の `ARG ARNIKA_REF` / `ARG ROSENPASS_REF` を git tag で固定し、SBOM (CycloneDX) を出力。
-- **デモ運用**: `ARNIKA_INTERVAL=30s` は demo 向け。本番想定なら 120s (paper 値) に戻す。
-- **mTLS**: `pki/gen-certs.sh` で証明書を発行後、`ETSI_MTLS_ENABLED=true` で有効化 (Phase 7)。
-- **VPN 2 系統運用** (Phase 9-A): WireGuard と strongSwan IPsec を等価に保ち、運用要件 (帯域・MTU・NAT-T) に応じて切替可能にする。
-- **Cryptographic Agility 設計指針** (Phase 9-C, RFC 7696 / NIST SP 800-131A Rev.3 準拠):
-  - 第 1 層 `oqs-provider` — algorithm space = NIST 標準 + 実験/将来候補 (HQC, Falcon, SLH-DSA, Classic McEliece)
-  - 第 2 層 `OpenSSL 3.5 native PQC` — FIPS 経路 (ML-KEM, ML-DSA のみ)
-  - アプリケーションは環境変数 `PQC_PROVIDER={oqs|native}` で動的切替
-- **ホスト WireGuard**: AlmaLinux 9.7 標準カーネル + `dnf install wireguard-tools` + `modprobe wireguard` で導入可能。ELRepo `kmod-wireguard` は不要。
-- **論文値との直接比較を `tools/compare_to_paper.py` で CI 化**、regression を検知。
+- **Observability**: add Prometheus + Grafana (`docker-compose.observability.yml`) and surface `qkd_qber`, `arnika_psk_rotation_total`, `wg_handshake_age_seconds`.
+- **Reproducibility**: pin `ARG ARNIKA_REF` / `ARG ROSENPASS_REF` in the Dockerfiles to git tags and emit a CycloneDX SBOM.
+- **Demo vs production**: `ARNIKA_INTERVAL=30s` is for demos; revert to 120 s (the paper's value) for production-style scenarios.
+- **mTLS**: issue certificates with `pki/gen-certs.sh` and enable `ETSI_MTLS_ENABLED=true` (Phase 7).
+- **Run both VPN lanes** (Phase 9-A): keep WireGuard and strongSwan IPsec at parity and switch based on bandwidth / MTU / NAT-T requirements.
+- **Cryptographic Agility design** (Phase 9-C, RFC 7696 / NIST SP 800-131A Rev.3):
+  - Lane 1 — `oqs-provider`: algorithm space = NIST standards + experimental / future candidates (HQC, Falcon, SLH-DSA, Classic McEliece).
+  - Lane 2 — `OpenSSL 3.5 native PQC`: FIPS lane (ML-KEM, ML-DSA only).
+  - Applications swap lanes via the `PQC_PROVIDER={oqs|native}` environment variable.
+- **Host WireGuard**: AlmaLinux 9.7 mainline kernel supports WireGuard out of the box (`dnf install wireguard-tools` + `modprobe wireguard`); the ELRepo `kmod-wireguard` package is not required.
+- **CI-grade paper-value comparison**: run `tools/compare_to_paper.py` in CI to catch regressions against the paper's numbers.
 
-### 15.3 将来の研究拡張 (Recommended Future Research)
+### 15.3 Recommended Future Research
 
-詳細は [`docs/roadmap.md`](docs/roadmap.md)。各項目は独立した PoC ブランチとして段階的に追加することを推奨します。
+See [`docs/roadmap.md`](docs/roadmap.md). Each item below is recommended as an independent PoC branch.
 
-| ID | Topic | 概要 | NIST/学術参照 |
+| ID | Topic | Summary | Reference |
 |---|---|---|---|
-| **A** | **Shor's Algorithm 攻撃シミュレーション** | **CUDA-Q + cuQuantum**(RTX 6000 PRO Blackwell 96GB) でテンソルネットワーク、**`pyzx` で ZX-calculus** T-count 最適化により、Shor の RSA-2048/ECDSA-P256 への現実的なリソース見積もりを行う。古典 vs 量子スケーリング曲線を WebUI で可視化。 | NIST IR 8413 |
-| **B** | **HNDL (Harvest Now, Decrypt Later) シミュレーション** | `wan-net` 上の WireGuard 暗号文を `tcpdump` で大量保管し、「2030年に量子計算機で復号」のタイムラインを可視化。`ARNIKA_INTERVAL` と HNDL リスク窓のトレードオフを WebUI に追加。経営層・顧客向け ROI 説明資料として有効。 | NIST IR 8547、CISA Quantum-Readiness |
-| **C** | **QLSTM-IDS (QKD 攻撃検知)** | 本 PoC の BB84 シミュレータから 8 種類のラベル付きデータ (normal / intercept-resend / PNS / Trojan-horse / RNG-bias / wavelength-trojan / detector-blinding / combined) を自動生成し、QLSTM (PennyLane) + 古典 RandomForest アンサンブルで検知。WebUI に "IDS Live" ページ追加。目標 F1=93.9%。 | Wiley IET Quantum Comm. 2026 |
-| **D** | **NIST PQC アルゴリズム網羅検証** | liboqs/oqs-provider が提供する全 NIST 標準 (ML-KEM-512/768/1024, ML-DSA-44/65/87, SLH-DSA 各パラ, Falcon) を `services/pqc-benchmark/` で網羅ベンチ。`X25519MLKEM768` 等のハイブリッド TLS 1.3 cipher suite (IETF Draft) を含む。 | NIST FIPS 203/204/205 |
-| **E** | **NIST 推奨セキュリティ対策の網羅検証** | NIST SP 800-208 (Stateful Hash-Based Signatures, LMS/XMSS) を OTA 更新署名へ応用、NIST CSF 2.0 の 6 機能と本 PoC コンポーネントの対応表 (`docs/compliance.md`) を作成。 | SP 800-208、CSF 2.0 |
-| **F** | **QuLore 適応セキュリティ実装** | `references/QuLore_*.pdf` の 4 段階セキュリティレベル (L1-L4) を、中央コントローラ `services/qusec/` で動的割当。WebUI Topology のエッジ色で現行レベル表示。 | Sanz et al. (UPV) |
-| **G** | **QRNG + AI 品質評価** | BB84 シミュレータの classical RNG を QRNG モデル出力に差し替え、CNN ベース品質評価フレームワーク (MDPI Electronics 2026) を統合。 | MDPI Electronics 2026 |
-| **H** | **Quantum Federated Learning + FHE** | QKD で交換した鍵で FHE パラメータを安全配布する分散学習ユースケース (`elucidator8918/QFL-MLNCP-NeurIPS` 参照)。 | NeurIPS 2024 |
+| **A** | **Shor's-algorithm attack simulator** | Use **CUDA-Q + cuQuantum** (RTX 6000 PRO Blackwell 96 GB) tensor networks and **ZX-calculus T-count optimisation with `pyzx`** to derive realistic resource estimates against RSA-2048 / ECDSA-P256, and plot the classical-vs-quantum scaling curves in the WebUI. | NIST IR 8413 |
+| **B** | **HNDL (Harvest Now, Decrypt Later) simulator** | Stockpile WireGuard ciphertext over `wan-net` with `tcpdump` and visualise the "decrypt-in-2030" timeline; add an `ARNIKA_INTERVAL` vs HNDL-risk trade-off to the WebUI Benchmarks page. Useful as an executive ROI artefact. | NIST IR 8547, CISA Quantum-Readiness |
+| **C** | **QLSTM-IDS for QKD attack detection** | Generate eight labelled scenarios (normal / intercept-resend / PNS / Trojan-horse / RNG-bias / wavelength-trojan / detector-blinding / combined) from this PoC's BB84 simulator and detect them with a QLSTM (PennyLane) + classical RandomForest ensemble. Target F1 = 93.9 %. | Wiley IET Quantum Comm. 2026 |
+| **D** | **Full NIST PQC algorithm sweep** | Use `services/pqc-benchmark/` to benchmark every NIST standard offered by liboqs / oqs-provider (ML-KEM-512/768/1024, ML-DSA-44/65/87, SLH-DSA variants, Falcon), including hybrid TLS 1.3 cipher suites such as `X25519MLKEM768` per the IETF draft. | NIST FIPS 203/204/205 |
+| **E** | **Sweep of NIST-recommended controls** | Apply NIST SP 800-208 (stateful hash-based signatures, LMS/XMSS) to OTA update signing and produce a six-function NIST CSF 2.0 mapping in `docs/compliance.md`. | SP 800-208, CSF 2.0 |
+| **F** | **QuLore adaptive-security implementation** | Implement the QuLore 4-level security model (L1-L4 in `references/QuLore_*.pdf`) with a central controller in `services/qusec/` and colour-code WebUI Topology edges by the active level. | Sanz et al. (UPV) |
+| **G** | **QRNG + AI quality assessment** | Replace the BB84 simulator's classical RNG with a QRNG model output and integrate the CNN-based quality-assessment framework from MDPI Electronics 2026. | MDPI Electronics 2026 |
+| **H** | **Quantum Federated Learning + FHE** | Distribute FHE parameters securely using QKD-exchanged keys (`elucidator8918/QFL-MLNCP-NeurIPS`). | NeurIPS 2024 |
 
-優先順位の推奨: **D → C → A → B → E → F/G/H**。
+Suggested priority: **D → C → A → B → E → F / G / H**.
 
-### 15.4 商用展開上の考慮
+### 15.4 Commercial deployment considerations
 
-本 PoC は単独で課金 SaaS にする想定ではなく、以下の組み合わせを想定:
-- **教育コンテンツ**: Udemy/YouTube/Zenn 向けの実装解説素材 (Manim アニメ + WebUI スクリーンキャスト + コード読解)
-- **企業 PoC / コンサル**: NIST CSF 2.0 (E) や QuLore L4 (F) と組み合わせた段階的 PQC 移行の参照実装
-- **R&D**: A (Shor) / C (IDS) / D (PQC 網羅) を組み合わせ、IEEE/Wiley/MDPI 系学会・誌への投稿素材
+See the private private notes (not committed) for personal-commercial
+workflows and the 2026-06 industry-trend snapshot.
 
 ---
 
 ## Contributing
 
-PR welcome. 大きな変更を提案する前に Issue で議論してください。
-すべての変更は `make smoke && pytest tests/` をパスする必要があります。
+PRs are welcome. Please open an issue to discuss larger changes before
+submitting. Every change must pass `make smoke && pytest tests/`.
 
 ## Contact / Acknowledgements
 

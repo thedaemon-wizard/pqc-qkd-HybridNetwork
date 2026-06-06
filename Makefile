@@ -61,6 +61,11 @@ logs-alice: ## Tail alice logs
 logs-bob: ## Tail bob logs
 	$(DC) logs -f bob
 
+.PHONY: tail-logs
+tail-logs: ## (Phase 12-A) Tail rotating log files inside pqcqkd-logs volume
+	$(DC) exec webui-backend ls -lh /var/log/pqcqkd/ || true
+	$(DC) exec webui-backend tail -f /var/log/pqcqkd/webui-backend.log
+
 # -------------------------------------------------------------------
 # Verification / Smoke
 # -------------------------------------------------------------------

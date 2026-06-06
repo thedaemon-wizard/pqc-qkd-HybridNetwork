@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getStack, postStack, type StackItem } from "../api";
+import PageHeader from "../components/PageHeader";
+import ExportToolbar from "../components/ExportToolbar";
 
 const STATUS_COLOR: Record<string, string> = {
   running: "#3ddc84", restarting: "#f5a623", created: "#5b8def",
@@ -19,12 +21,20 @@ export default function Overview() {
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>Architecture &amp; Live Status</h2>
-      <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        3層モデル: (1) BB84-KME → ETSI 014 で QKD 鍵を供給。
-        (2) 各ノードで Rosenpass が PQC 鍵を生成。
-        (3) arnika が HKDF-SHA3-256 で両者を融合し、WireGuard PSK を 30秒毎に更新。
-      </p>
+      <PageHeader
+        title="Architecture & Live Status"
+        subtitle={<>Three-layer model: (1) <code>bb84-kme</code> delivers QKD keys over ETSI 014.
+          (2) A Rosenpass sidecar at each node produces PQC keys.
+          (3) <code>arnika</code> fuses both via HKDF-SHA3-256 and rotates the WireGuard PSK every 30 s.</>}
+      />
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="overview"
+          logService="webui-backend"
+          pngTargetSelector="#overview-arch-svg"
+          jsonProvider={() => ({ stack })}
+        />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 20 }}>
         <ArchPanel />
@@ -65,7 +75,7 @@ function ArchPanel() {
   return (
     <div style={{ background: "#0d1320", padding: 16, borderRadius: 8, border: "1px solid #1d2741" }}>
       <h3 style={{ marginTop: 0 }}>Layered Architecture (from PDF)</h3>
-      <svg viewBox="0 0 420 280" style={{ width: "100%" }}>
+      <svg id="overview-arch-svg" viewBox="0 0 420 280" style={{ width: "100%" }}>
         {/* E2E Layer */}
         <rect x="20" y="20" width="380" height="60" rx="6" fill="#332247" stroke="#7c5cff" />
         <text x="210" y="48" fill="#d8c8ff" textAnchor="middle" fontSize="14">End-to-End: Rosenpass PQC handshake (ML-KEM-768)</text>

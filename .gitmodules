@@ -1,0 +1,52 @@
+[submodule "submodules/PQClean"]
+	path = submodules/PQClean
+	url = https://github.com/PQClean/PQClean.git
+	branch = master
+[submodule "submodules/SeQUeNCe"]
+	path = submodules/SeQUeNCe
+	url = https://github.com/sequence-toolbox/SeQUeNCe.git
+	branch = master
+[submodule "submodules/SimQN"]
+	path = submodules/SimQN
+	url = https://github.com/QNLab-USTC/SimQN.git
+	branch = main
+[submodule "submodules/arnika-vq"]
+	path = submodules/arnika-vq
+	url = https://github.com/Veriqloud/arnika-vq.git
+	branch = main
+[submodule "submodules/liboqs"]
+	path = submodules/liboqs
+	url = https://github.com/open-quantum-safe/liboqs.git
+	branch = main
+[submodule "submodules/openQKDsecurity"]
+	path = submodules/openQKDsecurity
+	url = https://github.com/Optical-Quantum-Communication-Theory/openQKDsecurity.git
+	branch = main
+[submodule "submodules/oqs-provider"]
+	path = submodules/oqs-provider
+	url = https://github.com/open-quantum-safe/oqs-provider.git
+	branch = main
+[submodule "submodules/qkd-pqc-paper-supplementary"]
+	path = submodules/qkd-pqc-paper-supplementary
+	url = https://github.com/aparcar/qkd-pqc-paper-supplementary-files.git
+	branch = main
+[submodule "submodules/qkd_kme_server"]
+	path = submodules/qkd_kme_server
+	url = https://github.com/thomasarmel/qkd_kme_server.git
+	branch = master
+[submodule "submodules/qkdnetsim"]
+	path = submodules/qkdnetsim
+	url = https://github.com/QKDNetSim/qkdnetsim.git
+	branch = master
+[submodule "submodules/strawberryfields"]
+	path = submodules/strawberryfields
+	url = https://github.com/XanaduAI/strawberryfields.git
+	branch = master
+[submodule "submodules/strongswan"]
+	path = submodules/strongswan
+	url = https://github.com/strongswan/strongswan.git
+	branch = master
+[submodule "submodules/wgephemeralpeer"]
+	path = submodules/wgephemeralpeer
+	url = https://github.com/mullvad/wgephemeralpeer.git
+	branch = master

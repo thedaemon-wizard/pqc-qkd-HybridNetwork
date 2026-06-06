@@ -36,6 +36,8 @@ volumes:
   rosenpass-keys-bob:
   pqc-psk-alice:
   pqc-psk-bob:
+  pqcqkd-logs:           # Phase 12-A: shared rotating log files
+  pqcqkd-exports:        # Phase 13: backend-stored export artefacts
 
 services:
 
@@ -70,6 +72,7 @@ services:
       - ./submodules/SimQN:/submodules/SimQN:ro
       - ./submodules/SeQUeNCe:/submodules/SeQUeNCe:ro
       - ./submodules/strawberryfields:/submodules/strawberryfields:ro
+      - pqcqkd-logs:/var/log/pqcqkd
     networks:
       qkd-net:
         aliases: [bb84-kme-a]
@@ -107,6 +110,7 @@ services:
       - ./submodules/SimQN:/submodules/SimQN:ro
       - ./submodules/SeQUeNCe:/submodules/SeQUeNCe:ro
       - ./submodules/strawberryfields:/submodules/strawberryfields:ro
+      - pqcqkd-logs:/var/log/pqcqkd
     networks:
       qkd-net: {}
       mgmt-net: {}
@@ -227,6 +231,8 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - pqcqkd-logs:/var/log/pqcqkd
+      - pqcqkd-exports:/var/lib/pqcqkd-exports
     ports:
       - "${WEBUI_BACKEND_PORT:-8000}:8000"
     networks:
@@ -263,6 +269,7 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - ./submodules/PQClean:/submodules/PQClean:ro
+      - pqcqkd-logs:/var/log/pqcqkd
     networks:
       mgmt-net: {}
       qkd-net: {}

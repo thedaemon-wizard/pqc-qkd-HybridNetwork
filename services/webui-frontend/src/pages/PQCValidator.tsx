@@ -33,8 +33,9 @@ export default function PQCValidator() {
     <div>
       <h2 style={{ marginTop: 0 }}>PQC Validator — liboqs vs PQClean</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        NIST FIPS 203/204/205 のすべてのアルゴリズムについて、production library
-        (liboqs) と NIST reference impl (PQClean) で同一テストベクトルが同一結果になることを検証します。
+        Verifies that, for every NIST FIPS 203/204/205 algorithm, the production
+        library (liboqs) and the NIST reference implementation (PQClean) yield
+        identical results on the same test vectors.
       </p>
 
       {!algos ? <div>Loading…</div> : (

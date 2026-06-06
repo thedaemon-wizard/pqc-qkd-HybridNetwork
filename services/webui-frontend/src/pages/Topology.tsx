@@ -34,7 +34,7 @@ export default function Topology() {
     <div>
       <h2 style={{ marginTop: 0 }}>Network Topology</h2>
       <p style={{ color: "#9aa9d8" }}>
-        Alice / Bob (WireGuard hop), 各 KME (BB84 + ETSI-014), マルチホップ時は Charlie が中継。
+        Alice and Bob (WireGuard hops), one BB84 + ETSI-014 KME per side, and Charlie as the trusted relay when multi-hop is enabled.
       </p>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>
         {topo.edges.map((e, i) => {

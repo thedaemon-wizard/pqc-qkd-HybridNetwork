@@ -25,9 +25,28 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import logging
 import math
+import os
 import sys
 from dataclasses import dataclass
+from logging.handlers import RotatingFileHandler
+
+
+def _setup_logger() -> logging.Logger:
+    from pathlib import Path
+    log_dir = Path(os.environ.get("LOG_DIR", "benchmarks/results"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s")
+    root = logging.getLogger(); root.setLevel(logging.INFO); root.handlers.clear()
+    sh = logging.StreamHandler(); sh.setFormatter(fmt); root.addHandler(sh)
+    fh = RotatingFileHandler(log_dir / "precompute_keyrate_table.log",
+                              maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt); root.addHandler(fh)
+    return logging.getLogger("precompute-keyrate")
+
+
+log = _setup_logger()
 from pathlib import Path
 
 H2 = lambda x: -x * math.log2(x) - (1 - x) * math.log2(1 - x) if 0 < x < 1 else 0.0
@@ -174,7 +193,7 @@ def main() -> None:
         "block_size_N": args.N,
         "rows": rows,
     }, indent=1))
-    print(f"wrote {len(rows)} rows to {out_path}")
+    log.info("wrote %d rows to %s", len(rows), out_path)
 
 
 if __name__ == "__main__":

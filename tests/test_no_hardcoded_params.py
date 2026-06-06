@@ -69,8 +69,20 @@ def test_no_hardcoded_numeric_params():
 
 
 if __name__ == "__main__":
+    import logging
+    import os
+    from logging.handlers import RotatingFileHandler
+    _log_dir = Path(os.environ.get("LOG_DIR", "benchmarks/results"))
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s %(message)s")
+    _root = logging.getLogger(); _root.setLevel(logging.INFO); _root.handlers.clear()
+    _sh = logging.StreamHandler(); _sh.setFormatter(_fmt); _root.addHandler(_sh)
+    _fh = RotatingFileHandler(_log_dir / "test_no_hardcoded_params.log",
+                                maxBytes=2_000_000, backupCount=2, encoding="utf-8")
+    _fh.setFormatter(_fmt); _root.addHandler(_fh)
+    _log = logging.getLogger("ast-test")
     try:
         test_no_hardcoded_numeric_params()
-        print("OK")
+        _log.info("OK")
     except AssertionError as e:
-        print(e); sys.exit(1)
+        _log.error("%s", e); sys.exit(1)

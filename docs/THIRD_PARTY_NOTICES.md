@@ -19,6 +19,12 @@ Each retains its original copyright notice and license terms.
 | `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | 2026-05-14 (active) |
 | `cryptography` (PyPI) | Apache-2.0 / BSD-3-Clause dual | Python Cryptographic Authority | 10 | v44.0.0; used by `e2e_orchestrator` for HKDF-SHA3 + ChaCha20-Poly1305 |
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | 2026-05-08 (active); alternative PSK-injection (benchmark reference, no live integration) |
+| `html-to-image` (npm) | MIT | bubkoo et al. | 12 | v1.11.13; capture DOM to PNG for ExportToolbar 🖼 PNG / 🎞 Animation |
+| `gifshot` (npm) | MIT | Yahoo Inc. | 12 | v0.4.5; stitches frames into animated GIF for ExportToolbar 🎞 Animation |
+| `qkd_kme_server` | (see repo LICENSE) | Thomas Prévost (`thomasarmel`) | 14 | **2026-04-01 active**; Rust ETSI GS QKD 014 v1.1.1 KME — third reference implementation alongside Python `bb84-kme` + NS-3 `qkdnetsim-kme` |
+| `pq-wireguard` (Kudelski Security) | — | — | rejected | **archived 2024-09-03** ("not actively maintained anymore"); kept only as historical reference, NOT integrated |
+| `qkd-kem-provider` (qursa-uc3m) | MIT | UC3M / Vigo (QURSA) | reference | 2025-06; oqs-provider fork hybridising PQ KEMs with QKD — listed for the crypto-agility roadmap |
+| `qkd-etsi-api-c-wrapper` (qursa-uc3m) | MIT | UC3M / Vigo (QURSA) | reference | 2024-11; C wrapper for ETSI 004/014 — listed for the crypto-agility roadmap |
 
 ## License compatibility considerations
 
