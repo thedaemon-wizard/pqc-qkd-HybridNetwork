@@ -50,3 +50,6 @@
 	path = submodules/wgephemeralpeer
 	url = https://github.com/mullvad/wgephemeralpeer.git
 	branch = master
+[submodule "submodules/rosenpass"]
+	path = submodules/rosenpass
+	url = https://github.com/rosenpass/rosenpass.git

@@ -1,0 +1,67 @@
+# ============================================================
+# Cloud overlay for a single public host (e.g. a ConoHa KVM VPS).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
+#
+# What it changes vs. the base compose:
+#   - Adds a Caddy reverse proxy as the ONLY public service (80/443),
+#     with automatic Let's Encrypt TLS for $PUBLIC_HOST.
+#   - Keeps the WebUI frontend/backend bound to loopback on the host
+#     (set in deploy/.env.example: WEBUI_FRONTEND_PORT=127.0.0.1:5173,
+#     WEBUI_BACKEND_PORT=127.0.0.1:8000) so they are reachable only via
+#     the docker network / Caddy, never directly from the internet.
+#   - WireGuard alice/bob traffic stays container-to-container on the
+#     internal networks; no WG UDP ports are published.
+#   - Adds restart policies for unattended operation.
+#
+# The privileged WireGuard nodes (cap NET_ADMIN/SYS_MODULE, /dev/net/tun)
+# require a real kernel — fine on a ConoHa KVM VPS, impossible on managed
+# PaaS. See MONETIZATION.md for the full deployment rationale.
+# ============================================================
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    depends_on:
+      - webui-frontend
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      mgmt-net: {}
+
+  webui-frontend:
+    restart: unless-stopped
+
+  webui-backend:
+    restart: unless-stopped
+
+  bb84-kme-a:
+    restart: unless-stopped
+
+  bb84-kme-b:
+    restart: unless-stopped
+
+  pqc-validator:
+    restart: unless-stopped
+
+  alice:
+    restart: unless-stopped
+
+  bob:
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
