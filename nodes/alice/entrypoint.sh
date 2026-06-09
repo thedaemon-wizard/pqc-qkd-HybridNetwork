@@ -2,9 +2,11 @@
 # ============================================================
 # Node entrypoint:
 #   1. Generate WireGuard keypair if absent
-#   2. Bring up wg0 with local config (no PSK initially)
-#   3. Start Rosenpass sidecar in background -> writes PQC_PSK_FILE
-#   4. Start arnika -> rotates WireGuard PSK = HKDF(QKD || PQC)
+#   2. Generate Rosenpass (PQ) keypair if absent
+#   3. Exchange BOTH public keys with the peer via a shared volume
+#   4. Bring up wg0 with local config (PSK injected later by arnika)
+#   5. Start Rosenpass sidecar -> REAL PQ exchange -> writes PQC_PSK_FILE
+#   6. Start arnika -> rotates WireGuard PSK = HKDF(QKD || PQC)
 #
 # Both alice and bob use this script; behaviour differentiates via env.
 # ============================================================
@@ -17,8 +19,22 @@ WG_LOCAL_IP="${WG_LOCAL_IP:-10.0.0.1}"
 WG_PEER_IP="${WG_PEER_IP:-10.0.0.2}"
 WG_PEER_ENDPOINT="${WG_PEER_ENDPOINT:-bob:51821}"
 
+# Peer identity = the hostname part of its WG endpoint (== its container/node name).
+PEER_HOST="${WG_PEER_ENDPOINT%%:*}"
+PEER_NAME="${PEER_NAME:-$PEER_HOST}"
+
+# Rosenpass (post-quantum) parameters
+RP_LISTEN_PORT="${RP_LISTEN_PORT:-9997}"
+RP_PEER_PORT="${RP_PEER_PORT:-9997}"
+ROSENPASS_SECRET_DIR="${ROSENPASS_SECRET_DIR:-/etc/rosenpass-secret}"
+PQC_PSK_FILE="${PQC_PSK_FILE:-/var/lib/rosenpass/pqc.psk}"
+
+# Shared volume used to swap public keys between the two containers.
+SHARED_DIR="${SHARED_DIR:-/shared}"
+mkdir -p "$SHARED_DIR"
+
 WG_DIR=/etc/wireguard
-mkdir -p "$WG_DIR"
+mkdir -p "$WG_DIR" "$ROSENPASS_SECRET_DIR" "$(dirname "$PQC_PSK_FILE")"
 
 # ---- 1) WireGuard keypair ----------------------------------
 if [[ ! -f "$WG_DIR/private.key" ]]; then
@@ -27,41 +43,41 @@ if [[ ! -f "$WG_DIR/private.key" ]]; then
   wg genkey > "$WG_DIR/private.key"
   wg pubkey < "$WG_DIR/private.key" > "$WG_DIR/public.key"
 fi
-
 LOCAL_PUB="$(cat "$WG_DIR/public.key")"
-echo "[entrypoint] $NODE_NAME public key: $LOCAL_PUB"
+echo "[entrypoint] $NODE_NAME WireGuard public key: $LOCAL_PUB"
 
-# Publish our public key over a tiny HTTP-less file exchange so the peer
-# container can discover it. We use the shared `wan-net` via curl on the peer's
-# /pubkey endpoint exposed by a coproc.
-# (Simplification: bake peer pubkey via env when present; otherwise probe peer.)
-
-PEER_HOST="${WG_PEER_ENDPOINT%%:*}"
-PEER_PUB_FILE=/tmp/peer.pub
-if [[ -n "${PEER_PUBLIC_KEY:-}" ]]; then
-  echo "$PEER_PUBLIC_KEY" > "$PEER_PUB_FILE"
-else
-  # Run a tiny "publish my pubkey" HTTP server on port 9100 so the peer can grab us.
-  ( while true; do
-      { echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: $(wc -c < "$WG_DIR/public.key")\r\n\r\n$(cat "$WG_DIR/public.key")"; } | nc -l -p 9100 -q 1 || true
-    done ) &
-  echo "[entrypoint] published pubkey on :9100, waiting for peer ($PEER_HOST:9100)..."
-  for i in $(seq 1 60); do
-    if curl -sf "http://$PEER_HOST:9100/" -o "$PEER_PUB_FILE" 2>/dev/null; then
-      [[ -s "$PEER_PUB_FILE" ]] && break
-    fi
-    sleep 1
-  done
+# ---- 2) Rosenpass (PQ) keypair -----------------------------
+RP_OWN_PK="$ROSENPASS_SECRET_DIR/pqc.pk"
+RP_OWN_SK="$ROSENPASS_SECRET_DIR/pqc.sk"
+if [[ ! -s "$RP_OWN_PK" || ! -s "$RP_OWN_SK" ]]; then
+  echo "[entrypoint] generating Rosenpass keypair"
+  rm -f "$RP_OWN_PK" "$RP_OWN_SK"
+  rosenpass gen-keys --public-key "$RP_OWN_PK" --secret-key "$RP_OWN_SK" --force
 fi
 
-PEER_PUB="$(tr -d '\n' < "$PEER_PUB_FILE" 2>/dev/null || true)"
-if [[ -z "$PEER_PUB" ]]; then
-  echo "[entrypoint] ERROR: could not obtain peer public key from $PEER_HOST" >&2
+# ---- 3) Exchange public keys via the shared volume ---------
+# Publish ours (atomic: write tmp then rename) ...
+cp "$WG_DIR/public.key"            "$SHARED_DIR/.$NODE_NAME.wg.pub.tmp"
+mv "$SHARED_DIR/.$NODE_NAME.wg.pub.tmp" "$SHARED_DIR/$NODE_NAME.wg.pub"
+cp "$RP_OWN_PK"                    "$SHARED_DIR/.$NODE_NAME.rp.pub.tmp"
+mv "$SHARED_DIR/.$NODE_NAME.rp.pub.tmp" "$SHARED_DIR/$NODE_NAME.rp.pub"
+
+# ... then wait for the peer to publish theirs.
+PEER_WG_PUB_FILE="$SHARED_DIR/$PEER_NAME.wg.pub"
+PEER_RP_PUB_FILE="$SHARED_DIR/$PEER_NAME.rp.pub"
+echo "[entrypoint] waiting for peer ($PEER_NAME) public keys in $SHARED_DIR ..."
+for _ in $(seq 1 120); do
+  [[ -s "$PEER_WG_PUB_FILE" && -s "$PEER_RP_PUB_FILE" ]] && break
+  sleep 1
+done
+if [[ ! -s "$PEER_WG_PUB_FILE" || ! -s "$PEER_RP_PUB_FILE" ]]; then
+  echo "[entrypoint] ERROR: peer public keys not available ($PEER_WG_PUB_FILE / $PEER_RP_PUB_FILE)" >&2
   exit 1
 fi
-echo "[entrypoint] peer public key: $PEER_PUB"
+PEER_PUB="$(tr -d '\n' < "$PEER_WG_PUB_FILE")"
+echo "[entrypoint] peer WireGuard public key: $PEER_PUB"
 
-# ---- 2) Bring up wg0 ---------------------------------------
+# ---- 4) Bring up wg0 ---------------------------------------
 ip link del "$WG_IFACE" 2>/dev/null || true
 ip link add dev "$WG_IFACE" type wireguard
 wg set "$WG_IFACE" listen-port "$WG_LISTEN_PORT" private-key "$WG_DIR/private.key"
@@ -73,23 +89,28 @@ wg set "$WG_IFACE" peer "$PEER_PUB" \
     allowed-ips "${WG_PEER_IP}/32" \
     persistent-keepalive 25
 
-# ---- 3) Rosenpass sidecar ----------------------------------
-PQC_PSK_FILE="${PQC_PSK_FILE:-/var/lib/rosenpass/pqc.psk}"
-mkdir -p "$(dirname "$PQC_PSK_FILE")"
+# ---- 5) Rosenpass sidecar (REAL PQ exchange) ---------------
+export ROSENPASS_SECRET_DIR
+export ROSENPASS_PEER_PK="$PEER_RP_PUB_FILE"
+export RP_LISTEN_PORT RP_PEER_PORT
+export RP_PEER_HOST="$PEER_HOST"
+export PQC_PSK_FILE
+
 /usr/local/bin/rosenpass-sidecar.sh &
 ROSENPASS_PID=$!
 
-# Wait until Rosenpass has produced at least one PQC key
-echo "[entrypoint] waiting for Rosenpass PQC PSK ($PQC_PSK_FILE)..."
-for i in $(seq 1 30); do
+echo "[entrypoint] waiting for Rosenpass PQC OSK ($PQC_PSK_FILE)..."
+for _ in $(seq 1 90); do
   [[ -s "$PQC_PSK_FILE" ]] && break
+  # surface an early sidecar crash instead of waiting the full timeout
+  kill -0 "$ROSENPASS_PID" 2>/dev/null || { echo "[entrypoint] ERROR: rosenpass sidecar exited" >&2; exit 1; }
   sleep 1
 done
 if [[ ! -s "$PQC_PSK_FILE" ]]; then
-  echo "[entrypoint] WARNING: PQC PSK not produced yet; arnika may fall back per mode" >&2
+  echo "[entrypoint] WARNING: PQC OSK not produced within timeout; arnika will retry per mode" >&2
 fi
 
-# ---- 4) arnika (foreground) --------------------------------
+# ---- 6) arnika (foreground) --------------------------------
 # These env vars map directly to arnika's config (see submodules/arnika-vq/config/config.go)
 export LISTEN_ADDRESS="${LISTEN_ADDRESS:-0.0.0.0:9999}"
 export SERVER_ADDRESS="${SERVER_ADDRESS:-peer:9999}"
@@ -103,7 +124,8 @@ export KMS_HTTP_TIMEOUT="${KMS_HTTP_TIMEOUT:-10s}"
 export KMS_BACKOFF_MAX_RETRIES="${KMS_BACKOFF_MAX_RETRIES:-5}"
 export KMS_BACKOFF_BASE_DELAY="${KMS_BACKOFF_BASE_DELAY:-200ms}"
 export KMS_RETRY_INTERVAL="${KMS_RETRY_INTERVAL:-10s}"
-export ARNIKA_ID="$NODE_NAME"
+# ARNIKA_ID is an optional numeric identifier; omitting it lets arnika default
+# to the port from LISTEN_ADDRESS (NODE_NAME is not numeric, so don't set it).
 
 echo "[entrypoint] starting arnika (MODE=$MODE INTERVAL=$INTERVAL KMS=$KMS_URL)"
 exec /usr/local/bin/arnika

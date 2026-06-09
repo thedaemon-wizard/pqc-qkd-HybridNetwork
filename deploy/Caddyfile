@@ -1,0 +1,24 @@
+# ============================================================
+# Caddy reverse proxy for the PQC-QKD hybrid WebUI.
+#
+# - Terminates auto-TLS (Let's Encrypt) for the public hostname.
+# - Proxies everything to the webui-frontend container (nginx), which
+#   already forwards /api and /ws to webui-backend (WebSocket upgrade
+#   is handled transparently by Caddy + the frontend nginx).
+#
+# Public surface = ONLY this proxy (80/443). KME / backend / WG nodes
+# stay on the internal docker networks and are never published.
+#
+# Env (see deploy/.env.example):
+#   PUBLIC_HOST  e.g. qkd.example.com   (real domain → auto HTTPS)
+#                use ":80" for a local plain-HTTP smoke test through Caddy
+#   ACME_EMAIL   contact address for Let's Encrypt
+# ============================================================
+{
+	email {$ACME_EMAIL:admin@localhost}
+}
+
+{$PUBLIC_HOST} {
+	encode zstd gzip
+	reverse_proxy webui-frontend:80
+}
