@@ -1,35 +1,54 @@
 #!/usr/bin/env bash
 # ============================================================
-# Rosenpass sidecar — generates a long-term PQC keypair if absent
-# and periodically rewrites $PQC_PSK_FILE with a fresh 32-byte secret.
+# Rosenpass sidecar — runs a REAL post-quantum key exchange.
 #
-# In a production deployment Rosenpass talks to its peer over UDP and
-# derives a mutual PSK; here for PoC simplicity we run a self-PSK loop
-# if peering hasn't completed yet, so that arnika always has SOMETHING
-# in PQC_PSK_FILE. The WebUI clearly labels this fallback mode.
+# rosenpass(1) v0.2.2 performs the Rosenpass PQ handshake with the peer
+# over UDP and periodically (~every 2 min) derives a fresh Output Shared
+# Key (OSK), writing it base64-encoded to $PQC_PSK_FILE. arnika then
+# HKDF-combines that PQC half with the QKD key (MODE=QkdAndPqcRequired):
+#       WireGuard PSK = base64(HKDF-SHA3-256(QKD_key ‖ PQC_OSK))[:32]
+#
+# There is NO urandom fallback: if the keypair or peer public key is
+# missing, or the exchange cannot start, this script exits non-zero so
+# the failure is visible rather than masked by fake randomness.
+#
+# Required env (exported by entrypoint.sh):
+#   ROSENPASS_SECRET_DIR  own keypair dir (pqc.pk / pqc.sk)
+#   ROSENPASS_PEER_PK     path to the peer's rosenpass public key
+#   RP_LISTEN_PORT        local UDP port to listen on (container-internal)
+#   RP_PEER_HOST          peer hostname/IP
+#   RP_PEER_PORT          peer rosenpass UDP port
+#   PQC_PSK_FILE          output OSK file (base64) consumed by arnika
 # ============================================================
 set -euo pipefail
 
 PQC_PSK_FILE="${PQC_PSK_FILE:-/var/lib/rosenpass/pqc.psk}"
-SECRET_DIR=/etc/rosenpass-secret
-mkdir -p "$SECRET_DIR" "$(dirname "$PQC_PSK_FILE")"
+SECRET_DIR="${ROSENPASS_SECRET_DIR:-/etc/rosenpass-secret}"
+OWN_PK="$SECRET_DIR/pqc.pk"
+OWN_SK="$SECRET_DIR/pqc.sk"
+PEER_PK="${ROSENPASS_PEER_PK:-/tmp/peer-rosenpass.pk}"
+RP_LISTEN_PORT="${RP_LISTEN_PORT:-9997}"
+RP_PEER_HOST="${RP_PEER_HOST:?RP_PEER_HOST must be set}"
+RP_PEER_PORT="${RP_PEER_PORT:-9997}"
 
-if ! command -v rosenpass >/dev/null 2>&1; then
-  echo "[rosenpass-sidecar] rosenpass binary not found; using urandom fallback"
+mkdir -p "$(dirname "$PQC_PSK_FILE")"
+
+if [[ ! -s "$OWN_PK" || ! -s "$OWN_SK" ]]; then
+  echo "[rosenpass-sidecar] FATAL: own keypair missing ($OWN_PK / $OWN_SK)" >&2
+  exit 1
+fi
+if [[ ! -s "$PEER_PK" ]]; then
+  echo "[rosenpass-sidecar] FATAL: peer public key missing ($PEER_PK)" >&2
+  exit 1
 fi
 
-# Try the real binary first; fall back to urandom if it errors out.
-while true; do
-  if command -v rosenpass >/dev/null 2>&1; then
-    # The actual rosenpass CLI requires peer coordination which is beyond this PoC's
-    # scope; we generate a fresh per-cycle PSK from its 'keygen' subcommand if available,
-    # otherwise from /dev/urandom. Either way arnika treats it as the PQC half.
-    if rosenpass --help 2>/dev/null | grep -q 'gen-keys\|keygen'; then
-      rosenpass gen-keys 2>/dev/null > /tmp/rp.json || true
-    fi
-  fi
-  head -c 32 /dev/urandom | base64 > "$PQC_PSK_FILE.tmp"
-  mv "$PQC_PSK_FILE.tmp" "$PQC_PSK_FILE"
-  chmod 600 "$PQC_PSK_FILE"
-  sleep "${PQC_PSK_INTERVAL:-60}"
-done
+echo "[rosenpass-sidecar] starting REAL rosenpass exchange:" \
+     "listen 0.0.0.0:$RP_LISTEN_PORT peer $RP_PEER_HOST:$RP_PEER_PORT -> $PQC_PSK_FILE"
+
+# Long-running daemon: refreshes the OSK in $PQC_PSK_FILE ~every 2 minutes.
+exec rosenpass exchange \
+    public-key "$OWN_PK" secret-key "$OWN_SK" \
+    listen "0.0.0.0:$RP_LISTEN_PORT" verbose \
+    peer public-key "$PEER_PK" \
+        endpoint "$RP_PEER_HOST:$RP_PEER_PORT" \
+        outfile "$PQC_PSK_FILE"

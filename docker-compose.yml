@@ -34,8 +34,11 @@ volumes:
   bb84-keypool-b:
   rosenpass-keys-alice:
   rosenpass-keys-bob:
+  wg-keys-alice:         # persist WireGuard keypair (stable across recreates)
+  wg-keys-bob:
   pqc-psk-alice:
   pqc-psk-bob:
+  node-pubkeys:          # shared: alice/bob swap WG + rosenpass public keys
   pqcqkd-logs:           # Phase 12-A: shared rotating log files
   pqcqkd-exports:        # Phase 13: backend-stored export artefacts
 
@@ -126,8 +129,8 @@ services:
   # -------------------------------------------------------------
   alice:
     build:
-      context: ./nodes/alice
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: nodes/alice/Dockerfile
     image: pqcqkd/node-alice:local
     container_name: alice
     cap_add: [NET_ADMIN, SYS_MODULE]
@@ -155,6 +158,11 @@ services:
       LISTEN_ADDRESS: 0.0.0.0:9999
       SERVER_ADDRESS: bob:9999
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+      # Rosenpass (real post-quantum exchange) — container-internal UDP only
+      RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
+      RP_PEER_PORT: ${RP_LISTEN_PORT:-9997}
+      ROSENPASS_SECRET_DIR: /etc/rosenpass-secret
+      SHARED_DIR: /shared
       KMS_HTTP_TIMEOUT: ${KMS_HTTP_TIMEOUT:-10s}
       KMS_BACKOFF_MAX_RETRIES: ${KMS_BACKOFF_MAX_RETRIES:-5}
       KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
@@ -162,6 +170,8 @@ services:
     volumes:
       - pqc-psk-alice:/var/lib/rosenpass
       - rosenpass-keys-alice:/etc/rosenpass-secret
+      - wg-keys-alice:/etc/wireguard
+      - node-pubkeys:/shared
     networks:
       qkd-net: {}
       wan-net:
@@ -173,8 +183,8 @@ services:
   bob:
     image: pqcqkd/node-alice:local      # same image, role-switched via env
     build:
-      context: ./nodes/alice
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: nodes/alice/Dockerfile
     container_name: bob
     cap_add: [NET_ADMIN, SYS_MODULE]
     devices: ["/dev/net/tun:/dev/net/tun"]
@@ -200,6 +210,11 @@ services:
       LISTEN_ADDRESS: 0.0.0.0:9999
       SERVER_ADDRESS: alice:9999
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+      # Rosenpass (real post-quantum exchange) — container-internal UDP only
+      RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
+      RP_PEER_PORT: ${RP_LISTEN_PORT:-9997}
+      ROSENPASS_SECRET_DIR: /etc/rosenpass-secret
+      SHARED_DIR: /shared
       KMS_HTTP_TIMEOUT: ${KMS_HTTP_TIMEOUT:-10s}
       KMS_BACKOFF_MAX_RETRIES: ${KMS_BACKOFF_MAX_RETRIES:-5}
       KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
@@ -207,6 +222,8 @@ services:
     volumes:
       - pqc-psk-bob:/var/lib/rosenpass
       - rosenpass-keys-bob:/etc/rosenpass-secret
+      - wg-keys-bob:/etc/wireguard
+      - node-pubkeys:/shared
     networks:
       qkd-net: {}
       wan-net:

@@ -213,6 +213,24 @@ make up-multihop
 
 This launches the `charlie` relay (compose profile `multihop`).
 
+### 5.5 Cloud deployment (single host + TLS)
+
+To run the full real-WireGuard stack on a single public host (e.g. a ConoHa
+KVM VPS) behind automatic HTTPS, use the artifacts in [`deploy/`](deploy/):
+
+```bash
+cp deploy/.env.example .env       # set PUBLIC_HOST + ACME_EMAIL
+sudo bash deploy/deploy.sh        # Docker + WireGuard module + UFW + build & up
+# or manually:
+docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
+```
+
+A Caddy reverse proxy is the only public service (80/443, auto Let's Encrypt);
+the KME/backend and WireGuard nodes stay on the internal networks. The
+privileged WG nodes need a real kernel (fine on a KVM VPS, not on managed PaaS).
+See [`deploy/README.md`](deploy/README.md). Detailed deployment/business and
+per-OSS license & commercial-use notes live in the private `MONETIZATION.md`.
+
 ---
 
 ## 6. Configuration
