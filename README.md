@@ -232,6 +232,29 @@ privileged WG nodes need a real kernel (fine on a KVM VPS, not on managed PaaS).
 See [`deploy/README.md`](deploy/README.md). Detailed deployment/business and
 per-OSS license & commercial-use notes live in the private `MONETIZATION.md`.
 
+### 5.6 Public-demo profile — client-side simulation (near-zero backend load)
+
+The **Quantum-Secure E2E**, **Paper Data Exchange**, **Physics Params** and
+**BB84 Live** pages run their simulation **entirely client-side** in the browser
+— real HKDF-SHA3-256 + ChaCha20-Poly1305 via [`@noble`](https://github.com/paulmillr/noble-hashes),
+the closed-form Lo-Ma key-rate ported to TypeScript, and a **Web Worker**
+Monte-Carlo for BB84 (~70–100M pulses/s) with an optional **WebGPU** compute
+path (WGSL + atomics) that auto-falls-back to the Worker. No `/ws/*` sockets are
+opened for these pages, so each visitor runs an independent sim on their own
+device and a public multi-user demo puts ~no load on the server.
+
+```bash
+# Sim-only public-demo profile (DEMO_MODE=1, no privileged WG nodes / docker.sock):
+docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
+  up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
+```
+
+The backend then only serves `/api/config`, `/api/sim/params` defaults and the
+`/verify` cross-check; container-control + server-side export-save are disabled
+and POSTs are per-IP rate-limited. Leaner still, the four sim pages need **no
+backend at all** — the frontend bundle can be served statically (GitHub /
+Cloudflare / Netlify Pages) for a near-$0 demo (only `/verify` is then disabled).
+
 ---
 
 ## 6. Configuration
@@ -259,14 +282,14 @@ All variables in `.env` (copy from `.env.example`):
 Open <http://localhost:5173>. Thirteen pages are available:
 
 1. **Overview** (`/`) — Layered architecture SVG + live container status badges
-2. **Quantum-Secure E2E** (`/e2e`) — Phase 10 live 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) over the arnika-vq architecture diagram, with Run/Pause/Resume/Reset/Step and Mode A/B/C selection
-3. **Paper Data Exchange** (`/paper-flow`) — Phase 14 multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), failure-cascade timeline, ChaCha20-Poly1305 payload
-4. **BB84 Live** (`/bb84`) — Real-time QBER chart, key-pool size, sample photon frames table, **Eve toggle** + intercept probability slider, "Force rotate" button
+2. **Quantum-Secure E2E** (`/e2e`) — **client-side** 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) with **real in-browser HKDF-SHA3-256 + ChaCha20-Poly1305** (`@noble`), over the arnika-vq architecture diagram, Run/Pause/Resume/Reset/Step + Mode A/B/C
+3. **Paper Data Exchange** (`/paper-flow`) — **client-side** multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), layer-aware failure-cascade timeline, ChaCha20-Poly1305 payload
+4. **BB84 Live** (`/bb84`) — **client-side** Monte-Carlo photon simulation in a **Web Worker** (~70–100M pulses/s; optional WebGPU), real-time QBER chart, key-pool size, photon-frame table, **Eve toggle** + intercept-probability slider, live engine badge
 5. **Key Flow** (`/keyflow`) — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
 6. **Topology** (`/topology`) — D3-force graph of nodes (alice/bob/Charlie) and KMEs
 7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
 8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
-9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults; edits are applied as in-memory runtime overrides on both KMEs (the file is never written and overrides reset on restart) + Bayesian optimisation + backend selector (incl. `tno`)
+9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults (best-effort synced to the KMEs); a **client-side** live key-rate (closed-form Lo-Ma) + **client-side** μ/ν optimiser recompute in-browser as you edit, plus the backend selector (incl. `tno`)
 10. **PQC Validator** (`/pqc`) — liboqs (production) vs PQClean (NIST reference) roundtrip
 11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix (ML-KEM 512/768/1024 + ML-DSA 44/65/87), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
+import { asymptoticSkrPerPulse, channelFromParams, qberEmu } from "../lib/sim/keyrate";
 
 /**
  * Physics parameter editor.
  *
  * config/qkd_params.yaml holds the *defaults*. The UI can OVERRIDE any editable
- * parameter at runtime (POST /api/sim/params); overrides are applied in-memory
- * on both KMEs and reset on restart — the YAML file is never modified. Press
- * "Optimize" to run a scikit-optimize Bayesian GP search for the best μ / ν.
+ * parameter; overrides are best-effort synced to the backend KMEs (light) and
+ * also applied locally. Round 5: the key-rate and the "Optimize" search are now
+ * computed CLIENT-SIDE (keyrate.ts, closed-form Lo-Ma) — no backend compute.
  */
 
 interface EditableField {
@@ -95,18 +96,52 @@ export default function PhysicsParams() {
     finally { setBusy(false); await load(); }
   }
 
-  async function runOptimize() {
-    setBusy(true); setOpt(null);
-    try {
-      const r = await fetch("/api/sim/optimize", { method: "POST" });
-      setOpt(await r.json());
-    } finally { setBusy(false); }
-  }
-
   if (!fields) return <div>Loading parameters…</div>;
 
   const dirty = Object.keys(edits).length;
   const anyOverridden = fields.some((f) => f.overridden);
+
+  // ---- Client-side key-rate (closed-form Lo-Ma; no backend) ----
+  const pv = (path: string): number =>
+    Number(edits[path] ?? fields.find((f) => f.path === path)?.value ?? 0);
+  const { etaTotal, Y0 } = channelFromParams({
+    detectorEfficiency: pv("physical.detector_efficiency"),
+    fiberAttenuationDbPerKm: pv("physical.fiber_attenuation_db_per_km"),
+    linkLengthKm: pv("physical.link_length_km"),
+    darkCountRateHz: pv("physical.dark_count_rate_hz"),
+    pulseRateHz: pv("source.pulse_rate_hz"),
+  });
+  const eD = pv("physical.misalignment_error_ed");
+  const mu = pv("source.intensity_signal_mu");
+  const nu1 = pv("source.intensity_decoy_1_nu1");
+  const nu2 = pv("source.intensity_decoy_2_nu2");
+  const fEC = pv("protocol.ec_efficiency_f");
+  const skrPerPulse = asymptoticSkrPerPulse({ Y0, etaTotal, eD, mu, nu1, nu2, fEC });
+  const qber = qberEmu(Y0, etaTotal, eD, mu);
+  const skrBps = skrPerPulse * pv("source.pulse_rate_hz");
+
+  // Client-side grid search over μ / ν₁ maximising the asymptotic SKR.
+  function runOptimize() {
+    setBusy(true); setOpt(null);
+    let best = { mu, nu1, skr: skrPerPulse };
+    for (let m = 0.20; m <= 0.90; m += 0.02) {
+      for (let n = 0.02; n < m - 0.01; n += 0.02) {
+        const r = asymptoticSkrPerPulse({ Y0, etaTotal, eD, mu: m, nu1: n, nu2, fEC });
+        if (r > best.skr) best = { mu: m, nu1: n, skr: r };
+      }
+    }
+    setOpt({
+      method: "client-side grid search (Lo-Ma closed form)",
+      mu: +best.mu.toFixed(3), nu1: +best.nu1.toFixed(3), nu2,
+      skr_per_pulse: best.skr, skr_bps: best.skr * pv("source.pulse_rate_hz"),
+    });
+    setEdits((e) => ({
+      ...e,
+      "source.intensity_signal_mu": +best.mu.toFixed(3),
+      "source.intensity_decoy_1_nu1": +best.nu1.toFixed(3),
+    }));
+    setBusy(false);
+  }
 
   return (
     <div>
@@ -169,16 +204,43 @@ export default function PhysicsParams() {
         </Panel>
       </div>
 
-      <div style={{ marginTop: 16 }}>
+      {/* Live client-side key-rate (recomputes as you edit; closed-form Lo-Ma) */}
+      <Panel title="Key-rate (client-side · closed-form Lo-Ma)">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+          <KpiCell label="η_total (transmittance)" value={etaTotal.toExponential(3)} />
+          <KpiCell label="QBER E_μ" value={(qber * 100).toFixed(2) + " %"} />
+          <KpiCell label="SKR (bits/pulse)" value={skrPerPulse.toExponential(3)} />
+          <KpiCell label="SKR (bps)" value={skrBps.toExponential(3)} />
+        </div>
+        <p style={{ fontSize: 11, color: "#6b7796", marginBottom: 0 }}>
+          Computed in the browser from the current parameters — no backend call.
+          Edit a value above to see it update live.
+        </p>
+      </Panel>
+
+      <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={runOptimize} disabled={busy} style={primaryBtn}>
-          {busy ? "Optimizing…" : "Run Bayesian Optimization"}
+          {busy ? "Optimizing…" : "Optimize μ / ν (client-side)"}
         </button>
+        <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
+                        borderRadius: 10, padding: "2px 10px" }}>
+          ⚡ engine: client-side (keyrate.ts)
+        </span>
         {opt && (
           <pre style={preBox}>
 {JSON.stringify(opt, null, 2)}
           </pre>
         )}
       </div>
+    </div>
+  );
+}
+
+function KpiCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: "#070b14", border: "1px solid #1d2741", borderRadius: 6, padding: "8px 10px" }}>
+      <div style={{ fontSize: 10, color: "#6b7796" }}>{label}</div>
+      <div style={{ fontSize: 15, color: "#d8e1ff", fontFamily: "monospace" }}>{value}</div>
     </div>
   );
 }

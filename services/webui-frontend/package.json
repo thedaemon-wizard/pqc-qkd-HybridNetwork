@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "d3-force": "^3.0.0",
     "gifshot": "^0.4.5",
     "html-to-image": "^1.11.13",
