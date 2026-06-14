@@ -9,6 +9,7 @@ import PhaseSequenceSvg, { type PhaseBudget } from "../components/PhaseSequenceS
 import PacketFlowTable from "../components/PacketFlowTable";
 import FailureCascadeTimeline, { type CascadeEvent } from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
+import { PaperSim } from "../lib/sim/paperSim";
 
 /**
  * Paper Data Exchange page (Phase 14).
@@ -60,38 +61,27 @@ interface PaperFlowState {
 export default function PaperDataExchange() {
   const [state, setState] = useState<PaperFlowState | null>(null);
   const [hopCount, setHopCount] = useState(4);
-  const wsRef = useRef<WebSocket | null>(null);
+  const simRef = useRef<PaperSim | null>(null);
 
+  // Round 5: the multi-hop orchestration runs CLIENT-SIDE (no /ws/paper-flow).
   useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/paper-flow`);
-    ws.onmessage = (ev) => {
-      try { setState(JSON.parse(ev.data)); } catch { /* ignore */ }
-    };
-    wsRef.current = ws;
-    return () => ws.close();
+    const sim = new PaperSim(setState);
+    simRef.current = sim;
+    return () => sim.dispose();
   }, []);
 
-  async function ctl(action: "start" | "pause" | "resume" | "reset") {
-    await fetch(`/api/paper-flow/${action}`, { method: "POST" });
+  function ctl(action: "start" | "pause" | "resume" | "reset") {
+    simRef.current?.[action]();
   }
-  async function configHopCount(n: number) {
+  function configHopCount(n: number) {
     setHopCount(n);
-    await fetch("/api/paper-flow/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hop_count: n }),
-    });
+    simRef.current?.setHopCount(n);
   }
-  async function injectFailure(layer: string) {
-    await fetch("/api/paper-flow/inject-failure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layer }),
-    });
+  function injectFailure(layer: string) {
+    simRef.current?.injectFailure(layer as any);
   }
-  async function clearFailure() {
-    await fetch("/api/paper-flow/clear-failure", { method: "POST" });
+  function clearFailure() {
+    simRef.current?.clearFailure();
   }
 
   const status = state?.status ?? "idle";
