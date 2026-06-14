@@ -170,20 +170,27 @@ class PaperFlowOrchestrator:
 
     async def inject_failure(self, layer: Layer) -> None:
         now = time.time()
+        # Build a LAYER-APPROPRIATE cascade: begin at the injected layer's first
+        # stage and include only the downstream stages, re-based so the injected
+        # layer is t=0. (Previously every button reused the full QKD-origin chain,
+        # so e.g. injecting "rosenpass" wrongly began with a QKD outage.)
+        stages = self.CASCADE_STAGES
+        start_idx = next((i for i, s in enumerate(stages) if s[1] == layer), 0)
+        base_t = stages[start_idx][0]
         async with self._lock:
             self.state.failure_active_layer = layer
             self.state.failure_started_at = now
             self.state.cascade_schedule = [
                 CascadeEvent(
-                    t_offset_s=stage[0],
+                    t_offset_s=stage[0] - base_t,
                     layer=stage[1],
                     description=stage[2],
-                    triggered_at=now + stage[0],
+                    triggered_at=now + (stage[0] - base_t),
                 )
-                for stage in self.CASCADE_STAGES
+                for stage in stages[start_idx:]
             ]
-        log.info("failure injected: layer=%s scheduled %d cascade events",
-                 layer, len(self.state.cascade_schedule))
+        log.info("failure injected: layer=%s (cascade from t=%.0fs, %d events)",
+                 layer, base_t, len(self.state.cascade_schedule))
 
     async def clear_failure(self) -> None:
         async with self._lock:
