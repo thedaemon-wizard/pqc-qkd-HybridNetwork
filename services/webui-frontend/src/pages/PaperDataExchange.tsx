@@ -97,6 +97,7 @@ export default function PaperDataExchange() {
   const status = state?.status ?? "idle";
   const phase = state?.current_phase ?? 0;
   const budgets = state?.paper_budgets.phases ?? [];
+  const activeFailure = state?.failure.active_layer ?? null;
 
   return (
     <div>
@@ -176,12 +177,29 @@ export default function PaperDataExchange() {
         <span style={{ width: 1, height: 18, background: colors.borderLt,
                         margin: "0 8px" }} />
         <span style={{ color: colors.textSec, fontSize: 12 }}>Inject failure:</span>
-        {["qkd", "arnika", "wireguard", "rosenpass", "data"].map((layer) => (
-          <Button key={layer} variant="ghost" size="sm"
-                  onClick={() => injectFailure(layer)}>{layer}</Button>
-        ))}
-        <Button variant="ghost" size="sm" onClick={clearFailure}>clear</Button>
+        {["qkd", "arnika", "wireguard", "rosenpass", "data"].map((layer) => {
+          const isActive = activeFailure === layer;
+          return (
+            <Button key={layer}
+                    variant={isActive ? "danger" : "ghost"} size="sm"
+                    title={isActive
+                      ? `Active: ${layer}-layer failure injected (drives the cascade below)`
+                      : `Inject a ${layer}-layer failure`}
+                    onClick={() => injectFailure(layer)}>
+              {isActive ? `● ${layer}` : layer}
+            </Button>
+          );
+        })}
+        <Button variant={activeFailure ? "warn" : "ghost"} size="sm"
+                disabled={!activeFailure}
+                title="Clear the injected failure"
+                onClick={clearFailure}>clear</Button>
         <span style={{ marginLeft: "auto", fontSize: 11, color: colors.textSec }}>
+          {activeFailure && (
+            <span style={{ color: colors.danger, fontWeight: 700, marginRight: 10 }}>
+              ⚠ failure: {activeFailure}
+            </span>
+          )}
           status: <b style={{ color: colors.textPri }}>{status}</b> · phase:{" "}
           <b style={{ color: colors.danger }}>
             {phase || "idle"}
