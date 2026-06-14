@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
+import { E2ESim } from "../lib/sim/e2eSim";
 
 /**
  * Quantum-Secure E2E Simulation (Phase 10).
@@ -50,27 +51,21 @@ const PHASE_LABELS = [
 
 export default function QuantumSecureE2E() {
   const [state, setState] = useState<E2EState | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const simRef = useRef<E2ESim | null>(null);
 
+  // Round 5: the orchestration runs CLIENT-SIDE (no /ws/e2e, no backend load).
+  // Real HKDF-SHA3-256 + ChaCha20-Poly1305 are computed in the browser via @noble.
   useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/e2e`);
-    ws.onmessage = (ev) => {
-      try { setState(JSON.parse(ev.data)); } catch { /* ignore */ }
-    };
-    wsRef.current = ws;
-    return () => ws.close();
+    const sim = new E2ESim(setState);
+    simRef.current = sim;
+    return () => sim.dispose();
   }, []);
 
-  async function ctl(action: "start" | "pause" | "resume" | "reset" | "step") {
-    await fetch(`/api/e2e/${action}`, { method: "POST" });
+  function ctl(action: "start" | "pause" | "resume" | "reset" | "step") {
+    simRef.current?.[action]();
   }
-  async function setMode(mode: "A" | "B" | "C") {
-    await fetch("/api/e2e/mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    });
+  function setMode(mode: "A" | "B" | "C") {
+    simRef.current?.setMode(mode);
   }
 
   const status = state?.status ?? "idle";
@@ -130,6 +125,12 @@ export default function QuantumSecureE2E() {
                 style={primaryBtn("#7c5cff")}>▶ Resume</button>
         <button onClick={() => ctl("reset")} style={primaryBtn("#e25555")}>⏹ Reset</button>
         <button onClick={() => ctl("step")} style={primaryBtn("#5b8def")}>⏭ Step</button>
+        {state?.engine && (
+          <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
+                          borderRadius: 10, padding: "2px 10px", alignSelf: "center" }}>
+            ⚡ {state.engine}
+          </span>
+        )}
         <Badge text={`status: ${status}`}
                color={status === "running" ? "#3ddc84"
                       : status === "paused" ? "#f5a623" : "#445"} />

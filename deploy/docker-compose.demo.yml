@@ -1,0 +1,44 @@
+# ============================================================================
+# Public-demo profile (sim-only) — Round 5.
+#
+# The E2E / Paper / Physics / BB84 pages now run ENTIRELY CLIENT-SIDE (browser
+# JS + Web Worker / WebGPU, real @noble crypto), so a public multi-user demo
+# puts ~no load on the backend. This overlay runs only the lightweight services
+# the client-side UI still needs:
+#     webui-frontend  — serves the client-side bundle
+#     webui-backend   — DEMO_MODE=1 (only /api/config, /api/sim/params defaults,
+#                       /verify cross-check; container-control + server-side
+#                       export-save disabled, per-IP rate-limited)
+#     bb84-kme-a/b    — only for the /verify TNO key-rate cross-check
+#     pqc-validator   — only for the /verify crypto-agility matrix
+#
+# The privileged WireGuard nodes (alice/bob) and the docker.sock mount are
+# EXCLUDED. Bring up ONLY the demo services (do not start alice/bob):
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
+#     up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
+#
+# Even leaner (static-only): the four sim pages need no backend at all — the
+# webui-frontend image (or its dist/) can be served standalone on GitHub /
+# Cloudflare / Netlify Pages for a near-$0 demo; only /verify is then disabled.
+# ============================================================================
+services:
+  webui-backend:
+    environment:
+      DEMO_MODE: "1"
+      DEMO_RATE_MAX: "120"
+      DEMO_RATE_WINDOW_S: "60"
+    # Drop the docker.sock mount entirely for the public demo (container control
+    # is already 403 in DEMO_MODE; no need to expose the socket at all).
+    volumes: !override
+      - pqcqkd-logs:/var/log/pqcqkd
+
+  webui-frontend:
+    restart: unless-stopped
+
+  bb84-kme-a:
+    restart: unless-stopped
+  bb84-kme-b:
+    restart: unless-stopped
+  pqc-validator:
+    restart: unless-stopped

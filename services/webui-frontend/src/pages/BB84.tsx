@@ -1,32 +1,72 @@
 import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { getStats, openFramesWS, postEve, postRotate } from "../api";
+import { Bb84Engine, type Bb84Frame } from "../lib/sim/bb84Sim";
+import { channelFromParams } from "../lib/sim/keyrate";
 
-type Frame = {
-  i: number; alice_bit: number; alice_basis: number;
-  bob_basis: number; bob_bit: number; basis_match: boolean;
+/**
+ * BB84 Live — Round 5: the photon-level Monte-Carlo runs CLIENT-SIDE in a Web
+ * Worker (or WebGPU compute shader when available), so a public demo puts NO
+ * load on the backend. Channel params (η_total, e_d, Y0) come from the editable
+ * config defaults; Eve controls reconfigure the engine live.
+ */
+
+// Bundled fallback defaults (used if the backend /api/sim/params is absent).
+const DEFAULT_PARAMS = {
+  detectorEfficiency: 0.2, fiberAttenuationDbPerKm: 0.2, linkLengthKm: 25,
+  darkCountRateHz: 100, pulseRateHz: 1e7, misalignmentErrorEd: 0.015,
 };
 
 export default function BB84() {
   const [qberHistory, setQberHistory] = useState<number[]>([]);
   const [poolHistory, setPoolHistory] = useState<number[]>([]);
-  const [frames, setFrames] = useState<Frame[]>([]);
+  const [frames, setFrames] = useState<Bb84Frame[]>([]);
   const [eveOn, setEveOn] = useState(false);
   const [eveProb, setEveProb] = useState(1.0);
-  const [stats, setStats] = useState<any>({});
-  const wsRef = useRef<WebSocket | null>(null);
+  const [engineName, setEngineName] = useState("starting…");
+  const [pps, setPps] = useState(0);
+  const [lastQber, setLastQber] = useState(0);
+  const [pool, setPool] = useState(0);
+  const engineRef = useRef<Bb84Engine | null>(null);
 
   useEffect(() => {
-    wsRef.current = openFramesWS((d) => {
-      if (d.type === "frames") {
-        setQberHistory((h) => [...h.slice(-59), d.qber]);
-        setPoolHistory((h) => [...h.slice(-59), d.pool_size]);
-        setFrames(d.frames || []);
-      }
+    const eng = new Bb84Engine((u) => {
+      setQberHistory((h) => [...h.slice(-59), u.qber]);
+      setPoolHistory((h) => [...h.slice(-59), u.pool_size]);
+      setFrames(u.frames);
+      setEngineName(u.engine);
+      setPps(u.pulsesPerSec);
+      setLastQber(u.qber);
+      setPool(u.pool_size);
     });
-    const t = setInterval(async () => setStats(await getStats()), 1500);
-    return () => { wsRef.current?.close(); clearInterval(t); };
+    engineRef.current = eng;
+    // Load editable config defaults (falls back to bundled defaults offline).
+    (async () => {
+      let p = DEFAULT_PARAMS;
+      try {
+        const r = await fetch("/api/sim/params");
+        if (r.ok) {
+          const j = await r.json();
+          p = {
+            detectorEfficiency: j.physical?.detector_efficiency ?? p.detectorEfficiency,
+            fiberAttenuationDbPerKm: j.physical?.fiber_attenuation_db_per_km ?? p.fiberAttenuationDbPerKm,
+            linkLengthKm: j.physical?.link_length_km ?? p.linkLengthKm,
+            darkCountRateHz: j.physical?.dark_count_rate_hz ?? p.darkCountRateHz,
+            pulseRateHz: j.source?.pulse_rate_hz ?? p.pulseRateHz,
+            misalignmentErrorEd: j.physical?.misalignment_error_ed ?? p.misalignmentErrorEd,
+          };
+        }
+      } catch { /* offline → bundled defaults */ }
+      const { etaTotal, Y0 } = channelFromParams(p);
+      eng.setConfig({ etaTotal, Y0, eD: p.misalignmentErrorEd, eveOn, eveProb });
+      eng.start();
+    })();
+    return () => eng.dispose();
   }, []);
+
+  function updateEve(on: boolean, prob: number) {
+    setEveOn(on); setEveProb(prob);
+    engineRef.current?.setConfig({ eveOn: on, eveProb: prob });
+  }
 
   return (
     <div>
@@ -36,18 +76,18 @@ export default function BB84() {
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <label style={{ fontSize: 13 }}>
           <input type="checkbox" checked={eveOn}
-                 onChange={async (e) => { setEveOn(e.target.checked); await postEve(e.target.checked, eveProb); }} />
+                 onChange={(e) => updateEve(e.target.checked, eveProb)} />
           {" "}Enable Eve (intercept-resend)
         </label>
         <label style={{ fontSize: 13 }}>
           P(intercept) {eveProb.toFixed(2)}{" "}
           <input type="range" min={0} max={1} step={0.05} value={eveProb}
-                 onChange={async (e) => {
-                   const v = parseFloat(e.target.value); setEveProb(v);
-                   if (eveOn) await postEve(true, v);
-                 }} />
+                 onChange={(e) => updateEve(eveOn, parseFloat(e.target.value))} />
         </label>
-        <button onClick={() => postRotate()} style={btnStyle}>Force rotate</button>
+        <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
+                        borderRadius: 10, padding: "2px 10px" }}>
+          ⚡ {engineName} · {(pps / 1e6).toFixed(1)}M pulses/s
+        </span>
       </div>
 
       {/* Plots */}
@@ -97,9 +137,15 @@ export default function BB84() {
             </tbody>
           </table>
         </ChartCard>
-        <ChartCard title="Live stats (Alice KME)">
+        <ChartCard title="Live engine stats (client-side)">
           <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5" }}>
-{JSON.stringify(stats?.alice ?? {}, null, 2)}
+{JSON.stringify({
+  engine: engineName,
+  pulses_per_sec: pps,
+  last_qber: Number(lastQber.toFixed(4)),
+  key_pool: pool,
+  eve: eveOn ? `on (p=${eveProb.toFixed(2)})` : "off",
+}, null, 2)}
           </pre>
         </ChartCard>
       </div>
@@ -120,9 +166,4 @@ const plotLayout: any = {
   paper_bgcolor: "transparent", plot_bgcolor: "transparent",
   margin: { l: 40, r: 10, t: 10, b: 30 },
   font: { color: "#9aa9d8" },
-};
-
-const btnStyle: React.CSSProperties = {
-  background: "#1a2440", color: "#d8e1ff", border: "1px solid #2a3760",
-  borderRadius: 4, padding: "4px 12px", fontSize: 12, cursor: "pointer",
 };
