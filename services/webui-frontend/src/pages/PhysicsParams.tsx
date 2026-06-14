@@ -1,43 +1,93 @@
 import { useEffect, useState } from "react";
 
 /**
- * Physics parameter editor — drives config/qkd_params.yaml live.
- * All values are *scientifically grounded*: defaults come from openQKDsecurity
- * pre-computed table + arXiv 2511.21253 closed-form formula. Operators can
- * override any slider; pressing "Optimize" invokes scikit-optimize gp_minimize.
+ * Physics parameter editor.
+ *
+ * config/qkd_params.yaml holds the *defaults*. The UI can OVERRIDE any editable
+ * parameter at runtime (POST /api/sim/params); overrides are applied in-memory
+ * on both KMEs and reset on restart — the YAML file is never modified. Press
+ * "Optimize" to run a scikit-optimize Bayesian GP search for the best μ / ν.
  */
 
-interface Params {
-  physical: {
-    fiber_attenuation_db_per_km: number;
-    link_length_km: number;
-    detector_efficiency: number;
-    dark_count_rate_hz: number;
-    misalignment_error_ed: number;
-  };
-  source: {
-    intensity_signal_mu: number;
-    intensity_decoy_1_nu1: number;
-    intensity_decoy_2_nu2: number;
-    pulse_rate_hz: number;
-  };
-  protocol: { qber_threshold_abort: number; ec_efficiency_f: number };
-  simulator: { backend: string };
+interface EditableField {
+  path: string;
+  type: "float" | "int" | "bool";
+  value: number | boolean;
+  overridden: boolean;
 }
 
-const BACKENDS = ["qutip", "simqn", "sequence", "cvqkd", "composite_sim_to_net", "qkdnetsim_proxy"];
+const LABELS: Record<string, string> = {
+  "physical.fiber_attenuation_db_per_km": "Fiber attenuation (dB/km)",
+  "physical.link_length_km": "Link length (km)",
+  "physical.detector_efficiency": "Detector efficiency η_d",
+  "physical.dark_count_rate_hz": "Dark count rate (Hz)",
+  "physical.misalignment_error_ed": "Misalignment e_d",
+  "source.pulse_rate_hz": "Pulse rate (Hz)",
+  "source.intensity_signal_mu": "μ (signal)",
+  "source.intensity_decoy_1_nu1": "ν₁ (decoy 1)",
+  "source.intensity_decoy_2_nu2": "ν₂ (decoy 2)",
+  "source.basis_bias_pz": "Basis bias p_z",
+  "protocol.ec_efficiency_f": "EC efficiency f",
+  "protocol.qber_threshold_abort": "QBER abort threshold",
+  "simulator.bb84_batch_size": "BB84 batch size",
+  "eve.enabled": "Eve attack enabled",
+  "eve.intercept_prob": "Eve intercept probability",
+};
+
+const GROUPS: { title: string; prefix: string }[] = [
+  { title: "Channel (fiber + detector)", prefix: "physical." },
+  { title: "Source (WCP intensities)", prefix: "source." },
+  { title: "Protocol", prefix: "protocol." },
+  { title: "Simulator", prefix: "simulator." },
+  { title: "Adversary (Eve)", prefix: "eve." },
+];
+
+const BACKENDS = ["qutip", "simqn", "sequence", "cvqkd", "tno", "composite_sim_to_net", "qkdnetsim_proxy"];
 
 export default function PhysicsParams() {
-  const [p, setP] = useState<Params | null>(null);
+  const [fields, setFields] = useState<EditableField[] | null>(null);
+  const [backend, setBackend] = useState<string>("");
+  const [edits, setEdits] = useState<Record<string, number | boolean>>({});
   const [opt, setOpt] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string>("");
 
   async function load() {
     try {
-      const r = await fetch("/api/sim/params"); setP(await r.json());
+      const r = await fetch("/api/sim/params/editable");
+      const j = await r.json();
+      setFields(j.fields);
+      const r2 = await fetch("/api/sim/params");
+      const p = await r2.json();
+      setBackend(p?.simulator?.backend ?? "");
     } catch { /* backend may be down */ }
   }
-  useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+
+  function setEdit(path: string, v: number | boolean) {
+    setEdits((e) => ({ ...e, [path]: v }));
+  }
+
+  async function applyEdits() {
+    if (Object.keys(edits).length === 0) { setNote("No changes to apply."); return; }
+    setBusy(true); setNote("");
+    try {
+      const r = await fetch("/api/sim/params", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch: edits }),
+      });
+      if (!r.ok) { setNote(`Apply failed: ${r.status} ${await r.text()}`); }
+      else { setNote(`Applied ${Object.keys(edits).length} override(s).`); setEdits({}); }
+    } finally { setBusy(false); await load(); }
+  }
+
+  async function resetParams() {
+    setBusy(true); setNote("");
+    try {
+      await fetch("/api/sim/params/reset", { method: "POST" });
+      setEdits({}); setNote("Reverted to config/qkd_params.yaml defaults.");
+    } finally { setBusy(false); await load(); }
+  }
 
   async function switchBackend(name: string) {
     setBusy(true);
@@ -53,45 +103,67 @@ export default function PhysicsParams() {
     } finally { setBusy(false); }
   }
 
-  if (!p) return <div>Loading parameters…</div>;
+  if (!fields) return <div>Loading parameters…</div>;
+
+  const dirty = Object.keys(edits).length;
+  const anyOverridden = fields.some((f) => f.overridden);
 
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Physics Parameters</h2>
-      <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        Live view of the central YAML (<code>config/qkd_params.yaml</code>).
-        Every default is grounded — values come from the openQKDsecurity precomputed
-        table and the closed-form formulae in arXiv:2511.21253. Press <b>Optimize</b>
-        to run a scikit-optimize Bayesian GP search for the best μ / ν.
+      <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
+        Defaults come from <code>config/qkd_params.yaml</code> (grounded in the
+        openQKDsecurity precomputed table and the closed-form formulae in
+        arXiv:2511.21253). <b>Edit any value below and press Apply</b> to override
+        it at runtime on both KMEs — overrides are held in memory and reset on
+        restart; the YAML file is never modified. Press <b>Reset</b> to revert to
+        defaults, or <b>Optimize</b> for a Bayesian GP search of μ / ν.
       </p>
 
+      {/* Apply / Reset toolbar */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "12px 0",
+                     flexWrap: "wrap" }}>
+        <button onClick={applyEdits} disabled={busy || dirty === 0}
+                style={{ ...primaryBtn, opacity: dirty === 0 ? 0.5 : 1 }}>
+          {busy ? "Applying…" : `Apply${dirty ? ` (${dirty})` : ""}`}
+        </button>
+        <button onClick={resetParams} disabled={busy || !anyOverridden}
+                style={{ ...resetBtn, opacity: anyOverridden ? 1 : 0.5 }}>
+          Reset to defaults
+        </button>
+        {anyOverridden && (
+          <span style={{ fontSize: 11, color: "#f5a623",
+                          border: "1px solid #f5a62355", borderRadius: 10,
+                          padding: "2px 10px" }}>
+            ● runtime overrides active
+          </span>
+        )}
+        {note && <span style={{ fontSize: 12, color: "#9aa9d8" }}>{note}</span>}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Panel title="Channel (fiber + detector)">
-          <Row k="Fiber attenuation (dB/km)" v={p.physical.fiber_attenuation_db_per_km} />
-          <Row k="Link length (km)" v={p.physical.link_length_km} />
-          <Row k="Detector efficiency η_d" v={p.physical.detector_efficiency} />
-          <Row k="Dark count (Hz)" v={p.physical.dark_count_rate_hz} />
-          <Row k="Misalignment e_d" v={p.physical.misalignment_error_ed} />
-        </Panel>
-        <Panel title="Source (WCP intensities)">
-          <Row k="Pulse rate (Hz)" v={p.source.pulse_rate_hz} />
-          <Row k="μ (signal)" v={p.source.intensity_signal_mu} />
-          <Row k="ν₁ (decoy 1)" v={p.source.intensity_decoy_1_nu1} />
-          <Row k="ν₂ (decoy 2)" v={p.source.intensity_decoy_2_nu2} />
-        </Panel>
-        <Panel title="Protocol">
-          <Row k="QBER abort threshold" v={p.protocol.qber_threshold_abort} />
-          <Row k="EC efficiency f" v={p.protocol.ec_efficiency_f} />
-        </Panel>
-        <Panel title="Backend selector">
+        {GROUPS.map((g) => {
+          const groupFields = fields.filter((f) => f.path.startsWith(g.prefix));
+          if (groupFields.length === 0) return null;
+          return (
+            <Panel key={g.prefix} title={g.title}>
+              {groupFields.map((f) => (
+                <FieldRow key={f.path} field={f}
+                          draft={edits[f.path]}
+                          onChange={(v) => setEdit(f.path, v)} />
+              ))}
+            </Panel>
+          );
+        })}
+        <Panel title="Backend selector (crypto-/sim-agility)">
           <p style={{ fontSize: 12, color: "#9aa9d8", margin: "4px 0" }}>
-            Current: <code>{p.simulator.backend}</code>
+            Current: <code>{backend || "—"}</code>
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {BACKENDS.map((b) => (
               <button key={b} disabled={busy}
                       onClick={() => switchBackend(b)}
-                      style={btn(b === p.simulator.backend)}>{b}</button>
+                      style={btn(b === backend)}>{b}</button>
             ))}
           </div>
         </Panel>
@@ -111,20 +183,49 @@ export default function PhysicsParams() {
   );
 }
 
+function FieldRow({ field, draft, onChange }:
+                  { field: EditableField; draft: number | boolean | undefined;
+                    onChange: (v: number | boolean) => void }) {
+  const label = LABELS[field.path] ?? field.path.split(".").pop()!;
+  const dirty = draft !== undefined;
+  const cur = dirty ? draft : field.value;
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between",
+                   alignItems: "center", padding: "4px 0", fontSize: 13, gap: 8 }}>
+      <span style={{ color: "#9aa9d8" }}>
+        {label}
+        {field.overridden && (
+          <span title="overridden at runtime"
+                style={{ color: "#f5a623", marginLeft: 6 }}>●</span>
+        )}
+      </span>
+      {field.type === "bool" ? (
+        <input type="checkbox" checked={Boolean(cur)}
+               onChange={(e) => onChange(e.target.checked)} />
+      ) : (
+        <input type="number" value={String(cur)}
+               step="any"
+               onChange={(e) => {
+                 const n = field.type === "int"
+                   ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
+                 if (!Number.isNaN(n)) onChange(n);
+               }}
+               style={{
+                 width: 120, textAlign: "right", fontFamily: "monospace",
+                 fontSize: 12, padding: "3px 6px", borderRadius: 4,
+                 background: "#070b14", color: dirty ? "#ffd479" : "#cbd6f5",
+                 border: `1px solid ${dirty ? "#f5a623" : "#2a3760"}`,
+               }} />
+      )}
+    </div>
+  );
+}
+
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8, padding: 14 }}>
       <h3 style={{ margin: "0 0 10px 0", fontSize: 14, color: "#9aa9d8" }}>{title}</h3>
       {children}
-    </div>
-  );
-}
-
-function Row({ k, v }: { k: string; v: any }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8" }}>{k}</span>
-      <span style={{ fontFamily: "monospace" }}>{typeof v === "number" ? v.toExponential(3) : String(v)}</span>
     </div>
   );
 }
@@ -137,7 +238,12 @@ const btn = (active: boolean): React.CSSProperties => ({
 
 const primaryBtn: React.CSSProperties = {
   background: "#5b8def", color: "#fff", border: "none", borderRadius: 4,
-  padding: "6px 14px", fontSize: 13, cursor: "pointer",
+  padding: "6px 14px", fontSize: 13, cursor: "pointer", fontWeight: 600,
+};
+
+const resetBtn: React.CSSProperties = {
+  background: "#0d1320", color: "#e25555", border: "1px solid #e25555",
+  borderRadius: 4, padding: "6px 14px", fontSize: 13, cursor: "pointer",
 };
 
 const preBox: React.CSSProperties = {

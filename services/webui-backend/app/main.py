@@ -18,12 +18,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 try:
@@ -86,10 +88,51 @@ app.add_middleware(
 )
 
 
+# ----------------------- Public-demo hardening (DEMO_MODE) -----------------------
+def _truthy(v: str | None) -> bool:
+    return str(v or "").strip().lower() in ("1", "true", "yes", "on")
+
+# When DEMO_MODE is on (public multi-user host): container control is disabled,
+# server-side export writes are refused (clients still download locally), and a
+# per-IP token-bucket rate-limit is applied to POST requests. Local full-stack
+# and the cloud real-WG deploy run with DEMO_MODE OFF (unchanged behaviour).
+DEMO_MODE = _truthy(os.environ.get("DEMO_MODE"))
+DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / window
+DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
+_rate_state: dict[str, tuple[float, float]] = {}                   # ip -> (tokens, ts)
+
+
+@app.middleware("http")
+async def demo_rate_limit(request, call_next):
+    """Per-IP token-bucket on POST requests, active only in DEMO_MODE."""
+    if DEMO_MODE and request.method == "POST":
+        ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        tokens, last = _rate_state.get(ip, (float(DEMO_RATE_MAX), now))
+        tokens = min(DEMO_RATE_MAX,
+                     tokens + (now - last) * (DEMO_RATE_MAX / DEMO_RATE_WINDOW_S))
+        if tokens < 1.0:
+            _rate_state[ip] = (tokens, now)
+            return JSONResponse(
+                {"detail": "rate limit exceeded (demo mode)"}, status_code=429)
+        _rate_state[ip] = (tokens - 1.0, now)
+    return await call_next(request)
+
+
 # ----------------------- Health / Stack -----------------------
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, Any]:
+    return {"status": "ok", "demo_mode": DEMO_MODE}
+
+
+@app.get("/api/config")
+async def config() -> dict[str, Any]:
+    """Runtime flags the frontend uses to adapt the UI (e.g. hide controls)."""
+    return {
+        "demo_mode": DEMO_MODE,
+        "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S}
+        if DEMO_MODE else None,
+    }
 
 
 @app.get("/api/stack")
@@ -183,6 +226,10 @@ def _gc_export_dir() -> None:
 async def export_save(req: dict):
     """Body: {name: str, ext: str, content_b64: str}
     Saves <timestamp>-<safe_name>.<ext> into EXPORT_DIR.  Returns the URL."""
+    if DEMO_MODE:
+        # No server-side files on a public host — the client exporter falls back
+        # to a local browser download when this returns non-2xx.
+        raise HTTPException(403, "server-side export disabled in demo mode")
     import base64
     import re
     import time
@@ -325,6 +372,8 @@ async def sim_rotate():
 # ----------------------- Stack control -----------------------
 @app.post("/api/stack/{action}/{name}")
 async def stack_action(action: str, name: str):
+    if DEMO_MODE:
+        raise HTTPException(403, "container control disabled in demo mode")
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
@@ -357,6 +406,44 @@ async def sim_backend_proxy(req: dict[str, Any]):
     return {"ok": True}
 
 
+@app.get("/api/sim/params/editable")
+async def sim_params_editable_proxy():
+    """Editable parameter descriptors + current effective values (from KME A)."""
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        r = await client.get(f"{KME_A_URL}/sim/params/editable")
+        return r.json()
+
+
+@app.post("/api/sim/params")
+async def sim_params_set_proxy(req: dict[str, Any]):
+    """Apply UI parameter overrides to BOTH KMEs (in-memory; config is default)."""
+    last: dict[str, Any] | None = None
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for url in (KME_A_URL, KME_B_URL):
+            try:
+                r = await client.post(f"{url}/sim/params", json=req)
+                if r.status_code >= 400:
+                    raise HTTPException(r.status_code, r.text)
+                last = r.json()
+            except HTTPException:
+                raise
+            except Exception as e:
+                log.warning("param set on %s failed: %s", url, e)
+    return {"ok": True, "kme": last}
+
+
+@app.post("/api/sim/params/reset")
+async def sim_params_reset_proxy():
+    """Drop UI overrides on both KMEs — revert to config defaults."""
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for url in (KME_A_URL, KME_B_URL):
+            try:
+                await client.post(f"{url}/sim/params/reset")
+            except Exception as e:
+                log.warning("param reset on %s failed: %s", url, e)
+    return {"ok": True}
+
+
 @app.post("/api/sim/optimize")
 async def sim_optimize_proxy():
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -383,6 +470,53 @@ async def pqc_roundtrip(req: dict[str, Any]):
             return r.json()
     except Exception as e:
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
+
+
+@app.post("/api/pqc/agility")
+async def pqc_agility(req: dict[str, Any] | None = None):
+    """Crypto-agility matrix (ML-KEM + ML-DSA across security levels)."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(f"{PQC_VALIDATOR_URL}/api/agility", json=req or {})
+            return r.json()
+    except Exception as e:
+        raise HTTPException(503, f"pqc-validator unavailable: {e}")
+
+
+# ----------------------- Implementation verification -----------------------
+@app.get("/api/verify/keyrate")
+async def verify_keyrate():
+    """TNO-vs-closed-form key-rate cross-check (from KME A)."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(f"{KME_A_URL}/sim/keyrate/crosscheck")
+            return r.json()
+    except Exception as e:
+        raise HTTPException(503, f"kme unavailable: {e}")
+
+
+@app.get("/api/verify/paper-budgets")
+async def verify_paper_budgets():
+    """Paper packet-budget match (arXiv:2604.05599 Table III) from the
+    paper-flow orchestrator — read-only verification evidence."""
+    pf = getattr(app.state, "paper_flow", None)
+    if pf is None:
+        raise HTTPException(503, "paper-flow not ready")
+    snap = pf.snapshot()
+    budgets = snap.get("paper_budgets", {})
+    phases = budgets.get("phases", [])
+    total_pkts = sum(int(p.get("packets", 0)) for p in phases)
+    total_bytes = sum(int(p.get("bytes", 0)) for p in phases)
+    return {
+        "phases": phases,
+        "computed_total_packets": total_pkts,
+        "computed_total_bytes": total_bytes,
+        "paper_total_packets": budgets.get("total_handshake_packets"),
+        "paper_total_bytes": budgets.get("total_handshake_bytes"),
+        "packets_match": total_pkts == budgets.get("total_handshake_packets"),
+        "bytes_match": total_bytes == budgets.get("total_handshake_bytes"),
+        "reference": "Spooren et al. arXiv:2604.05599 §IV-B Table III",
+    }
 
 
 # ----------------------- VPN Protocols (Phase 9-A) -----------------------

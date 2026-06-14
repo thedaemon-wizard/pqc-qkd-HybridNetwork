@@ -65,12 +65,17 @@ export default function FailureCascadeTimeline({
         {events.map((ev, i) => {
           const x = padL + (ev.t_offset_s / max) * innerW;
           const c = ev.fired ? colors.danger : colors.textMute;
+          // Anchor labels near the right edge to "end" so they never clip the
+          // viewBox; stagger vertically for tightly-spaced events.
+          const nearRight = x > W - padR - 30;
+          const stagger = i % 2 === 0 ? 2 : 12;
           return (
             <g key={i} transform={`translate(${x}, ${padT})`}>
               <line x1={0} y1={4} x2={0} y2={H - padT - padB}
                     stroke={c} strokeDasharray={ev.fired ? "0" : "2 3"} />
               <circle cx={0} cy={H - padT - padB} r={4} fill={c} />
-              <text x={4} y={2} fill={c} fontSize={9}>{ev.t_offset_s}s</text>
+              <text x={nearRight ? -4 : 4} y={stagger} fill={c} fontSize={9}
+                    textAnchor={nearRight ? "end" : "start"}>{ev.t_offset_s}s</text>
               <title>{`${ev.layer}: ${ev.description}`}</title>
             </g>
           );

@@ -27,6 +27,10 @@ CONFIG_PATH = Path(os.environ.get("QKD_PARAMS_FILE", "/etc/pqcqkd/qkd_params.yam
 @dataclass(slots=True)
 class _CachedParams:
     raw: dict[str, Any] = field(default_factory=dict)
+    # In-memory runtime overrides set from the WebUI. The YAML file is the
+    # DEFAULT; overrides win and are NEVER written back to disk (they reset on
+    # process restart). See set_overrides()/clear_overrides().
+    overrides: dict[str, Any] = field(default_factory=dict)
     mtime: float = 0.0
     lock: threading.RLock = field(default_factory=threading.RLock)
     listeners: list = field(default_factory=list)
@@ -43,33 +47,92 @@ def _read_file() -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    """Return a new dict: base recursively overlaid with patch (patch wins)."""
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def _effective_locked() -> dict[str, Any]:
+    """Effective params = file defaults overlaid with in-memory overrides.
+    Caller must hold _cache.lock."""
+    if not _cache.overrides:
+        return _cache.raw
+    return _deep_merge(_cache.raw, _cache.overrides)
+
+
+def _notify(effective: dict[str, Any], listeners: list) -> None:
+    for cb in listeners:
+        try:
+            cb(effective)
+        except Exception as e:    # pragma: no cover
+            log.warning("config listener error: %s", e)
+
+
 def reload() -> dict[str, Any]:
-    """Force reload from disk and notify listeners."""
+    """Force reload from disk and notify listeners with the EFFECTIVE params
+    (file defaults overlaid with any in-memory overrides)."""
     with _cache.lock:
         _cache.raw = _read_file()
         try:
             _cache.mtime = CONFIG_PATH.stat().st_mtime
         except FileNotFoundError:
             _cache.mtime = 0.0
+        effective = _effective_locked()
         listeners = list(_cache.listeners)
-    for cb in listeners:
-        try:
-            cb(_cache.raw)
-        except Exception as e:    # pragma: no cover
-            log.warning("config listener error: %s", e)
-    return _cache.raw
+    _notify(effective, listeners)
+    return effective
 
 
 def params() -> dict[str, Any]:
-    """Get current cached params, reloading if file changed on disk."""
+    """Get current EFFECTIVE params (file defaults + overrides), reloading the
+    file if it changed on disk."""
     with _cache.lock:
         try:
             mt = CONFIG_PATH.stat().st_mtime
         except FileNotFoundError:
             mt = 0.0
         if mt != _cache.mtime:
+            # reload() re-acquires the RLock (re-entrant) and returns effective.
             return reload()
-        return _cache.raw
+        return _effective_locked()
+
+
+def set_overrides(patch: dict[str, Any]) -> dict[str, Any]:
+    """Apply a (possibly nested) override patch on top of the file defaults and
+    notify listeners. The YAML file is never modified. Returns effective params.
+
+    Example: set_overrides({"physical": {"link_length_km": 25.0}})
+    """
+    with _cache.lock:
+        _cache.overrides = _deep_merge(_cache.overrides, patch)
+        effective = _effective_locked()
+        listeners = list(_cache.listeners)
+    _notify(effective, listeners)
+    log.info("applied param overrides: %s", patch)
+    return effective
+
+
+def clear_overrides() -> dict[str, Any]:
+    """Drop all in-memory overrides (revert to file defaults) and notify."""
+    with _cache.lock:
+        _cache.overrides = {}
+        effective = _effective_locked()
+        listeners = list(_cache.listeners)
+    _notify(effective, listeners)
+    log.info("cleared all param overrides")
+    return effective
+
+
+def overrides() -> dict[str, Any]:
+    """Return a copy of the currently-active in-memory overrides (for the UI)."""
+    with _cache.lock:
+        return dict(_cache.overrides)
 
 
 def get(path: str, default: Any = None) -> Any:

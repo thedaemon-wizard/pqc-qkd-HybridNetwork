@@ -103,6 +103,7 @@ export default function QuantumSecureE2E() {
       {/* Architecture diagram — Image 1 layout (PNG/GIF capture target) */}
       <div id="e2e-arch-svg-wrap">
         <ArchSvg mode={mode} phase={phase} />
+        <ArchLegend />
       </div>
 
       {/* Mode A/B/C buttons */}
@@ -225,74 +226,98 @@ export default function QuantumSecureE2E() {
 
 // ============== visual sub-components ==============
 
+// ── Architecture diagram geometry (single source of truth) ──────────────
+// All coordinates derive from GEO so labels/arrows can't drift. Site B is the
+// exact mirror of Site A about the centre divider, giving symmetric gaps.
+const GEO = {
+  W: 1240, H: 600, divider: 620,
+  box: { w: 108, h: 80, y: 200 },          // ARNIKA / ROSENPASS / WIREGUARD
+  kms: { w: 100, h: 110, y: 195, lx: 40 }, // left KMS (right is mirrored)
+  // Site A left-edge x's (Site B mirrored: xB = W - x - box.w)
+  a: { arnika: 196, rosenpass: 326, wireguard: 456 },
+};
+const mirrorX = (x: number, w: number) => GEO.W - x - w;
+const GA = GEO.a;
+const GB = {
+  wireguard: mirrorX(GA.wireguard, GEO.box.w), // 676
+  rosenpass: mirrorX(GA.rosenpass, GEO.box.w), // 806
+  arnika:    mirrorX(GA.arnika, GEO.box.w),    // 936
+};
+const kmsRx = mirrorX(GEO.kms.lx, GEO.kms.w);  // 1100
+// Box edge helpers (snap arrows/badges to real rectangle edges)
+const boxMidY = GEO.box.y + GEO.box.h / 2;          // 240
+const rightEdge = (x: number) => x + GEO.box.w;
+const kmsRightEdge = GEO.kms.lx + GEO.kms.w;        // 140
+// Vertical bands for the three stacked bottom exchange lanes
+const LANE = { pqc: 422, qkd: 472, quantum: 524 };
+
 function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
   // Highlight rules:
   //   mode "A" (QKD-only) -> orange path active in phase 1-2
   //   mode "B" (PQC-only) -> pink path active in phase 3
   //   mode "C" (Hybrid)   -> red HKDF box active in phase 3, tunnel in phase 4
   //
-  // Layout v2 (Phase 11): image-faithful 1240×620 viewBox with three dashed
-  // boundary boxes (VPN scope, Secure Application Entity, QKD Infrastructure),
-  // top key-color legend (A/B/C with key icons mirrored on Site A and B),
-  // center "VPN" lock icon, ETSI-Interface "E" markers, bottom-left 4-item
-  // legend (A/B/C/E), and three separated bottom rows for the PQC KEY
-  // exchange, QKD key_ID exchange, and Quantum Channel.
+  // Layout v3 (Round 3): geometry-driven 1240×600 viewBox. Site B mirrors
+  // Site A about the divider so KMS↔ARNIKA gaps are symmetric; every arrow
+  // starts/ends on a computed box edge; the A/B/C/E mode legend moved OUT of
+  // the SVG to an HTML strip (ArchLegend) — it used to duplicate the top key
+  // legend and collide with the bottom exchange-lane arcs.
   const hot = (cond: boolean) =>
     cond ? "#e25555" : "#3a4a78";
   const dimUnless = (cond: boolean) => (cond ? 1 : 0.3);
   return (
     <div style={{ background: "#0d1320", border: "1px solid #1d2741",
                    borderRadius: 8, padding: 12, marginBottom: 10 }}>
-      <svg id="e2e-arch-svg" viewBox="0 0 1240 620" style={{ width: "100%" }}
+      <svg id="e2e-arch-svg" viewBox={`0 0 ${GEO.W} ${GEO.H}`} style={{ width: "100%" }}
            role="img" aria-label="Quantum-secure VPN architecture (Image 1 faithful)">
         {/* ───── Dashed boundary boxes (z=0, back) ───── */}
         {/* Quantum Key Distribution Infrastructure (left + right, blue) */}
-        <rect x="10" y="100" width="130" height="380" rx="6"
+        <rect x="10" y="110" width="130" height="380" rx="6"
               fill="none" stroke="#5b8def" strokeWidth="1.5" strokeDasharray="5 4" />
-        <text x="75" y="120" fill="#5b8def" fontSize="11" textAnchor="middle">Quantum Key</text>
-        <text x="75" y="134" fill="#5b8def" fontSize="11" textAnchor="middle">Distribution</text>
-        <text x="75" y="148" fill="#5b8def" fontSize="11" textAnchor="middle">Infrastructure</text>
+        <text x="75" y="130" fill="#5b8def" fontSize="11" textAnchor="middle">Quantum Key</text>
+        <text x="75" y="144" fill="#5b8def" fontSize="11" textAnchor="middle">Distribution</text>
+        <text x="75" y="158" fill="#5b8def" fontSize="11" textAnchor="middle">Infrastructure</text>
 
-        <rect x="1100" y="100" width="130" height="380" rx="6"
+        <rect x="1100" y="110" width="130" height="380" rx="6"
               fill="none" stroke="#5b8def" strokeWidth="1.5" strokeDasharray="5 4" />
-        <text x="1165" y="120" fill="#5b8def" fontSize="11" textAnchor="middle">Quantum Key</text>
-        <text x="1165" y="134" fill="#5b8def" fontSize="11" textAnchor="middle">Distribution</text>
-        <text x="1165" y="148" fill="#5b8def" fontSize="11" textAnchor="middle">Infrastructure</text>
+        <text x="1165" y="130" fill="#5b8def" fontSize="11" textAnchor="middle">Quantum Key</text>
+        <text x="1165" y="144" fill="#5b8def" fontSize="11" textAnchor="middle">Distribution</text>
+        <text x="1165" y="158" fill="#5b8def" fontSize="11" textAnchor="middle">Infrastructure</text>
 
         {/* VPN scope (red dashed, mid-large) */}
-        <rect x="150" y="60" width="940" height="440" rx="8"
+        <rect x="150" y="64" width="940" height="450" rx="8"
               fill="none" stroke="#e25555" strokeWidth="1.5" strokeDasharray="6 4" />
-        <text x="620" y="76" fill="#e25555" fontSize="13" textAnchor="middle"
+        <text x="620" y="82" fill="#e25555" fontSize="13" textAnchor="middle"
               fontStyle="italic">VPN scope</text>
 
         {/* Secure Application Entity (purple dashed, inside VPN scope per-site) */}
-        <rect x="180" y="160" width="420" height="220" rx="6"
+        <rect x="180" y="170" width="412" height="198" rx="6"
               fill="none" stroke="#7c5cff" strokeWidth="1.4" strokeDasharray="5 3" />
-        <text x="390" y="375" fill="#7c5cff" fontSize="11" textAnchor="middle">
+        <text x="386" y="360" fill="#7c5cff" fontSize="11" textAnchor="middle">
           Secure Application Entity
         </text>
-        <rect x="640" y="160" width="420" height="220" rx="6"
+        <rect x="648" y="170" width="412" height="198" rx="6"
               fill="none" stroke="#7c5cff" strokeWidth="1.4" strokeDasharray="5 3" />
-        <text x="850" y="375" fill="#7c5cff" fontSize="11" textAnchor="middle">
+        <text x="854" y="360" fill="#7c5cff" fontSize="11" textAnchor="middle">
           Secure Application Entity
         </text>
 
         {/* ───── Center divider + VPN lock (z=1) ───── */}
-        <line x1="620" y1="50" x2="620" y2="580" stroke="#3a4a78"
+        <line x1={GEO.divider} y1="54" x2={GEO.divider} y2="500" stroke="#3a4a78"
               strokeWidth="1.5" strokeDasharray="6 5" />
-        <text x="260" y="48" fill="#cbd6f5" fontSize="14" textAnchor="middle"
+        <text x="260" y="50" fill="#cbd6f5" fontSize="14" textAnchor="middle"
               fontWeight={700}>Site A</text>
-        <text x="980" y="48" fill="#cbd6f5" fontSize="14" textAnchor="middle"
+        <text x="980" y="50" fill="#cbd6f5" fontSize="14" textAnchor="middle"
               fontWeight={700}>Site B</text>
-        {/* VPN lock icon at center divider */}
-        <g transform="translate(620,270)">
+        {/* VPN lock icon on the tunnel at the centre divider */}
+        <g transform={`translate(${GEO.divider},${boxMidY})`}>
           <circle r="14" fill="#e25555" opacity={dimUnless(phase === 4)} />
           <rect x="-7" y="-3" width="14" height="11" rx="1" fill="#fff"
                 opacity={dimUnless(phase === 4)} />
           <path d="M -4,-3 L -4,-7 Q -4,-11 0,-11 Q 4,-11 4,-7 L 4,-3"
                 stroke="#fff" strokeWidth="1.5" fill="none"
                 opacity={dimUnless(phase === 4)} />
-          <text y="26" fill="#e25555" fontSize="10" textAnchor="middle"
+          <text y="30" fill="#e25555" fontSize="10" textAnchor="middle"
                 fontWeight={700}>VPN</text>
         </g>
 
@@ -301,104 +326,92 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
         <KeyLegend x={960} flip={true}  mode={mode} />
 
         {/* ───── KMS keystores (z=2) ───── */}
-        <KmsKeystore x={40}  active={phase === 2} />
-        <KmsKeystore x={1100} active={phase === 2} mirror />
+        <KmsKeystore x={GEO.kms.lx}  active={phase === 2} />
+        <KmsKeystore x={kmsRx} active={phase === 2} mirror />
 
-        {/* ETSI Interface "E" markers (orange circles, on KMS->ARNIKA edge) */}
-        <ETSIBadge x={172} y={290} active={phase === 2} />
-        <ETSIBadge x={1068} y={290} active={phase === 2} />
-
-        {/* ───── Site A inner boxes (z=3, top→bottom for vertical clarity) ───── */}
-        <SiteBox x={196} y={188} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
+        {/* ───── Site A inner boxes (z=3) ───── */}
+        <SiteBox x={GA.arnika} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
                  hot={phase === 2 || phase === 3} />
-        <SiteBox x={326} y={188} label="ROSENPASS" tag="PQC function" color="#e91e63"
+        <SiteBox x={GA.rosenpass} label="ROSENPASS" tag="PQC function" color="#e91e63"
                  hot={(mode === "B" || mode === "C") && phase === 3} />
-        <SiteBox x={456} y={188} label="WIREGUARD" tag="VPN function" color="#7c5cff"
+        <SiteBox x={GA.wireguard} label="WIREGUARD" tag="VPN function" color="#7c5cff"
                  hot={phase === 4} />
 
-        {/* Site B (mirrored) */}
-        <SiteBox x={636} y={188} label="WIREGUARD" tag="VPN function" color="#7c5cff"
+        {/* Site B (exact mirror) */}
+        <SiteBox x={GB.wireguard} label="WIREGUARD" tag="VPN function" color="#7c5cff"
                  hot={phase === 4} />
-        <SiteBox x={766} y={188} label="ROSENPASS" tag="PQC function" color="#e91e63"
+        <SiteBox x={GB.rosenpass} label="ROSENPASS" tag="PQC function" color="#e91e63"
                  hot={(mode === "B" || mode === "C") && phase === 3} />
-        <SiteBox x={896} y={188} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
+        <SiteBox x={GB.arnika} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
                  hot={phase === 2 || phase === 3} />
 
-        {/* HKDF SHA3 indicator (z=4) — inside ARNIKA */}
-        {/* Phase 14-C: was x=244 (ARNIKA mid-x=250 ± 38 = 212..304, badge r=14
-            covers 230..258 → collided with title text @ x=250). Shifted to
-            x=222 (top-left corner of box, clear of title and tag rows). */}
-        <HkdfBadge x={222} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
-        <HkdfBadge x={922} y={188 + 70 - 8} active={mode === "C" && phase === 3} />
+        {/* HKDF-SHA3 indicator (z=4) — top-inner corner of each ARNIKA box,
+            clear of the centred title/tag rows. */}
+        <HkdfBadge x={rightEdge(GA.arnika) - 16} y={GEO.box.y + 15}
+                   active={mode === "C" && phase === 3} />
+        <HkdfBadge x={GB.arnika + 16} y={GEO.box.y + 15}
+                   active={mode === "C" && phase === 3} />
 
-        {/* ───── KMS→ARNIKA QKD KEY arrows (orange dashed, z=5) ───── */}
-        {/* Phase 14-C: labels moved out of ARNIKA box (was y=232 colliding with
-            tag y=238) → up to y=208 (clear gap above box top y=188). */}
-        <line x1="100" y1="240" x2="196" y2="240"
-              stroke="#f0a020" strokeWidth="2"
-              opacity={dimUnless(phase === 2)} />
-        <text x="148" y="208" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
-        <line x1="1140" y1="240" x2="1044" y2="240"
-              stroke="#f0a020" strokeWidth="2"
-              opacity={dimUnless(phase === 2)} />
-        <text x="1092" y="208" fill="#f0a020" fontSize="10" textAnchor="middle">QKD KEY</text>
+        {/* ───── KMS↔ARNIKA ETSI-014 interface (z=5) ─────
+            Two arrows in the symmetric 56 px gap: QKD KEY (KMS→ARNIKA) above,
+            key_ID (ARNIKA→KMS) below, the "E" interface badge between them.
+            Labels sit in the clear bands above/below the box row. */}
+        {/* Left site */}
+        <ArrowX x1={kmsRightEdge} x2={GA.arnika} y={boxMidY - 14} color="#f0a020"
+                width={2} active={phase === 2} headAt="end" />
+        <text x={(kmsRightEdge + GA.arnika) / 2} y={GEO.box.y - 8} fill="#f0a020"
+              fontSize="9" textAnchor="middle">QKD KEY</text>
+        <ArrowX x1={GA.arnika} x2={kmsRightEdge} y={boxMidY + 14} color="#3ddc84"
+                width={1.5} dashed active={phase === 2} headAt="end" />
+        <text x={(kmsRightEdge + GA.arnika) / 2} y={GEO.box.y + GEO.box.h + 16}
+              fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
+        <ETSIBadge x={(kmsRightEdge + GA.arnika) / 2} y={boxMidY} active={phase === 2} />
+        {/* Right site (mirror) */}
+        <ArrowX x1={kmsRx} x2={rightEdge(GB.arnika)} y={boxMidY - 14} color="#f0a020"
+                width={2} active={phase === 2} headAt="end" />
+        <text x={(kmsRx + rightEdge(GB.arnika)) / 2} y={GEO.box.y - 8} fill="#f0a020"
+              fontSize="9" textAnchor="middle">QKD KEY</text>
+        <ArrowX x1={rightEdge(GB.arnika)} x2={kmsRx} y={boxMidY + 14} color="#3ddc84"
+                width={1.5} dashed active={phase === 2} headAt="end" />
+        <text x={(kmsRx + rightEdge(GB.arnika)) / 2} y={GEO.box.y + GEO.box.h + 16}
+              fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
+        <ETSIBadge x={(kmsRx + rightEdge(GB.arnika)) / 2} y={boxMidY} active={phase === 2} />
 
-        {/* ARNIKA→KMS key_ID arrows (green, z=5) — slightly below */}
-        {/* Phase 14-C: key_ID label y=278 → y=288 (was 10 px from box border, now 20 px). */}
-        <line x1="196" y1="265" x2="100" y2="265"
-              stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="4 3"
-              opacity={dimUnless(phase === 2)} />
-        <text x="148" y="288" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
-        <line x1="1044" y1="265" x2="1140" y2="265"
-              stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="4 3"
-              opacity={dimUnless(phase === 2)} />
-        <text x="1092" y="288" fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
-
-        {/* WireGuard tunnel across the divider (z=5) — Phase 4 active */}
-        <line x1="528" y1="220" x2="712" y2="220"
+        {/* WireGuard tunnel across the divider (z=5) — snapped to WG box edges */}
+        <line x1={rightEdge(GA.wireguard)} y1={boxMidY} x2={GB.wireguard} y2={boxMidY}
               stroke={hot(phase === 4)} strokeWidth="3.5" />
-        {/* Phase 14-C: label was y=206 colliding with WIREGUARD box title (y=220).
-            Moved up to y=174 just below Site A/B headings (y=48). */}
-        <text x="620" y="174" fill={hot(phase === 4)} fontSize="11"
+        <text x={GEO.divider} y={GEO.box.y - 8} fill={hot(phase === 4)} fontSize="11"
               textAnchor="middle" opacity={dimUnless(phase === 4)}>
           VPN tunnel (ChaCha20-Poly1305)
         </text>
 
-        {/* ───── Three separated bottom rows (clearly stacked) ───── */}
-        {/* Row 1: PQC KEY exchange (pink, y=420-440) */}
-        <path d="M 326 420 Q 620 440 896 420" fill="none"
-              stroke="#e91e63" strokeWidth="2"
-              opacity={dimUnless((mode === "B" || mode === "C") && phase === 3)} />
-        <text x="620" y="436" fill="#e91e63" fontSize="11" textAnchor="middle"
-              fontWeight={500}>
+        {/* ───── Three separated bottom exchange lanes (clearly stacked) ───── */}
+        {/* Lane 1: PQC KEY exchange (pink) — ROSENPASS A ⇄ B */}
+        <text x={GEO.divider} y={LANE.pqc - 10} fill="#e91e63" fontSize="11"
+              textAnchor="middle" fontWeight={500}>
           PQC KEY exchange  (Rosenpass A ⇄ B)
         </text>
+        <path d={`M ${GA.rosenpass + GEO.box.w / 2} ${LANE.pqc} Q ${GEO.divider} ${LANE.pqc + 22} ${GB.rosenpass + GEO.box.w / 2} ${LANE.pqc}`}
+              fill="none" stroke="#e91e63" strokeWidth="2"
+              opacity={dimUnless((mode === "B" || mode === "C") && phase === 3)} />
 
-        {/* Row 2: QKD key_ID exchange (green dashed, y=470-490) */}
-        <path d="M 196 470 Q 620 492 1044 470" fill="none"
-              stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="5 3"
-              opacity={dimUnless(phase === 2)} />
-        <text x="620" y="488" fill="#3ddc84" fontSize="11" textAnchor="middle"
-              fontWeight={500}>
+        {/* Lane 2: QKD key_ID exchange (green dashed) — ARNIKA A ⇄ B */}
+        <text x={GEO.divider} y={LANE.qkd - 10} fill="#3ddc84" fontSize="11"
+              textAnchor="middle" fontWeight={500}>
           QKD key_ID exchange  (ETSI 014)
         </text>
+        <path d={`M ${GA.arnika + GEO.box.w / 2} ${LANE.qkd} Q ${GEO.divider} ${LANE.qkd + 22} ${GB.arnika + GEO.box.w / 2} ${LANE.qkd}`}
+              fill="none" stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="5 3"
+              opacity={dimUnless(phase === 2)} />
 
-        {/* Row 3: Quantum channel (purple, y=540-560) — clearly at the BOTTOM */}
-        <path d="M 75 540 Q 620 590 1165 540" fill="none"
-              stroke="#7c5cff" strokeWidth="1.5" strokeDasharray="2 4"
-              opacity={dimUnless(phase === 1)} />
-        <text x="620" y="558" fill="#7c5cff" fontSize="11" textAnchor="middle"
-              fontWeight={500}>
+        {/* Lane 3: Quantum channel (purple) — infra ⇄ infra, at the very bottom */}
+        <text x={GEO.divider} y={LANE.quantum - 10} fill="#7c5cff" fontSize="11"
+              textAnchor="middle" fontWeight={500}>
           Quantum Channel  (BB84 photonic)
         </text>
-
-        {/* ───── Bottom-left legend (A/B/C/E) ───── */}
-        <g transform="translate(20, 470)">
-          <LegendItem y={0}  letter="A" color="#5b8def" text="QKD Mode" />
-          <LegendItem y={28} letter="B" color="#5b8def" text="PQC Mode" />
-          <LegendItem y={56} letter="C" color="#5b8def" text="Hybrid Mode (QKD+PQC)" />
-          <LegendItem y={84} letter="E" color="#f0a020" text="ETSI Interface" />
-        </g>
+        <path d={`M 75 ${LANE.quantum} Q ${GEO.divider} ${LANE.quantum + 28} 1165 ${LANE.quantum}`}
+              fill="none" stroke="#7c5cff" strokeWidth="1.5" strokeDasharray="2 4"
+              opacity={dimUnless(phase === 1)} />
       </svg>
       <div style={{ marginTop: 6, fontSize: 11, color: "#6b7796" }}>
         Active phase: <b style={{ color: "#e25555" }}>{phase || "idle"}</b>
@@ -408,10 +421,54 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
   );
 }
 
-function SiteBox({ x, y = 100, label, tag, color, hot }:
+// Horizontal arrow snapped to two x coordinates with an optional arrowhead.
+function ArrowX({ x1, x2, y, color, width, dashed, active, headAt }:
+                { x1: number; x2: number; y: number; color: string;
+                  width: number; dashed?: boolean; active: boolean;
+                  headAt: "start" | "end" }) {
+  const dir = x2 > x1 ? 1 : -1;
+  const hx = headAt === "end" ? x2 : x1;
+  const hd = headAt === "end" ? dir : -dir;
+  return (
+    <g opacity={active ? 1 : 0.3}>
+      <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth={width}
+            strokeDasharray={dashed ? "4 3" : undefined} />
+      <path d={`M ${hx} ${y} l ${-6 * hd} ${-4} l 0 8 z`} fill={color} />
+    </g>
+  );
+}
+
+// HTML legend strip below the SVG (replaces the in-SVG A/B/C/E legend that
+// duplicated the top key legend and collided with the bottom lanes).
+function ArchLegend() {
+  const items = [
+    { letter: "A", color: "#f0a020", text: "QKD Mode" },
+    { letter: "B", color: "#e91e63", text: "PQC Mode" },
+    { letter: "C", color: "#e25555", text: "Hybrid Mode (QKD ‖ PQC)" },
+    { letter: "E", color: "#f0a020", text: "ETSI 014 Interface" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center",
+                   marginBottom: 10, padding: "8px 12px", background: "#0d1320",
+                   border: "1px solid #1d2741", borderRadius: 8 }}>
+      {items.map((it) => (
+        <span key={it.letter} style={{ display: "inline-flex", alignItems: "center",
+                                        gap: 6, fontSize: 12, color: "#9aa9d8" }}>
+          <span style={{ display: "inline-flex", alignItems: "center",
+                          justifyContent: "center", width: 20, height: 20,
+                          borderRadius: "50%", background: it.color, color: "#fff",
+                          fontSize: 11, fontWeight: 700 }}>{it.letter}</span>
+          {it.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SiteBox({ x, y = GEO.box.y, label, tag, color, hot }:
                  { x: number; y?: number; label: string; tag: string;
                    color: string; hot: boolean }) {
-  const w = 108, h = 80;
+  const w = GEO.box.w, h = GEO.box.h;
   return (
     <g>
       <rect x={x} y={y} width={w} height={h} rx={6}
@@ -473,11 +530,11 @@ function ETSIBadge({ x, y, active }: { x: number; y: number; active: boolean }) 
 function HkdfBadge({ x, y, active }: { x: number; y: number; active: boolean }) {
   return (
     <g style={{ filter: active ? "drop-shadow(0 0 6px #e25555)" : "none" }}>
-      <circle cx={x} cy={y} r="14" fill="#e25555"
+      <circle cx={x} cy={y} r="15" fill="#e25555"
               opacity={active ? 1 : 0.3} />
-      <text x={x} y={y - 2} fill="#fff" fontSize={9} textAnchor="middle"
+      <text x={x} y={y - 3} fill="#fff" fontSize={8} textAnchor="middle"
             fontWeight={700}>HKDF</text>
-      <text x={x} y={y + 8} fill="#fff" fontSize={9} textAnchor="middle">SHA3</text>
+      <text x={x} y={y + 8} fill="#fff" fontSize={8} textAnchor="middle">SHA3</text>
     </g>
   );
 }
@@ -515,18 +572,6 @@ function KeyLegend({ x, flip, mode }:
           </g>
         );
       })}
-    </g>
-  );
-}
-
-function LegendItem({ y, letter, color, text }:
-                    { y: number; letter: string; color: string; text: string }) {
-  return (
-    <g transform={`translate(0, ${y})`}>
-      <circle cx={10} cy={10} r="11" fill={color} />
-      <text x={10} y={14} fill="#fff" fontSize={12} textAnchor="middle"
-            fontWeight={700}>{letter}</text>
-      <text x={28} y={14} fill="#9aa9d8" fontSize={11}>{text}</text>
     </g>
   );
 }

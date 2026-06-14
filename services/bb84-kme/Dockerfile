@@ -22,10 +22,14 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY submodules/SimQN /opt/SimQN
 COPY submodules/SeQUeNCe /opt/SeQUeNCe
 COPY submodules/strawberryfields /opt/strawberryfields
+# TNO-Quantum qkd_key_rate (Apache-2.0): independent decoy-state BB84/BBM92
+# key-rate engine used as the `tno` backend + closed-form cross-check.
+COPY submodules/tno-qkd-key-rate /opt/tno-qkd-key-rate
 RUN pip install pandas 'Cython<3.0' && \
     pip install -e /opt/SimQN || echo "SimQN editable install failed; will use volume mount" && \
     pip install -e /opt/SeQUeNCe || echo "SeQUeNCe editable install failed; will use volume mount" && \
-    pip install -e /opt/strawberryfields || echo "strawberryfields editable install failed; will use volume mount"
+    pip install -e /opt/strawberryfields || echo "strawberryfields editable install failed; will use volume mount" && \
+    pip install -e /opt/tno-qkd-key-rate || echo "TNO qkd_key_rate install failed; tno backend disabled"
 
 COPY services/bb84-kme/app/ ./app/
 

@@ -4,6 +4,12 @@ export type StackItem = { name: string; status: string; image?: string; started_
 export type Stats = Record<string, any>;
 export type Topo = { nodes: { id: string; label: string; type: string }[]; edges: { source: string; target: string; label: string }[] };
 
+export type RuntimeConfig = { demo_mode: boolean; rate_limit: { max: number; window_s: number } | null };
+
+export async function getConfig(): Promise<RuntimeConfig> {
+  const r = await fetch(`${BASE}/api/config`); return r.json();
+}
+
 export async function getStack(): Promise<StackItem[]> {
   const r = await fetch(`${BASE}/api/stack`); return r.json();
 }

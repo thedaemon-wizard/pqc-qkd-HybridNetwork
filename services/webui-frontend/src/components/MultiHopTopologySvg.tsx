@@ -33,8 +33,12 @@ export default function MultiHopTopologySvg({
 
   const colW = 150;
   const colGap = 20;
-  const padX = 30;
-  const W = padX * 2 + cols.length * colW + (cols.length - 1) * colGap;
+  // Wider left gutter hosts the phase legend so its labels never overlap the
+  // first Trusted-Node column (previous bug: title text rendered at x=cx+20
+  // landed inside the TN1 column).
+  const padL = 168;
+  const padR = 30;
+  const W = padL + padR + cols.length * colW + (cols.length - 1) * colGap;
   const H = 720;
 
   // Phase highlight helpers (return CSS filter for active glow)
@@ -55,7 +59,7 @@ export default function MultiHopTopologySvg({
          aria-label="Multi-hop trusted-node topology (Spooren et al. arXiv:2604.05599)">
       {/* Background columns */}
       {cols.map((c, i) => {
-        const x = padX + i * (colW + colGap);
+        const x = padL + i * (colW + colGap);
         const stripe = c.isEnd ? "#0d1320" : "#0f1830";
         return (
           <g key={i}>
@@ -70,16 +74,19 @@ export default function MultiHopTopologySvg({
         );
       })}
 
-      {/* Phase number markers between columns */}
+      {/* Phase legend (left gutter) — numbered markers + titles, clear of all
+          columns. Highlights the active phase. */}
+      <text x={24} y={42} fill={colors.textMute} fontSize={11} fontWeight={700}>
+        Phases
+      </text>
       {[
         { idx: 1, label: "①", title: "Quantum Plane" },
         { idx: 2, label: "②", title: "QKD Key IDs" },
         { idx: 3, label: "③", title: "PQC Handshake" },
         { idx: 4, label: "④", title: "Data Exchange" },
       ].map(({ idx, label, title }) => {
-        // Place markers at left-of-first-TN (or middle of all gaps for clarity)
-        const cx = padX + colW + colGap / 2;
-        const cy = 80 + (idx - 1) * 40;
+        const cx = 26;
+        const cy = 80 + (idx - 1) * 44;
         const active = currentPhase === idx;
         return (
           <g key={idx} transform={`translate(${cx}, ${cy})`}>
@@ -96,7 +103,7 @@ export default function MultiHopTopologySvg({
 
       {/* Stack rows: each column gets boxes for QKD Device, KMS, Arnika, WG, Rosenpass (if end), Data (if end) */}
       {cols.map((c, i) => {
-        const x = padX + i * (colW + colGap);
+        const x = padL + i * (colW + colGap);
         const boxX = x + 18;
         const boxW = colW - 36;
         const phase2Active = currentPhase === 2;
@@ -174,8 +181,8 @@ export default function MultiHopTopologySvg({
 
       {/* Inter-column connectors per phase */}
       {cols.slice(0, -1).map((_, i) => {
-        const xL = padX + i * (colW + colGap) + colW - 18;
-        const xR = padX + (i + 1) * (colW + colGap) + 18;
+        const xL = padL + i * (colW + colGap) + colW - 18;
+        const xR = padL + (i + 1) * (colW + colGap) + 18;
         const phase1Active = currentPhase === 1;
         const phase2Active = currentPhase === 2;
         const phase3Active = currentPhase === 3;
@@ -200,8 +207,8 @@ export default function MultiHopTopologySvg({
 
       {/* End-to-end PQC handshake (Rosenpass overlay) — arc from Alice Rosenpass to Bob Rosenpass */}
       {(() => {
-        const xL = padX + 18;
-        const xR = padX + (cols.length - 1) * (colW + colGap) + 18 + (colW - 36);
+        const xL = padL + 18;
+        const xR = padL + (cols.length - 1) * (colW + colGap) + 18 + (colW - 36);
         const phase3Active = currentPhase === 3;
         const midX = (xL + xR) / 2;
         return (
@@ -219,8 +226,8 @@ export default function MultiHopTopologySvg({
 
       {/* Final data tunnel — solid red across all end-node bottoms */}
       {(() => {
-        const xL = padX + 18 + (colW - 36) / 2;
-        const xR = padX + (cols.length - 1) * (colW + colGap) + 18 + (colW - 36) / 2;
+        const xL = padL + 18 + (colW - 36) / 2;
+        const xR = padL + (cols.length - 1) * (colW + colGap) + 18 + (colW - 36) / 2;
         const phase4Active = currentPhase === 4 || currentPhase === 5;
         const midX = (xL + xR) / 2;
         return (
