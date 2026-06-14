@@ -53,3 +53,6 @@
 [submodule "submodules/rosenpass"]
 	path = submodules/rosenpass
 	url = https://github.com/rosenpass/rosenpass.git
+[submodule "submodules/tno-qkd-key-rate"]
+	path = submodules/tno-qkd-key-rate
+	url = https://github.com/TNO-Quantum/communication.qkd_key_rate

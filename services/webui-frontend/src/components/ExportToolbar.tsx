@@ -10,6 +10,7 @@ import {
 } from "../lib/exporters";
 import Button from "./Button";
 import SavedExportsPicker from "./SavedExportsPicker";
+import { useDemoMode } from "../lib/useConfig";
 
 export interface ExportToolbarProps {
   /** When set, "💾 Logs" downloads /api/logs/download/<logService>. */
@@ -27,6 +28,7 @@ export interface ExportToolbarProps {
 export default function ExportToolbar(props: ExportToolbarProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const errRef = useRef<string>("");
+  const demo = useDemoMode();
 
   const name = props.name ?? "export";
 
@@ -96,8 +98,14 @@ export default function ExportToolbar(props: ExportToolbarProps) {
               })}>
         🎞 Animation
       </Button>
-      <span style={{ width: 1, height: 18, background: "#1d2741", margin: "0 4px" }} />
-      <SavedExportsPicker />
+      {/* Server-side saved-exports list is hidden in public-demo mode — exports
+          fall back to direct client-side downloads (no server files). */}
+      {!demo && (
+        <>
+          <span style={{ width: 1, height: 18, background: "#1d2741", margin: "0 4px" }} />
+          <SavedExportsPicker />
+        </>
+      )}
       {busy && <span style={{ fontSize: 11, color: "#9aa9d8" }}>… {busy}</span>}
       {errRef.current && (
         <span style={{ fontSize: 11, color: "#e25555" }}>✗ {errRef.current}</span>

@@ -191,6 +191,136 @@ async def sim_reload():
     return {"ok": True}
 
 
+# Dotted parameter paths the WebUI is allowed to override at runtime. The YAML
+# file remains the DEFAULT; overrides are in-memory only and reset on restart.
+EDITABLE_PARAMS: dict[str, type] = {
+    "physical.fiber_attenuation_db_per_km": float,
+    "physical.link_length_km": float,
+    "physical.detector_efficiency": float,
+    "physical.dark_count_rate_hz": float,
+    "physical.misalignment_error_ed": float,
+    "source.pulse_rate_hz": float,
+    "source.intensity_signal_mu": float,
+    "source.intensity_decoy_1_nu1": float,
+    "source.intensity_decoy_2_nu2": float,
+    "source.basis_bias_pz": float,
+    "protocol.ec_efficiency_f": float,
+    "protocol.qber_threshold_abort": float,
+    "simulator.bb84_batch_size": int,
+    "eve.enabled": bool,
+    "eve.intercept_prob": float,
+}
+
+
+class ParamPatch(BaseModel):
+    # Flat mapping of dotted-path -> value, e.g. {"physical.link_length_km": 25}
+    patch: dict[str, float | int | bool]
+
+
+def _expand_dotted(flat: dict[str, object]) -> dict[str, object]:
+    """Turn {"a.b": 1} into {"a": {"b": 1}} for nested override merge."""
+    nested: dict[str, object] = {}
+    for dotted, value in flat.items():
+        parts = dotted.split(".")
+        cur = nested
+        for p in parts[:-1]:
+            cur = cur.setdefault(p, {})  # type: ignore[assignment]
+        cur[parts[-1]] = value
+    return nested
+
+
+def _path_in(d: dict, dotted: str) -> bool:
+    cur = d
+    for p in dotted.split("."):
+        if not isinstance(cur, dict) or p not in cur:
+            return False
+        cur = cur[p]
+    return True
+
+
+@app.get("/sim/params/editable")
+async def sim_params_editable():
+    """Describe which params the UI may edit + their current effective values."""
+    ov = config_loader.overrides()
+    fields = [
+        {
+            "path": path,
+            "type": typ.__name__,
+            "value": config_loader.get(path),
+            "overridden": _path_in(ov, path),
+        }
+        for path, typ in EDITABLE_PARAMS.items()
+    ]
+    return {"fields": fields, "overrides": ov}
+
+
+@app.post("/sim/params")
+async def sim_params_set(req: ParamPatch):
+    """Apply UI parameter overrides (in-memory; YAML untouched; reset on restart)."""
+    cleaned: dict[str, object] = {}
+    for path, value in req.patch.items():
+        if path not in EDITABLE_PARAMS:
+            raise HTTPException(status_code=400, detail=f"param not editable: {path}")
+        caster = EDITABLE_PARAMS[path]
+        try:
+            cleaned[path] = caster(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400,
+                                detail=f"bad value for {path}: {value!r}")
+    config_loader.set_overrides(_expand_dotted(cleaned))
+    return {"ok": True, "applied": cleaned, "params": config_loader.params()}
+
+
+@app.post("/sim/params/reset")
+async def sim_params_reset():
+    """Drop all UI overrides — revert to config/qkd_params.yaml defaults."""
+    config_loader.clear_overrides()
+    return {"ok": True, "params": config_loader.params()}
+
+
+@app.get("/sim/keyrate/crosscheck")
+async def keyrate_crosscheck():
+    """Independent-implementation verification: compare OUR closed-form Lo-Ma
+    two-decoy key rate against TNO-Quantum's qkd_key_rate engine (Apache-2.0) at
+    the current config. Surfaced in the WebUI verification panel."""
+    from .backends.base import cfg_from_yaml
+    from .backends._skr import asymptotic_skr_per_pulse, total_transmittance
+    cfg = cfg_from_yaml()
+    eta_total = total_transmittance(
+        cfg.detector_efficiency, cfg.fiber_attenuation_db_per_km, cfg.link_length_km)
+    Y0 = cfg.dark_count_rate_hz / max(cfg.pulse_rate_hz, 1.0)
+    ours = asymptotic_skr_per_pulse(
+        Y0=Y0, eta_total=eta_total, e_d=cfg.misalignment_error_ed,
+        mu=cfg.intensity_signal_mu, nu1=cfg.intensity_decoy_1_nu1,
+        nu2=cfg.intensity_decoy_2_nu2, f_EC=cfg.ec_efficiency_f)
+
+    tno: dict | None = None
+    tno_err: str | None = None
+    try:
+        from .backends.tno_backend import compute_tno_rate
+        tno = await asyncio.to_thread(compute_tno_rate, cfg)
+    except Exception as e:    # TNO package missing or compute error
+        tno_err = str(e)
+
+    tno_rate = tno["rate_per_pulse"] if tno else None
+    rel = (abs(tno_rate - ours) / ours) if (tno_rate and ours > 0) else None
+    same_order = (tno_rate is not None and ours > 0
+                  and 0.1 <= (tno_rate / ours) <= 10.0)
+    return {
+        "distance_km": cfg.link_length_km,
+        "attenuation_db": cfg.fiber_attenuation_db_per_km * cfg.link_length_km,
+        "ours_closed_form": {
+            "rate_per_pulse": ours,
+            "skr_bps": ours * cfg.pulse_rate_hz,
+            "method": "Lo-Ma two-decoy (closed form; arXiv:2511.21253)",
+        },
+        "tno": tno,
+        "relative_delta": rel,
+        "same_order_of_magnitude": same_order,
+        "error": tno_err,
+    }
+
+
 @app.post("/sim/optimize")
 async def sim_optimize():
     result = await asyncio.to_thread(optimizer.optimize_from_yaml)

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getStack, postStack, type StackItem } from "../api";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
+import { useDemoMode } from "../lib/useConfig";
 
 const STATUS_COLOR: Record<string, string> = {
   running: "#3ddc84", restarting: "#f5a623", created: "#5b8def",
@@ -11,6 +12,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Overview() {
   const [stack, setStack] = useState<StackItem[]>([]);
+  const demo = useDemoMode();
 
   async function refresh() { setStack(await getStack()); }
   useEffect(() => {
@@ -58,8 +60,12 @@ export default function Overview() {
                     }}>{s.status}</span>
                   </td>
                   <td>
-                    <button onClick={() => postStack("restart", s.name)}
-                            style={btnStyle}>restart</button>
+                    {demo ? (
+                      <span style={{ fontSize: 11, color: "#6b7796" }}>—</span>
+                    ) : (
+                      <button onClick={() => postStack("restart", s.name)}
+                              style={btnStyle}>restart</button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -74,7 +80,7 @@ export default function Overview() {
 function ArchPanel() {
   return (
     <div style={{ background: "#0d1320", padding: 16, borderRadius: 8, border: "1px solid #1d2741" }}>
-      <h3 style={{ marginTop: 0 }}>Layered Architecture (from PDF)</h3>
+      <h3 style={{ marginTop: 0 }}>Layered Architecture (from (PDF(arXiv:2604.05599)))</h3>
       <svg id="overview-arch-svg" viewBox="0 0 420 280" style={{ width: "100%" }}>
         {/* E2E Layer */}
         <rect x="20" y="20" width="380" height="60" rx="6" fill="#332247" stroke="#7c5cff" />

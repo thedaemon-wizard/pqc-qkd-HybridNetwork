@@ -14,6 +14,7 @@ Each retains its original copyright notice and license terms.
 | `qkdnetsim` | GPL v2 | QKDNetSim project (Mehic et al.) | 8 | 2026-05-03 (active) |
 | `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | 2025-08 |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | 2026-01 (cloud decommissioned) |
+| `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned submodule **v2.0.4**, 2026-02 (active); `tno` backend + key-rate cross-check |
 | `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; blowfish/des/md4/md5 plugins differ) | strongSwan project | 9 | 2026-05-28 (active) |
 | `qkd-pqc-paper-supplementary` | **NO license** — reference-only, optional, not redistributed | aparcar / Spooren et al. | 9 | 2026-02-16 |
 | `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | 2026-05-14 (active) |
