@@ -113,6 +113,7 @@ pqc-qkd-hybrid/
 │   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
 │   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — used offline only
 │   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
+│   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
 │   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
 │   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
 │   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
@@ -120,8 +121,8 @@ pqc-qkd-hybrid/
 │   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
 │   └── qkd_keyrate_table.json         # Pre-computed SKR table (arXiv:2511.21253)
 ├── services/
-│   ├── bb84-kme/                      # Python: 5-backend BB84/CV-QKD + ETSI-014 REST
-│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy
+│   ├── bb84-kme/                      # Python: 6-backend BB84/CV-QKD + ETSI-014 REST
+│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
 │   ├── webui-backend/                 # FastAPI orchestrator
 │   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (12 pages incl.
 │   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
@@ -255,7 +256,7 @@ All variables in `.env` (copy from `.env.example`):
 
 ## 7. Running the WebUI
 
-Open <http://localhost:5173>. Twelve pages are available:
+Open <http://localhost:5173>. Thirteen pages are available:
 
 1. **Overview** (`/`) — Layered architecture SVG + live container status badges
 2. **Quantum-Secure E2E** (`/e2e`) — Phase 10 live 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) over the arnika-vq architecture diagram, with Run/Pause/Resume/Reset/Step and Mode A/B/C selection
@@ -265,12 +266,15 @@ Open <http://localhost:5173>. Twelve pages are available:
 6. **Topology** (`/topology`) — D3-force graph of nodes (alice/bob/Charlie) and KMEs
 7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
 8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
-9. **Physics Params** (`/physics`) — Live `config/qkd_params.yaml` editor + Bayesian optimisation + backend selector
-10. **PQC Validator** (`/pqc`) — Crypto-agility cross-check: liboqs (production) vs PQClean (NIST reference) roundtrip
-11. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
-12. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
+9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults; edits are applied as in-memory runtime overrides on both KMEs (the file is never written and overrides reset on restart) + Bayesian optimisation + backend selector (incl. `tno`)
+10. **PQC Validator** (`/pqc`) — liboqs (production) vs PQClean (NIST reference) roundtrip
+11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix (ML-KEM 512/768/1024 + ML-DSA 44/65/87), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
+12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
+13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
 
 Most pages provide per-page export buttons (PNG / JSON / CSV / GIF / logs) below the description; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
+
+**Public-demo profile (`DEMO_MODE=1`).** For an unattended, multi-user public demo set `DEMO_MODE=1` on `webui-backend`: container-control (`/api/stack/*`) and server-side export saving are disabled (PNG/JSON/CSV still download client-side), a per-IP rate limit (`DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S`) is applied, and the frontend hides the container and saved-export controls. Local full-stack and the `deploy/` cloud real-WG stack run with `DEMO_MODE` unset (unchanged).
 
 > ⚠️ The WebUI Backend mounts `/var/run/docker.sock:ro` to query container state.
 > This is acceptable for a single-host PoC but should not be exposed in production.

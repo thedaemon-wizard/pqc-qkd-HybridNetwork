@@ -11,6 +11,7 @@ import HIL from "./pages/HIL";
 import VpnProtocols from "./pages/VpnProtocols";
 import QuantumSecureE2E from "./pages/QuantumSecureE2E";
 import PaperDataExchange from "./pages/PaperDataExchange";
+import Verification from "./pages/Verification";
 
 const nav = [
   { to: "/",            label: "Overview" },
@@ -23,6 +24,7 @@ const nav = [
   { to: "/console",     label: "Console" },
   { to: "/physics",     label: "Physics Params" },
   { to: "/pqc",         label: "PQC Validator" },
+  { to: "/verify",      label: "Verification ✓" },
   { to: "/hil",         label: "Hardware-In-Loop" },
   { to: "/vpn",         label: "VPN Protocols" },
 ];
@@ -68,6 +70,7 @@ export default function App() {
           <Route path="/console" element={<Console />} />
           <Route path="/physics" element={<PhysicsParams />} />
           <Route path="/pqc" element={<PQCValidator />} />
+          <Route path="/verify" element={<Verification />} />
           <Route path="/hil" element={<HIL />} />
           <Route path="/vpn" element={<VpnProtocols />} />
           <Route path="/e2e" element={<QuantumSecureE2E />} />

@@ -86,6 +86,79 @@ async def roundtrip(req: RoundtripRequest) -> dict[str, Any]:
     }
 
 
+# Default crypto-agility matrix: NIST-standard ML-KEM (encap/decap) + ML-DSA
+# (sign/verify) across all security levels. Swapping algorithms = one list edit.
+DEFAULT_KEM_ALGOS = ["ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"]
+DEFAULT_SIG_ALGOS = ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"]
+
+
+class AgilityRequest(BaseModel):
+    kems: list[str] | None = None
+    sigs: list[str] | None = None
+
+
+def _pqclean_present(algo: str) -> bool:
+    tb = f"{PQCLEAN_DIR}/test/test_{algo.lower().replace('-', '_')}"
+    return os.path.isfile(tb)
+
+
+@app.post("/api/agility")
+async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
+    """Crypto-agility evidence: exercise a matrix of liboqs algorithms (ML-KEM
+    encap/decap + ML-DSA sign/verify) and report pass/fail per algorithm, plus
+    whether a PQClean reference test binary is present for cross-checking."""
+    if not _OQS_AVAILABLE:
+        raise HTTPException(503, "liboqs not available")
+    kem_algos = (req.kems if req and req.kems else DEFAULT_KEM_ALGOS)
+    sig_algos = (req.sigs if req and req.sigs else DEFAULT_SIG_ALGOS)
+    enabled_kems = set(oqs.get_enabled_kem_mechanisms())
+    enabled_sigs = set(oqs.get_enabled_sig_mechanisms())
+    matrix: list[dict[str, Any]] = []
+
+    for a in kem_algos:
+        row: dict[str, Any] = {"algo": a, "family": "KEM", "enabled": a in enabled_kems}
+        if a in enabled_kems:
+            try:
+                with oqs.KeyEncapsulation(a) as kem:
+                    pk = kem.generate_keypair()
+                    ct, ss_a = kem.encap_secret(pk)
+                    ss_b = kem.decap_secret(ct)
+                row.update({"ok": ss_a == ss_b, "pk_len": len(pk),
+                            "ct_len": len(ct), "ss_len": len(ss_a)})
+            except Exception as e:
+                row.update({"ok": False, "error": str(e)})
+        else:
+            row["ok"] = False
+        row["pqclean_test_present"] = _pqclean_present(a)
+        matrix.append(row)
+
+    for a in sig_algos:
+        row = {"algo": a, "family": "SIG", "enabled": a in enabled_sigs}
+        if a in enabled_sigs:
+            try:
+                msg = b"pqc-qkd-hybrid crypto-agility probe"
+                with oqs.Signature(a) as sig:
+                    pk = sig.generate_keypair()
+                    signature = sig.sign(msg)
+                    ok = sig.verify(msg, signature, pk)
+                row.update({"ok": bool(ok), "pk_len": len(pk),
+                            "sig_len": len(signature)})
+            except Exception as e:
+                row.update({"ok": False, "error": str(e)})
+        else:
+            row["ok"] = False
+        row["pqclean_test_present"] = _pqclean_present(a)
+        matrix.append(row)
+
+    passed = sum(1 for r in matrix if r.get("ok"))
+    return {
+        "matrix": matrix,
+        "summary": {"total": len(matrix), "passed": passed,
+                    "all_pass": passed == len(matrix)},
+        "library": "liboqs",
+    }
+
+
 class KATRequest(BaseModel):
     algo: str = "ML-KEM-768"
     seed_hex: str

@@ -74,16 +74,18 @@ export default function PhaseSequenceSvg({ budgets, currentPhase }: PhaseSequenc
             <line x1={padL} y1={y} x2={W - padR} y2={y}
                   stroke={colors.border} strokeDasharray="2 3" />
             {/* phase label + packet badge */}
-            <text x={20} y={y + laneH / 2 - 4} fill={c}
+            <text x={16} y={y + laneH / 2 - 4} fill={c}
                   fontSize={12} fontWeight={700}>
               Phase {b.phase}
             </text>
-            <text x={20} y={y + laneH / 2 + 12} fill={colors.textSec}
-                  fontSize={10}>{b.name}</text>
-            <rect x={140} y={y + laneH / 2 - 12} width={80} height={24} rx={4}
+            <text x={16} y={y + laneH / 2 + 12} fill={colors.textSec}
+                  fontSize={10}>
+              {b.name.length > 18 ? b.name.slice(0, 17) + "…" : b.name}
+            </text>
+            <rect x={150} y={y + laneH / 2 - 12} width={74} height={24} rx={4}
                   fill={`${c}25`} stroke={c} />
-            <text x={180} y={y + laneH / 2 + 4} fill={c}
-                  fontSize={11} fontWeight={700} textAnchor="middle">
+            <text x={187} y={y + laneH / 2 + 4} fill={c}
+                  fontSize={10} fontWeight={700} textAnchor="middle">
               {b.packets}pkt / {b.bytes}B
             </text>
 

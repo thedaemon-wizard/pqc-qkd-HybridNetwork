@@ -12,6 +12,8 @@ Backends:
     cvqkd      — submodules/strawberryfields GG02 (continuous variable)
     composite  — SimQN physical + qkdnetsim network (most realistic)
     qkdnetsim_proxy — proxy to external NS-3 KME (cross-validation)
+    tno        — TNO-Quantum qkd_key_rate (Apache-2.0, decoy-state BB84/BBM92;
+                 independent key-rate cross-check)
 
 Heavy imports are LAZY — calling `make_backend("qutip")` must not import
 qutip if you only want simqn, and vice versa.
@@ -51,6 +53,9 @@ def make_backend(name: str, cfg: BackendConfig) -> KeyProducer:
     if name in ("qkdnetsim_proxy", "qkdnetsim"):
         from .qkdnetsim_proxy import QKDNetSimProxyBackend
         return QKDNetSimProxyBackend(cfg)
+    if name in ("tno", "tno_keyrate"):
+        from .tno_backend import TNOBackend
+        return TNOBackend(cfg)
     raise ValueError(f"unknown backend: {name!r}")
 
 
