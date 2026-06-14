@@ -248,8 +248,32 @@ const kmsRx = mirrorX(GEO.kms.lx, GEO.kms.w);  // 1100
 const boxMidY = GEO.box.y + GEO.box.h / 2;          // 240
 const rightEdge = (x: number) => x + GEO.box.w;
 const kmsRightEdge = GEO.kms.lx + GEO.kms.w;        // 140
-// Vertical bands for the three stacked bottom exchange lanes
-const LANE = { pqc: 422, qkd: 472, quantum: 524 };
+
+// Connection endpoint = midpoint of a box border (never the box centre).
+type Side = "top" | "bottom" | "left" | "right";
+function edge(x: number, y: number, w: number, h: number, side: Side) {
+  switch (side) {
+    case "top":    return { x: x + w / 2, y };
+    case "bottom": return { x: x + w / 2, y: y + h };
+    case "left":   return { x, y: y + h / 2 };
+    case "right":  return { x: x + w, y: y + h / 2 };
+  }
+}
+// Bottom-edge midpoint of a standard site box at left-edge x.
+const boxBottomMid = (x: number) =>
+  edge(x, GEO.box.y, GEO.box.w, GEO.box.h, "bottom");
+
+// The three bottom exchange lanes bow DOWN from box bottom edges. Apex depths
+// are staggered so the nested arcs never cross; labels sit just above each apex.
+const LANE = {
+  pqc:     { apex: 352, src: boxBottomMid(GA.rosenpass), dst: boxBottomMid(GB.rosenpass) },
+  qkd:     { apex: 410, src: boxBottomMid(GA.arnika),    dst: boxBottomMid(GB.arnika) },
+  quantum: { apex: 470,
+             src: edge(GEO.kms.lx, GEO.kms.y, GEO.kms.w, GEO.kms.h, "bottom"),
+             dst: edge(kmsRx, GEO.kms.y, GEO.kms.w, GEO.kms.h, "bottom") },
+};
+// Quadratic-bezier control-point y that yields the desired apex (curve midpoint).
+const ctrlY = (y0: number, apex: number) => 2 * apex - y0;
 
 function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
   // Highlight rules:
@@ -290,15 +314,16 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
         <text x="620" y="82" fill="#e25555" fontSize="13" textAnchor="middle"
               fontStyle="italic">VPN scope</text>
 
-        {/* Secure Application Entity (purple dashed, inside VPN scope per-site) */}
-        <rect x="180" y="170" width="412" height="198" rx="6"
+        {/* Secure Application Entity (purple dashed, inside VPN scope per-site).
+            Height trimmed so the bottom exchange lanes leave just below it. */}
+        <rect x="180" y="170" width="412" height="132" rx="6"
               fill="none" stroke="#7c5cff" strokeWidth="1.4" strokeDasharray="5 3" />
-        <text x="386" y="360" fill="#7c5cff" fontSize="11" textAnchor="middle">
+        <text x="386" y="186" fill="#7c5cff" fontSize="11" textAnchor="middle">
           Secure Application Entity
         </text>
-        <rect x="648" y="170" width="412" height="198" rx="6"
+        <rect x="648" y="170" width="412" height="132" rx="6"
               fill="none" stroke="#7c5cff" strokeWidth="1.4" strokeDasharray="5 3" />
-        <text x="854" y="360" fill="#7c5cff" fontSize="11" textAnchor="middle">
+        <text x="854" y="186" fill="#7c5cff" fontSize="11" textAnchor="middle">
           Secure Application Entity
         </text>
 
@@ -385,33 +410,21 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
           VPN tunnel (ChaCha20-Poly1305)
         </text>
 
-        {/* ───── Three separated bottom exchange lanes (clearly stacked) ───── */}
-        {/* Lane 1: PQC KEY exchange (pink) — ROSENPASS A ⇄ B */}
-        <text x={GEO.divider} y={LANE.pqc - 10} fill="#e91e63" fontSize="11"
-              textAnchor="middle" fontWeight={500}>
-          PQC KEY exchange  (Rosenpass A ⇄ B)
-        </text>
-        <path d={`M ${GA.rosenpass + GEO.box.w / 2} ${LANE.pqc} Q ${GEO.divider} ${LANE.pqc + 22} ${GB.rosenpass + GEO.box.w / 2} ${LANE.pqc}`}
-              fill="none" stroke="#e91e63" strokeWidth="2"
-              opacity={dimUnless((mode === "B" || mode === "C") && phase === 3)} />
-
-        {/* Lane 2: QKD key_ID exchange (green dashed) — ARNIKA A ⇄ B */}
-        <text x={GEO.divider} y={LANE.qkd - 10} fill="#3ddc84" fontSize="11"
-              textAnchor="middle" fontWeight={500}>
-          QKD key_ID exchange  (ETSI 014)
-        </text>
-        <path d={`M ${GA.arnika + GEO.box.w / 2} ${LANE.qkd} Q ${GEO.divider} ${LANE.qkd + 22} ${GB.arnika + GEO.box.w / 2} ${LANE.qkd}`}
-              fill="none" stroke="#3ddc84" strokeWidth="1.5" strokeDasharray="5 3"
-              opacity={dimUnless(phase === 2)} />
-
-        {/* Lane 3: Quantum channel (purple) — infra ⇄ infra, at the very bottom */}
-        <text x={GEO.divider} y={LANE.quantum - 10} fill="#7c5cff" fontSize="11"
-              textAnchor="middle" fontWeight={500}>
-          Quantum Channel  (BB84 photonic)
-        </text>
-        <path d={`M 75 ${LANE.quantum} Q ${GEO.divider} ${LANE.quantum + 28} 1165 ${LANE.quantum}`}
-              fill="none" stroke="#7c5cff" strokeWidth="1.5" strokeDasharray="2 4"
-              opacity={dimUnless(phase === 1)} />
+        {/* ───── Three bottom exchange lanes ─────
+            Each bows DOWN from the BOTTOM EDGE of its source box to the bottom
+            edge of the mirrored target box (endpoints on box borders, never the
+            box centre). Apex depths are staggered so the nested arcs don't cross;
+            each label sits just above its own apex. Endpoint dots mark the
+            box-edge junctions explicitly. */}
+        <ExchangeLane lane={LANE.pqc} color="#e91e63" width={2}
+                      label="PQC KEY exchange  (Rosenpass A ⇄ B)"
+                      active={(mode === "B" || mode === "C") && phase === 3} />
+        <ExchangeLane lane={LANE.qkd} color="#3ddc84" width={1.5} dash="5 3"
+                      label="QKD key_ID exchange  (ETSI 014)"
+                      active={phase === 2} />
+        <ExchangeLane lane={LANE.quantum} color="#7c5cff" width={1.5} dash="2 4"
+                      label="Quantum Channel  (BB84 photonic)"
+                      active={phase === 1} />
       </svg>
       <div style={{ marginTop: 6, fontSize: 11, color: "#6b7796" }}>
         Active phase: <b style={{ color: "#e25555" }}>{phase || "idle"}</b>
@@ -434,6 +447,27 @@ function ArrowX({ x1, x2, y, color, width, dashed, active, headAt }:
       <line x1={x1} y1={y} x2={x2} y2={y} stroke={color} strokeWidth={width}
             strokeDasharray={dashed ? "4 3" : undefined} />
       <path d={`M ${hx} ${y} l ${-6 * hd} ${-4} l 0 8 z`} fill={color} />
+    </g>
+  );
+}
+
+// A bottom exchange lane: a downward bow whose two endpoints sit exactly on the
+// bottom border of the source/target boxes (small dots mark the junctions).
+function ExchangeLane({ lane, color, width, dash, label, active }:
+                      { lane: { apex: number; src: { x: number; y: number };
+                                dst: { x: number; y: number } };
+                        color: string; width: number; dash?: string;
+                        label: string; active: boolean }) {
+  const { src, dst, apex } = lane;
+  const d = `M ${src.x} ${src.y} Q ${GEO.divider} ${ctrlY(src.y, apex)} ${dst.x} ${dst.y}`;
+  return (
+    <g opacity={active ? 1 : 0.3}>
+      <text x={GEO.divider} y={apex - 9} fill={color} fontSize="11"
+            textAnchor="middle" fontWeight={500}>{label}</text>
+      <path d={d} fill="none" stroke={color} strokeWidth={width}
+            strokeDasharray={dash} />
+      <circle cx={src.x} cy={src.y} r={2.5} fill={color} />
+      <circle cx={dst.x} cy={dst.y} r={2.5} fill={color} />
     </g>
   );
 }
