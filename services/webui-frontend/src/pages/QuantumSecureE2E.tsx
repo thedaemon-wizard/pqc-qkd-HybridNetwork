@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
+import Button from "../components/Button";
 import { E2ESim } from "../lib/sim/e2eSim";
 
 /**
@@ -12,8 +13,8 @@ import { E2ESim } from "../lib/sim/e2eSim";
  *   Phase 3  PQC Handshake           — HKDF-SHA3-256 combines QKD ‖ PQC
  *   Phase 4  Data Exchange           — ChaCha20-Poly1305 encrypted ping payloads
  *
- * Drives the FastAPI orchestrator via REST and subscribes to /ws/e2e for live
- * phase transitions, byte counters, derived-PSK prefix and QKD key IDs.
+ * Round 5: runs CLIENT-SIDE (src/lib/sim/e2eSim.ts) — real in-browser
+ * HKDF-SHA3-256 + ChaCha20-Poly1305 (@noble); no backend / no /ws/e2e.
  */
 
 type E2EState = {
@@ -77,10 +78,11 @@ export default function QuantumSecureE2E() {
       <PageHeader
         title="Quantum-Secure E2E Simulation (Phase 10)"
         subtitle={<>Run and visualise the live <b>4-phase Data Exchange</b> between Alice
-          and Bob. <code>bb84-kme</code> (SimQN backend) produces real ETSI 014 keys,
-          the orchestrator fuses QKD ‖ PQC via HKDF-SHA3-256, and the final phase
-          encrypts packets with ChaCha20-Poly1305 keyed by the derived PSK.
-          Use the Run / Pause / Reset / Step buttons below to drive the state machine.</>}
+          and Bob. This runs <b>client-side in your browser</b>: a QKD key + key_ID are
+          generated, the orchestrator fuses QKD ‖ PQC with <b>real HKDF-SHA3-256</b>, and
+          the final phase encrypts packets with <b>real ChaCha20-Poly1305</b> (via @noble)
+          keyed by the derived PSK. Use Run / Pause / Resume / Step / Reset to drive the
+          state machine.</>}
       />
 
       {/* Export toolbar — between explanation text and simulation diagram.
@@ -115,16 +117,18 @@ export default function QuantumSecureE2E() {
         ))}
       </div>
 
-      {/* Operation controls */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button onClick={() => ctl("start")} disabled={status === "running"}
-                style={primaryBtn("#3ddc84")}>▶ Run</button>
-        <button onClick={() => ctl("pause")} disabled={status !== "running"}
-                style={primaryBtn("#f5a623")}>⏸ Pause</button>
-        <button onClick={() => ctl("resume")} disabled={status !== "paused"}
-                style={primaryBtn("#7c5cff")}>▶ Resume</button>
-        <button onClick={() => ctl("reset")} style={primaryBtn("#e25555")}>⏹ Reset</button>
-        <button onClick={() => ctl("step")} style={primaryBtn("#5b8def")}>⏭ Step</button>
+      {/* Operation controls — shared <Button> so the disabled state is VISIBLE
+          (opacity 0.5 + not-allowed). Step is only meaningful when not running. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center" }}>
+        <Button variant="success" onClick={() => ctl("start")}
+                disabled={status === "running"}>▶ Run</Button>
+        <Button variant="warn" onClick={() => ctl("pause")}
+                disabled={status !== "running"}>⏸ Pause</Button>
+        <Button variant="secondary" style={{ background: "#7c5cff", color: "#fff" }}
+                onClick={() => ctl("resume")} disabled={status !== "paused"}>▶ Resume</Button>
+        <Button variant="danger" onClick={() => ctl("reset")}>⏹ Reset</Button>
+        <Button variant="primary" style={{ background: "#5b8def" }}
+                onClick={() => ctl("step")} disabled={status === "running"}>⏭ Step</Button>
         {state?.engine && (
           <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
                           borderRadius: 10, padding: "2px 10px", alignSelf: "center" }}>
@@ -650,12 +654,6 @@ function Badge({ text, color }: { text: string; color: string }) {
                     marginLeft: "auto" }}>{text}</span>
   );
 }
-
-const primaryBtn = (bg: string): React.CSSProperties => ({
-  background: bg, color: "#fff", border: "none",
-  borderRadius: 4, padding: "6px 14px", fontSize: 13, cursor: "pointer",
-  fontWeight: 600,
-});
 
 const modeBtn = (active: boolean, color: string): React.CSSProperties => ({
   background: active ? color : "#0d1320", color: active ? "#fff" : color,

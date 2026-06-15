@@ -513,18 +513,21 @@ mean handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes.
 | # | Path | Page |
 |---|---|---|
 | 1 | `/` | Overview (architecture SVG + live container status) |
-| 2 | `/bb84` | BB84 Live (QBER chart, Eve toggle, photon frames) |
-| 3 | `/keyflow` | Hybrid Key Derivation Sankey |
-| 4 | `/topology` | D3-force network graph |
-| 5 | `/benchmarks` | KPI cards + latency/QBER charts |
-| 6 | `/console` | Container log tail |
-| 7 | `/physics` | PhysicsParams (live YAML + Bayesian Opt) |
-| 8 | `/pqc` | PQC Validator (liboqs vs PQClean vs OpenSSL 3.5) |
-| 9 | `/hil` | Hardware-In-The-Loop bridge instructions |
-| 10 | `/vpn` | **VPN Protocols (WireGuard ⟷ strongSwan, Phase 9-A)** |
+| 2 | `/e2e` | Quantum-Secure E2E — **client-side** 4-phase orchestration (real @noble HKDF-SHA3 + ChaCha20) |
+| 3 | `/paper-flow` | Paper Data Exchange — **client-side** multi-hop + failure cascade (arXiv:2604.05599) |
+| 4 | `/bb84` | BB84 Live — **client-side** Monte-Carlo (Web Worker/WebGPU), QBER chart, Eve toggle, photon frames |
+| 5 | `/keyflow` | Hybrid Key Derivation Sankey |
+| 6 | `/topology` | D3-force network graph |
+| 7 | `/benchmarks` | KPI cards + latency/QBER charts |
+| 8 | `/console` | Container log tail |
+| 9 | `/physics` | PhysicsParams — editable params + **client-side** key-rate & μ/ν optimiser (closed-form Lo-Ma) |
+| 10 | `/pqc` | PQC Validator (liboqs vs PQClean) |
+| 11 | `/verify` | Implementation Verification (crypto-agility matrix + TNO key-rate cross-check + paper budgets) |
+| 12 | `/hil` | Hardware-In-The-Loop bridge instructions |
+| 13 | `/vpn` | VPN Protocols (WireGuard ⟷ strongSwan) |
 
-Verified via Claude Preview MCP (Vite dev server on :5174):
-- 10 React Router paths all render correct `<h2>` headings
+Verified via Chrome DevTools MCP: all 13 React Router paths render their correct headings,
+the four simulation pages run client-side (no `/ws/*`), and console errors = 0.
 - 0 console errors (only Electron CSP + React Router v7 future-flag warnings, both benign)
 - `/api/*` proxy targets backend; pages with API dependencies show "Loading…" gracefully
 

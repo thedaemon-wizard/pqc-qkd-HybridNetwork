@@ -22,27 +22,10 @@ export async function getTopology(): Promise<Topo> {
 export async function getLogs(name: string, tail = 200): Promise<{ name: string; log: string }> {
   const r = await fetch(`${BASE}/api/logs/${name}?tail=${tail}`); return r.json();
 }
-export async function postEve(enabled: boolean, prob: number) {
-  const r = await fetch(`${BASE}/api/sim/eve`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, prob }),
-  });
-  return r.json();
-}
-export async function postRotate() {
-  const r = await fetch(`${BASE}/api/sim/rotate`, { method: "POST" });
-  return r.json();
-}
 export async function postStack(action: "start"|"stop"|"restart", name: string) {
   const r = await fetch(`${BASE}/api/stack/${action}/${name}`, { method: "POST" });
   return r.json();
 }
 
-export function openFramesWS(onMsg: (data: any) => void): WebSocket {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/ws/frames`);
-  ws.onmessage = (ev) => {
-    try { onMsg(JSON.parse(ev.data)); } catch { /* ignore */ }
-  };
-  return ws;
-}
+// Note: BB84 Eve/rotate and the /ws/frames stream were removed in Round 5 — the
+// BB84 page now runs its Monte-Carlo client-side (src/lib/sim/bb84Sim.ts).
