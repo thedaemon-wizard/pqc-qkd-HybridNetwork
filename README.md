@@ -250,8 +250,9 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
 ```
 
 The backend then only serves `/api/config`, `/api/sim/params` defaults and the
-`/verify` cross-check; container-control + server-side export-save are disabled
-and POSTs are per-IP rate-limited. Leaner still, the four sim pages need **no
+`/verify` cross-check; only container-control (`/api/stack/*`) is disabled and
+POSTs are per-IP rate-limited (backend switching + bounded export-save allowed).
+Leaner still, the four sim pages need **no
 backend at all** — the frontend bundle can be served statically (GitHub /
 Cloudflare / Netlify Pages) for a near-$0 demo (only `/verify` is then disabled).
 
@@ -297,7 +298,7 @@ Open <http://localhost:5173>. Thirteen pages are available:
 
 Most pages provide per-page export buttons below the description — **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation, and logs; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
 
-**Public-demo profile (`DEMO_MODE=1`).** For an unattended, multi-user public demo set `DEMO_MODE=1` on `webui-backend`: container-control (`/api/stack/*`) and server-side export saving are disabled (PNG/JSON/CSV still download client-side), a per-IP rate limit (`DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S`) is applied, and the frontend hides the container and saved-export controls. Local full-stack and the `deploy/` cloud real-WG stack run with `DEMO_MODE` unset (unchanged).
+**Public-demo profile (`DEMO_MODE=1`).** For an unattended, multi-user public demo set `DEMO_MODE=1` on `webui-backend`. The demo is **functionally equivalent to full mode except the one genuinely dangerous operation** — **container lifecycle control** (`/api/stack/*`), which could take the shared demo offline and stays **403** (its restart buttons are hidden) — plus a per-IP rate limit (`DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S`, 429) for abuse protection. **Backend switching, parameter overrides, and server-side export saves are all allowed** (reversible / capacity-bounded by `EXPORT_MAX_FILES`+`EXPORT_MAX_BYTES` / rate-limited). Local full-stack and the `deploy/` cloud real-WG stack run with `DEMO_MODE` unset (unchanged).
 
 > ⚠️ The WebUI Backend mounts `/var/run/docker.sock:ro` to query container state.
 > This is acceptable for a single-host PoC but should not be exposed in production.
@@ -398,8 +399,14 @@ conversions, π/2 etc., and explicitly documented CV-QKD defaults).
 ```
 
 ### Backend selection
-Set via `SIMULATOR_BACKEND` env or `simulator.backend` YAML key, or change live
-from the WebUI "Physics Params" page:
+Set via `SIMULATOR_BACKEND` env or `simulator.backend` YAML key, or switch the
+**runtime** backend live from the WebUI "Physics Params" page's selector (which
+reflects the actual running backend from `/api/stats`). This controls the
+bb84-kme physics backend used by the full-stack real KME; the Physics page's
+key-rate panel is computed **client-side** and is backend-independent. The
+selector is **enabled in `DEMO_MODE`** too — switching the shared backend is
+reversible and rate-limited, so it's safe on a public host (its effect is visible
+on the Benchmarks page).
 
 | Backend | Source | Purpose |
 |---|---|---|
@@ -407,10 +414,13 @@ from the WebUI "Physics Params" page:
 | `simqn` | `submodules/SimQN` | Realistic Cascade + Toeplitz PA + fiber loss |
 | `sequence` | `submodules/SeQUeNCe` | Photonic noise (depolarizing + measurement error) |
 | `cvqkd` | `submodules/strawberryfields` | GG02 continuous-variable QKD |
+| `tno` | `submodules/tno-qkd-key-rate` | TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0) |
 | `qkdnetsim_proxy` | `services/qkdnetsim-kme` | ETSI 014 reference (NS-3 v3.46) |
 | `composite_sim_to_net` | SimQN + qkdnetsim | Physical layer feeds network layer |
 
 ### Parameter optimisation
+The bb84-kme **backend** optimiser (scikit-optimize `gp_minimize`, Bayesian) is
+available via the CLI / API:
 ```bash
 source .venv/bin/activate
 python -c "
@@ -418,8 +428,9 @@ from app import config_loader; config_loader.reload()
 from app.optimizer import optimize_from_yaml
 print(optimize_from_yaml())
 "
-# or via WebUI Physics Params page → "Run Bayesian Optimization"
 ```
+The WebUI **Physics Params** page's "Optimize μ / ν" button runs a fast
+**client-side** μ/ν grid search over the closed-form Lo-Ma SKR (no backend call).
 
 ### Verification (host venv)
 ```bash
