@@ -29,6 +29,8 @@ export default function ExportToolbar(props: ExportToolbarProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const errRef = useRef<string>("");
   const demo = useDemoMode();
+  // User-selectable animation capture duration (WebM/GIF). Default 10 s.
+  const [durationSec, setDurationSec] = useState(10);
 
   const name = props.name ?? "export";
 
@@ -90,23 +92,40 @@ export default function ExportToolbar(props: ExportToolbarProps) {
         </Button>
       )}
       <Button variant="ghost" size="sm" disabled={busy !== null}
-              title="High-quality animation — records 4 s as a WebM video (VP9). Press Run first."
+              title={`High-quality animation — records ${durationSec}s as a WebM video (VP9). Press Run first.`}
               onClick={() => wrap("webm", async () => {
                 const t = target();
                 if (!t) throw new Error("no target");
-                await downloadWebM(name, t);
+                await downloadWebM(name, t, durationSec * 1000);
               })}>
         🎬 WebM (HQ)
       </Button>
       <Button variant="ghost" size="sm" disabled={busy !== null}
-              title="Animated GIF (universally compatible, full-resolution). Press Run first."
+              title={`Animated GIF (universally compatible, full-resolution), ${durationSec}s. Press Run first.`}
               onClick={() => wrap("gif", async () => {
                 const t = target();
                 if (!t) throw new Error("no target");
-                await downloadGif(name, t);
+                await downloadGif(name, t, durationSec * 1000);
               })}>
         🎞 GIF
       </Button>
+      {/* Animation capture duration selector (WebM / GIF) — default 10 s. */}
+      <label title="Animation capture duration (WebM / GIF)"
+             style={{ fontSize: 11, color: "#9aa9d8", display: "inline-flex",
+                       alignItems: "center", gap: 4 }}>
+        ⏱
+        <select value={durationSec} disabled={busy !== null}
+                onChange={(e) => setDurationSec(parseInt(e.target.value, 10))}
+                aria-label="Animation duration (seconds)"
+                style={{ background: "#0d1320", color: "#cbd6f5",
+                          border: "1px solid #2a3760", borderRadius: 4,
+                          padding: "2px 4px", fontSize: 11,
+                          cursor: busy !== null ? "not-allowed" : "pointer" }}>
+          {[3, 5, 10, 15, 20, 30].map((s) => (
+            <option key={s} value={s}>{s}s</option>
+          ))}
+        </select>
+      </label>
       {/* Server-side saved-exports list is hidden in public-demo mode — exports
           fall back to direct client-side downloads (no server files). */}
       {!demo && (
