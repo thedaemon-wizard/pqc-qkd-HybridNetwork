@@ -8,8 +8,8 @@
 > Cryptography (PQC) into a single **HKDF-SHA3-256**-derived PSK and rotates
 > the WireGuard VPN every 30 s. A QuTiP-based BB84 physical simulator is
 > wrapped behind the ETSI GS QKD 014 REST API and wired into
-> [arnika-vq](submodules/arnika-vq) (Go, reused unchanged) and
-> [Rosenpass](submodules/rosenpass) (Rust) for an end-to-end path that
+> [arnika-vq](https://github.com/Veriqloud/arnika-vq) (Go, reused unchanged) and
+> [Rosenpass](https://github.com/rosenpass/rosenpass) (Rust) for an end-to-end path that
 > mirrors a production deployment.
 
 Reference papers:
