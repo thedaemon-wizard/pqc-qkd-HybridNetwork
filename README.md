@@ -13,8 +13,9 @@
 > mirrors a production deployment.
 
 Reference papers:
-- `references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf` (Spooren et al.)
-- `references/QuLore_An_Adaptive_Security_Framework...pdf` (Sanz et al.)
+- [PQC-Enhanced QKD Networks: A Layered Approach](https://arxiv.org/abs/2604.05599)
+ (Spooren et al.)
+- [QuLore: An Adaptive Security Framework to Extend Quantum-Safe Communications to Real-World Networks](https://arxiv.org/abs/2511.22416)(Sanz et al.)
 
 ---
 
