@@ -6,7 +6,7 @@
  */
 import { useRef, useState } from "react";
 import {
-  downloadCSV, downloadGif, downloadJSON, downloadPNG, downloadServiceLog,
+  downloadCSV, downloadGif, downloadJSON, downloadPNG, downloadServiceLog, downloadWebM,
 } from "../lib/exporters";
 import Button from "./Button";
 import SavedExportsPicker from "./SavedExportsPicker";
@@ -90,13 +90,22 @@ export default function ExportToolbar(props: ExportToolbarProps) {
         </Button>
       )}
       <Button variant="ghost" size="sm" disabled={busy !== null}
-              title="Record 4 s as an animated GIF"
+              title="High-quality animation — records 4 s as a WebM video (VP9). Press Run first."
+              onClick={() => wrap("webm", async () => {
+                const t = target();
+                if (!t) throw new Error("no target");
+                await downloadWebM(name, t);
+              })}>
+        🎬 WebM (HQ)
+      </Button>
+      <Button variant="ghost" size="sm" disabled={busy !== null}
+              title="Animated GIF (universally compatible, full-resolution). Press Run first."
               onClick={() => wrap("gif", async () => {
                 const t = target();
                 if (!t) throw new Error("no target");
                 await downloadGif(name, t);
               })}>
-        🎞 Animation
+        🎞 GIF
       </Button>
       {/* Server-side saved-exports list is hidden in public-demo mode — exports
           fall back to direct client-side downloads (no server files). */}
