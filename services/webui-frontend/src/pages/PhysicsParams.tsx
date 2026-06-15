@@ -149,21 +149,22 @@ export default function PhysicsParams() {
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
         Defaults come from <code>config/qkd_params.yaml</code> (grounded in the
         openQKDsecurity precomputed table and the closed-form formulae in
-        arXiv:2511.21253). <b>Edit any value below and press Apply</b> to override
-        it at runtime on both KMEs — overrides are held in memory and reset on
-        restart; the YAML file is never modified. Press <b>Reset</b> to revert to
-        defaults, or <b>Optimize</b> for a Bayesian GP search of μ / ν.
+        arXiv:2511.21253). <b>Edit any value below and press Apply</b> — the live
+        key-rate recomputes <b>client-side</b> as you type, and the values are
+        best-effort synced to the KMEs (in-memory; the YAML file is never modified;
+        reset on restart). Press <b>Reset</b> to revert to defaults, or
+        <b>Optimize</b> for a client-side μ / ν search (closed-form Lo-Ma).
       </p>
 
       {/* Apply / Reset toolbar */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "12px 0",
                      flexWrap: "wrap" }}>
         <button onClick={applyEdits} disabled={busy || dirty === 0}
-                style={{ ...primaryBtn, opacity: dirty === 0 ? 0.5 : 1 }}>
+                style={dis(primaryBtn, busy || dirty === 0)}>
           {busy ? "Applying…" : `Apply${dirty ? ` (${dirty})` : ""}`}
         </button>
         <button onClick={resetParams} disabled={busy || !anyOverridden}
-                style={{ ...resetBtn, opacity: anyOverridden ? 1 : 0.5 }}>
+                style={dis(resetBtn, busy || !anyOverridden)}>
           Reset to defaults
         </button>
         {anyOverridden && (
@@ -198,7 +199,7 @@ export default function PhysicsParams() {
             {BACKENDS.map((b) => (
               <button key={b} disabled={busy}
                       onClick={() => switchBackend(b)}
-                      style={btn(b === backend)}>{b}</button>
+                      style={dis(btn(b === backend), busy)}>{b}</button>
             ))}
           </div>
         </Panel>
@@ -219,7 +220,7 @@ export default function PhysicsParams() {
       </Panel>
 
       <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={runOptimize} disabled={busy} style={primaryBtn}>
+        <button onClick={runOptimize} disabled={busy} style={dis(primaryBtn, busy)}>
           {busy ? "Optimizing…" : "Optimize μ / ν (client-side)"}
         </button>
         <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
@@ -297,6 +298,10 @@ const btn = (active: boolean): React.CSSProperties => ({
   border: "1px solid #2a3760", borderRadius: 4, padding: "4px 10px",
   fontSize: 11, cursor: "pointer",
 });
+
+// Make any inline button style disabled-aware: dim + not-allowed cursor.
+const dis = (s: React.CSSProperties, disabled: boolean): React.CSSProperties =>
+  disabled ? { ...s, opacity: 0.5, cursor: "not-allowed" } : s;
 
 const primaryBtn: React.CSSProperties = {
   background: "#5b8def", color: "#fff", border: "none", borderRadius: 4,
