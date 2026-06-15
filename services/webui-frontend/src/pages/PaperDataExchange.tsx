@@ -23,8 +23,8 @@ import { PaperSim } from "../lib/sim/paperSim";
  *
  * The page is intentionally distinct from /e2e (single-tunnel concept) — it
  * shows the daisy chain, paper-quoted packet budgets, and the 240-720s
- * failure cascade. Run/Pause/Reset drive a real backend orchestrator
- * (paper_flow.py) over /ws/paper-flow.
+ * failure cascade. Round 5: Run/Pause/Reset drive a CLIENT-SIDE orchestrator
+ * (src/lib/sim/paperSim.ts); no backend / no /ws/paper-flow.
  */
 
 interface PaperFlowState {
