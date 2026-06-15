@@ -295,7 +295,7 @@ Open <http://localhost:5173>. Thirteen pages are available:
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
 13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
 
-Most pages provide per-page export buttons (PNG / JSON / CSV / GIF / logs) below the description; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
+Most pages provide per-page export buttons below the description — **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation, and logs; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
 
 **Public-demo profile (`DEMO_MODE=1`).** For an unattended, multi-user public demo set `DEMO_MODE=1` on `webui-backend`: container-control (`/api/stack/*`) and server-side export saving are disabled (PNG/JSON/CSV still download client-side), a per-IP rate limit (`DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S`) is applied, and the frontend hides the container and saved-export controls. Local full-stack and the `deploy/` cloud real-WG stack run with `DEMO_MODE` unset (unchanged).
 
@@ -681,17 +681,19 @@ page only declares the providers it can supply.
 | Button | Action |
 |---|---|
 | 💾 **Logs** | Download `/api/logs/download/<service>` as `.log` |
-| 🖼 **PNG** | Capture `<main>` into a PNG via `html-to-image` |
+| 🖼 **PNG** | High-DPI (2×) PNG — SVG diagrams via XMLSerializer→Canvas at 2× scale; other pages via `html-to-image` `pixelRatio: 2` |
 | 📋 **JSON** | Serialise the page's snapshot from `jsonProvider()` |
 | 📊 **CSV** | Serialise tabular data from `csvProvider()` |
-| 🎞 **Animation** | Record ~4 s of frames via `html-to-image` and stitch them into an animated GIF with `gifshot` |
+| 🎬 **WebM (HQ)** | High-quality animation — records ~4 s via `MediaRecorder` + `canvas.captureStream` (VP9/VP8 WebM, no 256-colour limit) |
+| 🎞 **GIF** | Animated GIF (universally compatible) — full-resolution frames + `gifshot` `sampleInterval: 2` |
 
-All downloads are produced via `Blob` + `URL.createObjectURL`; **no server-side
-generation is required**.
+All downloads are produced client-side (`Blob` + `URL.createObjectURL`), with a
+best-effort backend save for re-download; **no server-side generation is required**.
 
-### Browser verification (Claude Preview MCP)
+### Browser verification (Chrome DevTools MCP)
 
-- `<header>` exposes 4 buttons on `/e2e` — `["💾 Logs","🖼 PNG","📋 JSON","🎞 Animation"]`
+- `/e2e` export toolbar exposes `["💾 Logs","🖼 PNG","📋 JSON","🎬 WebM (HQ)","🎞 GIF","📂 Saved"]`;
+  verified PNG = 2480×1200 (2×), GIF = 1240×600 (full-res), WebM = valid VP9 video
 - Pressing 💾 Logs produces a `text/plain` blob of 388 B (matches the file size on disk)
 - Pressing 📋 JSON produces an `application/json` blob of 308 B
 - `/api/logs/files` returns the three rotating log files actually written under

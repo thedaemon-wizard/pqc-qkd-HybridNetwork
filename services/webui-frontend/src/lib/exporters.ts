@@ -29,7 +29,15 @@ async function saveToBackendAndDownload(
 ): Promise<void> {
   try {
     const buf = await blob.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    // Chunked base64 — spreading a multi-MB byte array into String.fromCharCode
+    // overflows the call stack (high-DPI PNG / WebM are large).
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
+    }
+    const b64 = btoa(binary);
     const r = await fetch("/api/exports/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -91,7 +99,8 @@ export async function downloadCSV(name: string, rows: Record<string, any>[]): Pr
  */
 async function svgToPngDataUrl(svg: SVGSVGElement,
                                 width: number, height: number,
-                                bg: string = "#0a0e17"): Promise<string> {
+                                bg: string = "#0a0e17",
+                                scale: number = 2): Promise<string> {
   // Clone the SVG so we can inject the xmlns and a fixed size without
   // touching the live DOM, and embed computed styles.
   const clone = svg.cloneNode(true) as SVGSVGElement;
@@ -117,14 +126,17 @@ async function svgToPngDataUrl(svg: SVGSVGElement,
       img.onerror = () => reject(new Error("SVG image load failed"));
       img.src = url;
     });
+    // Render at `scale`× the intrinsic size for a crisp high-DPI PNG.
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D context unavailable");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(img, 0, 0, width, height);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL("image/png");
   } finally {
     URL.revokeObjectURL(url);
@@ -145,7 +157,8 @@ export async function downloadPNG(name: string,
     return;
   }
   const mod = await import("html-to-image");
-  const dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17" });
+  // pixelRatio 2 → high-DPI/retina-quality PNG (default ~1 was low quality).
+  const dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17", pixelRatio: 2 });
   const blob = await (await fetch(dataUrl)).blob();
   await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`);
 }
@@ -167,10 +180,11 @@ export async function downloadGif(
         const vb = target.viewBox && target.viewBox.baseVal;
         const w = vb && vb.width ? vb.width : (target.getBoundingClientRect().width || 1240);
         const h = vb && vb.height ? vb.height : (target.getBoundingClientRect().height || 620);
-        // Use a smaller render size for GIF frames to keep them manageable
-        const gw = Math.min(Math.round(w), 800);
+        // Full-resolution GIF frames (cap 1280 to bound size); scale 1 since GIF
+        // is 256-colour — extra DPI wouldn't help, only inflate the file.
+        const gw = Math.min(Math.round(w), 1280);
         const gh = Math.round(gw * (h / w));
-        dataUrl = await svgToPngDataUrl(target, gw, gh);
+        dataUrl = await svgToPngDataUrl(target, gw, gh, "#0a0e17", 1);
         frameW = gw; frameH = gh;
       } else {
         const mod = await import("html-to-image");
@@ -193,6 +207,8 @@ export async function downloadGif(
       gifHeight: frameH,
       interval: intervalMs / 1000,
       numFrames: frames.length,
+      sampleInterval: 2,   // 1–30, lower = higher colour quality (default 10)
+      numWorkers: 2,
     }, (res: any) => {
       if (res.error) { reject(new Error(res.errorMsg)); return; }
       fetch(res.image).then(r => r.blob()).then(async blob => {
@@ -202,6 +218,78 @@ export async function downloadGif(
       }).catch(reject);
     });
   });
+}
+
+/**
+ * High-quality animation export as WebM (2026 best practice — no 256-colour GIF
+ * limit). Records the live diagram via MediaRecorder + canvas.captureStream:
+ * each frame the current SVG is rendered to a high-DPI canvas being streamed,
+ * and VP9/VP8 chunks are muxed into a .webm. The animation must be running
+ * (press Run first) for a meaningful capture.
+ */
+export async function downloadWebM(
+  name: string,
+  target: HTMLElement | SVGSVGElement,
+  durationMs: number = 4000,
+  fps: number = 25,
+): Promise<void> {
+  const captureStream = (HTMLCanvasElement.prototype as any).captureStream;
+  if (typeof MediaRecorder === "undefined" || !captureStream) {
+    throw new Error("WebM recording not supported in this browser — use the GIF Animation instead");
+  }
+  // Source dimensions (SVG viewBox or element box).
+  let w = 1240, h = 600;
+  if (target instanceof SVGSVGElement) {
+    const vb = target.viewBox && target.viewBox.baseVal;
+    w = (vb && vb.width) || target.getBoundingClientRect().width || 1240;
+    h = (vb && vb.height) || target.getBoundingClientRect().height || 600;
+  } else {
+    w = target.clientWidth || 1240; h = target.clientHeight || 600;
+  }
+  const cw = Math.min(Math.round(w * 2), 1920);     // high-DPI canvas, capped 1920
+  const ch = Math.round(cw * (h / w));
+  const scale = cw / w;
+  const canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D context unavailable");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#0a0e17"; ctx.fillRect(0, 0, cw, ch);
+
+  const stream = captureStream.call(canvas, fps) as MediaStream;
+  const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+    .find((m) => MediaRecorder.isTypeSupported(m)) || "video/webm";
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+  const chunks: Blob[] = [];
+  rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  const stopped = new Promise<void>((res) => { rec.onstop = () => res(); });
+
+  const loadImg = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image(); i.onload = () => res(i);
+    i.onerror = () => rej(new Error("frame image load failed")); i.src = src;
+  });
+
+  rec.start(100);
+  const t0 = performance.now();
+  while (performance.now() - t0 < durationMs) {
+    try {
+      let dataUrl: string;
+      if (target instanceof SVGSVGElement) {
+        dataUrl = await svgToPngDataUrl(target, Math.round(w), Math.round(h), "#0a0e17", scale);
+      } else {
+        const mod = await import("html-to-image");
+        dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17", pixelRatio: 2 });
+      }
+      const img = await loadImg(dataUrl);
+      ctx.drawImage(img, 0, 0, cw, ch);
+    } catch (e) { console.warn("webm frame capture failed", e); }
+    await new Promise((r) => setTimeout(r, 1000 / fps));
+  }
+  rec.stop();
+  await stopped;
+  const blob = new Blob(chunks, { type: "video/webm" });
+  if (!blob.size) throw new Error("WebM capture produced no data");
+  await saveToBackendAndDownload(blob, name, "webm", `${name}-${timestamp()}.webm`);
 }
 
 export async function downloadServiceLog(service: string, lines: number = 1000): Promise<void> {
