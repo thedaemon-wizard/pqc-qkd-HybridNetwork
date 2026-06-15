@@ -166,7 +166,7 @@ export async function downloadPNG(name: string,
 export async function downloadGif(
   name: string,
   target: HTMLElement | SVGSVGElement,
-  durationMs: number = 4000,
+  durationMs: number = 10000,
   intervalMs: number = 250,
 ): Promise<void> {
   const frames: string[] = [];
@@ -230,7 +230,7 @@ export async function downloadGif(
 export async function downloadWebM(
   name: string,
   target: HTMLElement | SVGSVGElement,
-  durationMs: number = 4000,
+  durationMs: number = 10000,
   fps: number = 25,
 ): Promise<void> {
   const captureStream = (HTMLCanvasElement.prototype as any).captureStream;
