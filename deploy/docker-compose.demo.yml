@@ -6,11 +6,13 @@
 # puts ~no load on the backend. This overlay runs only the lightweight services
 # the client-side UI still needs:
 #     webui-frontend  — serves the client-side bundle
-#     webui-backend   — DEMO_MODE=1 (only /api/config, /api/sim/params defaults,
-#                       /verify cross-check; container-control + server-side
-#                       export-save disabled, per-IP rate-limited)
-#     bb84-kme-a/b    — only for the /verify TNO key-rate cross-check
-#     pqc-validator   — only for the /verify crypto-agility matrix
+#     webui-backend   — DEMO_MODE=1: functionally EQUIVALENT to full mode except
+#                       container lifecycle control (/api/stack/*, a DoS vector)
+#                       which stays 403; per-IP rate-limited. Backend switching,
+#                       param overrides and (capacity-bounded) server-side export
+#                       saves are ALLOWED — all reversible / bounded / rate-limited.
+#     bb84-kme-a/b    — /verify TNO cross-check + the backend-selector physics
+#     pqc-validator   — /verify crypto-agility matrix
 #
 # The privileged WireGuard nodes (alice/bob) and the docker.sock mount are
 # EXCLUDED. Bring up ONLY the demo services (do not start alice/bob):
@@ -28,10 +30,17 @@ services:
       DEMO_MODE: "1"
       DEMO_RATE_MAX: "120"
       DEMO_RATE_WINDOW_S: "60"
-    # Drop the docker.sock mount entirely for the public demo (container control
-    # is already 403 in DEMO_MODE; no need to expose the socket at all).
+      # Bound the (now-enabled) server-side export store on the public host:
+      # at most 100 files, 25 MB each (≈2.5 GB worst case, FIFO-purged).
+      EXPORT_MAX_FILES: "100"
+      EXPORT_MAX_BYTES: "26214400"
+    # Drop ONLY the docker.sock mount for the public demo (container control is
+    # 403 in DEMO_MODE; no need to expose the socket). Keep the logs + exports
+    # volumes so the now-enabled server-side export gallery persists (bounded by
+    # EXPORT_MAX_FILES/BYTES above).
     volumes: !override
       - pqcqkd-logs:/var/log/pqcqkd
+      - pqcqkd-exports:/var/lib/pqcqkd-exports
 
   webui-frontend:
     restart: unless-stopped

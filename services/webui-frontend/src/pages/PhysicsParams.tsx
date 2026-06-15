@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { asymptoticSkrPerPulse, channelFromParams, qberEmu } from "../lib/sim/keyrate";
+import { useDemoMode } from "../lib/useConfig";
 
 /**
  * Physics parameter editor.
@@ -52,14 +53,22 @@ export default function PhysicsParams() {
   const [opt, setOpt] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>("");
+  const demo = useDemoMode();
 
   async function load() {
     try {
       const r = await fetch("/api/sim/params/editable");
       const j = await r.json();
       setFields(j.fields);
-      const r2 = await fetch("/api/sim/params");
-      const p = await r2.json();
+      // Read the ACTUAL runtime backend (which `switch_backend` updates) from the
+      // live stats — not the static config default in /api/sim/params, which the
+      // runtime switch does not change (so the selector would never reflect it).
+      try {
+        const s = await fetch("/api/stats").then((x) => x.json());
+        const rt = s?.alice?.backend ?? s?.bob?.backend;
+        if (rt) { setBackend(rt); return; }
+      } catch { /* stats unavailable → fall through to config default */ }
+      const p = await fetch("/api/sim/params").then((x) => x.json());
       setBackend(p?.simulator?.backend ?? "");
     } catch { /* backend may be down */ }
   }
@@ -202,6 +211,12 @@ export default function PhysicsParams() {
                       style={dis(btn(b === backend), busy)}>{b}</button>
             ))}
           </div>
+          <p style={{ fontSize: 11, color: "#6b7796", marginBottom: 0, marginTop: 8 }}>
+            Switches the bb84-kme physics backend used by the full-stack real KME
+            (sim-agility); its effect is visible on the Benchmarks page. The
+            client-side key-rate above is computed in-browser and is
+            backend-independent. {demo ? "Enabled in demo (reversible + rate-limited)." : ""}
+          </p>
         </Panel>
       </div>
 

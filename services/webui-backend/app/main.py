@@ -92,10 +92,14 @@ app.add_middleware(
 def _truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
-# When DEMO_MODE is on (public multi-user host): container control is disabled,
-# server-side export writes are refused (clients still download locally), and a
-# per-IP token-bucket rate-limit is applied to POST requests. Local full-stack
-# and the cloud real-WG deploy run with DEMO_MODE OFF (unchanged behaviour).
+# When DEMO_MODE is on (public multi-user host) the demo is functionally
+# EQUIVALENT to full mode EXCEPT the one genuinely dangerous operation —
+# container lifecycle control (/api/stack/*), which could take the shared demo
+# offline — and a per-IP token-bucket rate-limit on POSTs (abuse protection).
+# Backend switching, parameter overrides and (bounded) server-side export saves
+# are all ALLOWED: they are reversible / capacity-bounded / rate-limited and
+# cannot damage the shared host. Local full-stack and the cloud real-WG deploy
+# run with DEMO_MODE OFF (unchanged behaviour).
 DEMO_MODE = _truthy(os.environ.get("DEMO_MODE"))
 DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / window
 DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
@@ -225,11 +229,10 @@ def _gc_export_dir() -> None:
 @app.post("/api/exports/save")
 async def export_save(req: dict):
     """Body: {name: str, ext: str, content_b64: str}
-    Saves <timestamp>-<safe_name>.<ext> into EXPORT_DIR.  Returns the URL."""
-    if DEMO_MODE:
-        # No server-side files on a public host — the client exporter falls back
-        # to a local browser download when this returns non-2xx.
-        raise HTTPException(403, "server-side export disabled in demo mode")
+    Saves <timestamp>-<safe_name>.<ext> into EXPORT_DIR.  Returns the URL.
+    Allowed in DEMO_MODE: the store is capacity-bounded (EXPORT_MAX_FILES FIFO +
+    EXPORT_MAX_BYTES/file — tightened via env in the demo profile), names are
+    sanitised (no path traversal), and POSTs are per-IP rate-limited."""
     import base64
     import re
     import time
