@@ -78,7 +78,27 @@ class KeyPool:
         self._stopped = asyncio.Event()
 
         self._backend_name = backend_name or resolve_default_backend_name()
-        self.backend: KeyProducer = make_backend(self._backend_name, cfg_from_yaml())
+        # Boot resilience: the configured backend may need a heavy submodule
+        # (SimQN / SeQUeNCe / Strawberry Fields / TNO) whose editable install
+        # was skipped — e.g. the submodule wasn't checked out before
+        # `docker compose build`. Rather than crash the whole KME on startup
+        # (which surfaces as "container is unhealthy / dependency failed to
+        # start"), fall back to the always-present built-in `qutip` backend
+        # and log loudly. Operators can switch to the real backend at runtime
+        # via POST /sim/backend once its submodule is present.
+        try:
+            self.backend: KeyProducer = make_backend(self._backend_name, cfg_from_yaml())
+        except Exception as e:
+            if self._backend_name in ("qutip", "default"):
+                raise  # the built-in itself failed — nothing safe to fall back to
+            log.error(
+                "backend %r unavailable (%s) — falling back to built-in 'qutip'. "
+                "Ensure its submodule is checked out before building "
+                "(git submodule update --init --recursive).",
+                self._backend_name, e,
+            )
+            self._backend_name = "qutip"
+            self.backend = make_backend("qutip", cfg_from_yaml())
         self._stats.backend = self.backend.backend_name
 
         # Hot-reload: rebuild backend cfg whenever YAML changes

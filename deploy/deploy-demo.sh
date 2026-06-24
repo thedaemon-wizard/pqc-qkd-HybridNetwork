@@ -72,6 +72,19 @@ fi
 # ---- 3) Submodules (bb84-kme + pqc-validator builds need them) ----
 log "syncing git submodules"
 git submodule update --init --recursive
+# The bb84-kme image installs its QKD backends from these submodules at build
+# time. The default backend is `simqn`; if SimQN isn't checked out the KME
+# crashes on boot. Make it deterministic: force-fetch the backends and, if
+# SimQN is still absent, deploy on the always-present built-in `qutip` backend
+# (no submodule needed). For a public demo this is ideal — the simulation pages
+# run client-side, so the server backend choice is cosmetic.
+git submodule update --init --force --recursive \
+    submodules/SimQN submodules/SeQUeNCe \
+    submodules/strawberryfields submodules/tno-qkd-key-rate || true
+if [[ ! -e submodules/SimQN/setup.py ]]; then
+  log "SimQN submodule absent — deploying on the built-in 'qutip' backend (SIMULATOR_BACKEND=qutip)."
+  export SIMULATOR_BACKEND=qutip
+fi
 
 ensure_swap
 
