@@ -48,6 +48,36 @@ ensure_swap() {
   fi
 }
 
+# The bb84-kme image installs the heavy QKD backends (SimQN / SeQUeNCe /
+# Strawberry Fields / TNO) from these submodules at BUILD time. The default
+# backend is `simqn` (config/qkd_params.yaml); if SimQN isn't checked out, the
+# editable install is silently skipped and the KME crashes on boot trying to
+# load it (-> "bb84-kme-a Error / dependency failed to start").
+#
+# This routine makes the deploy DETERMINISTIC rather than relying on a runtime
+# fallback: it (1) force-fetches the backend submodules, then (2) if SimQN is
+# still missing, exports SIMULATOR_BACKEND=qutip so the KME boots on the
+# always-present built-in backend. Switch back to a heavy backend at runtime
+# (Physics page / POST /sim/backend) once its submodule is present.
+ensure_backend_submodules() {
+  local d
+  log "ensuring KME backend submodules are present"
+  git submodule update --init --force --recursive \
+      submodules/SimQN submodules/SeQUeNCe \
+      submodules/strawberryfields submodules/tno-qkd-key-rate || true
+  if [[ ! -e submodules/SimQN/setup.py ]]; then
+    log "WARNING: submodules/SimQN is still empty after fetch — the default 'simqn'"
+    log "         backend can't build. Deploying on the built-in 'qutip' backend"
+    log "         instead (export SIMULATOR_BACKEND=qutip). To use the real simqn"
+    log "         backend, fix the submodule and rebuild:"
+    log "           git submodule update --init --force submodules/SimQN && \\"
+    log "           docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build bb84-kme-a bb84-kme-b"
+    export SIMULATOR_BACKEND=qutip
+  else
+    log "SimQN present ($(du -sh submodules/SimQN 2>/dev/null | cut -f1)) — using configured backend"
+  fi
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "[deploy] please run as root (sudo bash deploy/deploy.sh)" >&2
   exit 1
@@ -99,6 +129,7 @@ fi
 # ---- 5) Submodules ----------------------------------------
 log "syncing git submodules"
 git submodule update --init --recursive
+ensure_backend_submodules   # force-fetch KME backends; pick qutip if SimQN absent
 
 # ---- 5b) Swap (avoid build OOM on small VPS) ---------------
 ensure_swap
