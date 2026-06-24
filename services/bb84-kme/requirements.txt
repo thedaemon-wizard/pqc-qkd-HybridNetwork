@@ -1,4 +1,11 @@
 fastapi==0.115.6
+# Pin Starlette explicitly. fastapi 0.115.6 requires starlette<0.42, but if it
+# is left unpinned a later `pip install` (the editable backend installs in the
+# Dockerfile) can pull a newer Starlette that DROPPED the `on_startup` Router
+# argument fastapi 0.115.6 still passes -> the KME crashes on import with
+# `Router.__init__() got an unexpected keyword argument 'on_startup'`. This file
+# is also passed as a `-c` constraints file to those editable installs.
+starlette==0.41.3
 uvicorn[standard]==0.32.1
 pydantic==2.10.4
 httpx==0.28.1
@@ -9,6 +16,9 @@ aiosqlite==0.20.0
 python-multipart==0.0.20
 pyyaml==6.0.2
 scikit-optimize==0.10.2
+# Strawberry Fields (cvqkd backend) still imports legacy pkg_resources, removed
+# in setuptools>=81. Keep a version that provides it (also pinned in constraints).
+setuptools<81
 # Optional heavy backends (pulled in via submodule install in Dockerfile):
 # - SimQN          (pip install -e /submodules/SimQN)
 # - SeQUeNCe       (pip install -e /submodules/SeQUeNCe)
