@@ -58,6 +58,11 @@ services:
       PEER_SAE_ID: BOB
       PEER_KME_URL: http://bb84-kme-b:8080
       QKD_PARAMS_FILE: /etc/pqcqkd/qkd_params.yaml
+      # Optional override of the default QKD backend (empty -> use qkd_params.yaml,
+      # i.e. simqn). Deploy scripts set this to `qutip` automatically when the
+      # heavy backend submodules aren't checked out, so the KME boots on the
+      # always-present built-in backend instead of crashing.
+      SIMULATOR_BACKEND: ${SIMULATOR_BACKEND:-}
       SIMQN_PATH: /submodules/SimQN
       SEQUENCE_PATH: /submodules/SeQUeNCe
       STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
@@ -98,6 +103,7 @@ services:
       PEER_SAE_ID: ALICE
       PEER_KME_URL: http://bb84-kme-a:8080
       QKD_PARAMS_FILE: /etc/pqcqkd/qkd_params.yaml
+      SIMULATOR_BACKEND: ${SIMULATOR_BACKEND:-}   # see bb84-kme-a note above
       SIMQN_PATH: /submodules/SimQN
       SEQUENCE_PATH: /submodules/SeQUeNCe
       STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
