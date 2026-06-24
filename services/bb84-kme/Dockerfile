@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY services/bb84-kme/pyproject.toml services/bb84-kme/requirements.txt ./
+COPY services/bb84-kme/pyproject.toml services/bb84-kme/requirements.txt services/bb84-kme/constraints.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Editable installs of the heavy Phase 8 backends.  We do them inside the
@@ -25,11 +25,17 @@ COPY submodules/strawberryfields /opt/strawberryfields
 # TNO-Quantum qkd_key_rate (Apache-2.0): independent decoy-state BB84/BBM92
 # key-rate engine used as the `tno` backend + closed-form cross-check.
 COPY submodules/tno-qkd-key-rate /opt/tno-qkd-key-rate
-RUN pip install pandas 'Cython<3.0' && \
-    pip install -e /opt/SimQN || echo "SimQN editable install failed; will use volume mount" && \
-    pip install -e /opt/SeQUeNCe || echo "SeQUeNCe editable install failed; will use volume mount" && \
-    pip install -e /opt/strawberryfields || echo "strawberryfields editable install failed; will use volume mount" && \
-    pip install -e /opt/tno-qkd-key-rate || echo "TNO qkd_key_rate install failed; tno backend disabled"
+# Use requirements.txt as a pip CONSTRAINTS file (-c) for every editable backend
+# install so none of them can upgrade the pinned web stack (fastapi / starlette /
+# uvicorn / pydantic). Without this, a transitive dep of SeQUeNCe / Strawberry
+# Fields pulls a newer Starlette that breaks fastapi 0.115.6 and the KME crashes
+# on startup ("Router.__init__() got an unexpected keyword argument 'on_startup'").
+RUN pip install -c constraints.txt pandas 'Cython<3.0' && \
+    pip install -c constraints.txt -e /opt/SimQN || echo "SimQN editable install failed; will use volume mount" && \
+    pip install -c constraints.txt -e /opt/SeQUeNCe || echo "SeQUeNCe editable install failed; will use volume mount" && \
+    pip install -c constraints.txt -e /opt/strawberryfields || echo "strawberryfields editable install failed; will use volume mount" && \
+    pip install -c constraints.txt -e /opt/tno-qkd-key-rate || echo "TNO qkd_key_rate install failed; tno backend disabled" && \
+    python -c "import fastapi, starlette; from fastapi import APIRouter; APIRouter(on_startup=[]); print('web stack OK: starlette', starlette.__version__)"
 
 COPY services/bb84-kme/app/ ./app/
 
