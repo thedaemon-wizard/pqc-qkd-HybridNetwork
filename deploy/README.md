@@ -9,20 +9,41 @@ automatic TLS.
 | `docker-compose.cloud.yml` | Overlay: adds a Caddy reverse proxy (the only public service, 80/443) and restart policies. Use with the base compose. |
 | `docker-compose.demo.yml` | **Public-demo profile** (sim-only): `DEMO_MODE=1`, no privileged WG nodes / `docker.sock`. The E2E / Paper / Physics / BB84 pages run **client-side** (browser JS + Web Worker/WebGPU, real `@noble` crypto), so the backend serves only `/api/config`, param defaults and `/verify`. |
 | `Caddyfile` | Caddy config: auto-HTTPS for `$PUBLIC_HOST`, proxies to `webui-frontend`. |
-| `deploy.sh` | Idempotent bootstrap for a fresh ConoHa/Ubuntu VPS (Docker, WireGuard module, IP forwarding, UFW, build & up). |
+| `deploy.sh` | Bootstrap for the **FULL** real-WireGuard stack (Docker, WG module, IP forwarding, UFW, **swap**, build & up). Heavy: needs **≥4 GB RAM / ~15 GB disk** + a real kernel. |
+| `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes). Recommended for a public demo. |
 | `.env.example` | Copy to repo-root `.env`; set `PUBLIC_HOST`, `ACME_EMAIL`, backend profile, ports. |
 
-## Public-demo profile (client-side simulation, low backend load)
+## ⚠️ Which deploy do I want? (read this first)
+
+- **`deploy/deploy.sh` — FULL real-WireGuard stack.** Builds liboqs + **rosenpass (Rust)** +
+  **strongSwan** from source for the privileged `alice`/`bob` nodes. **Requires a real kernel and
+  ≥4 GB RAM (8 GB to build everything on-box) + ~15 GB free disk.** On a smaller box the first build
+  is OOM-killed / fills the disk, so a container such as `bb84-kme` ends up with a broken image and
+  **"fails to start"** — which then aborts everything that depends on it
+  (`Error dependency bb84-kme-a failed to start`). `deploy.sh` now adds a 4 GB swapfile automatically
+  to reduce this risk.
+- **`deploy/deploy-demo.sh` — public DEMO (recommended).** No privileged WG nodes, no rosenpass/
+  strongSwan build. The four simulation pages run **client-side**, so the backend is tiny (just
+  `webui-backend` in `DEMO_MODE` + `bb84-kme` + `pqc-validator` for `/verify`). Runs on a small box.
 
 ```sh
-docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
-  up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
+cp deploy/.env.example .env   # set PUBLIC_HOST + ACME_EMAIL
+sudo bash deploy/deploy-demo.sh
 ```
 
-The four simulation pages run entirely in the browser (no `/ws/*`), so a public
-multi-user demo barely touches the backend. Leaner still: those pages need **no
-backend** — serve the `webui-frontend` bundle statically (GitHub/Cloudflare/
-Netlify Pages) for a near-$0 demo (only `/verify` is then disabled).
+**Leanest (near-$0):** the four simulation pages need **no backend at all** — build the frontend
+(`cd services/webui-frontend && npm ci && npx vite build`) and serve `dist/` statically on
+GitHub / Cloudflare / Netlify Pages (only `/verify` is then unavailable).
+
+### Troubleshooting "Error dependency bb84-kme-a failed to start"
+This means `bb84-kme` never started (usually a build OOM / out-of-disk on a small VPS). Diagnose:
+```sh
+docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml build bb84-kme-a   # see the real build error
+docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml logs bb84-kme-a    # see the runtime error
+free -m && df -h /                                                                        # check RAM + disk
+```
+Fixes: use `deploy-demo.sh` (much lighter), give the box more RAM/disk, or rely on the auto-added
+swap. Ensure submodules are present (`git submodule update --init --recursive`).
 
 ## Quick start (VPS)
 
