@@ -40,7 +40,11 @@ trap 'rm -rf "$WORK"' EXIT
 cp -a "$ARNIKA_SRC"/. "$WORK"/
 cd "$WORK"
 
-cp "$ADAPTER_SRC/repositories/strongswan-vici.go" repositories/
+# Glob, not a single named file. Copying only strongswan-vici.go left
+# strongswan-vici_test.go behind, so `go test ./repositories/...` ran arnika's
+# own tests, reported ok, and never once executed the adapter's. Test files are
+# ignored by `go build`, so including them here costs the build nothing.
+cp "$ADAPTER_SRC"/repositories/*.go repositories/
 cp "$ADAPTER_SRC/strongswanvici.go" ./
 
 # Upstream selects the netlink writer with
@@ -72,3 +76,18 @@ go mod tidy
 
 go build -trimpath -ldflags "-w -s" -tags strongswan_vici -o "$OUTPUT" .
 echo "built $OUTPUT with the strongSwan VICI key-writer"
+
+# Optional, for CI. Vetting and testing have to happen in THIS tree, with the
+# same -tags, because both depend on the wireguardnetlink.go build-tag change
+# made above: without it, -tags strongswan_vici compiles two definitions of
+# getKeyWriterService and the package does not build at all.
+#
+# Doing it here rather than in a separate CI step keeps one place that knows how
+# to assemble the overlay. A second copy of this logic drifted from it once
+# already -- the CI step vetted an unpatched tree and failed on the duplicate.
+if [ "${ARNIKA_VICI_VET_AND_TEST:-0}" = "1" ]; then
+    echo "--- go vet -tags strongswan_vici ./... ---"
+    go vet -tags strongswan_vici ./...
+    echo "--- go test -tags strongswan_vici ./repositories/... ---"
+    go test -tags strongswan_vici ./repositories/... -v
+fi
