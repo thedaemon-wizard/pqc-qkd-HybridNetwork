@@ -6,7 +6,9 @@
 
 > Research PoC that fuses Quantum Key Distribution (QKD) and Post-Quantum
 > Cryptography (PQC) into a single **HKDF-SHA3-256**-derived PSK and rotates
-> the WireGuard VPN every 30 s. A QuTiP-based BB84 physical simulator is
+> the WireGuard VPN on a configurable interval (30 s for demos; the paper
+> uses 120 s). A pluggable BB84 physical simulator -- seven selectable
+> backends, QuTiP among them -- is
 > wrapped behind the ETSI GS QKD 014 REST API and wired into
 > [arnika](https://github.com/arnika-project/arnika) (Go, reused unchanged) and
 > [Rosenpass](https://github.com/rosenpass/rosenpass) (Rust) for an end-to-end path that
@@ -14,8 +16,19 @@
 
 Reference papers:
 - [PQC-Enhanced QKD Networks: A Layered Approach](https://arxiv.org/abs/2604.05599)
- (Spooren et al.)
-- [QuLore: An Adaptive Security Framework to Extend Quantum-Safe Communications to Real-World Networks](https://arxiv.org/abs/2511.22416)(Sanz et al.)
+  (Spooren et al., CC BY 4.0 — included under [`references/`](references/))
+- [QuLore: An Adaptive Security Framework to Extend Quantum-Safe Communications to Real-World Networks](https://arxiv.org/abs/2511.22416)
+  (Sanz et al., CC BY-NC-ND — cited only, not redistributed)
+
+Design documents:
+- [`docs/keyrate.md`](docs/keyrate.md) — the decoy-state BB84 key-rate model,
+  derived, with the golden vector CI asserts against
+- [`docs/vici-ppk.md`](docs/vici-ppk.md) — how the QKD key reaches strongSwan
+  (RFC 8784 PPK + RFC 9370 hybrid KE), and why a plain IKEv2 PSK would not work
+- [`docs/references.md`](docs/references.md) — every citation, with identifiers
+  and licences
+- [`VERIFICATION_CHECKLIST.md`](VERIFICATION_CHECKLIST.md) — what must be
+  checked before a release
 
 ---
 
@@ -52,11 +65,13 @@ The goal of this PoC is to reproduce the three-layer model from
 | Layer | Role | Implementation |
 |---|---|---|
 | End-to-End (PQC) | Post-quantum key exchange between nodes | Rosenpass (ML-KEM-768) |
-| Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the resulting WG PSK | **arnika (Go, reused unchanged)** |
+| Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the derived key | **arnika (Go, upstream unchanged; this project adds a strongSwan VICI key-writer adapter)** |
 | Hop (WireGuard) | Real encryption with ChaCha20-Poly1305 + Noise + PSK | WireGuard kernel module |
 
-The QKD layer is supplied by a **QuTiP-based BB84 physical simulator** wrapped
-behind the ETSI GS QKD 014 REST API. Eve's intercept-resend attack can be
+The QKD layer is supplied by a **pluggable BB84 physical simulator** wrapped
+behind the ETSI GS QKD 014 REST API; seven backends are selectable at runtime
+(QuTiP, SimQN, SeQUeNCe, CV-QKD, TNO, composite and a QKDNetSim proxy). The
+key-rate model they share is derived in [`docs/keyrate.md`](docs/keyrate.md). Eve's intercept-resend attack can be
 toggled from the WebUI, and the resulting QBER jump and arnika's fall-back
 behaviour are visible in real time.
 
@@ -103,7 +118,7 @@ pqc-qkd-hybrid/
 ├── docker-compose.multihop.yml        # Adds Charlie relay (paper §III)
 ├── .env.example                       # Sample environment
 ├── Makefile                           # build / up / smoke / bench
-├── references/                        # Reference papers (PDF, .docx)
+├── references/                        # Reference papers (only where the licence permits)
 ├── submodules/                        # Git submodules (unmodified)
 │   ├── arnika/                     # Go binary baked into node image
 │   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
@@ -125,7 +140,7 @@ pqc-qkd-hybrid/
 │   ├── bb84-kme/                      # Python: 6-backend BB84/CV-QKD + ETSI-014 REST
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
 │   ├── webui-backend/                 # FastAPI orchestrator
-│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (12 pages incl.
+│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
 │   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
 │   ├── pqc-validator/                 # (Phase 8) liboqs vs PQClean cross-check
@@ -520,7 +535,7 @@ cat benchmarks/results/paper_comparison.json | head -n 30
 Sample output (after `make bench`): rosenpass-scalability experiment-summary.csv
 mean handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes.
 
-### End-to-end browser verification (10 pages)
+### End-to-end browser verification (13 pages)
 
 | # | Path | Page |
 |---|---|---|
@@ -847,7 +862,7 @@ When citing or releasing the PoC, **please always disclose the limitations below
 
 ### Standards
 - [ETSI GS QKD 014](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/) — Protocol and data format of REST-based key delivery API
-- [ETSI GS QKD 020](https://www.etsi.org/committee/qkd) — KMS interoperability (in development)
+- [ETSI GS QKD 020](https://www.etsi.org/committee/qkd) — Interoperable KMS API, **V1.1.1 published 2026-06-29**
 - [NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final) — ML-KEM (Module-Lattice-based Key Encapsulation)
 - [NIST FIPS 204](https://csrc.nist.gov/pubs/fips/204/final) — ML-DSA
 - [NIST FIPS 205](https://csrc.nist.gov/pubs/fips/205/final) — SLH-DSA
