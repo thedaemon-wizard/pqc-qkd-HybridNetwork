@@ -40,11 +40,12 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 | 2.1 | ML-KEM is available to charon | `docker exec alice-ipsec swanctl --list-algs \| grep ML_KEM` | `ML_KEM_768[openssl]` or `[ml]` |
 | 2.2 | Connection loads (proposal parses) | `docker exec alice-ipsec swanctl --list-conns` | `loaded connection 'pqcqkd-vpn'` |
 | 2.3 | PPK is configured and required | same output | `ppk: ppk-qkd@pqcqkd.local, required` |
-| 2.4 | Reauth, not rekey | same output | `reauthentication every 30s, no rekeying` |
+| 2.4 | Reauth, not rekey | same output | initiator: `reauthentication every 300s, no rekeying`; responder: no reauthentication |
 | 2.5 | Traffic selectors are the real hosts | same output | `10.30.0.20/32` ↔ `10.30.0.21/32` |
 | 2.6 | SA establishes with ML-KEM | `docker exec alice-ipsec swanctl --list-sas` | `ESTABLISHED`, proposal contains `ML_KEM_768` |
 | 2.7 | IKE_INTERMEDIATE actually runs | `docker logs alice-ipsec \| grep -i intermediate` | at least one exchange |
-| 2.8 | **Both peers install the same PPK** | compare `docker exec {alice,bob}-ipsec swanctl --list-conns` after a rotation | identical `ppk_id`, both loaded |
+| 2.8 | **Both peers derive the same PPK** | `docker logs {alice,bob}-ipsec \| grep -cE 'AUTH_FAILED\|no PPK found'` after several rotations | `0` on both. Comparing `--list-conns` cannot show this: it prints the *configured* `ppk_id`, which is static and identical by construction, and the rotating ids are namespaced per peer so they differ by design. Under `ppk_required = yes` a PPK mismatch is `AUTHENTICATION_FAILED`, so a clean reauthentication is the proof. |
+| 2.8b | **Exactly one IKE_SA** | `docker exec alice-ipsec swanctl --list-sas \| grep -c ESTABLISHED` after 4+ rotations | `1` (transiently `2` during a make-before-break reauth). Two owners for one SA previously grew this by one per rotation, reaching 140. |
 | 2.9 | **KME failure is loud, not silent** | stop `bb84-kme-a`, watch `docker logs alice-ipsec` | explicit error; **no** fallback to random key material |
 | 2.10 | No credential leak across rotations | `swanctl --list-conns` / VICI `get-shared` over several rotations | one current id, previous unloaded, never an id-less entry |
 | 2.11 | Tunnel carries traffic | `docker exec alice-ipsec ping -c3 10.30.0.21` | replies |
