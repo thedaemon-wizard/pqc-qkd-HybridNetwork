@@ -1,7 +1,38 @@
-# Roadmap — Future Research Extensions
+# Roadmap - future research extensions
 
-This file expands the recommendations from README §15 into actionable work items.
-The current PoC-A code base must remain stable before starting any of these.
+Actionable work items beyond the current PoC. The code base must remain stable
+before starting any of these.
+
+Status is stated per item, and reviewed against the implemented tree rather
+than carried forward untouched. Reviewed 2026-08-20.
+
+## Completed since this roadmap was written
+
+These were on the list, or implied by it, and are now done. They are recorded
+here so the roadmap does not keep proposing work that already exists.
+
+| Item | Where |
+|---|---|
+| Crypto-agility matrix across ML-KEM and ML-DSA parameter sets | `/pqc` and `/verify`, running client-side via `@noble/post-quantum` |
+| Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
+| CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
+| A written key-rate derivation | [`keyrate.md`](keyrate.md) |
+| Secret scanning in CI | `.github/workflows/ci.yml`, job `secrets` (was listed as "recommended" for months) |
+| Reproducible seeded simulation runs | `reconcile()` now takes an injectable RNG |
+
+## Known gaps, carried forward
+
+Recorded rather than scheduled. Each is a real limitation of the current
+implementation, not a speculative feature.
+
+| Gap | Consequence |
+|---|---|
+| No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. `f_EC` is an assumed constant, and no leakage is measured. |
+| First-order finite-key term only | Not a composable security proof. See [`keyrate.md`](keyrate.md) section 5. |
+| Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
+| Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
+| RFC 9867 unavailable | strongSwan 6.0.7 does not implement it, so consuming fresh QKD material needs a full reauthentication per rotation. |
+| ETSI `key_ID` not bound to the ciphertext | arXiv:2607.06602 binds it into the AEAD AAD; neither arnika nor this project does. |
 
 ## A. Shor's Algorithm Attack Simulator
 **Goal:** Quantify the threat that motivates the entire PQC/QKD investment.

@@ -112,8 +112,8 @@ proposals     = aes256gcm16-prfsha384-ecp256-ke1_mlkem768
 esp_proposals = aes256gcm16-ecp256-ke1_mlkem768
 ```
 
-- ❌ `ml_kem_768` — the long name used in log output; it does not parse.
-- ❌ `kyber768` — never existed upstream. `kyber1/3/5` were fork-only keywords
+- `ml_kem_768` is **rejected** — that is the long name used in log output.
+- `kyber768` is **rejected** — it never existed upstream. `kyber1/3/5` were fork-only keywords
   in the pre-6.0 out-of-tree "PQ strongSwan" work.
 - Both peers must use the **same `keN_` slot number**; `ke1_` on one side and
   `ke2_` on the other will not match.
@@ -208,11 +208,11 @@ job, unchanged:
 
 ```
 KME-A  --ETSI 014 enc_keys-->  arnika (master)  --key_ID over UDP-->  arnika (backup)
-                                     |                                      |
-                                     |                        ETSI 014 dec_keys --> KME-B
+                                     | |
+                                     | ETSI 014 dec_keys --> KME-B
                                      v                                      v
                             HKDF-SHA3-256(QKD ‖ PQC)            HKDF-SHA3-256(QKD ‖ PQC)
-                                     |                                      |
+                                     | |
                                      +--------- same 32-byte key -----------+
                                      |
                        VICI load-shared type=ppk + reauth
