@@ -379,7 +379,10 @@ Tested on:
   Future Shor-attack-simulator (roadmap A) will leverage CUDA-Q + cuQuantum.
 - **Python**: 3.12 in a `.venv` for host-side scripts (tests, benchmarks, manim)
 - **Docker**: 24+ with Compose v2
-- **WireGuard**: kernel module via `kmod-wireguard` (ELRepo)
+- **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
+  `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
+  required. If `modprobe wireguard` fails on your host, see the userspace
+  `boringtun` fallback in section 5.3.
 
 Host-side Python venv (for running `pytest` and Manim outside Docker):
 
