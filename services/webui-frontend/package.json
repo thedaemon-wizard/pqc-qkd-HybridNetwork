@@ -5,26 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
     "@noble/hashes": "^2.2.0",
+    "@noble/post-quantum": "^0.7.0",
     "d3-force": "^3.0.0",
-    "gifshot": "^0.4.5",
     "html-to-image": "^1.11.13",
+    "modern-gif": "^2.1.0",
     "plotly.js-dist-min": "^2.35.3",
+    "pure-rand": "^8.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-plotly.js": "^2.6.0",
-    "react-router-dom": "^6.28.0",
-    "three": "^0.171.0"
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@types/d3-force": "^3.0.10",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@webgpu/types": "^0.1.72",
     "typescript": "^5.7.2",
     "vite": "^6.0.3"
   }

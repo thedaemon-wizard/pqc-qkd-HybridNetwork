@@ -1,10 +1,31 @@
 /**
- * Frontend export helpers (Phase 12-C).
+ * Frontend export helpers.
  *
  * Each helper takes some in-page state and triggers a browser download.
- * The PNG and GIF helpers lazy-load html-to-image / gifshot so a page that
- * doesn't actually use them keeps the initial bundle small.
+ * html-to-image and modern-gif are lazy-loaded so pages that never export
+ * keep the initial bundle small.
+ *
+ * Capture settings below are DEFAULTS, not fixed values -- every one of them
+ * is overridable by the caller, and the export toolbar exposes duration, fps
+ * and bitrate to the user.
  */
+
+/** Default animation capture length. */
+export const DEFAULT_CAPTURE_MS = 10_000;
+/** GIF is 256-colour and grows fast; a lower frame rate is the right default. */
+export const DEFAULT_GIF_FPS = 4;
+/** Smooth playback without an unreasonable file size. */
+export const DEFAULT_WEBM_FPS = 25;
+/** ~12 Mbit/s keeps text in the diagrams legible after compression. */
+export const DEFAULT_WEBM_BITRATE = 12_000_000;
+
+/** Frame-size caps, to bound export size on large diagrams. */
+const GIF_MAX_WIDTH = 1280;
+const WEBM_MAX_WIDTH = 1920;
+/** MediaRecorder timeslice; smaller values yield more, smaller chunks. */
+const WEBM_CHUNK_MS = 100;
+/** Matches the app background so exports do not render on transparent black. */
+const CANVAS_BG = "#0a0e17";
 
 function timestamp(): string {
   const d = new Date();
@@ -163,61 +184,65 @@ export async function downloadPNG(name: string,
   await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`);
 }
 
+/**
+ * Animated GIF export.
+ *
+ * Encoded with `modern-gif`, which is actively maintained and does its
+ * quantisation in a worker. It replaced `gifshot`, which had not been released
+ * since 2017, shipped no type declarations, and was the only remaining
+ * unmaintained runtime dependency.
+ *
+ * GIF is capped at 256 colours, so frames are captured at scale 1 -- extra DPI
+ * cannot survive quantisation and would only inflate the file. Use WebM for a
+ * high-fidelity capture.
+ */
 export async function downloadGif(
   name: string,
   target: HTMLElement | SVGSVGElement,
-  durationMs: number = 10000,
-  intervalMs: number = 250,
+  durationMs: number = DEFAULT_CAPTURE_MS,
+  fps: number = DEFAULT_GIF_FPS,
 ): Promise<void> {
+  if (fps <= 0) throw new Error(`gif fps must be positive, got ${fps}`);
+  const intervalMs = 1000 / fps;
+
   const frames: string[] = [];
   const t0 = performance.now();
   let frameW = 0, frameH = 0;
 
   while (performance.now() - t0 < durationMs) {
-    try {
-      let dataUrl: string;
-      if (target instanceof SVGSVGElement) {
-        const vb = target.viewBox && target.viewBox.baseVal;
-        const w = vb && vb.width ? vb.width : (target.getBoundingClientRect().width || 1240);
-        const h = vb && vb.height ? vb.height : (target.getBoundingClientRect().height || 620);
-        // Full-resolution GIF frames (cap 1280 to bound size); scale 1 since GIF
-        // is 256-colour — extra DPI wouldn't help, only inflate the file.
-        const gw = Math.min(Math.round(w), 1280);
-        const gh = Math.round(gw * (h / w));
-        dataUrl = await svgToPngDataUrl(target, gw, gh, "#0a0e17", 1);
-        frameW = gw; frameH = gh;
-      } else {
-        const mod = await import("html-to-image");
-        dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17" });
-        frameW = target.clientWidth || 800;
-        frameH = target.clientHeight || 600;
-      }
-      frames.push(dataUrl);
-    } catch (e) { console.warn("frame capture failed", e); }
+    let dataUrl: string;
+    if (target instanceof SVGSVGElement) {
+      const vb = target.viewBox && target.viewBox.baseVal;
+      const w = vb && vb.width ? vb.width : (target.getBoundingClientRect().width || 1240);
+      const h = vb && vb.height ? vb.height : (target.getBoundingClientRect().height || 620);
+      const gw = Math.min(Math.round(w), GIF_MAX_WIDTH);
+      const gh = Math.round(gw * (h / w));
+      dataUrl = await svgToPngDataUrl(target, gw, gh, CANVAS_BG, 1);
+      frameW = gw; frameH = gh;
+    } else {
+      const mod = await import("html-to-image");
+      dataUrl = await mod.toPng(target, { backgroundColor: CANVAS_BG });
+      frameW = target.clientWidth;
+      frameH = target.clientHeight;
+    }
+    frames.push(dataUrl);
     await new Promise(r => setTimeout(r, intervalMs));
   }
 
   if (!frames.length) throw new Error("no frames captured");
+  if (!frameW || !frameH) throw new Error("target has zero size; nothing to record");
 
-  const gifshot = (await import("gifshot")).default;
-  await new Promise<void>((resolve, reject) => {
-    gifshot.createGIF({
-      images: frames,
-      gifWidth: frameW,
-      gifHeight: frameH,
-      interval: intervalMs / 1000,
-      numFrames: frames.length,
-      sampleInterval: 2,   // 1–30, lower = higher colour quality (default 10)
-      numWorkers: 2,
-    }, (res: any) => {
-      if (res.error) { reject(new Error(res.errorMsg)); return; }
-      fetch(res.image).then(r => r.blob()).then(async blob => {
-        await saveToBackendAndDownload(blob, name, "gif",
-                                         `${name}-${timestamp()}.gif`);
-        resolve();
-      }).catch(reject);
-    });
+  const { encode } = await import("modern-gif");
+  const output = await encode({
+    width: frameW,
+    height: frameH,
+    frames: frames.map((src) => ({ data: src, delay: Math.round(intervalMs) })),
   });
+
+  await saveToBackendAndDownload(
+    new Blob([output as BlobPart], { type: "image/gif" }),
+    name, "gif", `${name}-${timestamp()}.gif`,
+  );
 }
 
 /**
@@ -230,23 +255,29 @@ export async function downloadGif(
 export async function downloadWebM(
   name: string,
   target: HTMLElement | SVGSVGElement,
-  durationMs: number = 10000,
-  fps: number = 25,
+  durationMs: number = DEFAULT_CAPTURE_MS,
+  fps: number = DEFAULT_WEBM_FPS,
+  bitsPerSecond: number = DEFAULT_WEBM_BITRATE,
 ): Promise<void> {
   const captureStream = (HTMLCanvasElement.prototype as any).captureStream;
   if (typeof MediaRecorder === "undefined" || !captureStream) {
     throw new Error("WebM recording not supported in this browser — use the GIF Animation instead");
   }
-  // Source dimensions (SVG viewBox or element box).
-  let w = 1240, h = 600;
+  if (fps <= 0) throw new Error(`webm fps must be positive, got ${fps}`);
+
+  // Source dimensions: the SVG viewBox, or the element's own box.
+  let w: number, h: number;
   if (target instanceof SVGSVGElement) {
     const vb = target.viewBox && target.viewBox.baseVal;
-    w = (vb && vb.width) || target.getBoundingClientRect().width || 1240;
-    h = (vb && vb.height) || target.getBoundingClientRect().height || 600;
+    const box = target.getBoundingClientRect();
+    w = (vb && vb.width) || box.width;
+    h = (vb && vb.height) || box.height;
   } else {
-    w = target.clientWidth || 1240; h = target.clientHeight || 600;
+    w = target.clientWidth; h = target.clientHeight;
   }
-  const cw = Math.min(Math.round(w * 2), 1920);     // high-DPI canvas, capped 1920
+  if (!w || !h) throw new Error("target has zero size; nothing to record");
+
+  const cw = Math.min(Math.round(w * 2), WEBM_MAX_WIDTH);  // high-DPI, capped
   const ch = Math.round(cw * (h / w));
   const scale = cw / w;
   const canvas = document.createElement("canvas");
@@ -254,12 +285,14 @@ export async function downloadWebM(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D context unavailable");
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-  ctx.fillStyle = "#0a0e17"; ctx.fillRect(0, 0, cw, ch);
+  ctx.fillStyle = CANVAS_BG; ctx.fillRect(0, 0, cw, ch);
 
   const stream = captureStream.call(canvas, fps) as MediaStream;
+  // Codec support genuinely varies by browser and platform, so negotiate at
+  // runtime rather than assuming VP9.
   const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
     .find((m) => MediaRecorder.isTypeSupported(m)) || "video/webm";
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitsPerSecond });
   const chunks: Blob[] = [];
   rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   const stopped = new Promise<void>((res) => { rec.onstop = () => res(); });
@@ -269,20 +302,18 @@ export async function downloadWebM(
     i.onerror = () => rej(new Error("frame image load failed")); i.src = src;
   });
 
-  rec.start(100);
+  rec.start(WEBM_CHUNK_MS);
   const t0 = performance.now();
   while (performance.now() - t0 < durationMs) {
-    try {
-      let dataUrl: string;
-      if (target instanceof SVGSVGElement) {
-        dataUrl = await svgToPngDataUrl(target, Math.round(w), Math.round(h), "#0a0e17", scale);
-      } else {
-        const mod = await import("html-to-image");
-        dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17", pixelRatio: 2 });
-      }
-      const img = await loadImg(dataUrl);
-      ctx.drawImage(img, 0, 0, cw, ch);
-    } catch (e) { console.warn("webm frame capture failed", e); }
+    let dataUrl: string;
+    if (target instanceof SVGSVGElement) {
+      dataUrl = await svgToPngDataUrl(target, Math.round(w), Math.round(h), CANVAS_BG, scale);
+    } else {
+      const mod = await import("html-to-image");
+      dataUrl = await mod.toPng(target, { backgroundColor: CANVAS_BG, pixelRatio: 2 });
+    }
+    const img = await loadImg(dataUrl);
+    ctx.drawImage(img, 0, 0, cw, ch);
     await new Promise((r) => setTimeout(r, 1000 / fps));
   }
   rec.stop();
