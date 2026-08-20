@@ -112,8 +112,10 @@ MONETIZATION.private.md
 *.docx
 .~lock.*#
 
-# Agent working notes, wherever they appear in the tree.
+# Local editor / tooling scratch directories, wherever they appear.
 **/.claude/
+.aider*
+.cursor/
 
 # Round 5 implementation backup (not for publication)
 services/webui-frontend/.backup-round5/

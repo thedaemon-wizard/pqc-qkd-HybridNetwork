@@ -613,7 +613,7 @@ State streams live over WebSocket (`/ws/e2e`) at ~4 Hz.
 | `/api/e2e/mode` | POST | Set mode A / B / C |
 | `/ws/e2e` | WS | Live snapshot pushed on every state transition |
 
-### Browser verification (Chrome via Claude Preview MCP)
+### Browser verification (Chrome)
 
 Verified end-to-end against the live Docker stack (bb84-kme-a/b + webui-backend +
 webui-frontend, all healthy):
@@ -807,7 +807,7 @@ candidate but was **archived on 2024-09-03** ("not actively maintained
 anymore"), so it has been excluded; only the verifiably 2026-active option
 above was added.
 
-### Browser verification (Claude Preview MCP)
+### Browser verification (Chrome)
 
 - 12 sidebar nav links including the new "Paper Data Exchange ◆"
 - `#paper-flow-topology-svg` viewBox `0 0 1060 720`, 160 elements
