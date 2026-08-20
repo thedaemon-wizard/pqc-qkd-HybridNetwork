@@ -102,6 +102,5 @@ PUBLIC_HOST=":80" ACME_EMAIL="" \
 # WebUI now reachable via the proxy at http://localhost/
 ```
 
-> Detailed business / commercial rationale, recommended hosting plan & cost,
-> DNS provider DNS steps, security hardening, and the per-OSS license &
-> commercial-use analysis live in the private private notes (not committed).
+> Per-dependency licence terms are in
+> [`../docs/THIRD_PARTY_NOTICES.md`](../docs/THIRD_PARTY_NOTICES.md).
