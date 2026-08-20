@@ -10,9 +10,9 @@
 	path = submodules/SimQN
 	url = https://github.com/QNLab-USTC/SimQN.git
 	branch = main
-[submodule "submodules/arnika-vq"]
-	path = submodules/arnika-vq
-	url = https://github.com/Veriqloud/arnika-vq.git
+[submodule "submodules/arnika"]
+	path = submodules/arnika
+	url = https://github.com/arnika-project/arnika.git
 	branch = main
 [submodule "submodules/liboqs"]
 	path = submodules/liboqs

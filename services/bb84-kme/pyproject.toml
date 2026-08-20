@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "BB84 quantum-physics simulator wrapped by an ETSI GS QKD 014 REST API"
 requires-python = ">=3.12"
 
-[tool.ruff]
-line-length = 110
-target-version = "py312"
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
+# Lint and pytest settings deliberately live at the repository root
+# (/ruff.toml and /pytest.ini), not here.
+#
+# A [tool.ruff] block in this file would take precedence for everything under
+# services/bb84-kme/, so the root ignore list would not apply and this
+# directory would be linted under different rules from the rest of the tree.
+# Likewise a [tool.pytest.ini_options] block here is not the rootdir config
+# when tests run from the repository root, so its asyncio_mode never applied
+# and async tests could not run at all.

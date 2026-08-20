@@ -68,5 +68,10 @@ def resolve_default_backend_name() -> str:
     return config_loader.get("simulator.backend", "simqn") or "simqn"
 
 
-__all__ = ["KeyProducer", "BackendConfig", "RoundOutcome", "make_backend",
-           "resolve_default_backend_name"]
+__all__ = [
+    "BackendConfig",
+    "KeyProducer",
+    "RoundOutcome",
+    "make_backend",
+    "resolve_default_backend_name",
+]

@@ -38,7 +38,7 @@ class OptimizeResult:
 
 
 def _objective(x: list[float], *, fixed: dict[str, float]) -> float:
-    mu, nu1, nu2, pz = x
+    mu, nu1, nu2, _pz = x
     if mu <= nu1 or nu1 <= nu2:
         return 0.0
     R = skr_finite(
@@ -46,9 +46,21 @@ def _objective(x: list[float], *, fixed: dict[str, float]) -> float:
         mu=mu, nu1=nu1, nu2=max(nu2, 0.0),
         f_EC=fixed["f_EC"], N=fixed["N"], eps=fixed["eps"],
     )
-    # Factor in pz: weight by basis-match probability (z·z + (1-z)(1-z))
-    p_match = pz * pz + (1.0 - pz) * (1.0 - pz)
-    return -R * p_match
+    # Deliberately NOT weighted by a basis-match probability.
+    #
+    # This used to return -R * (pz^2 + (1-pz)^2). But the sifting factor q is
+    # already inside the rate model: `_skr.asymptotic_skr_per_pulse` opens with
+    # `rate = 0.5 * (...)`, which is the q = 1/2 of symmetric BB84. Multiplying
+    # by p_match applied sifting a second time, so every reported
+    # `skr_per_pulse` was exactly half the true value at pz = 0.5.
+    #
+    # It also made the pz search dimension misleading rather than merely
+    # useless: p_match climbs from 0.5 to ~0.905 as pz goes 0.5 -> 0.95, so the
+    # objective rewarded asymmetric bases even though the underlying rate model
+    # has no pz dependence at all. Optimising pz only becomes meaningful once q
+    # is threaded through `_skr` as a parameter; until then pz is reported but
+    # not optimised, and `_pz` is unused on purpose.
+    return -R
 
 
 def optimize_bayesian(

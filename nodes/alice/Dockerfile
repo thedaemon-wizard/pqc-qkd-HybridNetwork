@@ -6,10 +6,10 @@
 #   build: { context: ., dockerfile: nodes/alice/Dockerfile })
 # so the vetted local submodules are available to COPY — we do NOT
 # clone anything from the network at build time (reproducible/offline,
-# license-vetted: arnika-vq Apache-2.0, rosenpass MIT/Apache-2.0).
+# license-vetted: arnika Apache-2.0, rosenpass MIT/Apache-2.0).
 #
 # Three build stages:
-#   1) arnika-build    : compile arnika from submodules/arnika-vq
+#   1) arnika-build    : compile arnika from submodules/arnika
 #   2) rosenpass-build : compile REAL rosenpass from submodules/rosenpass (v0.2.2)
 #   3) runtime         : Debian (glibc) with wireguard-tools + iproute2
 #
@@ -21,12 +21,16 @@
 # ============================================================
 
 # ---- Stage 1: build arnika from the local submodule --------
-FROM golang:1.24-bookworm AS arnika-build
+# Go 1.26 is required: arnika hardens key material with runtime/secret, which
+# does not exist in earlier toolchains and is gated behind a GOEXPERIMENT.
+# CGO_ENABLED / GOEXPERIMENT mirror upstream's own Makefile build vars.
+FROM golang:1.26-bookworm AS arnika-build
 WORKDIR /src
-# Vendored, license-vetted upstream (Veriqloud/arnika-vq, Apache-2.0).
-COPY submodules/arnika-vq /src/arnika
+# Vendored, license-vetted upstream (arnika-project/arnika, Apache-2.0).
+COPY submodules/arnika /src/arnika
 WORKDIR /src/arnika
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-w -s" -o /out/arnika .
+RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
+    go build -trimpath -ldflags "-w -s" -o /out/arnika .
 
 # ---- Stage 2: build REAL rosenpass from the local submodule -
 FROM rust:1.83-bookworm AS rosenpass-build

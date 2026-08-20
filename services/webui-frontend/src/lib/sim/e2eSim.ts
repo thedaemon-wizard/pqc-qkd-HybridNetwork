@@ -48,9 +48,12 @@ export class E2ESim {
   private timer: number | null = null;
   private phaseStart = 0;
   private cycleStart = 0;
-  private qkdKey = new Uint8Array(0);
-  private pqcSecret = new Uint8Array(0);
-  private derived = new Uint8Array(0);
+  // Annotated explicitly: `new Uint8Array(0)` infers the narrower
+  // Uint8Array<ArrayBuffer>, while @noble's helpers return the general
+  // Uint8Array<ArrayBufferLike>, so inference alone makes assignment fail.
+  private qkdKey: Uint8Array = new Uint8Array(0);
+  private pqcSecret: Uint8Array = new Uint8Array(0);
+  private derived: Uint8Array = new Uint8Array(0);
   private keyId = "";
   private cycleBytes = 0;
   private stepPending = false;
@@ -79,19 +82,64 @@ export class E2ESim {
     this.ensureLoop();
     this.emit();
   }
-  pause() { this.s.status = "paused"; this.emit(); }
+  /** Freeze the run, keeping all state so resume() can continue it. */
+  pause() {
+    this.s.status = "paused";
+    // Stop the timer rather than letting tick() early-return on every fire:
+    // a paused simulation should not keep waking the main thread 10x a second.
+    this.stopLoop();
+    this.emit();
+  }
+
   resume() { this.s.status = "running"; this.ensureLoop(); this.emit(); }
+
+  /** Return to the initial state, discarding key material and history. */
   reset() {
+    // Stop the loop first. Previously reset() left the interval running, so
+    // the next start() found a live timer, ensureLoop() short-circuited, and
+    // phaseStart/cycleStart were never re-seeded -- making the first phase
+    // after a reset finish early and the throughput figure meaningless.
+    this.stopLoop();
     const mode = this.s.mode;
     this.s = this.fresh(mode);
-    this.qkdKey = this.pqcSecret = this.derived = new Uint8Array(0);
+    this.clearKeyMaterial();
     this.cycleBytes = 0; this.keyId = "";
+    this.emit();
+  }
+
+  /**
+   * Stop the run and wipe derived key material, without clearing the counters
+   * that record what happened. This is the "stop and leave the evidence"
+   * control that Reset deliberately is not.
+   */
+  abort() {
+    this.stopLoop();
+    this.s.status = "idle";
+    this.s.current_phase = 0;
+    this.s.phase_name = "aborted";
+    this.clearKeyMaterial();
+    this.cycleBytes = 0; this.keyId = "";
+    this.s.last_error = "Run aborted by operator";
     this.emit();
   }
   step() { this.stepPending = true; if (this.s.current_phase === 0) this.enter(1); this.runPhaseWork(); this.advance(true); this.emit(); }
   setMode(m: Mode) { this.s.mode = m; this.s.mode_label = MODE_LABEL[m]; this.emit(); }
 
-  dispose() { if (this.timer !== null) { clearInterval(this.timer); this.timer = null; } }
+  dispose() { this.stopLoop(); this.clearKeyMaterial(); }
+
+  private stopLoop() {
+    if (this.timer !== null) { clearInterval(this.timer); this.timer = null; }
+  }
+
+  /** Drop references to key material. Zero the buffers first: even in a
+   *  simulation, leaving derived keys reachable from a live object is a habit
+   *  worth not forming. */
+  private clearKeyMaterial() {
+    this.qkdKey.fill(0); this.pqcSecret.fill(0); this.derived.fill(0);
+    this.qkdKey = new Uint8Array(0);
+    this.pqcSecret = new Uint8Array(0);
+    this.derived = new Uint8Array(0);
+  }
 
   private ensureLoop() {
     if (this.timer !== null) return;

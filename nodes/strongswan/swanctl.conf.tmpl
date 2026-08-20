@@ -1,22 +1,74 @@
 # =====================================================================
-# strongSwan swanctl configuration — RFC 9370 ML-KEM-768 hybrid IKEv2.
+# strongSwan swanctl configuration for the QKD/PQC IPsec lane.
+#
+#   * RFC 9370 hybrid key exchange  : ECP-256 (IKE_SA_INIT) + ML-KEM-768
+#                                     (IKE_INTERMEDIATE, RFC 9242)
+#   * RFC 8784 Post-quantum Preshared Key : carries the arnika-derived
+#                                     HKDF(QKD || PQC) secret
+#
+# Why a PPK and not `secrets.ike`:
+#   An IKEv2 PSK is consumed ONLY when computing the IKE_AUTH AUTH payload
+#   (RFC 7296 section 2.15). It never enters SKEYSEED, so a QKD key injected
+#   as a PSK contributes NOTHING against a harvest-now-decrypt-later
+#   adversary. RFC 8784 instead mixes the PPK into the key schedule:
+#
+#       SK_d  = prf+(PPK, SK_d')
+#       SK_pi = prf+(PPK, SK_pi')
+#       SK_pr = prf+(PPK, SK_pr')
+#
+#   SK_d is the root of every Child SA KEYMAT and of all later rekeys, so an
+#   attacker must break BOTH the (EC)DH/KEM exchange AND obtain the QKD key.
+#   See docs/vici-ppk.md for the full argument and the known limitations.
 #
 # Variables substituted by entrypoint.sh:
-#   __LOCAL_IP__   __PEER_IP__   __LOCAL_ID__   __PEER_ID__   __PSK_HEX__
-#
-# RFC 9370 syntax:
-#   proposals = aes256-sha256-modp2048-ke1_ml_kem_768
-#   The "ke1_" prefix denotes an additional KE round per RFC 9370.
+#   __LOCAL_IP__  __PEER_IP__  __LOCAL_ID__  __PEER_ID__
+#   __PPK_ID__  __BOOTSTRAP_PPK__  __REAUTH_TIME__
+#   __IKE_PROPOSALS__  __ESP_PROPOSALS__
 # =====================================================================
 connections {
     pqcqkd-vpn {
-        version = 2
-        # Hybrid: classical ECP256 + PQ ML-KEM-768 (RFC 9370 KE1)
-        proposals = aes256gcm16-sha256-prfsha256-ecp256-ke1_ml_kem_768
-        encap = yes                                  # NAT-T friendly
-        fragmentation = yes                          # ML-KEM PK > UDP MTU
+        version = 2                                  # PPK and RFC 9370 are IKEv2-only
+
+        # Hybrid: classical ECP-256 in IKE_SA_INIT, ML-KEM-768 as Additional
+        # Key Exchange 1. The `ke1_` prefix is strongSwan's RFC 9370 syntax and
+        # `mlkem768` is the only spelling its proposal parser accepts --
+        # `ml_kem_768` is the log-only long name and does NOT parse.
+        proposals = __IKE_PROPOSALS__
+
         local_addrs = __LOCAL_IP__
         remote_addrs = __PEER_IP__
+
+        # ML-KEM public keys/ciphertexts are 1184/1088 B. RFC 9242 moves them
+        # into an encrypted IKE_INTERMEDIATE exchange precisely so IKEv2
+        # fragmentation (RFC 7383) can apply -- which needs this enabled.
+        fragmentation = yes
+        encap = yes                                  # NAT-T friendly
+
+        # ---- RFC 8784 PPK ----
+        # A stable identity; the *data* behind it is rotated over VICI
+        # (load-shared type=ppk) by the arnika VICI key-writer adapter.
+        #
+        # The PPK_ID cannot itself carry a fresh key: the responder resolves it
+        # with a synchronous credential lookup in IKE_AUTH
+        # (ike_auth.c get_ppk_r -> credmgr->get_shared(SHARED_PPK, ...)), so the
+        # key must already be loaded when the exchange arrives. Key AGREEMENT is
+        # therefore still arnika's job (ETSI 014 enc_keys/dec_keys plus arnika's
+        # own key_id channel); this lane only changes where the agreed key is
+        # DELIVERED.
+        ppk_id = __PPK_ID__
+        # No silent downgrade: without this, a missing PPK falls back to
+        # NO_PPK_AUTH and the tunnel comes up with no quantum contribution at all.
+        ppk_required = yes
+
+        # RFC 8784 applies to the INITIAL IKE SA only -- it "MUST NOT be used
+        # when these subkeys are calculated as a result of IKE SA rekey".
+        # So consuming fresh QKD material requires a full reauthentication,
+        # not a rekey. rekey_time = 0 disables plain IKE rekeying; the adapter
+        # drives reauth explicitly over VICI after each key rotation.
+        # (charon.make_before_break is on by default since 6.0.0, so reauth
+        # does not drop traffic.)
+        rekey_time = 0
+        reauth_time = __REAUTH_TIME__
 
         local {
             auth = psk
@@ -29,9 +81,13 @@ connections {
 
         children {
             tunnel {
-                local_ts = 10.0.0.0/24
-                remote_ts = 10.0.0.0/24
-                esp_proposals = aes256gcm16-sha256-modp2048
+                # Host-to-host between the two IPsec nodes on wan-net. The old
+                # config used 10.0.0.0/24 on BOTH ends -- the WireGuard overlay
+                # subnet, which neither ipsec node owns -- so start_action=trap
+                # could never match any traffic.
+                local_ts = __LOCAL_IP__/32
+                remote_ts = __PEER_IP__/32
+                esp_proposals = __ESP_PROPOSALS__
                 start_action = trap
                 close_action = restart
             }
@@ -40,11 +96,23 @@ connections {
 }
 
 secrets {
+    # Bootstrap credentials only.
+    #
+    # IMPORTANT: never run `swanctl --load-creds` on this node. That command is
+    # a DESTRUCTIVE SYNC -- it calls get-shared and then unload-shared for every
+    # vici-injected id that is not also a `secrets.*` section here, which would
+    # silently delete the rotating QKD PPK. Load connections with
+    # `swanctl --load-conns` instead.
     ike-pqcqkd {
         id-local = __LOCAL_ID__
         id-remote = __PEER_ID__
-        # PSK is injected by arnika-vici-bridge.sh from arnika's HKDF output;
-        # __PSK_HEX__ is a placeholder loaded at boot, refreshed on PSK rotation.
-        secret = 0x__PSK_HEX__
+        secret = 0x__BOOTSTRAP_PSK__
+    }
+
+    # Bootstrap PPK so the very first IKE_AUTH can complete before the first
+    # QKD rotation lands. It is replaced -- by id -- on the first SetPSK call.
+    ppk-qkd-bootstrap {
+        id = __PPK_ID__
+        secret = 0x__BOOTSTRAP_PPK__
     }
 }

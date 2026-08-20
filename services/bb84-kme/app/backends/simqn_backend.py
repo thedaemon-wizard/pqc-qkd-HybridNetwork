@@ -14,10 +14,9 @@ import logging
 import os
 import sys
 import time
-from hashlib import shake_256
 
-from .base import BackendConfig, KeyProducer, RoundOutcome
 from ._skr import drop_rate_for_simulator, total_transmittance
+from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +55,6 @@ def _run_one_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     composition pattern.
     """
     import numpy as np
-
     from qns.entity import QNode
     from qns.entity.cchannel.cchannel import ClassicChannel
     from qns.entity.qchannel.qchannel import QuantumChannel
@@ -145,19 +143,6 @@ def _run_one_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     if not rec.accepted:
         return b"", rec.qber, len(common_ids), send_rate
     return rec.final_key, rec.qber, len(common_ids), send_rate
-    # legacy code path retained below (unused) for reference
-    # Aggregate produced 512-bit blocks
-    blocks_total = len(sender.key_pool)
-    if blocks_total == 0:
-        return b"", 1.0, 0, send_rate
-    qber_est = float(getattr(sender, "error_rate", 0.0) or 0.0)
-    blob = b"".join(
-        bytes(int("".join(str(b) for b in bits[i:i+8]), 2) for i in range(0, len(bits), 8))
-        for bits in sender.key_pool.values()
-    )
-    key = shake_256(blob).digest(cfg.out_bits_per_key // 8)
-    sifted = blocks_total * KEY_BLOCK_SIZE
-    return key, qber_est, sifted, send_rate
 
 
 class SimQNBackend(KeyProducer):

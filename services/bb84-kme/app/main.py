@@ -13,13 +13,11 @@ Mounts:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
@@ -27,11 +25,10 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+from pydantic import BaseModel
 
-from . import config_loader, etsi014, optimizer
+from . import config_loader, etsi014, logging_setup, optimizer
 from .keypool import KeyPool
-
-from . import logging_setup
 
 log = logging_setup.configure(os.environ.get("SAE_ID", "bb84-kme").lower())
 
@@ -74,8 +71,12 @@ async def lifespan(app: FastAPI):
         for t in (task, metrics_task):
             try:
                 await t
-            except (asyncio.CancelledError, Exception):
-                pass
+            except asyncio.CancelledError:
+                pass  # expected: we just cancelled it
+            except Exception:
+                # Anything else means the task died of something real, and
+                # shutdown must not be what hides it.
+                log.exception("background task %r raised during shutdown", t.get_name())
 
 
 async def _metrics_loop(app: FastAPI) -> None:
@@ -283,8 +284,8 @@ async def keyrate_crosscheck():
     """Independent-implementation verification: compare OUR closed-form Lo-Ma
     two-decoy key rate against TNO-Quantum's qkd_key_rate engine (Apache-2.0) at
     the current config. Surfaced in the WebUI verification panel."""
-    from .backends.base import cfg_from_yaml
     from .backends._skr import asymptotic_skr_per_pulse, total_transmittance
+    from .backends.base import cfg_from_yaml
     cfg = cfg_from_yaml()
     eta_total = total_transmittance(
         cfg.detector_efficiency, cfg.fiber_attenuation_db_per_km, cfg.link_length_km)

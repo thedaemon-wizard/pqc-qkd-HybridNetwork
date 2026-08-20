@@ -3,9 +3,9 @@
 This repository incorporates the following open-source software as git submodules.
 Each retains its original copyright notice and license terms.
 
-| Submodule | License | Project | Phase | Activity (May 2026) |
+| Submodule | License | Project | Phase | Activity (verified 2026-08-20) |
 |---|---|---|---|---|
-| `arnika-vq` | Apache-2.0 | CANCOM Converged Services GmbH | 0–7 | EU EUROQCI/QCI-CAT |
+| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — prototype developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642) | 0–7, 9 | pinned to `018b3541` (2026-07-31), post-v1.0.1 `main` |
 | `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | active |
 | `oqs-provider` | Apache-2.0 | Open Quantum Safe project | 0–7 | active |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned submodule **v0.2.2**; real PQ key exchange in `nodes/alice` |
@@ -20,8 +20,10 @@ Each retains its original copyright notice and license terms.
 | `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | 2026-05-14 (active) |
 | `cryptography` (PyPI) | Apache-2.0 / BSD-3-Clause dual | Python Cryptographic Authority | 10 | v44.0.0; used by `e2e_orchestrator` for HKDF-SHA3 + ChaCha20-Poly1305 |
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | 2026-05-08 (active); alternative PSK-injection (benchmark reference, no live integration) |
-| `html-to-image` (npm) | MIT | bubkoo et al. | 12 | v1.11.13; capture DOM to PNG for ExportToolbar 🖼 PNG / 🎞 Animation |
-| `gifshot` (npm) | MIT | Yahoo Inc. | 12 | v0.4.5; stitches frames into animated GIF for ExportToolbar 🎞 Animation |
+| `html-to-image` (npm) | MIT | bubkoo et al. | 12 | v1.11.13; capture DOM to PNG for ExportToolbar PNG /  Animation |
+| `modern-gif` (npm) | MIT | qq15725 | 12 | v2.1.0 (2026-04-16); encodes animated GIF exports in a worker. Replaced `gifshot`, which had not been released since 2017-12-18. |
+| `@noble/post-quantum` (npm) | MIT | Paul Miller | 12 | v0.7.0 (2026-08-09); in-browser ML-KEM / ML-DSA for the client-side PQC validator. Self-audited; makes no constant-time claim. |
+| `pure-rand` (npm) | MIT | Nicolas Dubien | 12 | v8.4.2; seeded PRNG for reproducible simulation runs. |
 | `qkd_kme_server` | (see repo LICENSE) | Thomas Prévost (`thomasarmel`) | 14 | **2026-04-01 active**; Rust ETSI GS QKD 014 v1.1.1 KME — third reference implementation alongside Python `bb84-kme` + NS-3 `qkdnetsim-kme` |
 | `pq-wireguard` (Kudelski Security) | — | — | rejected | **archived 2024-09-03** ("not actively maintained anymore"); kept only as historical reference, NOT integrated |
 | `qkd-kem-provider` (qursa-uc3m) | MIT | UC3M / Vigo (QURSA) | reference | 2025-06; oqs-provider fork hybridising PQ KEMs with QKD — listed for the crypto-agility roadmap |
@@ -45,7 +47,8 @@ Each retains its original copyright notice and license terms.
 - **strongSwan (GPL-2.0-or-later, with an OpenSSL/LGPL linking exception)** runs
   in a dedicated Docker container (`services/strongswan` / `nodes/strongswan/`).
   Its source is unmodified and we invoke its binaries over the network; our
-  wrapper scripts (`entrypoint.sh`, `arnika-vici-bridge.sh`) are shell glue and
+  wrapper `entrypoint.sh` and the Go VICI key-writer in
+  `services/arnika-vici/` are our own work and
   remain Apache-2.0 under this repository's baseline. End users who *redistribute*
   the container must comply with the GPL-2.0 source-offer obligation for the
   strongSwan binaries (the special exception permits combining with OpenSSL and

@@ -158,8 +158,11 @@ pqc-list: ## List PQC algorithms exposed by oqs-provider
 # -------------------------------------------------------------------
 .PHONY: fmt
 fmt: ## Format Python with ruff
-	python3.12 -m ruff format services/ tests/ animations/ benchmarks/ || true
+	python3.12 -m ruff format services/ tests/ tools/ animations/ benchmarks/
 
 .PHONY: lint
-lint: ## Lint Python with ruff
-	python3.12 -m ruff check services/ tests/ animations/ benchmarks/ || true
+lint: ## Lint Python with ruff (same rules as CI)
+# No `|| true`. These targets used to swallow every failure, so `make lint`
+# reported success no matter what -- which is why 99 lint errors accumulated
+# unnoticed, one of them a reference to an undefined name.
+	python3.12 -m ruff check services/ tests/ tools/ animations/ benchmarks/
