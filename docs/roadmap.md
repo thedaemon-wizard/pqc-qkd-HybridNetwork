@@ -13,7 +13,7 @@ here so the roadmap does not keep proposing work that already exists.
 
 | Item | Where |
 |---|---|
-| Crypto-agility matrix across ML-KEM and ML-DSA parameter sets | `/pqc` and `/verify`, running client-side via `@noble/post-quantum` |
+| Crypto-agility matrix across ML-KEM and ML-DSA parameter sets | `/pqc`, running entirely client-side via `@noble/post-quantum`. `/verify` is **not** client-side: it calls `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`, and shows "Backend services unavailable" without them. |
 | Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
 | CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
 | A written key-rate derivation | [`keyrate.md`](keyrate.md) |
@@ -122,3 +122,38 @@ implementation, not a speculative feature.
 4. **B** (HNDL) — partly product/marketing; small lift
 5. **E** (Compliance) — documentation
 6. **F**, **G**, **H** — longer-term
+
+## Decision record: client-side compute stack
+
+The public demo must not put simulation load on the server, so every simulation
+page computes in the browser. Four runtimes are routinely suggested for that and
+none of them is used here. Recording why, so the omission reads as a decision
+rather than an oversight.
+
+**What is used.** Pure-TypeScript `@noble/*` for the cryptography, and a
+Web Worker for the BB84 Monte-Carlo with an optional WebGL2/WebGPU compute path
+for the pulse loop. The ladder degrades in that order, and every rung produces
+identical results because the physics is seeded through `pure-rand`.
+
+**WebAssembly.** Rejected for the cryptography. `@noble` is already constant
+time by construction and small enough that the bundle cost of a WASM build
+outweighs the throughput gain at the sizes used here (a few ML-KEM operations
+per page view, not a stream). It remains the right answer if the PQC sweep in
+section D grows to thousands of keygen operations per run, at which point the
+tradeoff reverses; the interface is deliberately narrow enough to swap.
+
+**WebNN and WebLLM.** Rejected on correctness grounds, not performance. Both
+target neural inference, where approximate arithmetic and non-deterministic
+operator scheduling are acceptable. This project needs exact integer arithmetic
+for ML-KEM and bit-reproducible results for the physics, since a seeded run must
+produce the same key rate on every machine for the golden vector in
+`tests/test_keyrate_golden_vector.py` to mean anything. An inference runtime is
+the wrong tool for both.
+
+**ONNX Runtime Web.** Same objection, plus it would add a multi-megabyte
+dependency to serve a workload with no model in it.
+
+The QLSTM-IDS work in section C is the first item that genuinely wants an ML
+runtime. If it lands in the browser rather than server-side, ONNX Runtime Web is
+the candidate to revisit, and it should be scoped to that page alone rather than
+adopted as the general compute story.
