@@ -1,0 +1,327 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run redundant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python — lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-asyncio httpx
+          pip install -r services/bb84-kme/requirements.txt
+          pip install -r services/webui-backend/requirements.txt
+
+      # No `|| true`: the Makefile targets used to swallow lint failures, so
+      # they never gated anything.
+      #
+      # `ruff format --check` is deliberately NOT run here. The existing code
+      # predates the formatter and reformatting it would be a ~38-file
+      # cosmetic diff; that is worth doing as its own change, not as a gate
+      # that fails every PR until someone does it.
+      - name: Lint
+        run: ruff check services/ tests/ tools/ benchmarks/
+
+      # Contract tests self-skip without a live KME; the `live-stack` job runs
+      # them for real.
+      - name: Unit tests
+        run: pytest tests/ -v
+
+  keyrate:
+    name: Key-rate model — golden vector and port parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/webui-frontend/package-lock.json
+
+      - run: pip install pytest pytest-asyncio numpy pyyaml
+      - run: npm ci
+        working-directory: services/webui-frontend
+
+      # Pins the model to published values (Ma et al. 2005, GYS worked example:
+      # R = 2.555e-3 bits/pulse) and checks the TypeScript port still agrees
+      # with the Python reference. The same model is implemented three times in
+      # this repo, so drift is a real risk.
+      - name: Golden vector and cross-implementation parity
+        run: pytest tests/test_keyrate_golden_vector.py tests/test_keyrate_ports_agree.py -v
+
+  frontend:
+    name: Frontend — typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/webui-frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: services/webui-frontend
+
+      # `npm run build` was `vite build` alone for a long time, so type errors
+      # accumulated unnoticed. tsc is part of the build now; this makes it a gate.
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: services/webui-frontend
+
+      - name: Build
+        run: npx vite build
+        working-directory: services/webui-frontend
+
+  go:
+    name: arnika VICI adapter — vet, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          # arnika hardens key material with runtime/secret, which needs 1.26.
+          go-version: "1.26"
+
+      # Builds the adapter against the pinned upstream arnika tree exactly as
+      # nodes/strongswan/Dockerfile does, so the image build cannot be the
+      # first place a compile error shows up.
+      # Build, vet and test all run inside the tree build.sh assembles.
+      #
+      # -tags strongswan_vici is required, not decorative: strongswanvici.go
+      # carries that build constraint, so without it the adapter selector --
+      # including the VICI_IKE_ROLE validation that decides which peer owns the
+      # IKE_SA -- is excluded from both vet and test. But the tag only compiles
+      # once build.sh has narrowed wireguardnetlink.go's own tag; otherwise both
+      # adapters define getKeyWriterService. That is why this is one step and
+      # not two: a separate step with its own copy of the overlay drifted from
+      # build.sh and vetted an unpatched tree.
+      - name: Build, vet and test with the strongswan_vici adapter
+        env:
+          ARNIKA_VICI_VET_AND_TEST: "1"
+        run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Promised in the README pre-release checklist since before publication.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  images:
+    name: Container images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The strongSwan image previously could not build at all (it COPY'd a
+      # liboqs lib64 directory that is never created on Debian) and nothing
+      # noticed, because no job ever built it.
+      - name: strongSwan node
+        run: docker build -f nodes/strongswan/Dockerfile -t pqcqkd/strongswan:ci .
+
+      # ML-KEM must be reachable at runtime, not merely compiled: the plugin
+      # also has to be named in charon's `load` line. Assert it end-to-end.
+      - name: ML-KEM-768 is available to charon
+        run: |
+          docker run --rm --cap-add NET_ADMIN --entrypoint sh pqcqkd/strongswan:ci -c '
+            /usr/local/libexec/ipsec/charon 2>/dev/null &
+            for i in $(seq 1 30); do [ -S /var/run/charon.vici ] && break; sleep 1; done
+            swanctl --list-algs | grep -q "ML_KEM_768" \
+              || { echo "FATAL: ML_KEM_768 not available"; swanctl --list-algs; exit 1; }
+            echo "OK: $(swanctl --list-algs | grep ML_KEM_768)"
+          '
+
+      - name: WireGuard node
+        run: docker build -f nodes/alice/Dockerfile -t pqcqkd/node-alice:ci .
+
+  live-stack:
+    name: ETSI GS QKD 014 contract tests (live KMEs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pytest-asyncio httpx
+
+      - name: Start the two KMEs
+        run: |
+          cp .env.example .env
+          sed -i "s|^ARNIKA_PSK=.*|ARNIKA_PSK=$(openssl rand -base64 32)|" .env
+          docker compose up -d --build bb84-kme-a bb84-kme-b
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 60); do
+            a=$(docker inspect -f '{{.State.Health.Status}}' bb84-kme-a 2>/dev/null || echo starting)
+            b=$(docker inspect -f '{{.State.Health.Status}}' bb84-kme-b 2>/dev/null || echo starting)
+            [ "$a" = healthy ] && [ "$b" = healthy ] && exit 0
+            sleep 2
+          done
+          docker compose logs bb84-kme-a bb84-kme-b
+          exit 1
+
+      # The single most important contract in the project: if this JSON shape
+      # drifts, arnika cannot parse it and the whole hybrid layer breaks.
+      - name: Contract tests
+        env:
+          KME_URL: http://127.0.0.1:18080
+          PEER_KME_URL: http://127.0.0.1:18081
+          SAE_ID: ALICE
+          PEER_SAE_ID: BOB
+        run: |
+          docker run -d --name kme-a-proxy --network host alpine/socat \
+            TCP-LISTEN:18080,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-a):8080
+          docker run -d --name kme-b-proxy --network host alpine/socat \
+            TCP-LISTEN:18081,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-b):8080
+          sleep 3
+          pytest tests/test_etsi014_contract.py -v
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+  ipsec:
+    name: strongSwan lane — two-node IKEv2 with ML-KEM and RFC 8784 PPK
+    runs-on: ubuntu-latest
+    # Every assertion here corresponds to a defect that shipped because the lane
+    # had only ever been exercised on a single node in isolation. A one-node
+    # check can confirm that the config renders, the proposal parses and the PPK
+    # loads -- and all three passed while the tunnel could not come up at all.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start both IPsec nodes
+        run: |
+          cp .env.example .env
+          sed -i "s|^ARNIKA_PSK=.*|ARNIKA_PSK=$(openssl rand -base64 32)|" .env
+          docker compose -f docker-compose.yml -f docker-compose.strongswan.yml \
+            --profile ipsec up -d --build alice-ipsec bob-ipsec
+
+      # The tunnel must come up on its own. Nothing here initiates it by hand:
+      # an explicit swanctl --initiate would mask exactly the boot-ordering and
+      # supervision failures this job exists to catch.
+      - name: Wait for the SA to establish on both nodes
+        run: |
+          for i in $(seq 1 60); do
+            a=$(docker exec alice-ipsec swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            b=$(docker exec bob-ipsec   swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            if [ "$a" -ge 1 ] && [ "$b" -ge 1 ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::no IKE_SA established within 300s"
+          exit 1
+
+      # A tunnel can be ESTABLISHED with neither the post-quantum key exchange
+      # nor the PPK: without ppk_required charon silently falls back to
+      # NO_PPK_AUTH, which is the whole thing this project exists to prevent.
+      - name: Assert ML-KEM-768 and the PPK are in the negotiated proposal
+        run: |
+          set -eu
+          for node in alice-ipsec bob-ipsec; do
+            line=$(docker exec "$node" swanctl --list-sas | grep -m1 'ESTABLISHED' -A3 | grep -m1 'ML_KEM' || true)
+            echo "$node: ${line:-<no proposal line>}"
+            case "$line" in
+              *KE1_ML_KEM_768*) ;;
+              *) echo "::error::$node negotiated no ML-KEM-768"; exit 1 ;;
+            esac
+            case "$line" in
+              *"/PPK"*) ;;
+              *) echo "::error::$node established without an RFC 8784 PPK"; exit 1 ;;
+            esac
+          done
+
+      # The PPK ids differ by design (each side namespaces by peer name), so
+      # comparing them proves nothing. What proves the two peers derived the
+      # SAME key is that reauthentication keeps succeeding under
+      # ppk_required = yes -- a mismatch is AUTHENTICATION_FAILED.
+      - name: Rotate keys and assert the SA count stays at one
+        run: |
+          set -eu
+          sleep 240
+          fail=0
+          for node in alice-ipsec bob-ipsec; do
+            sas=$(docker exec "$node" swanctl --list-sas | grep -c ESTABLISHED || true)
+            authfail=$(docker logs "$node" 2>&1 | grep -cE 'AUTH_FAILED|no PPK found' || true)
+            rot=$(docker logs "$node" 2>&1 | grep -c 'PPK rotated' || true)
+            echo "$node: $sas SA(s), $rot rotation(s), $authfail auth failure(s)"
+
+            [ "$rot" -ge 2 ] || { echo "::error::$node rotated $rot times, expected >= 2"; fail=1; }
+            # NOT -eq 0. Rotating a PPK under a stable PPK_ID cannot be atomic
+            # across two hosts: the initiator reauthenticates microseconds after
+            # its own load, and the responder's load of the same generation can
+            # land a few hundred microseconds later. Measured at 1 failure in 45
+            # rotations, self-correcting. See the "sub-millisecond rotation
+            # race" section in docs/vici-ppk.md.
+            #
+            # Asserting zero would make this job flake, and a flaky guard is one
+            # that gets ignored. What must still fail the build is SYSTEMATIC
+            # mismatch -- two credentials answering one PPK_ID, which is a coin
+            # flip rather than a race. That measured 4 failures in 9 rotations
+            # before the bootstrap credential was retired, so a 20% ceiling
+            # separates the two cleanly.
+            [ $((authfail * 5)) -le "$rot" ] || { echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"; fail=1; }
+            # Two owners for one SA made this climb by one per rotation, and
+            # reached 140 before it was found. Allow 2 for a make-before-break
+            # reauth caught mid-flight; anything above that is the runaway.
+            [ "$sas" -le 2 ] || { echo "::error::$node holds $sas IKE_SAs; expected 1"; fail=1; }
+          done
+          exit "$fail"
+
+      - name: Assert traffic actually traverses ESP
+        run: |
+          set -eu
+          docker exec alice-ipsec ping -c 3 -W 2 10.30.0.21
+          out=$(docker exec alice-ipsec swanctl --list-sas | grep -m1 'out ')
+          echo "$out"
+          # A tunnel that is up but installs no ESP counters is passing traffic
+          # in the clear past the policy.
+          echo "$out" | grep -qE '[1-9][0-9]* bytes' \
+            || { echo "::error::no bytes counted on the outbound ESP SA"; exit 1; }
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          for node in alice-ipsec bob-ipsec; do
+            echo "===== $node ====="
+            docker logs --tail 200 "$node" 2>&1 || true
+            docker exec "$node" swanctl --list-sas 2>&1 || true
+            docker exec "$node" ip xfrm policy 2>&1 || true
+          done

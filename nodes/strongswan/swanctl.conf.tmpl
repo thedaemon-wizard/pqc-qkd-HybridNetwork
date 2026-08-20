@@ -1,22 +1,150 @@
 # =====================================================================
-# strongSwan swanctl configuration — RFC 9370 ML-KEM-768 hybrid IKEv2.
+# strongSwan swanctl configuration for the QKD/PQC IPsec lane.
+#
+#   * RFC 9370 hybrid key exchange  : ECP-256 (IKE_SA_INIT) + ML-KEM-768
+#                                     (IKE_INTERMEDIATE, RFC 9242)
+#   * RFC 8784 Post-quantum Preshared Key : carries the arnika-derived
+#                                     HKDF(QKD || PQC) secret
+#
+# Why a PPK and not `secrets.ike`:
+#   An IKEv2 PSK is consumed ONLY when computing the IKE_AUTH AUTH payload
+#   (RFC 7296 section 2.15). It never enters SKEYSEED, so a QKD key injected
+#   as a PSK contributes NOTHING against a harvest-now-decrypt-later
+#   adversary. RFC 8784 instead mixes the PPK into the key schedule:
+#
+#       SK_d  = prf+(PPK, SK_d')
+#       SK_pi = prf+(PPK, SK_pi')
+#       SK_pr = prf+(PPK, SK_pr')
+#
+#   SK_d is the root of every Child SA KEYMAT and of all later rekeys, so an
+#   attacker must break BOTH the (EC)DH/KEM exchange AND obtain the QKD key.
+#   See docs/vici-ppk.md for the full argument and the known limitations.
 #
 # Variables substituted by entrypoint.sh:
-#   __LOCAL_IP__   __PEER_IP__   __LOCAL_ID__   __PEER_ID__   __PSK_HEX__
-#
-# RFC 9370 syntax:
-#   proposals = aes256-sha256-modp2048-ke1_ml_kem_768
-#   The "ke1_" prefix denotes an additional KE round per RFC 9370.
+#   __LOCAL_IP__  __PEER_IP__  __LOCAL_ID__  __PEER_ID__
+#   __PPK_ID__  __BOOTSTRAP_PPK__  __REAUTH_TIME__
+#   __IKE_PROPOSALS__  __ESP_PROPOSALS__  __CONTROL_PORT__
 # =====================================================================
 connections {
+    # ---- Control-plane bypass (must be declared before the tunnel) ----
+    #
+    # This exists to break a deadlock that only a two-node test can expose.
+    #
+    # The `tunnel` child below traps the whole host pair __LOCAL_IP__/32 <->
+    # __PEER_IP__/32 on EVERY port. arnika's own key_ID channel is UDP to the
+    # peer on __CONTROL_PORT__, and it runs between exactly those two addresses,
+    # so the kernel captures it into the trap policy. That gives:
+    #
+    #     arnika sends key_ID  ->  kernel traps the packet
+    #                          ->  charon starts IKE
+    #                          ->  IKE_AUTH needs the PPK (ppk_required = yes)
+    #                          ->  the PPK needs the key_ID that is still trapped
+    #
+    # and the observed symptom is a key_ID send timing out against the peer while
+    # IKE_AUTH fails, forever.
+    #
+    # A shunt policy (mode = pass) tells the kernel to forward these packets in
+    # the clear instead of trapping them. That is correct rather than merely
+    # expedient: the channel carries only key *identifiers*, never key material
+    # (the key itself is fetched from the local KME over ETSI GS QKD 014), and
+    # arnika authenticates it with HMAC(ARNIKA_PSK, ...). Tunnelling a tunnel's
+    # own control plane inside itself cannot work in any case.
+    #
+    # Shunts are connections with no auth and no remote; strongSwan installs the
+    # policy at load time. They are matched before ordinary policies, but only
+    # among policies of the same specificity -- hence the narrow port selectors.
+    #
+    # TWO children, not one. Both nodes both send to and listen on
+    # __CONTROL_PORT__, so the channel appears with the port on either side:
+    #
+    #   out  local:<ephemeral> -> peer:__CONTROL_PORT__     (we are the sender)
+    #   in   peer:<ephemeral>  -> local:__CONTROL_PORT__    (we are the listener)
+    #
+    # A policy is installed with its reverse selectors for the opposite
+    # direction, so `to-peer` alone covers our sends and the peer's ACKs back to
+    # our ephemeral port -- but NOT the peer's own sends, whose ephemeral port is
+    # on the far side. Those need `from-peer`. Getting only one of these installs
+    # a half-open bypass whose failure is asymmetric and looks like packet loss.
+    bypass-arnika-control {
+        children {
+            control-to-peer {
+                mode = pass
+                start_action = trap
+                local_ts = __LOCAL_IP__/32[udp]
+                remote_ts = __PEER_IP__/32[udp/__CONTROL_PORT__]
+            }
+            control-from-peer {
+                mode = pass
+                start_action = trap
+                local_ts = __LOCAL_IP__/32[udp/__CONTROL_PORT__]
+                remote_ts = __PEER_IP__/32[udp]
+            }
+        }
+    }
+
     pqcqkd-vpn {
-        version = 2
-        # Hybrid: classical ECP256 + PQ ML-KEM-768 (RFC 9370 KE1)
-        proposals = aes256gcm16-sha256-prfsha256-ecp256-ke1_ml_kem_768
-        encap = yes                                  # NAT-T friendly
-        fragmentation = yes                          # ML-KEM PK > UDP MTU
+        version = 2                                  # PPK and RFC 9370 are IKEv2-only
+
+        # Hybrid: classical ECP-256 in IKE_SA_INIT, ML-KEM-768 as Additional
+        # Key Exchange 1. The `ke1_` prefix is strongSwan's RFC 9370 syntax and
+        # `mlkem768` is the only spelling its proposal parser accepts --
+        # `ml_kem_768` is the log-only long name and does NOT parse.
+        proposals = __IKE_PROPOSALS__
+
         local_addrs = __LOCAL_IP__
         remote_addrs = __PEER_IP__
+
+        # ML-KEM public keys/ciphertexts are 1184/1088 B. RFC 9242 moves them
+        # into an encrypted IKE_INTERMEDIATE exchange precisely so IKEv2
+        # fragmentation (RFC 7383) can apply -- which needs this enabled.
+        fragmentation = yes
+        encap = yes                                  # NAT-T friendly
+
+        # ---- RFC 8784 PPK ----
+        # A stable identity; the *data* behind it is rotated over VICI
+        # (load-shared type=ppk) by the arnika VICI key-writer adapter.
+        #
+        # The PPK_ID cannot itself carry a fresh key: the responder resolves it
+        # with a synchronous credential lookup in IKE_AUTH
+        # (ike_auth.c get_ppk_r -> credmgr->get_shared(SHARED_PPK, ...)), so the
+        # key must already be loaded when the exchange arrives. Key AGREEMENT is
+        # therefore still arnika's job (ETSI 014 enc_keys/dec_keys plus arnika's
+        # own key_id channel); this lane only changes where the agreed key is
+        # DELIVERED.
+        ppk_id = __PPK_ID__
+        # No silent downgrade: without this, a missing PPK falls back to
+        # NO_PPK_AUTH and the tunnel comes up with no quantum contribution at all.
+        ppk_required = yes
+
+        # RFC 8784 applies to the INITIAL IKE SA only -- it "MUST NOT be used
+        # when these subkeys are calculated as a result of IKE SA rekey".
+        # So consuming fresh QKD material requires a full reauthentication,
+        # not a rekey. rekey_time = 0 disables plain IKE rekeying; the adapter
+        # drives reauth explicitly over VICI after each key rotation.
+        # (charon.make_before_break is on by default since 6.0.0, so reauth
+        # does not drop traffic.)
+        rekey_time = 0
+        reauth_time = __REAUTH_TIME__
+
+        # Exactly one IKE_SA to this peer, ever.
+        #
+        # Without this, reauthentication ADDS an SA instead of replacing one:
+        # make-before-break establishes the new SA first, and if the old one is
+        # not torn down it keeps its own reauth timer. Every survivor then
+        # reauthenticates on its own schedule, and arnika's `rekey` selects by
+        # connection name -- which matches ALL of them -- so one rotation
+        # reauthenticates N SAs and yields N more.
+        #
+        # Measured on a two-node run before this line existed: 234 concurrent
+        # ESTABLISHED SAs and IKE_SA numbering past 730 within six minutes,
+        # doubling roughly every reauth period. The tunnel still passed traffic,
+        # which is precisely why this needs an explicit assertion in CI rather
+        # than an eyeball on `--list-sas`.
+        #
+        # `replace` deletes any existing IKE_SA with the same peer identity when
+        # a new one is established. For a point-to-point tunnel with a single
+        # fixed peer identity that is the intended topology, not a heuristic.
+        unique = replace
 
         local {
             auth = psk
@@ -29,22 +157,74 @@ connections {
 
         children {
             tunnel {
-                local_ts = 10.0.0.0/24
-                remote_ts = 10.0.0.0/24
-                esp_proposals = aes256gcm16-sha256-modp2048
-                start_action = trap
-                close_action = restart
+                # Host-to-host between the two IPsec nodes on wan-net. The old
+                # config used 10.0.0.0/24 on BOTH ends -- the WireGuard overlay
+                # subnet, which neither ipsec node owns -- so start_action=trap
+                # could never match any traffic.
+                local_ts = __LOCAL_IP__/32
+                remote_ts = __PEER_IP__/32
+                esp_proposals = __ESP_PROPOSALS__
+
+                # `start` on the initiator, `none` on the responder -- NOT
+                # `trap` on either.
+                #
+                # A trap policy initiates on the first matching packet, but once
+                # the control-plane bypass above is in place, arnika's key_ID
+                # channel is the only traffic these two hosts exchange on their
+                # own and it is deliberately excluded. Nothing would ever spring
+                # the trap, so the SA would never come up and every arnika
+                # rotation would fail with "no matching SAs to rekey".
+                #
+                # Only one peer initiates, for the same reason only one peer
+                # drives reauthentication (see VICI_IKE_ROLE): two initiators on
+                # one tunnel means two SAs where there should be one, and each
+                # then reauthenticates on its own schedule.
+                #
+                # charon retries a failed initiation per
+                # charon.retry_initiate_interval in strongswan.conf, which is why
+                # that setting is not optional here: both peers boot at once, so
+                # the initiator's first attempt often finds the responder not yet
+                # listening.
+                start_action = __START_ACTION__
+
+                # `restart` on the initiator, `none` on the responder.
+                #
+                # close_action fires when the PEER closes the CHILD_SA. Every
+                # initiator-driven reauthentication ends by deleting the old
+                # IKE_SA, and from the responder's side that is exactly such a
+                # peer-initiated close -- so a responder with
+                # `close_action = restart` answers each rotation by initiating a
+                # fresh SA. The initiator's `unique = replace` then deletes one,
+                # closing another child on the responder, which restarts again.
+                #
+                # That feedback loop is what drove the SA count up by one per
+                # rotation and, before the ike-id fix, to 140 in nine minutes.
+                # The responder must not initiate for any reason; recovery is
+                # the initiator's job, and its arnika already supervises.
+                close_action = __CLOSE_ACTION__
             }
         }
     }
 }
 
 secrets {
+    # Bootstrap credentials only.
+    #
+    # IMPORTANT: never run `swanctl --load-creds` on this node. That command is
+    # a DESTRUCTIVE SYNC -- it calls get-shared and then unload-shared for every
+    # vici-injected id that is not also a `secrets.*` section here, which would
+    # silently delete the rotating QKD PPK. Load connections with
+    # `swanctl --load-conns` instead.
     ike-pqcqkd {
         id-local = __LOCAL_ID__
         id-remote = __PEER_ID__
-        # PSK is injected by arnika-vici-bridge.sh from arnika's HKDF output;
-        # __PSK_HEX__ is a placeholder loaded at boot, refreshed on PSK rotation.
-        secret = 0x__PSK_HEX__
+        secret = 0x__BOOTSTRAP_PSK__
+    }
+
+    # Bootstrap PPK so the very first IKE_AUTH can complete before the first
+    # QKD rotation lands. It is replaced -- by id -- on the first SetPSK call.
+    ppk-qkd-bootstrap {
+        id = __PPK_ID__
+        secret = 0x__BOOTSTRAP_PPK__
     }
 }

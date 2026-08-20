@@ -25,7 +25,6 @@ import httpx
 
 from . import config_loader as cl
 from .backends import (
-    BackendConfig,
     KeyProducer,
     RoundOutcome,
     make_backend,
@@ -43,6 +42,12 @@ class StoredKey:
     qber: float = 0.0
     intercepted: int = 0
     created_at: float = 0.0
+    #: True when this key arrived from the peer KME via POST /internal/sync.
+    #: Such a key is a *replica* held so the local SAE can resolve it through
+    #: dec_keys. It must never be handed out by enc_keys: only one KME may act
+    #: as master for a given key, and if both dispensed from the shared pool the
+    #: two ends would hand their SAEs different keys.
+    replicated: bool = False
 
 
 @dataclass(slots=True)
@@ -118,7 +123,7 @@ class KeyPool:
             if len(self._buf) >= self.low_watermark:
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=idle_timeout_s)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 self._wake.clear()
                 continue
@@ -147,12 +152,26 @@ class KeyPool:
                     intercepted=r.intercepted,
                     created_at=asyncio.get_event_loop().time(),
                 )
-                self._buf.append(key)
-                self._by_id[key.key_id] = key
+                self._admit(key)
                 self._stats.pool_size = len(self._buf)
                 await self._sync_to_peer(key)
             else:
                 self._stats.rounds_aborted += 1
+
+    def _admit(self, key: StoredKey) -> None:
+        """Insert a key, keeping the id index bounded by the ring buffer.
+
+        `_buf` is a deque(maxlen=capacity) that evicts its oldest entry
+        silently. `_by_id` used to be a plain dict that was never pruned, so it
+        grew without bound for the process lifetime -- a slow memory leak, and
+        one that also let dec_keys resolve keys long after they had been
+        evicted from the pool. Evict from both together.
+        """
+        evicted = self._buf[0] if len(self._buf) == self._buf.maxlen else None
+        self._buf.append(key)
+        if evicted is not None:
+            self._by_id.pop(evicted.key_id, None)
+        self._by_id[key.key_id] = key
 
     async def _sync_to_peer(self, key: StoredKey) -> None:
         try:
@@ -169,23 +188,52 @@ class KeyPool:
             if key_id in self._by_id:
                 return
             sk = StoredKey(key_id=key_id, key_b64=key_b64,
-                           created_at=asyncio.get_event_loop().time())
-            self._buf.append(sk)
-            self._by_id[key_id] = sk
+                           created_at=asyncio.get_event_loop().time(),
+                           replicated=True)
+            self._admit(sk)
             self._stats.pool_size = len(self._buf)
 
-    async def pop_for_enc(self) -> StoredKey | None:
+    async def pop_for_enc(self, *, slave_sae_id: str | None = None) -> StoredKey | None:
+        """Take a locally-produced key to hand to the master SAE (ETSI 014 'Get key').
+
+        Replicas received from the peer KME are skipped. Both KMEs hold the same
+        keys so that either side can resolve a key_ID through dec_keys, but only
+        the KME that produced a key may dispense it as an encryption key. If
+        both dispensed from the shared pool, Alice and Bob would each be handed
+        a different key and the derived PSK would never match.
+        """
         async with self._lock:
-            if not self._buf:
+            local = next((k for k in self._buf if not k.replicated), None)
+            if local is None:
                 self._wake.set()
                 return None
-            key = self._buf.popleft()
+            self._buf.remove(local)
+            # Deliberately kept in _by_id: the peer will ask for this key_ID via
+            # dec_keys, and on this side it is also the master's record of what
+            # it handed out. _admit's eviction bounds the index.
             self._stats.pool_size = len(self._buf)
         self._wake.set()
-        return key
+        if slave_sae_id is not None:
+            log.debug("enc_keys: key %s issued for slave SAE %s", local.key_id, slave_sae_id)
+        return local
 
-    async def get_by_id(self, key_id: str) -> StoredKey | None:
-        return self._by_id.get(key_id)
+    async def get_by_id(self, key_id: str, *,
+                        master_sae_id: str | None = None) -> StoredKey | None:
+        """Resolve a key by key_ID (ETSI 014 'Get key with key IDs')."""
+        sk = self._by_id.get(key_id)
+        if sk is None and master_sae_id is not None:
+            log.info("dec_keys: unknown key_ID %s requested for master SAE %s",
+                     key_id, master_sae_id)
+        return sk
+
+    @property
+    def key_size_bits(self) -> int:
+        """Key size this KME emits, in BITS (GS QKD 014 counts bits, not bytes).
+
+        Sourced from config so the ETSI `size` parameter and the actual key
+        length cannot drift apart.
+        """
+        return int(cl.get("protocol.out_bits_per_key", 256))
 
     def stats(self) -> PoolStats:
         return PoolStats(

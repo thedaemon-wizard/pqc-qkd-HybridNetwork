@@ -1,7 +1,38 @@
-# Roadmap — Future Research Extensions
+# Roadmap - future research extensions
 
-This file expands the recommendations from README §15 into actionable work items.
-The current PoC-A code base must remain stable before starting any of these.
+Actionable work items beyond the current PoC. The code base must remain stable
+before starting any of these.
+
+Status is stated per item, and reviewed against the implemented tree rather
+than carried forward untouched. Reviewed 2026-08-20.
+
+## Completed since this roadmap was written
+
+These were on the list, or implied by it, and are now done. They are recorded
+here so the roadmap does not keep proposing work that already exists.
+
+| Item | Where |
+|---|---|
+| Crypto-agility matrix across ML-KEM and ML-DSA parameter sets | `/pqc`, running entirely client-side via `@noble/post-quantum`. `/verify` is **not** client-side: it calls `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`, and shows "Backend services unavailable" without them. |
+| Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
+| CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
+| A written key-rate derivation | [`keyrate.md`](keyrate.md) |
+| Secret scanning in CI | `.github/workflows/ci.yml`, job `secrets` (was listed as "recommended" for months) |
+| Reproducible seeded simulation runs | `reconcile()` now takes an injectable RNG |
+
+## Known gaps, carried forward
+
+Recorded rather than scheduled. Each is a real limitation of the current
+implementation, not a speculative feature.
+
+| Gap | Consequence |
+|---|---|
+| No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. `f_EC` is an assumed constant, and no leakage is measured. |
+| First-order finite-key term only | Not a composable security proof. See [`keyrate.md`](keyrate.md) section 5. |
+| Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
+| Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
+| RFC 9867 unavailable | strongSwan 6.0.7 does not implement it, so consuming fresh QKD material needs a full reauthentication per rotation. |
+| ETSI `key_ID` not bound to the ciphertext | arXiv:2607.06602 binds it into the AEAD AAD; neither arnika nor this project does. |
 
 ## A. Shor's Algorithm Attack Simulator
 **Goal:** Quantify the threat that motivates the entire PQC/QKD investment.
@@ -91,3 +122,38 @@ The current PoC-A code base must remain stable before starting any of these.
 4. **B** (HNDL) — partly product/marketing; small lift
 5. **E** (Compliance) — documentation
 6. **F**, **G**, **H** — longer-term
+
+## Decision record: client-side compute stack
+
+The public demo must not put simulation load on the server, so every simulation
+page computes in the browser. Four runtimes are routinely suggested for that and
+none of them is used here. Recording why, so the omission reads as a decision
+rather than an oversight.
+
+**What is used.** Pure-TypeScript `@noble/*` for the cryptography, and a
+Web Worker for the BB84 Monte-Carlo with an optional WebGL2/WebGPU compute path
+for the pulse loop. The ladder degrades in that order, and every rung produces
+identical results because the physics is seeded through `pure-rand`.
+
+**WebAssembly.** Rejected for the cryptography. `@noble` is already constant
+time by construction and small enough that the bundle cost of a WASM build
+outweighs the throughput gain at the sizes used here (a few ML-KEM operations
+per page view, not a stream). It remains the right answer if the PQC sweep in
+section D grows to thousands of keygen operations per run, at which point the
+tradeoff reverses; the interface is deliberately narrow enough to swap.
+
+**WebNN and WebLLM.** Rejected on correctness grounds, not performance. Both
+target neural inference, where approximate arithmetic and non-deterministic
+operator scheduling are acceptable. This project needs exact integer arithmetic
+for ML-KEM and bit-reproducible results for the physics, since a seeded run must
+produce the same key rate on every machine for the golden vector in
+`tests/test_keyrate_golden_vector.py` to mean anything. An inference runtime is
+the wrong tool for both.
+
+**ONNX Runtime Web.** Same objection, plus it would add a multi-megabyte
+dependency to serve a workload with no model in it.
+
+The QLSTM-IDS work in section C is the first item that genuinely wants an ML
+runtime. If it lands in the browser rather than server-side, ONNX Runtime Web is
+the candidate to revisit, and it should be scoped to that page alone rather than
+adopted as the general compute story.

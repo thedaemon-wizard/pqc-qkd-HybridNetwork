@@ -1,12 +1,51 @@
 # =====================================================================
-# Override file: adds strongSwan IPsec/IKEv2 nodes (alice-ipsec, bob-ipsec)
-# implementing RFC 9370 ML-KEM-768 hybrid key exchange.
+# Override file: strongSwan IPsec/IKEv2 nodes (alice-ipsec, bob-ipsec).
+#
+#   * RFC 9370 hybrid key exchange : ECP-256 + ML-KEM-768
+#   * RFC 8784 PPK                 : arnika's HKDF(QKD || PQC) output,
+#                                    injected natively over the VICI socket
 #
 # Apply with:
 #   docker compose -f docker-compose.yml -f docker-compose.strongswan.yml \
 #                   --profile ipsec up -d
 # =====================================================================
 name: pqcqkd
+
+# Proposal strings and the reauth period are defined once and shared, so the
+# two peers cannot drift apart. Both ends MUST agree on the ke1_ slot number:
+# ke1_mlkem768 on one side and ke2_mlkem768 on the other simply will not match.
+#
+# `mlkem768` is the only spelling strongSwan's proposal parser accepts
+# (src/libstrongswan/crypto/proposal/proposal_keywords_static.txt:182).
+# `ml_kem_768` is the long name used in log output and does NOT parse.
+x-ipsec-crypto: &ipsec-crypto
+  IKE_PROPOSALS: aes256gcm16-prfsha384-ecp256-ke1_mlkem768
+  ESP_PROPOSALS: aes256gcm16-ecp256-ke1_mlkem768
+  # RFC 8784 PPKs apply to the initial IKE SA only, so fresh QKD material is
+  # consumed by reauthenticating rather than rekeying.
+  #
+  # arnika drives that reauthentication after each key rotation. This value is
+  # only the backstop for arnika rotating silently without exiting, so it MUST
+  # be several times ARNIKA_INTERVAL. It was previously set to ARNIKA_INTERVAL
+  # itself, which made charon a second reauth driver running at the same cadence
+  # as the first and racing it -- not a safety net at all.
+  REAUTH_TIME: ${REAUTH_TIME:-300s}
+  VICI_CONNECTION: pqcqkd-vpn
+  # The CHILD_SA name under connections.pqcqkd-vpn.children, used by the
+  # initiator to bring the lane up when no IKE_SA exists. Must match
+  # swanctl.conf.tmpl.
+  VICI_CHILD: tunnel
+  # The swanctl.conf secrets.ppk section holding the pre-QKD bootstrap key.
+  # The adapter unloads it after the first rotation: it answers the same
+  # PPK_ID as the rotated credential but contains no QKD material.
+  VICI_BOOTSTRAP_ID: ppk-qkd-bootstrap
+  # Stable PPK identity; the key material behind it is what rotates.
+  VICI_PPK_ID: ppk-qkd@pqcqkd.local
+  VICI_REAUTH_TIMEOUT: ${VICI_REAUTH_TIMEOUT:-10s}
+  ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+  ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
+  ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
+  PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
 
 services:
 
@@ -17,47 +56,99 @@ services:
     image: pqcqkd/strongswan:local
     container_name: alice-ipsec
     profiles: ["ipsec"]
+    # A peer that is not up yet is a normal transient state at boot,
+    # not a reason to stay dead.
+    restart: unless-stopped
     cap_add: [NET_ADMIN, SYS_MODULE]
     sysctls:
       net.ipv4.ip_forward: 1
       net.ipv4.conf.all.accept_redirects: 0
       net.ipv4.conf.all.send_redirects: 0
     environment:
+      <<: *ipsec-crypto
       NODE_NAME: alice-ipsec
       LOCAL_IP: 10.30.0.20
       PEER_IP: 10.30.0.21
       LOCAL_ID: alice@pqcqkd.local
       PEER_ID: bob@pqcqkd.local
-      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/ALICE
-      PSK_INTERVAL: ${ARNIKA_INTERVAL:-30}
+      # ETSI GS QKD 014 clause 5.1: the SAE ID in the path names the PEER --
+      # enc_keys names the slave SAE, dec_keys the master. From Alice both are
+      # BOB, which is why a single base URL serves both directions.
+      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/BOB
+      LISTEN_ADDRESS: 0.0.0.0:9998
+      SERVER_ADDRESS: bob-ipsec:9998
+      # Must differ from the peer's -- arnika XORs it into the master election.
+      ARNIKA_ID: ${ARNIKA_ID_ALICE_IPSEC:-11}
+      VICI_CREDENTIAL_PREFIX: qkd-bob
+      # The two peers share one IKE_SA, so exactly one of them initiates it and
+      # exactly one reauthenticates it after a key rotation. This single value
+      # decides both. It is unrelated to arnika's PRIMARY/BACKUP election, which
+      # alternates every interval and decides who *generates* the key.
+      VICI_IKE_ROLE: initiator
+    volumes:
+      # The PQC half of HKDF(QKD || PQC). Without this mount PQC_PSK_FILE never
+      # exists, arnika's PQC reader yields nothing, and MODE=QkdAndPqcRequired
+      # correctly refuses to derive a key -- the previous config omitted the
+      # mount entirely and silently degraded to QKD-only.
+      - pqc-psk-alice:/var/lib/rosenpass
     depends_on:
       bb84-kme-a:
         condition: service_healthy
+      alice:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "swanctl --list-algs | grep -q ML_KEM_768"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       qkd-net: {}
       wan-net:
         ipv4_address: 10.30.0.20
 
   bob-ipsec:
+    build:
+      context: .
+      dockerfile: nodes/strongswan/Dockerfile
     image: pqcqkd/strongswan:local
     container_name: bob-ipsec
     profiles: ["ipsec"]
+    # A peer that is not up yet is a normal transient state at boot,
+    # not a reason to stay dead.
+    restart: unless-stopped
     cap_add: [NET_ADMIN, SYS_MODULE]
     sysctls:
       net.ipv4.ip_forward: 1
       net.ipv4.conf.all.accept_redirects: 0
       net.ipv4.conf.all.send_redirects: 0
     environment:
+      <<: *ipsec-crypto
       NODE_NAME: bob-ipsec
       LOCAL_IP: 10.30.0.21
       PEER_IP: 10.30.0.20
       LOCAL_ID: bob@pqcqkd.local
       PEER_ID: alice@pqcqkd.local
-      KMS_URL: http://bb84-kme-b:8080/api/v1/keys/BOB
-      PSK_INTERVAL: ${ARNIKA_INTERVAL:-30}
+      KMS_URL: http://bb84-kme-b:8080/api/v1/keys/ALICE
+      LISTEN_ADDRESS: 0.0.0.0:9998
+      SERVER_ADDRESS: alice-ipsec:9998
+      ARNIKA_ID: ${ARNIKA_ID_BOB_IPSEC:-12}
+      # See alice-ipsec. Must be the opposite role.
+      VICI_IKE_ROLE: responder
+      VICI_CREDENTIAL_PREFIX: qkd-alice
+    volumes:
+      - pqc-psk-bob:/var/lib/rosenpass
     depends_on:
       bb84-kme-b:
         condition: service_healthy
+      bob:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "swanctl --list-algs | grep -q ML_KEM_768"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       qkd-net: {}
       wan-net:

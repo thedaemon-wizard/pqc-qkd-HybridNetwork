@@ -1,0 +1,45 @@
+# Root lint configuration.
+#
+# Previously the only ruff settings lived in services/bb84-kme/pyproject.toml,
+# so `ruff check services/ tests/ tools/` from the repository root used ruff's
+# defaults instead -- including an 88-character line limit this codebase has
+# never followed. Settings are hoisted here so the Makefile, CI and an editor
+# all apply the same rules.
+
+line-length = 110
+target-version = "py312"
+
+exclude = [
+    ".venv",
+    "submodules",
+    "services/webui-frontend/node_modules",
+]
+
+[lint]
+# Chosen to catch real defects rather than to enforce a house style on a
+# codebase that already has one. F (pyflakes) is the load-bearing set: it is
+# what found the dead code referencing an undefined name, and the analytical
+# value a cross-validation test computed and then threw away.
+select = [
+    "F",    # pyflakes -- undefined names, unused imports/variables
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear -- likely bugs
+    "C4",   # comprehensions
+]
+ignore = [
+    # `raise ... from e` inside an except block. Worth doing, but a mechanical
+    # sweep over every service boundary is out of scope here.
+    "B904",
+    # zip() without strict=. The zips in this codebase pair equal-length
+    # sequences by construction.
+    "B905",
+]
+
+[lint.per-file-ignores]
+# Tests deliberately reach into private helpers to construct objects without
+# starting the background producer task.
+"tests/*" = ["SLF001"]
+
+[format]
+quote-style = "double"

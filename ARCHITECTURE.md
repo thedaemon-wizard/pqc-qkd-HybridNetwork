@@ -25,7 +25,7 @@
                                              │
                               ┌──────────────┴──────────────────┐
                               │  3 independent ETSI 014 KMEs    │
-                              │  - bb84-kme   (Python + SimQN)  │
+                              │  - bb84-kme (Python + SimQN)  │
                               │  - qkdnetsim-kme (NS-3 C++)     │
                               │  - submodules/qkd_kme_server    │
                               │      (Rust, 2026-04-01 active)  │
@@ -40,10 +40,10 @@
    │   <PageHeader title=... exports={ logService, jsonProvider,     │
    │                                    csvProvider, ... }>          │
    │     └─ <ExportToolbar>                                          │
-   │          💾 Logs / 🖼 PNG / 📋 JSON / 📊 CSV / 🎞 Animation     │
+   │           Logs /  PNG /  JSON /  CSV /  Animation     │
    │             │                                                   │
    │             ├─ lib/exporters.ts (lazy-loads html-to-image,      │
-   │             │                    gifshot only on demand)        │
+   │             │                    GIF encoder on demand)        │
    │             └─ Blob → URL.createObjectURL → <a download>        │
    └─────────────────────────────────────────────────────────────────┘
                                   │ /api/logs/{files,download/<svc>}
@@ -51,11 +51,11 @@
    ┌─────────────────────────────────────────────────────────────────┐
    │   webui-backend                                                 │
    │   logging_setup.configure("webui-backend") on startup           │
-   │     - stdout handler  (for `docker logs`)                       │
+   │     - stdout handler (for `docker logs`)                       │
    │     - RotatingFileHandler /var/log/pqcqkd/webui-backend.log     │
    │     - list_log_files() + read_tail() used by HTTP endpoints     │
    └────────────────────────┬────────────────────────────────────────┘
-                            │ /var/log/pqcqkd  (shared volume)
+                            │ /var/log/pqcqkd (shared volume)
    ┌────────────────────────┼────────────────────────────────────────┐
    │  pqcqkd-logs volume    │                                        │
    │   alice.log / bob.log / webui-backend.log / pqc-validator.log   │
@@ -87,10 +87,10 @@ A single WebUI page (`/e2e`) drives an actual background simulation through the
    │  pub/sub WS at ~4 Hz                                             │
    └─────┬──────────────┬───────────────┬──────────────────┬──────────┘
          │              │               │                  │
-   Phase 1            Phase 2         Phase 3            Phase 4
-   Poll KME           ETSI 014        HKDF-SHA3-256      ChaCha20-Poly1305
-   /status            enc/dec_keys    (qkd ‖ pqc)        × 64 packets
-   (bb84-kme-a/b)     (arnika sim)    (Rosenpass sim)    (WireGuard sim)
+   Phase 1 Phase 2 Phase 3 Phase 4
+   Poll KME ETSI 014 HKDF-SHA3-256 ChaCha20-Poly1305
+   /status enc/dec_keys (qkd ‖ pqc)        × 64 packets
+   (bb84-kme-a/b) (arnika sim) (Rosenpass sim) (WireGuard sim)
 ```
 
 REST surface:
@@ -132,10 +132,10 @@ Detailed image-to-code mapping: see `docs/IMAGE1_VPN_SCOPE.md`.
                    └────────────── arnika HKDF(QKD‖PQC) ────────┘
                                               │
                 ┌─────────────────────────────▼─────────────────────────────┐
-                │ Phase 8: 6 QKD backends + paper supplementary             │
-                │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┐    │
-                │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │    │
-                │ └──────┴─────┴────────┴───────┴──────────┴──────────┘    │
+                │ Phase 8: 7 QKD backends + paper supplementary             │
+                │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┬───┐│
+                │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │tno││
+                │ └──────┴─────┴────────┴───────┴──────────┴──────────┴───┘│
                 │ openQKDsecurity (offline SKR) + PQClean (NIST reference) │
                 │ aparcar/qkd-pqc-paper-supplementary (Phase 9-B baseline) │
                 └───────────────────────────────────────────────────────────┘
@@ -147,17 +147,17 @@ PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696 + NIST SP 800-131A Rev.3):
 - `Dockerfile.openssl35-native` — FIPS-stable native ML-KEM / ML-DSA (OpenSSL 3.5+)
 - Application chooses via `PQC_PROVIDER={oqs|native}` env
 
-## 0. Phase 8 — 5-backend pluggable QKD pipeline
+## 0. Phase 8 — 7-backend pluggable QKD pipeline
 
 ```
                 ┌─────────────────────────────────────────────────────────┐
-                │ WebUI (9 pages)  Overview / BB84 / KeyFlow / Topology   │
+                │ WebUI (9 pages) Overview / BB84 / KeyFlow / Topology   │
                 │   Benchmarks / Console / PhysicsParams / PQCValidator   │
                 │   Hardware-In-Loop                                       │
                 └──────────────┬──────────────────────────────────────────┘
                                │  REST + WebSocket
                 ┌──────────────▼──────────────────────────────────────────┐
-                │  webui-backend  (FastAPI)                               │
+                │  webui-backend (FastAPI)                               │
                 │   /api/sim/params, /api/sim/backend, /api/sim/optimize  │
                 │   /api/pqc/algorithms, /api/pqc/roundtrip               │
                 └──┬─────────────────────────────────────────────┬────────┘
@@ -197,6 +197,8 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 - `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
 - `qkdnetsim_proxy.py` — pulls keys from the NS-3 reference KME (ETSI 014 cross-check)
 - `composite_sim_to_net.py` — SimQN computes per-link SKR → injected into qkdnetsim
+- `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
+  engine, used to cross-check this project's own rate model
 
 Parameter pipeline:
 - `config_loader.py` watches YAML and pushes `BackendConfig` on change
@@ -213,21 +215,21 @@ Tests (host venv):
 
 ```
 +---------------------------------------------------------------------+
-|  Layer 3 — End-to-End PQC                                           |
-|    Rosenpass sidecar in each node                                   |
-|    Output: /var/lib/rosenpass/pqc.psk  (32B, refreshed periodically) |
+| Layer 3 — End-to-End PQC                                           |
+| Rosenpass sidecar in each node                                   |
+| Output: /var/lib/rosenpass/pqc.psk (32B, refreshed periodically) |
 +---------------------------------------------------------------------+
-|  Layer 2 — Transport orchestration                                  |
-|    arnika (Go, unmodified from submodules/arnika-vq/)               |
-|    - ETSI 014 client (HTTP/mTLS)                                    |
-|    - reads pqc.psk file                                             |
-|    - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
-|    - wgctrl netlink call -> writes PSK to wg0 peer entry            |
+| Layer 2 — Transport orchestration                                  |
+| arnika (Go, unmodified from submodules/arnika/)               |
+| - ETSI 014 client (HTTP/mTLS)                                    |
+| - reads pqc.psk file                                             |
+| - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
+| - wgctrl netlink call -> writes PSK to wg0 peer entry            |
 +---------------------------------------------------------------------+
-|  Layer 1 — Hop encryption                                           |
-|    WireGuard wg0 between alice and bob (or alice-charlie-bob)       |
-|    ChaCha20-Poly1305 + Noise + PSK                                  |
-|    PSK rotated by arnika every `ARNIKA_INTERVAL` (30s default)      |
+| Layer 1 — Hop encryption                                           |
+| WireGuard wg0 between alice and bob (or alice-charlie-bob)       |
+| ChaCha20-Poly1305 + Noise + PSK                                  |
+| PSK rotated by arnika every `ARNIKA_INTERVAL` (30s default)      |
 +---------------------------------------------------------------------+
 ```
 
@@ -251,7 +253,7 @@ Networks:
 ## 3. Data flow (a single PSK rotation)
 
 ```
-T+0   bb84-kme-a runs a BB84 round (QuTiP photon simulation)
+T+0 bb84-kme-a runs a BB84 round (QuTiP photon simulation)
 T+0.1 reconciliation produces a 256-bit secret key, base64-encoded
 T+0.1 KME-a stores key by UUID and POSTs /internal/sync to KME-b
 T+0.2 arnika@alice polls /api/v1/keys/ALICE/enc_keys?number=1&size=256
@@ -271,12 +273,12 @@ contract updates here:
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|
-| `setPSK()` | `submodules/arnika-vq/main.go:140-196` | Drives the rotation; logs we grep in smoke tests |
-| `KMSHandler.GetNewKey()` | `submodules/arnika-vq/kms/kms.go:126` | Defines `enc_keys?number=N&size=B` URL |
-| `KMSHandler.GetKeyByID()` | `submodules/arnika-vq/kms/kms.go:134` | Defines `dec_keys?key_ID=...` URL |
-| `type Key struct` | `submodules/arnika-vq/kms/kms.go:69-76` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika-vq/kdf/kdf.go:12-27` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
-| Operational modes | `submodules/arnika-vq/config/config.go:39-45` | 4 modes drive WebUI ControlPanel choices |
+| `setPSK()` | `submodules/arnika/main.go:36-88` | Drives the rotation; logs we grep in smoke tests |
+| `KMSHandler.GetNewKey()` | `submodules/arnika/repositories/kms.go:94` | Defines `enc_keys?number=N&size=B` URL |
+| `KMSHandler.GetKeyByID()` | `submodules/arnika/repositories/kms.go:101` | Defines `dec_keys?key_ID=...` URL |
+| `type Key struct` | `submodules/arnika/repositories/kms.go:43-48` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-28` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
+| Operational modes | `submodules/arnika/config/config.go:34` | 4 modes drive WebUI ControlPanel choices |
 
 ## 5. Why this matches the paper
 

@@ -15,8 +15,8 @@ import Verification from "./pages/Verification";
 
 const nav = [
   { to: "/",            label: "Overview" },
-  { to: "/e2e",         label: "Quantum-Secure E2E ★" },
-  { to: "/paper-flow",  label: "Paper Data Exchange ◆" },
+  { to: "/e2e",         label: "Quantum-Secure E2E" },
+  { to: "/paper-flow",  label: "Paper Data Exchange" },
   { to: "/bb84",        label: "BB84 Live" },
   { to: "/keyflow",     label: "Key Flow" },
   { to: "/topology",    label: "Topology" },
@@ -24,7 +24,7 @@ const nav = [
   { to: "/console",     label: "Console" },
   { to: "/physics",     label: "Physics Params" },
   { to: "/pqc",         label: "PQC Validator" },
-  { to: "/verify",      label: "Verification ✓" },
+  { to: "/verify",      label: "Verification" },
   { to: "/hil",         label: "Hardware-In-Loop" },
   { to: "/vpn",         label: "VPN Protocols" },
 ];
@@ -57,7 +57,7 @@ export default function App() {
         <div style={{ marginTop: 36, fontSize: 11, color: "#6b7796", lineHeight: 1.5 }}>
           ETSI GS QKD 014<br />
           ML-KEM-768 + HKDF-SHA3-256<br />
-          arnika-vq · liboqs · rosenpass
+          arnika · liboqs · rosenpass
         </div>
       </aside>
       <main style={{ padding: "1.5rem 2rem" }}>

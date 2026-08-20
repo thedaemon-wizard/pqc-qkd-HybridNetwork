@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
-import qutip as qt
 
 from . import alice, bob, eve, reconciliation
 
@@ -94,6 +93,7 @@ def run_round(cfg: RoundConfig, *, rng: np.random.Generator | None = None) -> Ro
         sifted_a, sifted_b,
         qber_threshold=cfg.qber_threshold,
         out_bits=cfg.out_bits,
+        rng=rng,
     )
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
