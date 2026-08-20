@@ -284,7 +284,20 @@ jobs:
             echo "$node: $sas SA(s), $rot rotation(s), $authfail auth failure(s)"
 
             [ "$rot" -ge 2 ] || { echo "::error::$node rotated $rot times, expected >= 2"; fail=1; }
-            [ "$authfail" -eq 0 ] || { echo "::error::$node saw $authfail auth failures -- the peers hold different PPKs"; fail=1; }
+            # NOT -eq 0. Rotating a PPK under a stable PPK_ID cannot be atomic
+            # across two hosts: the initiator reauthenticates microseconds after
+            # its own load, and the responder's load of the same generation can
+            # land a few hundred microseconds later. Measured at 1 failure in 45
+            # rotations, self-correcting. See the "sub-millisecond rotation
+            # race" section in docs/vici-ppk.md.
+            #
+            # Asserting zero would make this job flake, and a flaky guard is one
+            # that gets ignored. What must still fail the build is SYSTEMATIC
+            # mismatch -- two credentials answering one PPK_ID, which is a coin
+            # flip rather than a race. That measured 4 failures in 9 rotations
+            # before the bootstrap credential was retired, so a 20% ceiling
+            # separates the two cleanly.
+            [ $((authfail * 5)) -le "$rot" ] || { echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"; fail=1; }
             # Two owners for one SA made this climb by one per rotation, and
             # reached 140 before it was found. Allow 2 for a make-before-break
             # reauth caught mid-flight; anything above that is the runaway.

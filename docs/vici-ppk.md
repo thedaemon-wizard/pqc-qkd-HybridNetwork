@@ -308,3 +308,49 @@ derived from measured SKR rather than configured independently of it.
 Full citations in [`references.md`](references.md). Primary: RFC 8784, RFC 9370,
 RFC 9242, RFC 9867, RFC 7296 §2.15, ETSI GS QKD 014 V1.1.1, and the strongSwan
 VICI protocol README.
+
+## Known limitation: the sub-millisecond rotation race
+
+Rotating a PPK under a **stable** `PPK_ID` requires the two peers to switch
+generations atomically. They cannot, and the residual race is observable.
+
+Measured on a two-node run, 1 failure in 45 rotations:
+
+```
+14:12:59.004028  alice  loaded PPK shared key with id 'qkd-bob-26'
+14:12:59.004040  alice  reauthenticating IKE_SA pqcqkd-vpn[26]      (+12 us)
+14:12:59.003979  bob    generating IKE_AUTH response 2 [ N(AUTH_FAILED) ]
+14:12:59.004850  bob    loaded PPK shared key with id 'qkd-alice-26' (+871 us)
+```
+
+Both peers derive generation 26 from the same ETSI 014 `key_ID` exchange, so
+they are within a millisecond of each other -- but the initiator reauthenticates
+12 microseconds after its own load, and the responder's load lands 871
+microseconds later. In that window the responder answers the `PPK_ID` lookup
+with generation 25 and, under `ppk_required = yes`, a mismatch is
+`AUTHENTICATION_FAILED`.
+
+It is self-correcting: charon retries and the lane returns to a single
+established SA. The cost is a brief reauthentication blip roughly every forty
+rotations, not a stuck tunnel.
+
+Widening the overlap does **not** fix it. Keeping both generations loaded makes
+two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to
+exactly one key with no way to try the other -- so the ambiguity replaces the
+race with a coin flip. That is not hypothetical: it is what the un-retired
+bootstrap credential did, and it produced 4 authentication failures in 9
+rotations until the bootstrap was unloaded.
+
+### The actual fix
+
+Scope the `PPK_ID` to the generation, e.g. `ppk-qkd-26@pqcqkd.local`. RFC 8784
+has the initiator send `PPK_ID` in IKE_AUTH and the responder look it up, so the
+responder can hold several generations under distinct ids and resolve exactly
+the one the initiator used. The overlap then becomes unambiguous rather than a
+coin flip, and the race disappears.
+
+The obstacle is that `ppk_id` is connection configuration, so each rotation
+would need a `load-conn` carrying the new id in addition to `load-shared`. That
+is available over VICI and is the natural next change; it is not made here
+because it alters the connection on every rotation and wants its own two-node
+soak test.
