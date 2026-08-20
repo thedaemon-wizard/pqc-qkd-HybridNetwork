@@ -1,5 +1,5 @@
 # ============================================================
-# Cloud overlay for a single public host (e.g. a ConoHa KVM VPS).
+# Cloud overlay for a single public host (any KVM VPS).
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build

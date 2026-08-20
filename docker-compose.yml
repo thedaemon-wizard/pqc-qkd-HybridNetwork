@@ -66,7 +66,7 @@ services:
       # NumPy/SciPy/QuTiP load OpenBLAS, which auto-detects the CPU and may emit
       # instructions a cloud vCPU doesn't expose -> "Illegal instruction" SIGILL
       # that crashes the KME on startup (and can't be caught in Python). If that
-      # happens on a VPS (e.g. ConoHa), pin a safe baseline, e.g.
+      # happens on a VPS, pin a safe baseline, e.g.
       # OPENBLAS_CORETYPE=Haswell. Empty default = OpenBLAS auto-detect.
       OPENBLAS_CORETYPE: ${OPENBLAS_CORETYPE:-}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}

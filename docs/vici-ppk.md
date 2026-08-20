@@ -61,9 +61,19 @@ Stated plainly, because it is easy to overclaim:
   the PPK on rekey, resumption or similar. Fresh QKD material therefore requires
   a full reauthentication, not a rekey (§4).
 - **RFC 9867** (November 2025) lifts both limits — PPKs in `IKE_INTERMEDIATE`
-  and `CREATE_CHILD_SA`, so every rekey can consume fresh material.
-  **strongSwan 6.0.7 does not implement it** (no `USE_PPK_INT`; the notify enum
-  stops at `ADDITIONAL_KEY_EXCHANGE = 16441`). Future work.
+  and `CREATE_CHILD_SA`, so every rekey can consume fresh material, plus
+  `PPK_IDENTITY_KEY` for offering several PPK candidates. The RFC names QKD as
+  the motivating source of dynamic PPKs, and states the limitation this project
+  works around directly: *"If a fresh PPK becomes available before the IKE SA is
+  expired, there is no way to use it except for deleting the IKE SA and
+  recreating a new one from scratch."*
+
+  **strongSwan 6.0.7 does not implement it.** Verified 2026-08-20 against
+  `src/libcharon/encoding/payloads/notify_payload.h` on `master`, which defines
+  only `USE_PPK = 16435`, `PPK_IDENTITY = 16436` and `NO_PPK_AUTH = 16437`.
+  Neither `USE_PPK_INT` (16445) nor `PPK_IDENTITY_KEY` (16446) appears anywhere
+  in the tree, and no branch implements them. Until it lands, a reauthentication
+  per rotation is not a design choice here — it is the only mechanism available.
 
 ---
 
@@ -258,7 +268,42 @@ a non-WireGuard key writer. They should be conditional on the selected adapter.
 
 ---
 
-## 7. References
+## 7. Open questions
+
+Recorded rather than resolved, so the next revision has somewhere to start.
+
+**Role binding on the key-ID channel.** arXiv:2608.07626 (Tamarin analysis of
+23 ETSI/ITU-T QKD documents, 2026-08-07) reports vulnerability **V3, message
+reflection**: MAC inputs that omit role binding allow a reflected message to be
+accepted as peer authentication. Its countermeasure **CM2** is an
+identity-bound MAC, `mac_psk(sender_id, receiver_id, session, data)`.
+
+arnika's UDP key-ID channel signs `[type][timestamp][payload]`
+(`auth/auth.go`, `signedPayload`) with a PSK **shared by both peers**, and no
+sender or receiver identity is covered. Its `ARNIKA_ID` — which already exists
+and already differs per node — is not part of the signed input.
+
+What that does and does not mean, stated carefully: the server accepts only
+`PacketData`, so a `D`→`A` type confusion is not possible, and the timestamp
+window bounds replay. But a node would accept **its own outbound packet
+reflected back** inside that window. Whether that is exploitable in arnika's
+specific flow has **not** been demonstrated here — verifying it needs two live
+nodes and packet injection, which is out of scope for this testbed. It is
+raised as a question for upstream, not asserted as a vulnerability.
+
+**Key-ID binding to the ciphertext.** arXiv:2607.06602 binds the ETSI `key_ID`
+into the AES-GCM AAD, so the identifier cannot be swapped independently of the
+data it selected. Neither arnika nor this project's lanes do that today.
+
+**Rotation cadence versus link capacity.** See the measured field rates in
+[`references.md`](references.md): at 12–22 bit/s a 256-bit key needs 12–20 s to
+accumulate. The 30 s default here is defensible only for a simulator; on a real
+link the paper's 120 s is the honest figure, and `REAUTH_TIME` should be
+derived from measured SKR rather than configured independently of it.
+
+---
+
+## 8. References
 
 Full citations in [`references.md`](references.md). Primary: RFC 8784, RFC 9370,
 RFC 9242, RFC 9867, RFC 7296 §2.15, ETSI GS QKD 014 V1.1.1, and the strongSwan

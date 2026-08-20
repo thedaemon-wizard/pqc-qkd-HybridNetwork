@@ -109,6 +109,24 @@ DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / wi
 DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
 _rate_state: dict[str, tuple[float, float]] = {}                   # ip -> (tokens, ts)
 
+# Container lifecycle control is OPT-IN, not opt-out.
+#
+# This endpoint can start/stop/restart containers through a mounted
+# /var/run/docker.sock, so on a reachable host it is a privilege-escalation
+# path, not merely a way to take the demo offline. It used to be enabled by
+# default and disabled only when DEMO_MODE was set — meaning a deployment that
+# simply forgot the flag exposed it to the internet. That is exactly what
+# happened to the public demo: it answered `demo_mode: false` while running the
+# full profile with docker.sock mounted.
+#
+# Inverting the default changes the failure mode: a missing or misspelled
+# variable now yields a SAFE deployment (403) rather than an exposed one.
+# Enabling it is a deliberate act, and DEMO_MODE additionally vetoes it so the
+# two cannot be switched on together by accident.
+CONTAINER_CONTROL_ENABLED = (
+    _truthy(os.environ.get("ENABLE_CONTAINER_CONTROL")) and not DEMO_MODE
+)
+
 
 @app.middleware("http")
 async def demo_rate_limit(request, call_next):
@@ -135,9 +153,15 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/config")
 async def config() -> dict[str, Any]:
-    """Runtime flags the frontend uses to adapt the UI (e.g. hide controls)."""
+    """Runtime flags the frontend uses to adapt the UI (e.g. hide controls).
+
+    `container_control` is reported explicitly so the deployment's posture can
+    be checked from outside without attempting the dangerous call itself --
+    see scripts/verify-demo-hardening.sh.
+    """
     return {
         "demo_mode": DEMO_MODE,
+        "container_control": CONTAINER_CONTROL_ENABLED,
         "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S}
         if DEMO_MODE else None,
     }
@@ -380,8 +404,13 @@ async def sim_rotate():
 # ----------------------- Stack control -----------------------
 @app.post("/api/stack/{action}/{name}")
 async def stack_action(action: str, name: str):
-    if DEMO_MODE:
-        raise HTTPException(403, "container control disabled in demo mode")
+    # Opt-in, so that forgetting a flag fails closed rather than open.
+    if not CONTAINER_CONTROL_ENABLED:
+        raise HTTPException(
+            403,
+            "container control is disabled; set ENABLE_CONTAINER_CONTROL=1 "
+            "(and do not set DEMO_MODE) on a trusted host to enable it",
+        )
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")

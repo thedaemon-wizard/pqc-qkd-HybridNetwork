@@ -91,7 +91,7 @@ obtains a Let's Encrypt certificate automatically and serves the WebUI at
 ## Why a VPS (not managed PaaS)
 
 The real WireGuard end-to-end tunnel needs the `wireguard` kernel module and
-privileged containers (`NET_ADMIN`/`SYS_MODULE`, `/dev/net/tun`). A ConoHa KVM
+privileged containers (`NET_ADMIN`/`SYS_MODULE`, `/dev/net/tun`). A KVM
 VPS (root) provides this; managed PaaS (Railway/Render) cannot.
 
 ## Local smoke test (through Caddy, plain HTTP)
