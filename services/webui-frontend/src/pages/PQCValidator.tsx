@@ -1,71 +1,176 @@
 import { useEffect, useState } from "react";
+import Button from "../components/Button";
+import {
+  KEM_NAMES, SIG_NAMES, PQC_PROVIDER,
+  kemRoundtrip, sigRoundtrip,
+  type KemName, type SigName, type KemResult, type SigResult,
+} from "../lib/sim/pqc";
 
 /**
- * Two-implementation cross-check page: same NIST PQC algorithm via liboqs
- * (production) and PQClean (reference) must produce identical results.
- * Currently exposes the liboqs side; PQClean side is invoked by tests/CI.
+ * PQC Validator.
+ *
+ * The round-trips run CLIENT-SIDE via @noble/post-quantum, so the public demo
+ * needs no backend for this page. When the liboqs-backed pqc-validator service
+ * IS reachable (the full local stack), the same algorithm is run there too and
+ * the two are compared — an independent-implementation cross-check rather than
+ * a single library marking its own homework.
  */
 export default function PQCValidator() {
-  const [algos, setAlgos] = useState<any>(null);
-  const [result, setResult] = useState<any>(null);
-  const [algo, setAlgo] = useState("ML-KEM-768");
+  const [kemName, setKemName] = useState<KemName>("ML-KEM-768");
+  const [sigName, setSigName] = useState<SigName>("ML-DSA-65");
+  const [kem, setKem] = useState<KemResult | null>(null);
+  const [sig, setSig] = useState<SigResult | null>(null);
+  const [server, setServer] = useState<any>(null);
+  const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    try {
-      const r = await fetch("/api/pqc/algorithms"); setAlgos(await r.json());
-    } catch { /* validator may be down */ }
-  }
-  useEffect(() => { load(); }, []);
+  // Probe the optional server-side validator once. Its absence is a normal
+  // state in the public demo, not an error.
+  useEffect(() => {
+    fetch("/api/pqc/algorithms")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(() => setServerAvailable(true))
+      .catch(() => setServerAvailable(false));
+  }, []);
 
-  async function roundtrip() {
+  async function run() {
     setBusy(true);
+    setError(null);
     try {
-      const r = await fetch("/api/pqc/roundtrip", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ algo }),
-      });
-      setResult(await r.json());
-    } finally { setBusy(false); }
+      // Yield first so the button's disabled state paints before the
+      // synchronous crypto blocks the main thread.
+      await new Promise((r) => setTimeout(r, 0));
+      setKem(kemRoundtrip(kemName));
+      setSig(sigRoundtrip(sigName));
+
+      if (serverAvailable) {
+        const r = await fetch("/api/pqc/roundtrip", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ algo: kemName }),
+        });
+        setServer(r.ok ? await r.json() : null);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   }
+
+  const crossCheck =
+    kem && server && typeof server.ss_len === "number"
+      ? server.ss_len === kem.sharedSecretLen && server.ct_len === kem.cipherTextLen
+      : null;
 
   return (
     <div>
-      <h2 style={{ marginTop: 0 }}>PQC Validator — liboqs vs PQClean</h2>
-      <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        Verifies that, for every NIST FIPS 203/204/205 algorithm, the production
-        library (liboqs) and the NIST reference implementation (PQClean) yield
-        identical results on the same test vectors.
+      <h2 style={{ marginTop: 0 }}>PQC Validator</h2>
+      <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
+        Runs NIST FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) round-trips
+        <b> in your browser</b>. Each KEM round-trip encapsulates and
+        decapsulates a shared secret and checks the two agree; each signature
+        round-trip verifies a signature <i>and</i> confirms a tampered message
+        is rejected.
       </p>
 
-      {!algos ? <div>Loading…</div> : (
-        <>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
-            <label style={{ fontSize: 13, color: "#9aa9d8" }}>Algorithm:</label>
-            <select value={algo} onChange={(e) => setAlgo(e.target.value)}
-                    style={{ background: "#0d1320", color: "#fff",
-                             border: "1px solid #2a3760", borderRadius: 4, padding: "4px 8px" }}>
-              {(algos.liboqs?.kems ?? []).map((k: string) => <option key={k} value={k}>{k}</option>)}
-            </select>
-            <button onClick={roundtrip} disabled={busy} style={primaryBtn}>
-              {busy ? "Running…" : "Run roundtrip"}
-            </button>
-          </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0", flexWrap: "wrap" }}>
+        <label style={lbl}>KEM</label>
+        <select value={kemName} onChange={(e) => setKemName(e.target.value as KemName)}
+                disabled={busy} style={sel} aria-label="KEM algorithm">
+          {KEM_NAMES.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <Panel title="liboqs (production)">
-              <pre style={preBox}>{JSON.stringify(result, null, 2)}</pre>
-            </Panel>
-            <Panel title="PQClean (NIST reference)">
-              <p style={{ color: "#9aa9d8", fontSize: 12 }}>
-                {algos.pqclean?.available
-                  ? `Mounted at ${algos.pqclean.path}; KAT test binaries built on demand.`
-                  : "PQClean not mounted. Add submodule and rebuild."}
-              </p>
-            </Panel>
-          </div>
-        </>
-      )}
+        <label style={lbl}>Signature</label>
+        <select value={sigName} onChange={(e) => setSigName(e.target.value as SigName)}
+                disabled={busy} style={sel} aria-label="Signature algorithm">
+          {SIG_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <Button onClick={run} disabled={busy} variant="primary">
+          {busy ? "Running…" : "Run round-trips"}
+        </Button>
+      </div>
+
+      {error && <div style={errBox}>✗ {error}</div>}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Panel title={`KEM — ${kemName} (FIPS 203)`}>
+          {kem ? (
+            <>
+              <Row k="Shared secrets agree" v={<Verdict ok={kem.sharedSecretMatch} />} />
+              <Row k="NIST category" v={String(kem.category)} />
+              <Row k="Public key" v={`${kem.publicKeyLen} B`} />
+              <Row k="Secret key" v={`${kem.secretKeyLen} B`} />
+              <Row k="Ciphertext" v={`${kem.cipherTextLen} B`} />
+              <Row k="Shared secret" v={`${kem.sharedSecretLen} B`} />
+              <Row k="Elapsed" v={`${kem.elapsedMs.toFixed(1)} ms`} />
+            </>
+          ) : <Idle />}
+        </Panel>
+
+        <Panel title={`Signature — ${sigName} (FIPS 204)`}>
+          {sig ? (
+            <>
+              <Row k="Signature verifies" v={<Verdict ok={sig.verified} />} />
+              <Row k="Rejects tampered message" v={<Verdict ok={sig.rejectsTamperedMessage} />} />
+              <Row k="NIST category" v={String(sig.category)} />
+              <Row k="Public key" v={`${sig.publicKeyLen} B`} />
+              <Row k="Secret key" v={`${sig.secretKeyLen} B`} />
+              <Row k="Signature" v={`${sig.signatureLen} B`} />
+              <Row k="Elapsed" v={`${sig.elapsedMs.toFixed(1)} ms`} />
+            </>
+          ) : <Idle />}
+        </Panel>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Panel title="Independent cross-check — liboqs (server-side)">
+          {serverAvailable === null ? <Idle /> : serverAvailable ? (
+            server ? (
+              <>
+                <Row k="Ciphertext / shared-secret lengths agree"
+                     v={crossCheck === null ? "—" : <Verdict ok={crossCheck} />} />
+                <pre style={preBox}>{JSON.stringify(server, null, 2)}</pre>
+              </>
+            ) : <Idle />
+          ) : (
+            <p style={{ color: "#9aa9d8", fontSize: 12, margin: 0 }}>
+              The liboqs validator service is not reachable, which is expected in
+              the public demo — this page is fully client-side. Bring up the full
+              stack (<code>make up</code>) to cross-check the browser results
+              against liboqs.
+            </p>
+          )}
+        </Panel>
+      </div>
+
+      <p style={{ color: "#6b7796", fontSize: 11, marginTop: 16, maxWidth: 760, lineHeight: 1.6 }}>
+        In-browser primitives come from <code>{PQC_PROVIDER.name}</code>{" "}
+        v{PQC_PROVIDER.version} ({PQC_PROVIDER.license}). Stated plainly: it is{" "}
+        <b>self-audited</b>, not independently audited, and makes{" "}
+        <b>no constant-time guarantee</b> — pure JavaScript cannot provide one.
+        That is fine for a simulator with no real secrets. This project's actual
+        key paths (arnika, Rosenpass, strongSwan) use native implementations.
+      </p>
+    </div>
+  );
+}
+
+function Verdict({ ok }: { ok: boolean }) {
+  return <span style={{ color: ok ? "#3ddc84" : "#e25555", fontWeight: 600 }}>{ok ? "✓ pass" : "✗ FAIL"}</span>;
+}
+
+function Idle() {
+  return <div style={{ color: "#6b7796", fontSize: 12 }}>Press “Run round-trips”.</div>;
+}
+
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 13 }}>
+      <span style={{ color: "#9aa9d8" }}>{k}</span>
+      <span style={{ fontFamily: "monospace" }}>{v}</span>
     </div>
   );
 }
@@ -79,12 +184,17 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-const primaryBtn: React.CSSProperties = {
-  background: "#5b8def", color: "#fff", border: "none", borderRadius: 4,
-  padding: "6px 14px", fontSize: 13, cursor: "pointer",
+const lbl: React.CSSProperties = { fontSize: 13, color: "#9aa9d8" };
+const sel: React.CSSProperties = {
+  background: "#0d1320", color: "#fff", border: "1px solid #2a3760",
+  borderRadius: 4, padding: "4px 8px", fontSize: 13,
 };
-
 const preBox: React.CSSProperties = {
   background: "#070b14", border: "1px solid #1d2741", borderRadius: 6,
-  padding: 10, color: "#cbd6f5", fontSize: 11, lineHeight: 1.45, margin: 0,
+  padding: 10, color: "#cbd6f5", fontSize: 11, lineHeight: 1.45, margin: "8px 0 0 0",
+  overflowX: "auto",
+};
+const errBox: React.CSSProperties = {
+  background: "#2a0f16", border: "1px solid #6b2230", borderRadius: 6,
+  padding: 10, color: "#ffb3bd", fontSize: 12, margin: "0 0 12px 0",
 };

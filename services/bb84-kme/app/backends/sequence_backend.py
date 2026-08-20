@@ -17,13 +17,13 @@ from hashlib import shake_256
 
 import numpy as np
 
-from .base import BackendConfig, KeyProducer, RoundOutcome
 from ._skr import (
     asymptotic_skr_per_pulse,
     drop_rate_for_simulator,
     qber_Emu,
     total_transmittance,
 )
+from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _run_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     # detector dark count + measurement error draws from SeQUeNCe's Noise class
     # rather than a Python literal.
     try:
-        from sequence.utils.noise import Noise   # 2026-05 addition
+        from sequence.utils.noise import Noise  # 2026-05 addition
         noise_rate = Noise().depolarizing_rate if hasattr(Noise, "depolarizing_rate") else cfg.misalignment_error_ed
     except Exception:
         noise_rate = cfg.misalignment_error_ed

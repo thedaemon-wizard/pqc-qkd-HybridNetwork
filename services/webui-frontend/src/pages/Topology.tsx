@@ -25,7 +25,9 @@ export default function Topology() {
         setPositions(p);
       });
     simRef.current = sim;
-    return () => sim.stop();
+    // Braces matter: d3's stop() returns the simulation, and a React effect
+    // cleanup must return void (a returned value is treated as a destructor).
+    return () => { sim.stop(); };
   }, [topo]);
 
   if (!topo) return <div>Loading…</div>;

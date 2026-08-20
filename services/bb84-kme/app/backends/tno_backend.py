@@ -19,6 +19,7 @@ import os
 import time
 from typing import Any
 
+from .. import config_loader as cl
 from ._skr import qber_Emu, total_transmittance
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
@@ -26,28 +27,28 @@ log = logging.getLogger(__name__)
 
 
 def _build_detector(cfg: BackendConfig):
-    """Build a TNO Detector from our config, falling back to the package's
-    standard_detector if a field name/units mismatch arises across versions."""
-    from tno.quantum.communication.qkd_key_rate.quantum import (
-        Detector, standard_detector,
+    """Build a TNO Detector from config/qkd_params.yaml.
+
+    Every timing characteristic comes from the `detector:` block. They were
+    previously literals here, which contradicted this module's own docstring
+    ("nothing is hardcoded") and was the standing failure in
+    tests/test_no_hardcoded_params.py.
+    """
+    from tno.quantum.communication.qkd_key_rate.quantum import Detector
+
+    return Detector(
+        name="pqcqkd",
+        efficiency_detector=float(cfg.detector_efficiency),
+        efficiency_system=float(cl.require("detector.efficiency_system")),
+        dark_count_frequency=float(cfg.dark_count_rate_hz),
+        polarization_drift=float(cfg.misalignment_error_ed),
+        error_detector=float(cfg.misalignment_error_ed),
+        jitter_source=float(cl.require("detector.jitter_source_s")),
+        jitter_detector=float(cl.require("detector.jitter_detector_s")),
+        dead_time=float(cl.require("detector.dead_time_s")),
+        detection_frequency=float(cl.require("detector.detection_frequency_hz")),
+        detection_window=int(cl.require("detector.detection_window")),
     )
-    try:
-        return Detector(
-            name="pqcqkd",
-            efficiency_detector=float(cfg.detector_efficiency),
-            efficiency_system=1.0,
-            dark_count_frequency=float(cfg.dark_count_rate_hz),
-            polarization_drift=float(cfg.misalignment_error_ed),
-            error_detector=float(cfg.misalignment_error_ed),
-            jitter_source=0.0,
-            jitter_detector=5.0e-11,
-            dead_time=4.5e-08,
-            detection_frequency=1.0e7,
-            detection_window=5,
-        )
-    except Exception as e:  # pragma: no cover - version-robustness fallback
-        log.warning("TNO custom Detector failed (%s); using standard_detector", e)
-        return standard_detector
 
 
 def compute_tno_rate(cfg: BackendConfig) -> dict[str, Any]:

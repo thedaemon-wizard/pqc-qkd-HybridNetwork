@@ -2,7 +2,7 @@
 
 Implements the multi-hop trusted-node Data Exchange protocol described in
 references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf (Spooren et al.,
-arXiv:2604.05599) and pictured in submodules/arnika-vq's multi-hop diagram
+arXiv:2604.05599) and pictured in submodules/arnika's multi-hop diagram
 (End Node Alice | Trusted Node(s) | End Node Bob).
 
 Compared to e2e_orchestrator.py (image-1 single-tunnel concept) this module
@@ -279,7 +279,7 @@ class PaperFlowOrchestrator:
                 await self._publish()
                 try:
                     await asyncio.wait_for(self._tick.wait(), timeout=0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 self._tick.clear()
                 continue

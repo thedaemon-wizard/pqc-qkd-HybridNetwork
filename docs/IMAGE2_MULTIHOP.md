@@ -1,7 +1,7 @@
 # Reference image 2 (multi-hop trusted node) → code mapping
 
 The user-supplied multi-hop diagram from
-`Veriqloud/arnika-vq` (End Node Alice | Trusted Node | End Node Bob with
+`arnika-project/arnika` (End Node Alice | Trusted Node | End Node Bob with
 four numbered phases) is the canonical reference for the `/paper-flow`
 WebUI page introduced in Phase 14. It complements image 1 (the
 single-tunnel `/e2e` page) by adding hop-wise QKD-secured tunnels, an
@@ -25,7 +25,7 @@ end-to-end PQC handshake, and a final WireGuard data tunnel.
 | ③ PQC Handshake (pink arc across end-node Rosenpass) | `<path>` from Alice Rosenpass to Bob Rosenpass | same |
 | ④ Data Exchange (red horizontal line across final WG tunnels) | `<line>` at y=515 | same |
 | Numbered phase markers ① ② ③ ④ | top-left dial pad of 4 circles, active phase glows | same |
-| Failure layer banner ("⚠ Failure injected on layer: ...") | optional bottom `<rect>` driven by `failureLayer` prop | same |
+| Failure layer banner ("Note: Failure injected on layer: ...") | optional bottom `<rect>` driven by `failureLayer` prop | same |
 
 ## Per-phase backend semantics
 
@@ -77,11 +77,11 @@ docker compose up -d webui-backend webui-frontend
 
 | Check | Result |
 |---|---|
-| Sidebar has 12 entries incl. "Paper Data Exchange ◆" | ✓ |
-| `#paper-flow-topology-svg` viewBox 1060 × 720, 160 elements | ✓ |
-| `#paper-flow-sequence-svg` 91 elements | ✓ |
-| Hop slider 1 → 8 renders 3 → 10 columns | ✓ |
-| `inject-failure qkd` → 7 cascade events scheduled | ✓ |
-| Live cycles ≥ 300 after ~1 s of orchestrator | ✓ |
-| Paper KPIs show 9 packets / 5248 bytes | ✓ |
-| 0 console errors | ✓ |
+| Sidebar lists 13 routes, including "Paper Data Exchange" | Yes |
+| `#paper-flow-topology-svg` viewBox 1060 × 720, 160 elements | Yes |
+| `#paper-flow-sequence-svg` 91 elements | Yes |
+| Hop slider 1 → 8 renders 3 → 10 columns | Yes |
+| `inject-failure qkd` → 7 cascade events scheduled | Yes |
+| Live cycles ≥ 300 after ~1 s of orchestrator | Yes |
+| Paper KPIs show 9 packets / 5248 bytes | Yes |
+| 0 console errors | Yes |

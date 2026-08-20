@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import logging
 import os
 import secrets
@@ -177,7 +176,7 @@ class E2EOrchestrator:
                 await self._publish()
                 try:
                     await asyncio.wait_for(self._tick.wait(), timeout=0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 self._tick.clear()
                 continue

@@ -26,6 +26,19 @@ physical:
   after_pulse_prob: 0.001
   misalignment_error_ed: 0.015           # polarisation basis misalignment
 
+detector:
+  # Timing characteristics of the single-photon detector, used by the TNO
+  # key-rate backend's Detector model. These lived as literals inside
+  # services/bb84-kme/app/backends/tno_backend.py, which broke this file's own
+  # "single source of truth" rule and made tests/test_no_hardcoded_params.py
+  # fail. Values are SNSPD-typical (Hadfield, Nature Photonics 3, 696 (2009)).
+  jitter_source_s: 0.0                   # transform-limited source assumption
+  jitter_detector_s: 5.0e-11             # 50 ps timing jitter
+  dead_time_s: 4.5e-08                   # 45 ns recovery time
+  detection_frequency_hz: 1.0e7          # 10 MHz gating / readout rate
+  detection_window: 5                    # window width, in jitter units
+  efficiency_system: 1.0                 # optics loss already folded into detector_efficiency
+
 source:
   source_type: "WCP"                     # weak coherent pulse
   pulse_rate_hz: 1.0e9                   # 1 GHz industry standard
