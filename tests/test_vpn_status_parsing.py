@@ -11,14 +11,14 @@ The fixtures below are verbatim `swanctl` output from the pinned strongSwan
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import importlib
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services" / "webui-backend"))
+from conftest import load_service_app
 
-from app.main import _parse_ipsec_sas  # noqa: E402
+load_service_app("webui-backend", "webui_backend_app")
+_parse_ipsec_sas = importlib.import_module("webui_backend_app.main")._parse_ipsec_sas
 
 # Real output shape: `swanctl --list-conns` for the PPK-enabled connection.
 CONNS_PPK = """\
