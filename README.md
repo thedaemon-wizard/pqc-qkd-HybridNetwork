@@ -806,7 +806,7 @@ candidate but was **archived on 2024-09-03** ("not actively maintained
 anymore"), so it has been excluded; only the verifiably 2026-active option
 above was added.
 
-### Browser verification (a headless browser)
+### Browser verification (Chrome)
 
 - 12 sidebar nav links including the new "Paper Data Exchange ◆"
 - `#paper-flow-topology-svg` viewBox `0 0 1060 720`, 160 elements
