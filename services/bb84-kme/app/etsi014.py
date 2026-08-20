@@ -1,12 +1,12 @@
-"""ETSI GS QKD 014 REST endpoints — byte-for-byte compatible with arnika-vq.
+"""ETSI GS QKD 014 REST endpoints — byte-for-byte compatible with arnika.
 
-Reference contract (arnika-vq):
-    submodules/arnika-vq/kms/kms.go:69-76   --> JSON schema
+Reference contract (arnika):
+    submodules/arnika/repositories/kms.go:43-48   --> JSON schema
         type Key struct {
             ID  string `json:"key_ID"`
             Key string `json:"key"`
         }
-    submodules/arnika-vq/kms/kms.go:126-134 --> URL forms
+    submodules/arnika/repositories/kms.go:94-101 --> URL forms
         GET .../{SAE}/enc_keys?number=N&size=B
         GET .../{SAE}/dec_keys?key_ID=...
 """

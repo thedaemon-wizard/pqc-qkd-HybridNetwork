@@ -1,7 +1,7 @@
 """Contract test for the ETSI GS QKD 014 endpoints.
 
 This is the **single most important test**: if the JSON shape drifts, arnika cannot parse
-the response (see submodules/arnika-vq/kms/kms.go:69-76) and the whole hybrid layer breaks.
+the response (see submodules/arnika/repositories/kms.go:43-48) and the whole hybrid layer breaks.
 
 Run after `make up`:
     pytest tests/test_etsi014_contract.py -v

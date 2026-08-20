@@ -57,7 +57,7 @@ export default function App() {
         <div style={{ marginTop: 36, fontSize: 11, color: "#6b7796", lineHeight: 1.5 }}>
           ETSI GS QKD 014<br />
           ML-KEM-768 + HKDF-SHA3-256<br />
-          arnika-vq · liboqs · rosenpass
+          arnika · liboqs · rosenpass
         </div>
       </aside>
       <main style={{ padding: "1.5rem 2rem" }}>

@@ -52,7 +52,9 @@ pnpm-debug.log*
 *.exe
 *.test
 *.out
-arnika
+# Compiled arnika binary only — anchored, so it cannot swallow
+# submodules/arnika or services/arnika-vici/.
+/arnika
 build/
 
 # ============================================

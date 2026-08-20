@@ -16,7 +16,7 @@ import { PaperSim } from "../lib/sim/paperSim";
  *
  * Implements the multi-hop trusted-node Data Exchange described in
  * references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf and matches the
- * Veriqloud/arnika-vq multi-hop image (provided by the user) showing:
+ * arnika-project/arnika multi-hop image (provided by the user) showing:
  *
  *   End Node Alice | Trusted Node | End Node Bob
  *      ① Quantum Plane  ② QKD Key IDs  ③ PQC Handshake  ④ Data Exchange
@@ -96,7 +96,7 @@ export default function PaperDataExchange() {
         subtitle={
           <>
             Multi-hop trusted-node Data Exchange faithful to the
-            arnika-vq multi-hop diagram and the paper's Table III packet budgets
+            arnika multi-hop diagram and the paper's Table III packet budgets
             (9 packets / 5248 bytes per handshake). Differs from
             <code> /e2e </code> (single-tunnel concept) by showing a daisy
             chain, the 5-phase swimlane and the 240-720 s failure cascade.

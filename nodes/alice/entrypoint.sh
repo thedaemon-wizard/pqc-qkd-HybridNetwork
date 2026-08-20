@@ -111,7 +111,7 @@ if [[ ! -s "$PQC_PSK_FILE" ]]; then
 fi
 
 # ---- 6) arnika (foreground) --------------------------------
-# These env vars map directly to arnika's config (see submodules/arnika-vq/config/config.go)
+# These env vars map directly to arnika's config (see submodules/arnika/config/config.go)
 export LISTEN_ADDRESS="${LISTEN_ADDRESS:-0.0.0.0:9999}"
 export SERVER_ADDRESS="${SERVER_ADDRESS:-peer:9999}"
 export INTERVAL="${ARNIKA_INTERVAL:-30s}"
@@ -124,8 +124,22 @@ export KMS_HTTP_TIMEOUT="${KMS_HTTP_TIMEOUT:-10s}"
 export KMS_BACKOFF_MAX_RETRIES="${KMS_BACKOFF_MAX_RETRIES:-5}"
 export KMS_BACKOFF_BASE_DELAY="${KMS_BACKOFF_BASE_DELAY:-200ms}"
 export KMS_RETRY_INTERVAL="${KMS_RETRY_INTERVAL:-10s}"
-# ARNIKA_ID is an optional numeric identifier; omitting it lets arnika default
-# to the port from LISTEN_ADDRESS (NODE_NAME is not numeric, so don't set it).
 
-echo "[entrypoint] starting arnika (MODE=$MODE INTERVAL=$INTERVAL KMS=$KMS_URL)"
+# ARNIKA_ID and ARNIKA_PSK are both load-bearing and have no safe default here.
+#
+# arnika elects the per-interval master with
+#     IsPrimary = ((HMAC-SHA256(ARNIKA_PSK, intervalNum)[0]) XOR ARNIKA_ID) & 1 == 0
+# (config/config.go). The XOR against ARNIKA_ID is the ONLY thing that makes two
+# peers reach opposite conclusions, so the two IDs must differ. Left unset,
+# arnika defaults ARNIKA_ID to the port parsed from LISTEN_ADDRESS -- and both
+# of our nodes listen on :9999, which would give both peers the same role every
+# interval and deadlock the key exchange. Fail loudly rather than ship that.
+export ARNIKA_ID="${ARNIKA_ID:?ARNIKA_ID must be set, and must differ between the two peers}"
+
+# ARNIKA_PSK keys the AES-256-GCM encryption and HMAC-SHA256 signature applied
+# to the UDP key_ID packets (auth/auth.go), as well as the role election above.
+# An empty value leaves that channel unauthenticated, so require it explicitly.
+export ARNIKA_PSK="${ARNIKA_PSK:?ARNIKA_PSK must be set, and must be identical on both peers}"
+
+echo "[entrypoint] starting arnika (MODE=$MODE INTERVAL=$INTERVAL ID=$ARNIKA_ID KMS=$KMS_URL)"
 exec /usr/local/bin/arnika

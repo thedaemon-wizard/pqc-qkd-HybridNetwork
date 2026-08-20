@@ -39,7 +39,7 @@ export default function KeyFlow() {
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
         The QKD lane (green) and the PQC lane (purple) are fused by HKDF-SHA3-256
         (orange) into the 32-byte WireGuard PSK. Reference:
-        <code>submodules/arnika-vq/kdf/kdf.go:12-27</code>
+        <code>submodules/arnika/kdf/kdf.go:12-27</code>
       </p>
       <Plot
         data={data}
