@@ -160,7 +160,10 @@ function Badge({ text, color }: { text: string; color: string }) {
 function statusColor(s: string): string {
   if (s === "running" || s === "established") return "#3ddc84";
   if (s === "restarting" || s === "rekeying") return "#f5a623";
-  if (s === "stopped" || s === "down") return "#e25555";
+  // "error" means swanctl itself failed -- charon is not answering. That must
+  // read as a fault, not fall through to the neutral colour that also means
+  // "absent", or a dead daemon looks unremarkable.
+  if (s === "stopped" || s === "down" || s === "error") return "#e25555";
   return "#445";
 }
 
