@@ -107,15 +107,13 @@ sbom*.json
 # Private / non-public (do not publish)
 # ============================================
 
-MONETIZATION.md
-MONETIZATION.private.md
+*.private.md
 *.docx
 .~lock.*#
 
-# Local editor / tooling scratch directories, wherever they appear.
-**/.claude/
-.aider*
-.cursor/
+# Local editor / tooling scratch directories are excluded per-checkout via
+# .git/info/exclude rather than here, so this published file does not enumerate
+# them.
 
 # Round 5 implementation backup (not for publication)
 services/webui-frontend/.backup-round5/
