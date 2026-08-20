@@ -13,7 +13,7 @@ automatic TLS.
 | `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes). Recommended for a public demo. |
 | `.env.example` | Copy to repo-root `.env`; set `PUBLIC_HOST`, `ACME_EMAIL`, backend profile, ports. |
 
-## ⚠️ Which deploy do I want? (read this first)
+## Note: Which deploy do I want? (read this first)
 
 - **`deploy/deploy.sh` — FULL real-WireGuard stack.** Builds liboqs + **rosenpass (Rust)** +
   **strongSwan** from source for the privileged `alice`/`bob` nodes. **Requires a real kernel and
@@ -88,20 +88,60 @@ Then add a DNS **A record** for `PUBLIC_HOST` → the VPS public IP. Caddy
 obtains a Let's Encrypt certificate automatically and serves the WebUI at
 `https://$PUBLIC_HOST`.
 
+## Redeploying an existing host
+
+The quick start above is a **first-time** install. To update a host that is
+already running, use `--pull`:
+
+```sh
+cd ~/pqc-qkd-hybrid
+sudo bash deploy/deploy-demo.sh --pull      # or deploy.sh for the full stack
+```
+
+`--pull` fetches `origin/main`, fast-forwards, re-syncs submodules, then
+rebuilds and restarts. Without the flag the script builds whatever is already
+in the working tree, which is what you want when you have applied a local
+hotfix and do not want it discarded.
+
+Deliberate properties, because this runs as root on a live host:
+
+- **Opt-in.** Updating is never implicit. `.env` and any local change live in
+  the working tree, and moving `HEAD` underneath them silently is how a
+  redeploy becomes an outage.
+- **Preserves local modifications.** They are reported, not treated as a
+  blocker. `git merge --ff-only` already refuses precisely when it matters --
+  when the incoming commits would overwrite a locally-modified file -- and it
+  names those files exactly. Blocking on *any* dirty file instead was tried and
+  removed: the real demo host carries a deliberate local `Caddyfile` edit
+  serving a second project's domain, so the blanket check made the script
+  unusable there and pushed the operator into running git by hand, which is
+  less safe than the script.
+- **Fast-forward only.** A merge or rebase could conflict and leave the tree
+  half-updated with nobody at the keyboard.
+- **Prints the range.** The commits between the old and new `HEAD` are logged,
+  so what actually shipped is in the deploy output.
+
+Override the branch with `DEPLOY_BRANCH=dev sudo -E bash deploy/deploy-demo.sh --pull`.
+
+To confirm the update landed, check that the served bundle hash changed:
+
+```sh
+curl -s https://$PUBLIC_HOST/ | grep -o '/assets/index-[^."]*'
+```
+
 ## Why a VPS (not managed PaaS)
 
 The real WireGuard end-to-end tunnel needs the `wireguard` kernel module and
-privileged containers (`NET_ADMIN`/`SYS_MODULE`, `/dev/net/tun`). A ConoHa KVM
+privileged containers (`NET_ADMIN`/`SYS_MODULE`, `/dev/net/tun`). A KVM
 VPS (root) provides this; managed PaaS (Railway/Render) cannot.
 
 ## Local smoke test (through Caddy, plain HTTP)
 
 ```sh
-PUBLIC_HOST=":80" ACME_EMAIL="" \
+PUBLIC_HOST=":80"ACME_EMAIL="" \
   docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
 # WebUI now reachable via the proxy at http://localhost/
 ```
 
-> Detailed business / monetization rationale, recommended ConoHa plan & cost,
-> Value-Domain DNS steps, security hardening, and the per-OSS license &
-> commercial-use analysis live in the private `MONETIZATION.md` (not committed).
+> Per-dependency licence terms are in
+> [`../docs/THIRD_PARTY_NOTICES.md`](../docs/THIRD_PARTY_NOTICES.md).

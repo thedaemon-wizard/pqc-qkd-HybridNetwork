@@ -6,7 +6,7 @@
 #   - wan-net:             WireGuard endpoints           Public Internet sim
 #   - mgmt-net:            WebUI <-> backend <-> logs    Management plane
 #
-# Arnika is built from the unmodified submodules/arnika-vq/Dockerfile.
+# Arnika is built from the unmodified submodules/arnika/Dockerfile.
 # BB84-KME is a Python service implementing QuTiP + ETSI GS QKD 014 REST.
 # ===================================================================
 name: pqcqkd
@@ -66,7 +66,7 @@ services:
       # NumPy/SciPy/QuTiP load OpenBLAS, which auto-detects the CPU and may emit
       # instructions a cloud vCPU doesn't expose -> "Illegal instruction" SIGILL
       # that crashes the KME on startup (and can't be caught in Python). If that
-      # happens on a VPS (e.g. ConoHa), pin a safe baseline, e.g.
+      # happens on a VPS, pin a safe baseline, e.g.
       # OPENBLAS_CORETYPE=Haswell. Empty default = OpenBLAS auto-detect.
       OPENBLAS_CORETYPE: ${OPENBLAS_CORETYPE:-}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}
@@ -168,10 +168,19 @@ services:
       # Arnika env (consumed by entrypoint -> exported to arnika binary)
       ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
-      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/ALICE
+      # ETSI GS QKD 014 clause 5.1: the SAE ID in the path is the PEER --
+      # enc_keys names the slave SAE, dec_keys names the master SAE. From
+      # Alice's side both are BOB, which is why one base URL serves both.
+      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/BOB
       PEER_SAE_ID: BOB
       LISTEN_ADDRESS: 0.0.0.0:9999
       SERVER_ADDRESS: bob:9999
+      # Must differ from the peer's: arnika XORs this into the per-interval
+      # master election, so equal IDs make both nodes take the same role.
+      ARNIKA_ID: ${ARNIKA_ID_ALICE:-1}
+      # Must be IDENTICAL on both peers: keys the AES-256-GCM + HMAC on the
+      # UDP key_ID channel and the role election.
+      ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
       # Rosenpass (real post-quantum exchange) — container-internal UDP only
       RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
@@ -220,10 +229,13 @@ services:
       WG_PEER_ENDPOINT: alice:${WG_LISTEN_PORT_ALICE:-51820}
       ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
-      KMS_URL: http://bb84-kme-b:8080/api/v1/keys/BOB
+      # See the note on alice: the SAE ID in the path is always the PEER.
+      KMS_URL: http://bb84-kme-b:8080/api/v1/keys/ALICE
       PEER_SAE_ID: ALICE
       LISTEN_ADDRESS: 0.0.0.0:9999
       SERVER_ADDRESS: alice:9999
+      ARNIKA_ID: ${ARNIKA_ID_BOB:-2}
+      ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
       # Rosenpass (real post-quantum exchange) — container-internal UDP only
       RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}

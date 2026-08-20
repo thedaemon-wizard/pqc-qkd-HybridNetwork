@@ -52,7 +52,9 @@ pnpm-debug.log*
 *.exe
 *.test
 *.out
-arnika
+# Compiled arnika binary only — anchored, so it cannot swallow
+# submodules/arnika or services/arnika-vici/.
+/arnika
 build/
 
 # ============================================
@@ -105,10 +107,26 @@ sbom*.json
 # Private / non-public (do not publish)
 # ============================================
 
-MONETIZATION.md
-MONETIZATION.private.md
+*.private.md
 *.docx
 .~lock.*#
 
+# Local editor / tooling scratch directories are excluded per-checkout via
+# .git/info/exclude rather than here, so this published file does not enumerate
+# them.
+
 # Round 5 implementation backup (not for publication)
 services/webui-frontend/.backup-round5/
+
+# ============================================
+# Third-party material we may not redistribute
+# ============================================
+# Vendor installer payloads (MathWorks / FlexNet). These were tracked for a
+# time; they are proprietary and referenced by nothing in this project.
+archives/
+
+# References are redistributable only where the upstream licence allows it.
+# Spooren et al. (arXiv:2604.05599) is CC BY 4.0 and IS committed.
+# QuLore (arXiv:2511.22416) is CC BY-NC-ND 4.0 -- NonCommercial and
+# NoDerivatives -- so it must not be shipped here. See docs/references.md.
+references/QuLore_*.pdf

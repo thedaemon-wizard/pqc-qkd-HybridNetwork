@@ -135,6 +135,9 @@ def overrides() -> dict[str, Any]:
         return dict(_cache.overrides)
 
 
+_MISSING = object()
+
+
 def get(path: str, default: Any = None) -> Any:
     """Dotted path lookup e.g. `physical.detector_efficiency`."""
     cur: Any = params()
@@ -143,6 +146,23 @@ def get(path: str, default: Any = None) -> Any:
             return default
         cur = cur[part]
     return cur
+
+
+def require(path: str) -> Any:
+    """Dotted path lookup that fails loudly when the key is absent.
+
+    `get()` returns None for a missing key, which turns a config typo into a
+    `float(None)` TypeError several frames from its cause. Physics parameters
+    have no safe default -- a missing one must stop the round rather than
+    silently become zero -- so callers that need a value use this instead.
+    """
+    value = get(path, _MISSING)
+    if value is _MISSING:
+        raise KeyError(
+            f"required parameter {path!r} is missing from the QKD parameter "
+            "file; see config/qkd_params.yaml"
+        )
+    return value
 
 
 def subscribe(callback) -> None:

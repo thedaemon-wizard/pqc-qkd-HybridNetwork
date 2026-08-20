@@ -52,11 +52,19 @@ def reconcile(
     qber_threshold: float,
     out_bits: int = 256,
     pa_seed: int | None = None,
+    rng: np.random.Generator | None = None,
 ) -> ReconcileResult:
     """Run QBER estimation + privacy amplification.
 
     Both `sifted_a` and `sifted_b` MUST be the same length and indexed identically
     (i.e. already sifted: only positions where bases matched).
+
+    `rng` selects the disclosed QBER sub-sample. It is injectable for the same
+    reason every other module in this package injects one: without it a seeded
+    round is not reproducible. This function used to construct its own unseeded
+    generator, so a caller passing `default_rng(seed)` still got a different
+    QBER estimate on every run -- which made seeded tests flaky and defeated
+    `simulator.rng_seed` in config/qkd_params.yaml.
     """
     if sifted_a.size != sifted_b.size:
         raise ValueError("sifted arrays must have equal length")
@@ -69,7 +77,7 @@ def reconcile(
     if sample_size >= n:
         return ReconcileResult(False, 1.0, b"", n, 0)
 
-    rng = np.random.default_rng()
+    rng = rng if rng is not None else np.random.default_rng()
     sample_idx = rng.choice(n, size=sample_size, replace=False)
     diff = sifted_a[sample_idx] ^ sifted_b[sample_idx]
     qber = float(diff.mean())

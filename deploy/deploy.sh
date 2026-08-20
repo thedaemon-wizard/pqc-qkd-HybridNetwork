@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # One-shot bootstrap for the FULL real-WireGuard stack on a fresh
-# ConoHa (Ubuntu 22.04/24.04) KVM VPS.
+# a KVM VPS running Ubuntu 22.04/24.04.
 #
 # This is the HEAVY full stack: it builds liboqs + rosenpass (Rust) +
 # strongSwan from source for the privileged alice/bob WireGuard nodes.

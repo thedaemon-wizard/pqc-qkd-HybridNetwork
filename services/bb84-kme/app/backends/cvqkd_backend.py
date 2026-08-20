@@ -22,8 +22,8 @@ from hashlib import shake_256
 
 import numpy as np
 
-from .base import BackendConfig, KeyProducer, RoundOutcome
 from ._skr import total_transmittance
+from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
 

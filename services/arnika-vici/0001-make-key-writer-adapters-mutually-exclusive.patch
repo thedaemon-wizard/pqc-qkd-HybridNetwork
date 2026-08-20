@@ -1,0 +1,38 @@
+Subject: [PATCH] build: make key-writer adapters mutually exclusive
+
+Upstream selects the WireGuard netlink key-writer with
+
+    //go:build wireguard_netlink || !wireguard_mikrotik
+
+The trailing `!wireguard_mikrotik` makes netlink the default, which is
+correct today because MikroTik is the only other tag. But it means the
+file is also compiled in for *any* future adapter tag, so adding a third
+key-writer produces a duplicate definition of getKeyWriterService rather
+than replacing it.
+
+Narrow the default so each adapter tag deselects it explicitly. This is a
+no-op for existing builds:
+
+    (no tags)                  -> netlink       (unchanged)
+    -tags wireguard_netlink    -> netlink       (unchanged)
+    -tags wireguard_mikrotik   -> mikrotik      (unchanged)
+    -tags strongswan_vici      -> vici          (new; previously a
+                                                 duplicate-symbol build
+                                                 failure)
+
+Applied by this repository's strongSwan image build; carried here so the
+change is reviewable in isolation before it is proposed upstream.
+---
+ wireguardnetlink.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/wireguardnetlink.go b/wireguardnetlink.go
+index 1111111..2222222 100644
+--- a/wireguardnetlink.go
++++ b/wireguardnetlink.go
+@@ -1,4 +1,4 @@
+-//go:build wireguard_netlink || !wireguard_mikrotik
++//go:build wireguard_netlink || (!wireguard_mikrotik && !strongswan_vici)
+
+ package main
+

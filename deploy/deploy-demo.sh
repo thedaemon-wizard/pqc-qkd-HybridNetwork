@@ -41,6 +41,23 @@ ensure_swap() {
   fi
 }
 
+# Arguments are parsed before the privilege check so `--help` works without
+# sudo.
+PULL=0
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+for arg in "$@"; do
+  case "$arg" in
+    --pull) PULL=1 ;;
+    -h|--help)
+      echo "usage: sudo bash deploy/deploy-demo.sh [--pull]"
+      echo "  --pull   fetch and fast-forward to origin/$DEPLOY_BRANCH (default: main)"
+      echo "           before building, then sync submodules"
+      exit 0
+      ;;
+    *) echo "[deploy-demo] unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
+
 if [[ "${EUID}" -ne 0 ]]; then
   echo "[deploy-demo] please run as root (sudo bash deploy/deploy-demo.sh)" >&2
   exit 1
@@ -48,6 +65,63 @@ fi
 if [[ ! -f .env ]]; then
   echo "[deploy-demo] missing ./.env — copy deploy/.env.example to .env and set PUBLIC_HOST/ACME_EMAIL" >&2
   exit 1
+fi
+
+# ---- 0) Optional: fast-forward to the published branch -------
+#
+# Opt-in via --pull, never implicit. This script runs as root on a live host
+# where .env and any local hotfix live in the working tree; silently moving HEAD
+# underneath them is the kind of thing that turns a redeploy into an outage.
+#
+# Fast-forward ONLY. A rebase or merge here could conflict and leave the tree
+# half-updated with no one at the keyboard, and a --hard reset would discard
+# exactly the local state the operator may be relying on.
+if [[ "$PULL" -eq 1 ]]; then
+  log "fetching origin/${DEPLOY_BRANCH}"
+  git fetch --prune origin "${DEPLOY_BRANCH}"
+
+  # Report local modifications, but do NOT refuse on their mere existence.
+  #
+  # An earlier version aborted on any dirty file. Tested against the real demo
+  # host, that made the script unusable: the box carries a deliberate local
+  # Caddyfile edit serving a second project's domain, plus a submodule pointer
+  # and some stray untracked files. None of them are touched by the update. A
+  # guard that blocks the correct action pushes the operator into running the
+  # git commands by hand, which is strictly less safe than the script.
+  #
+  # `git merge --ff-only` below already refuses precisely when it matters -- it
+  # will not overwrite a locally-modified file that the incoming commits change
+  # -- and it is exact about which files those are, which a blanket
+  # `git diff --quiet` cannot be.
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    log "note: local modifications present; they are preserved unless the update touches them"
+    git status --short >&2
+  fi
+
+  current="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$current" != "${DEPLOY_BRANCH}" ]]; then
+    log "switching from ${current} to ${DEPLOY_BRANCH}"
+    git checkout "${DEPLOY_BRANCH}"
+  fi
+
+  before="$(git rev-parse HEAD)"
+  # --ff-only: fail loudly rather than create a merge commit on a deploy host,
+  # and it aborts before touching anything if a locally-modified file would be
+  # overwritten. That is the real safety check; see the note above.
+  if ! git merge --ff-only "origin/${DEPLOY_BRANCH}"; then
+    echo "[deploy-demo] fast-forward refused. Either the branch has diverged, or" >&2
+    echo "[deploy-demo] the update would overwrite a locally-modified file." >&2
+    echo "[deploy-demo] Nothing has been changed. Resolve, then re-run." >&2
+    exit 1
+  fi
+  after="$(git rev-parse HEAD)"
+
+  if [[ "$before" == "$after" ]]; then
+    log "already up to date at ${after:0:8}"
+  else
+    log "updated ${before:0:8} -> ${after:0:8}"
+    git --no-pager log --oneline "${before}..${after}" | sed 's/^/  /'
+  fi
 fi
 
 # ---- 1) Docker engine + compose plugin ---------------------

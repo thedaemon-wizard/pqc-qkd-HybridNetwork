@@ -16,8 +16,8 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -74,8 +74,12 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except asyncio.CancelledError:
+                pass  # expected: we just cancelled it
+            except Exception:
+                # Any OTHER exception means the orchestrator died of something
+                # real. Cancelling on shutdown must not be what hides it.
+                log.exception("%s raised during shutdown", task_name)
     await app.state.http.aclose()
 
 
@@ -105,6 +109,24 @@ DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / wi
 DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
 _rate_state: dict[str, tuple[float, float]] = {}                   # ip -> (tokens, ts)
 
+# Container lifecycle control is OPT-IN, not opt-out.
+#
+# This endpoint can start/stop/restart containers through a mounted
+# /var/run/docker.sock, so on a reachable host it is a privilege-escalation
+# path, not merely a way to take the demo offline. It used to be enabled by
+# default and disabled only when DEMO_MODE was set — meaning a deployment that
+# simply forgot the flag exposed it to the internet. That is exactly what
+# happened to the public demo: it answered `demo_mode: false` while running the
+# full profile with docker.sock mounted.
+#
+# Inverting the default changes the failure mode: a missing or misspelled
+# variable now yields a SAFE deployment (403) rather than an exposed one.
+# Enabling it is a deliberate act, and DEMO_MODE additionally vetoes it so the
+# two cannot be switched on together by accident.
+CONTAINER_CONTROL_ENABLED = (
+    _truthy(os.environ.get("ENABLE_CONTAINER_CONTROL")) and not DEMO_MODE
+)
+
 
 @app.middleware("http")
 async def demo_rate_limit(request, call_next):
@@ -131,9 +153,15 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/config")
 async def config() -> dict[str, Any]:
-    """Runtime flags the frontend uses to adapt the UI (e.g. hide controls)."""
+    """Runtime flags the frontend uses to adapt the UI (e.g. hide controls).
+
+    `container_control` is reported explicitly so the deployment's posture can
+    be checked from outside without attempting the dangerous call itself --
+    see scripts/verify-demo-hardening.sh.
+    """
     return {
         "demo_mode": DEMO_MODE,
+        "container_control": CONTAINER_CONTROL_ENABLED,
         "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S}
         if DEMO_MODE else None,
     }
@@ -287,6 +315,7 @@ async def export_list():
 async def export_download(filename: str):
     import re
     from pathlib import Path
+
     from fastapi.responses import FileResponse
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]
     if safe != filename or ".." in safe:
@@ -375,8 +404,13 @@ async def sim_rotate():
 # ----------------------- Stack control -----------------------
 @app.post("/api/stack/{action}/{name}")
 async def stack_action(action: str, name: str):
-    if DEMO_MODE:
-        raise HTTPException(403, "container control disabled in demo mode")
+    # Opt-in, so that forgetting a flag fails closed rather than open.
+    if not CONTAINER_CONTROL_ENABLED:
+        raise HTTPException(
+            403,
+            "container control is disabled; set ENABLE_CONTAINER_CONTROL=1 "
+            "(and do not set DEMO_MODE) on a trusted host to enable it",
+        )
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
@@ -542,23 +576,101 @@ async def vpn_protocols():
                 "proposal": "ChaCha20-Poly1305 + Noise + PSK",
                 "last_handshake": "via wg show",
             }
-        except Exception:
-            pass
+        except Exception as e:
+            # The IPsec branch below logs; this one used to swallow silently, so
+            # a WireGuard lane that was never reachable looked identical to one
+            # that was simply absent.
+            log.warning("wireguard status unavailable: %s", e)
         try:
             c = cli.containers.get("alice-ipsec")
-            rc, out = c.exec_run("swanctl --list-sas")
-            text = out.decode("utf-8", errors="replace")
-            established = "ESTABLISHED" in text
-            ipsec_status = {
-                "name": "ipsec",
-                "status": "established" if established else "running",
-                "active_sa": text.count("ESTABLISHED"),
-                "proposal": "aes256gcm16-sha256-ecp256-ke1_ml_kem_768 (RFC 9370)",
-                "last_handshake": "via swanctl",
-            }
-        except Exception:
-            pass
+            rc_sas, sas = c.exec_run("swanctl --list-sas")
+            rc_conns, conns = c.exec_run("swanctl --list-conns")
+            # Check the exit codes. swanctl writes its error text to the same
+            # stream as its output, and that text is non-empty, so passing a
+            # failed invocation into the parser makes `sas.strip()` truthy and
+            # reports status "running" for a charon that is dead. That is the
+            # precise "healthy while doing nothing" mode this lane exists to
+            # eliminate, reproduced in the status API.
+            if rc_sas != 0 or rc_conns != 0:
+                detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
+                log.warning(
+                    "swanctl failed in alice-ipsec (list-sas rc=%s, list-conns rc=%s): %s",
+                    rc_sas, rc_conns, detail.strip()[:200],
+                )
+                ipsec_status = {
+                    "name": "ipsec",
+                    "status": "error",
+                    "active_sa": 0,
+                    "proposal": None,
+                    "last_handshake": None,
+                    "pq_key_exchange": None,
+                    # Same keys as the success path, so a consumer never has to
+                    # branch on which shape it received.
+                    "ppk_id": None,
+                    "ppk_required": None,
+                }
+            else:
+                ipsec_status = _parse_ipsec_sas(
+                    sas.decode("utf-8", errors="replace"),
+                    conns.decode("utf-8", errors="replace"),
+                )
+        except Exception as e:
+            log.warning("ipsec status unavailable: %s", e)
     return {"wireguard": wg_status, "ipsec": ipsec_status}
+
+
+# `swanctl --list-sas` renders an established IKE_SA as e.g.
+#   pqcqkd-vpn: #1, ESTABLISHED, IKEv2, 8f3a...:c1d2...
+#     local  'alice@pqcqkd.local' @ 10.30.0.20[500]
+#     ...
+#     AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/ML_KEM_768
+#     established 12s ago, reauth in 18s
+_SA_PROPOSAL_RE = re.compile(r"^\s{2,}([A-Z0-9_]+(?:-[0-9]+)?(?:/[A-Z0-9_]+)+)\s*$", re.M)
+_SA_ESTABLISHED_RE = re.compile(r"established (\d+)([smh]) ago", re.M)
+# `swanctl --list-conns` renders a PPK-enabled connection as:
+#     ppk: ppk-qkd@pqcqkd.local, required
+_CONN_PPK_RE = re.compile(r"^\s*ppk:\s*(\S+?),\s*(required|optional)\s*$", re.M)
+
+
+def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
+    """Derive IPsec lane status from real swanctl output.
+
+    Every field is parsed from the daemon. An earlier version returned a
+    hardcoded proposal string, so the UI kept advertising RFC 9370 ML-KEM even
+    when charon had negotiated something else -- or, as it turned out, when
+    charon was not running at all.
+
+    Note the two mechanisms are reported separately and must not be conflated:
+      * RFC 9370 (ML-KEM in the proposal) strengthens the key EXCHANGE.
+      * RFC 8784 (PPK) mixes the QKD key into SK_d/SK_pi/SK_pr.
+    Seeing ML_KEM in the proposal says nothing about whether the PPK is in use.
+    """
+    established = sas.count("ESTABLISHED")
+    status = "established" if established else ("running" if sas.strip() else "absent")
+
+    proposals = _SA_PROPOSAL_RE.findall(sas)
+    # The IKE_SA proposal is the first algorithm line; CHILD_SA lines follow.
+    proposal = proposals[0] if proposals else None
+
+    age = _SA_ESTABLISHED_RE.search(sas)
+    ppk = _CONN_PPK_RE.search(conns)
+
+    return {
+        "name": "ipsec",
+        "status": status,
+        "active_sa": established,
+        # None rather than a plausible-looking constant, so the UI can tell
+        # "not negotiated yet" apart from "negotiated X".
+        "proposal": proposal,
+        "last_handshake": f"{age.group(1)}{age.group(2)} ago" if age else None,
+        # RFC 9370: an additional ML-KEM key exchange was negotiated.
+        "pq_key_exchange": "ML_KEM" in (proposal or "") or None,
+        # RFC 8784: the connection is configured to mix a PPK into the key
+        # schedule. charon does not report per-SA PPK use over VICI, so this is
+        # honestly labelled as configuration, not as proof of use.
+        "ppk_id": ppk.group(1) if ppk else None,
+        "ppk_required": (ppk.group(2) == "required") if ppk else None,
+    }
 
 
 # ----------------------- Topology -----------------------

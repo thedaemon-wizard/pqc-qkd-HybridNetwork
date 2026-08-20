@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
-import { E2ESim } from "../lib/sim/e2eSim";
+import { E2ESim, type E2EState } from "../lib/sim/e2eSim";
 
 /**
  * Quantum-Secure E2E Simulation (Phase 10).
@@ -17,25 +17,6 @@ import { E2ESim } from "../lib/sim/e2eSim";
  * HKDF-SHA3-256 + ChaCha20-Poly1305 (@noble); no backend / no /ws/e2e.
  */
 
-type E2EState = {
-  status: "idle" | "running" | "paused";
-  current_phase: number;
-  phase_name: string;
-  mode: "A" | "B" | "C";
-  mode_label: string;
-  completed_cycles: number;
-  total_bytes_encrypted: number;
-  total_packets: number;
-  last_qkd_key_id: string;
-  last_psk_prefix_hex: string;
-  last_error: string;
-  rate_bps: number;
-  history: {
-    phase: number; name: string;
-    started_at: number; completed_at: number | null;
-    detail: Record<string, unknown>;
-  }[];
-};
 
 const MODE_COLOR: Record<string, string> = {
   A: "#f0a020",  // QKD-only — orange
@@ -62,7 +43,7 @@ export default function QuantumSecureE2E() {
     return () => sim.dispose();
   }, []);
 
-  function ctl(action: "start" | "pause" | "resume" | "reset" | "step") {
+  function ctl(action: "start" | "pause" | "resume" | "reset" | "step" | "abort") {
     simRef.current?.[action]();
   }
   function setMode(mode: "A" | "B" | "C") {
@@ -126,7 +107,12 @@ export default function QuantumSecureE2E() {
                 disabled={status !== "running"}>⏸ Pause</Button>
         <Button variant="secondary" style={{ background: "#7c5cff", color: "#fff" }}
                 onClick={() => ctl("resume")} disabled={status !== "paused"}>▶ Resume</Button>
-        <Button variant="danger" onClick={() => ctl("reset")}>⏹ Reset</Button>
+        {/* Abort stops the run and wipes derived key material but KEEPS the
+            counters and history, so what happened stays inspectable. Reset
+            clears everything. Only meaningful while a run is in progress. */}
+        <Button variant="danger" onClick={() => ctl("abort")}
+                disabled={status === "idle"}>⛔ Abort</Button>
+        <Button variant="secondary" onClick={() => ctl("reset")}>⏹ Reset</Button>
         <Button variant="primary" style={{ background: "#5b8def" }}
                 onClick={() => ctl("step")} disabled={status === "running"}>⏭ Step</Button>
         {state?.engine && (

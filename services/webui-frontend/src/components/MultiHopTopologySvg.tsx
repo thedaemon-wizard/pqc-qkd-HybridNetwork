@@ -1,7 +1,7 @@
 /**
  * Multi-hop trusted-node topology SVG (Phase 14).
  *
- * Faithful to the Veriqloud/arnika-vq image:
+ * Faithful to the arnika-project/arnika image:
  *   End Node Alice | Trusted Node × N | End Node Bob
  *
  * Each column stacks: QKD Device → KMS Keystore (ETSI 014) → Arnika → VPN
