@@ -88,6 +88,41 @@ Then add a DNS **A record** for `PUBLIC_HOST` → the VPS public IP. Caddy
 obtains a Let's Encrypt certificate automatically and serves the WebUI at
 `https://$PUBLIC_HOST`.
 
+## Redeploying an existing host
+
+The quick start above is a **first-time** install. To update a host that is
+already running, use `--pull`:
+
+```sh
+cd ~/pqc-qkd-hybrid
+sudo bash deploy/deploy-demo.sh --pull      # or deploy.sh for the full stack
+```
+
+`--pull` fetches `origin/main`, fast-forwards, re-syncs submodules, then
+rebuilds and restarts. Without the flag the script builds whatever is already
+in the working tree, which is what you want when you have applied a local
+hotfix and do not want it discarded.
+
+Deliberate properties, because this runs as root on a live host:
+
+- **Opt-in.** Updating is never implicit. `.env` and any local change live in
+  the working tree, and moving `HEAD` underneath them silently is how a
+  redeploy becomes an outage.
+- **Refuses to run on a dirty tree.** Uncommitted changes abort the update with
+  `git status` printed, rather than being stashed or overwritten.
+- **Fast-forward only.** A merge or rebase could conflict and leave the tree
+  half-updated with nobody at the keyboard.
+- **Prints the range.** The commits between the old and new `HEAD` are logged,
+  so what actually shipped is in the deploy output.
+
+Override the branch with `DEPLOY_BRANCH=dev sudo -E bash deploy/deploy-demo.sh --pull`.
+
+To confirm the update landed, check that the served bundle hash changed:
+
+```sh
+curl -s https://$PUBLIC_HOST/ | grep -o '/assets/index-[^."]*'
+```
+
 ## Why a VPS (not managed PaaS)
 
 The real WireGuard end-to-end tunnel needs the `wireguard` kernel module and
