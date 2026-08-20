@@ -111,28 +111,20 @@ jobs:
       # Builds the adapter against the pinned upstream arnika tree exactly as
       # nodes/strongswan/Dockerfile does, so the image build cannot be the
       # first place a compile error shows up.
-      - name: Build with the strongswan_vici adapter
-        run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
-
-      - name: Vet and test the adapter
+      # Build, vet and test all run inside the tree build.sh assembles.
+      #
+      # -tags strongswan_vici is required, not decorative: strongswanvici.go
+      # carries that build constraint, so without it the adapter selector --
+      # including the VICI_IKE_ROLE validation that decides which peer owns the
+      # IKE_SA -- is excluded from both vet and test. But the tag only compiles
+      # once build.sh has narrowed wireguardnetlink.go's own tag; otherwise both
+      # adapters define getKeyWriterService. That is why this is one step and
+      # not two: a separate step with its own copy of the overlay drifted from
+      # build.sh and vetted an unpatched tree.
+      - name: Build, vet and test with the strongswan_vici adapter
         env:
-          CGO_ENABLED: "0"
-          GOEXPERIMENT: runtimesecret
-        run: |
-          set -eu
-          work=$(mktemp -d)
-          cp -a submodules/arnika/. "$work"/
-          cp services/arnika-vici/repositories/*.go "$work"/repositories/
-          cp services/arnika-vici/strongswanvici.go "$work"/
-          cd "$work"
-          go get github.com/strongswan/govici@v0.8.2
-          go mod tidy
-          # -tags strongswan_vici is required, not decorative: strongswanvici.go
-          # carries that build constraint, so without it the adapter selector --
-          # including the VICI_IKE_ROLE validation that decides which peer owns
-          # the IKE_SA -- is excluded from both vet and test.
-          go vet -tags strongswan_vici ./...
-          go test -tags strongswan_vici ./repositories/... -v
+          ARNIKA_VICI_VET_AND_TEST: "1"
+        run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
 
   secrets:
     name: Secret scan

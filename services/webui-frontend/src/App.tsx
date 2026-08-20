@@ -15,8 +15,8 @@ import Verification from "./pages/Verification";
 
 const nav = [
   { to: "/",            label: "Overview" },
-  { to: "/e2e",         label: "Quantum-Secure E2E ★" },
-  { to: "/paper-flow",  label: "Paper Data Exchange ◆" },
+  { to: "/e2e",         label: "Quantum-Secure E2E" },
+  { to: "/paper-flow",  label: "Paper Data Exchange" },
   { to: "/bb84",        label: "BB84 Live" },
   { to: "/keyflow",     label: "Key Flow" },
   { to: "/topology",    label: "Topology" },
@@ -24,7 +24,7 @@ const nav = [
   { to: "/console",     label: "Console" },
   { to: "/physics",     label: "Physics Params" },
   { to: "/pqc",         label: "PQC Validator" },
-  { to: "/verify",      label: "Verification ✓" },
+  { to: "/verify",      label: "Verification" },
   { to: "/hil",         label: "Hardware-In-Loop" },
   { to: "/vpn",         label: "VPN Protocols" },
 ];
