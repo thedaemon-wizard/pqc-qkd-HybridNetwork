@@ -1,86 +1,109 @@
 # =====================================================================
-# strongSwan IPsec/IKEv2 with RFC 9370 ML-KEM hybrid key exchange.
+# strongSwan IPsec/IKEv2 node for the QKD/PQC lane.
 #
-# Three-stage build:
-#   1) liboqs-builder    — compile liboqs into /opt/oqs
-#   2) strongswan-builder— compile strongSwan with openssl plugin
-#   3) runtime           — Alpine with binaries + arnika-vici-bridge
+#   * RFC 9370 hybrid key exchange : ECP-256 + ML-KEM-768 (ke1_mlkem768)
+#   * RFC 9242 IKE_INTERMEDIATE    : carries the ML-KEM payloads, encrypted
+#                                    and therefore fragmentable
+#   * RFC 8784 PPK                 : the arnika-derived HKDF(QKD || PQC) key,
+#                                    injected natively over the VICI socket
 #
-# RFC 9370 hybrid:
-#   IKE proposal = aes256-sha256-modp2048-ml_kem_768
+# Base image: Debian trixie, because its OpenSSL is >= 3.5 and strongSwan's
+# `openssl` plugin sources ML-KEM from it (strongSwan >= 6.0.2). The previous
+# bookworm base shipped OpenSSL 3.0, which has no ML-KEM at all -- so the
+# RFC 9370 proposal could never have negotiated no matter how it was spelled.
+# The self-contained `ml` plugin is ALSO built, as the fallback provider.
+#
+# liboqs is deliberately NOT used here: upstream strongSwan has no oqs plugin
+# (that was a fork-only experiment, removed at the 6.0.0 cut), so the previous
+# liboqs build stage contributed nothing but build time and a broken
+# COPY of a lib64 directory that liboqs never creates on Debian.
 # =====================================================================
 
-# ---------- Stage 1: liboqs ----------
-FROM debian:12-slim AS liboqs-builder
+# ---- Stage 1: strongSwan ----------------------------------------------
+FROM debian:trixie-slim AS strongswan-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates git cmake ninja-build gcc g++ libssl-dev pkg-config && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY submodules/liboqs /src/liboqs
-WORKDIR /src/liboqs
-RUN cmake -S . -B build -GNinja \
-        -DCMAKE_INSTALL_PREFIX=/opt/oqs \
-        -DBUILD_SHARED_LIBS=ON \
-        -DOQS_USE_OPENSSL=ON \
-        -DOQS_DIST_BUILD=ON && \
-    cmake --build build --parallel && \
-    cmake --install build
-
-# ---------- Stage 2: strongSwan ----------
-FROM debian:12-slim AS strongswan-builder
-
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates git build-essential autoconf automake libtool \
+        ca-certificates build-essential autoconf automake libtool \
         bison flex gperf pkg-config libssl-dev libcurl4-openssl-dev \
-        libgmp-dev libldns-dev libxml2-dev libsystemd-dev libgcrypt20-dev && \
-    rm -rf /var/lib/apt/lists/*
+        libgmp-dev libldns-dev libxml2-dev libgcrypt20-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=liboqs-builder /opt/oqs /opt/oqs
-ENV PKG_CONFIG_PATH=/opt/oqs/lib/pkgconfig:/opt/oqs/lib64/pkgconfig
-ENV LD_LIBRARY_PATH=/opt/oqs/lib:/opt/oqs/lib64
+# ML-KEM via the openssl plugin needs OpenSSL >= 3.5. Fail at build time rather
+# than at handshake time if the base image regresses.
+RUN set -eu; \
+    v=$(openssl version | awk '{print $2}'); \
+    major=${v%%.*}; rest=${v#*.}; minor=${rest%%.*}; \
+    if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 5 ]; }; then \
+        echo "FATAL: OpenSSL $v < 3.5, the openssl plugin cannot provide ML-KEM" >&2; \
+        exit 1; \
+    fi; \
+    echo "OpenSSL $v provides ML-KEM"
 
+# Pinned to 6.0.7 (2026-06-08), which fixes CVE-2026-47895 -- a double-free in
+# identity cloning, reachable through exactly the load-shared `owners` path this
+# node uses on every key rotation.
 COPY submodules/strongswan /src/strongswan
 WORKDIR /src/strongswan
-# Configure strongSwan with PQC-enabled openssl plugin and vici control socket
 RUN ./autogen.sh && \
     ./configure \
         --prefix=/usr/local \
         --sysconfdir=/etc \
         --enable-openssl \
+        --enable-ml \
         --enable-vici \
         --enable-swanctl \
         --enable-systemd=no \
-        --enable-monolithic=no \
         --disable-static \
         --enable-shared && \
-    make -j"$(nproc)" 2>&1 | tail -n 20 && \
-    make install 2>&1 | tail -n 10
+    make -j"$(nproc)" && \
+    make install
 
-# ---------- Stage 3: runtime ----------
-FROM debian:12-slim
+# The `ml` plugin is opt-in (configure.ac: ARG_ENABL_SET([ml], ...)) and is not
+# among the 25 default plugins, so verify it actually got built.
+RUN test -f /usr/local/lib/ipsec/plugins/libstrongswan-ml.so \
+    || { echo "FATAL: ml plugin was not built" >&2; exit 1; }
+
+# ---- Stage 2: arnika + the strongSwan VICI key-writer ------------------
+FROM golang:1.26-bookworm AS arnika-build
+COPY submodules/arnika /src/arnika
+COPY services/arnika-vici /src/arnika-vici
+RUN sh /src/arnika-vici/build.sh /src/arnika /src/arnika-vici /out/arnika
+
+# ---- Stage 3: runtime --------------------------------------------------
+FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libgmp10 libcurl4 libldns3 libxml2 \
-        libgcrypt20 iproute2 iptables iputils-ping bash curl jq tini && \
-    rm -rf /var/lib/apt/lists/*
+        libgcrypt20 iproute2 iptables iputils-ping bash curl jq tini \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=liboqs-builder /opt/oqs/lib /opt/oqs/lib
-COPY --from=liboqs-builder /opt/oqs/lib64 /opt/oqs/lib64
 COPY --from=strongswan-builder /usr/local /usr/local
-COPY --from=strongswan-builder /etc/swanctl /etc/swanctl
 COPY --from=strongswan-builder /etc/strongswan.conf /etc/strongswan.conf
+COPY --from=arnika-build /out/arnika /usr/local/bin/arnika
 
-ENV LD_LIBRARY_PATH=/opt/oqs/lib:/opt/oqs/lib64:/usr/local/lib
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
+# Building a plugin is not enough -- charon only loads what the `load` line
+# names (upstream issue #2690: "ML_KEM algorithms not working" is this exact
+# mistake). `openssl` is listed before `ml` so OpenSSL 3.5 provides ML-KEM and
+# `ml` acts as the fallback; first provider in load order wins.
+COPY nodes/strongswan/strongswan.conf /etc/strongswan.conf
 COPY nodes/strongswan/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY nodes/strongswan/swanctl.conf.tmpl /etc/swanctl/conf.d/pqcqkd.conf.tmpl
-COPY nodes/strongswan/arnika-vici-bridge.sh /usr/local/bin/arnika-vici-bridge.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/arnika-vici-bridge.sh && \
-    mkdir -p /var/run/strongswan
+
+# swanctl reads /etc/swanctl/swanctl.conf and follows its includes; conf.d is
+# not scanned on its own. strongSwan's `make install` only writes this file via
+# an install-data-local rule that ends in `|| true`, so it is absent here --
+# which made every --load-conns a silent no-op ("no connections found").
+# The credential directories are created for the same reason.
+RUN set -eu; \
+    printf 'include conf.d/*.conf\n' > /etc/swanctl/swanctl.conf; \
+    mkdir -p /etc/swanctl/x509 /etc/swanctl/x509ca /etc/swanctl/private \
+             /etc/swanctl/pubkey /etc/swanctl/rsa /etc/swanctl/ecdsa \
+             /var/run/strongswan; \
+    chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 500/udp 4500/udp
 ENTRYPOINT ["/sbin/tini", "--"]

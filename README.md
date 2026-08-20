@@ -8,7 +8,7 @@
 > Cryptography (PQC) into a single **HKDF-SHA3-256**-derived PSK and rotates
 > the WireGuard VPN every 30 s. A QuTiP-based BB84 physical simulator is
 > wrapped behind the ETSI GS QKD 014 REST API and wired into
-> [arnika-vq](https://github.com/Veriqloud/arnika-vq) (Go, reused unchanged) and
+> [arnika](https://github.com/arnika-project/arnika) (Go, reused unchanged) and
 > [Rosenpass](https://github.com/rosenpass/rosenpass) (Rust) for an end-to-end path that
 > mirrors a production deployment.
 
@@ -52,7 +52,7 @@ The goal of this PoC is to reproduce the three-layer model from
 | Layer | Role | Implementation |
 |---|---|---|
 | End-to-End (PQC) | Post-quantum key exchange between nodes | Rosenpass (ML-KEM-768) |
-| Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the resulting WG PSK | **arnika-vq (Go, reused unchanged)** |
+| Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the resulting WG PSK | **arnika (Go, reused unchanged)** |
 | Hop (WireGuard) | Real encryption with ChaCha20-Poly1305 + Noise + PSK | WireGuard kernel module |
 
 The QKD layer is supplied by a **QuTiP-based BB84 physical simulator** wrapped
@@ -105,7 +105,7 @@ pqc-qkd-hybrid/
 ├── Makefile                           # build / up / smoke / bench
 ├── references/                        # Reference papers (PDF, .docx)
 ├── submodules/                        # Git submodules (unmodified)
-│   ├── arnika-vq/                     # Go binary baked into node image
+│   ├── arnika/                     # Go binary baked into node image
 │   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
 │   ├── oqs-provider/                  # OpenSSL 3.x provider for PQC TLS
 │   ├── rosenpass/                     # (after `make init`) PQC handshake daemon
@@ -265,8 +265,8 @@ All variables in `.env` (copy from `.env.example`):
 
 | Variable | Default | Purpose | Source of truth |
 |---|---|---|---|
-| `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 4 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired` | `submodules/arnika-vq/config/config.go:39-45` |
-| `ARNIKA_INTERVAL` | `30s` | PSK rotation period (paper uses 120s) | `submodules/arnika-vq/config/config.go` |
+| `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 4 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired` | `submodules/arnika/config/config.go:34` |
+| `ARNIKA_INTERVAL` | `30s` | PSK rotation period (paper uses 120s) | `submodules/arnika/config/config.go` |
 | `KMS_HTTP_TIMEOUT` | `10s` | ETSI 014 HTTP timeout | arnika config |
 | `BB84_BATCH` | `2048` | Photons per BB84 round | `services/bb84-kme/app/keypool.py` |
 | `BB84_CHANNEL_NOISE` | `0.01` | Bit-flip probability (channel) | `services/bb84-kme/app/bb84/simulator.py` |
@@ -284,7 +284,7 @@ All variables in `.env` (copy from `.env.example`):
 Open <http://localhost:5173>. Thirteen pages are available:
 
 1. **Overview** (`/`) — Layered architecture SVG + live container status badges
-2. **Quantum-Secure E2E** (`/e2e`) — **client-side** 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) with **real in-browser HKDF-SHA3-256 + ChaCha20-Poly1305** (`@noble`), over the arnika-vq architecture diagram, Run/Pause/Resume/Reset/Step + Mode A/B/C
+2. **Quantum-Secure E2E** (`/e2e`) — **client-side** 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) with **real in-browser HKDF-SHA3-256 + ChaCha20-Poly1305** (`@noble`), over the arnika architecture diagram, Run/Pause/Resume/Reset/Step + Mode A/B/C
 3. **Paper Data Exchange** (`/paper-flow`) — **client-side** multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), layer-aware failure-cascade timeline, ChaCha20-Poly1305 payload
 4. **BB84 Live** (`/bb84`) — **client-side** Monte-Carlo photon simulation in a **Web Worker** (~70–100M pulses/s; optional WebGPU), real-time QBER chart, key-pool size, photon-frame table, **Eve toggle** + intercept-probability slider, live engine badge
 5. **Key Flow** (`/keyflow`) — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
@@ -559,7 +559,7 @@ A coroutine-based state machine
 | Phase | Name | What actually happens |
 |---|---|---|
 | **1** | Quantum Plane | Poll `bb84-kme-a` `/api/v1/keys/ALICE/status` until SimQN backend produces a key |
-| **2** | QKD Key IDs (ETSI 014) | `GET /enc_keys` from KME-A, mirror retrieval via `GET /dec_keys?key_ID=…` at KME-B (matches `submodules/arnika-vq/kms/kms.go:69-176`) |
+| **2** | QKD Key IDs (ETSI 014) | `GET /enc_keys` from KME-A, mirror retrieval via `GET /dec_keys?key_ID=…` at KME-B (matches `submodules/arnika/repositories/kms.go:43-101`) |
 | **3** | PQC Handshake (HKDF-SHA3) | `HKDF-SHA3-256(qkd ‖ random_pqc, salt="pqcqkd-e2e", info=mode)` → 32 B PSK |
 | **4** | Data Exchange (ChaCha20-Poly1305) | Encrypt 64 ping-sized payloads per cycle, count bytes and packets |
 
@@ -631,7 +631,7 @@ elements** so the on-screen architecture is now 1:1 faithful to the reference im
 A new submodule **`mullvad/wgephemeralpeer`** (2026-05-08 active, GPL-3.0) is added
 as a reference for the alternative "PQC-only PSK rotation" approach used in
 production by Mullvad VPN; see [`docs/IMAGE1_VPN_SCOPE.md`](docs/IMAGE1_VPN_SCOPE.md)
-for a head-to-head comparison with arnika-vq.
+for a head-to-head comparison with arnika.
 
 Screenshots: `docs/images/screenshots/e2e-v2-idle.png`, `e2e-v2-phase1.png`.
 
@@ -730,7 +730,7 @@ existing "Quantum-Secure E2E ★"). The page is intentionally distinct from
 
 | | `/e2e` (image 1) | `/paper-flow` (image 2 + arXiv:2604.05599) |
 |---|---|---|
-| Source figure | `Veriqloud/arnika-vq` single-tunnel diagram | **Multi-hop trusted-node diagram** (End Node Alice \| Trusted Node × N \| End Node Bob) |
+| Source figure | `arnika-project/arnika` single-tunnel diagram | **Multi-hop trusted-node diagram** (End Node Alice \| Trusted Node × N \| End Node Bob) |
 | Focus | key fusion in one Site A ↔ Site B tunnel | **5-phase daisy chain** with paper-quoted packet budgets |
 | Failure model | Eve attack on BB84 | **240-720 s layer cascade** per §VI |
 | Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper §IV-B Table III |
@@ -858,7 +858,7 @@ When citing or releasing the PoC, **please always disclose the limitations below
 ### Implementations (Phase 0–7 — core PoC-A)
 - [open-quantum-safe/liboqs](https://github.com/open-quantum-safe/liboqs)
 - [open-quantum-safe/oqs-provider](https://github.com/open-quantum-safe/oqs-provider)
-- [cancom/arnika-vq](https://github.com/cancom/arnika-vq) — Apache-2.0
+- [arnika-project/arnika](https://github.com/arnika-project/arnika) — Apache-2.0
 - [rosenpass/rosenpass](https://github.com/rosenpass/rosenpass) — MIT/Apache-2.0
 - [WireGuard](https://www.wireguard.com/)
 - [QuTiP](https://qutip.org/)
@@ -897,7 +897,7 @@ When citing or releasing the PoC, **please always disclose the limitations below
 
 ## 14. License
 
-Apache-2.0. Compatible with arnika-vq (Apache-2.0), liboqs (MIT), and Rosenpass (MIT/Apache-2.0).
+Apache-2.0. Compatible with arnika (Apache-2.0), liboqs (MIT), and Rosenpass (MIT/Apache-2.0).
 
 NOTICE: This software re-distributes cryptographic implementations. Verify your jurisdiction's
 export-control regulations (e.g. US ECCN 5D002) before public deployment.
@@ -962,6 +962,6 @@ submitting. Every change must pass `make smoke && pytest tests/`.
 
 ## Contact / Acknowledgements
 
-- arnika-vq: CANCOM Converged Services GmbH (EU EUROQCI/QCI-CAT program)
+- arnika: CANCOM Converged Services GmbH (EU EUROQCI/QCI-CAT program)
 - liboqs / oqs-provider: Open Quantum Safe project
 - Rosenpass: Rosenpass project contributors

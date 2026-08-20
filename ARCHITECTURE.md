@@ -218,7 +218,7 @@ Tests (host venv):
 |    Output: /var/lib/rosenpass/pqc.psk  (32B, refreshed periodically) |
 +---------------------------------------------------------------------+
 |  Layer 2 — Transport orchestration                                  |
-|    arnika (Go, unmodified from submodules/arnika-vq/)               |
+|    arnika (Go, unmodified from submodules/arnika/)               |
 |    - ETSI 014 client (HTTP/mTLS)                                    |
 |    - reads pqc.psk file                                             |
 |    - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
@@ -271,12 +271,12 @@ contract updates here:
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|
-| `setPSK()` | `submodules/arnika-vq/main.go:140-196` | Drives the rotation; logs we grep in smoke tests |
-| `KMSHandler.GetNewKey()` | `submodules/arnika-vq/kms/kms.go:126` | Defines `enc_keys?number=N&size=B` URL |
-| `KMSHandler.GetKeyByID()` | `submodules/arnika-vq/kms/kms.go:134` | Defines `dec_keys?key_ID=...` URL |
-| `type Key struct` | `submodules/arnika-vq/kms/kms.go:69-76` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika-vq/kdf/kdf.go:12-27` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
-| Operational modes | `submodules/arnika-vq/config/config.go:39-45` | 4 modes drive WebUI ControlPanel choices |
+| `setPSK()` | `submodules/arnika/main.go:36-88` | Drives the rotation; logs we grep in smoke tests |
+| `KMSHandler.GetNewKey()` | `submodules/arnika/repositories/kms.go:94` | Defines `enc_keys?number=N&size=B` URL |
+| `KMSHandler.GetKeyByID()` | `submodules/arnika/repositories/kms.go:101` | Defines `dec_keys?key_ID=...` URL |
+| `type Key struct` | `submodules/arnika/repositories/kms.go:43-48` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-28` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
+| Operational modes | `submodules/arnika/config/config.go:34` | 4 modes drive WebUI ControlPanel choices |
 
 ## 5. Why this matches the paper
 

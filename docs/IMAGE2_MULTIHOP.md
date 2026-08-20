@@ -1,7 +1,7 @@
 # Reference image 2 (multi-hop trusted node) → code mapping
 
 The user-supplied multi-hop diagram from
-`Veriqloud/arnika-vq` (End Node Alice | Trusted Node | End Node Bob with
+`arnika-project/arnika` (End Node Alice | Trusted Node | End Node Bob with
 four numbered phases) is the canonical reference for the `/paper-flow`
 WebUI page introduced in Phase 14. It complements image 1 (the
 single-tunnel `/e2e` page) by adding hop-wise QKD-secured tunnels, an
