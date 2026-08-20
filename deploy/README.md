@@ -108,8 +108,14 @@ Deliberate properties, because this runs as root on a live host:
 - **Opt-in.** Updating is never implicit. `.env` and any local change live in
   the working tree, and moving `HEAD` underneath them silently is how a
   redeploy becomes an outage.
-- **Refuses to run on a dirty tree.** Uncommitted changes abort the update with
-  `git status` printed, rather than being stashed or overwritten.
+- **Preserves local modifications.** They are reported, not treated as a
+  blocker. `git merge --ff-only` already refuses precisely when it matters --
+  when the incoming commits would overwrite a locally-modified file -- and it
+  names those files exactly. Blocking on *any* dirty file instead was tried and
+  removed: the real demo host carries a deliberate local `Caddyfile` edit
+  serving a second project's domain, so the blanket check made the script
+  unusable there and pushed the operator into running git by hand, which is
+  less safe than the script.
 - **Fast-forward only.** A merge or rebase could conflict and leave the tree
   half-updated with nobody at the keyboard.
 - **Prints the range.** The commits between the old and new `HEAD` are logged,
