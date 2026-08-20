@@ -279,7 +279,7 @@ class PaperFlowOrchestrator:
                 await self._publish()
                 try:
                     await asyncio.wait_for(self._tick.wait(), timeout=0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 self._tick.clear()
                 continue

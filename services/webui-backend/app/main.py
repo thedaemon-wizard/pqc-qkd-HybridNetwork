@@ -16,7 +16,6 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import re
 import time
@@ -75,8 +74,12 @@ async def lifespan(app: FastAPI):
             task.cancel()
             try:
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except asyncio.CancelledError:
+                pass  # expected: we just cancelled it
+            except Exception:
+                # Any OTHER exception means the orchestrator died of something
+                # real. Cancelling on shutdown must not be what hides it.
+                log.exception("%s raised during shutdown", task_name)
     await app.state.http.aclose()
 
 
@@ -288,6 +291,7 @@ async def export_list():
 async def export_download(filename: str):
     import re
     from pathlib import Path
+
     from fastapi.responses import FileResponse
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]
     if safe != filename or ".." in safe:

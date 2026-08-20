@@ -14,7 +14,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-
 from conftest import load_service_app
 
 load_service_app("webui-backend", "webui_backend_app")

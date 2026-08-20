@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import subprocess
 import time
 from logging.handlers import RotatingFileHandler
