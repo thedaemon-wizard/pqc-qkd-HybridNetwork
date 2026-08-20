@@ -35,6 +35,10 @@ x-ipsec-crypto: &ipsec-crypto
   # initiator to bring the lane up when no IKE_SA exists. Must match
   # swanctl.conf.tmpl.
   VICI_CHILD: tunnel
+  # The swanctl.conf secrets.ppk section holding the pre-QKD bootstrap key.
+  # The adapter unloads it after the first rotation: it answers the same
+  # PPK_ID as the rotated credential but contains no QKD material.
+  VICI_BOOTSTRAP_ID: ppk-qkd-bootstrap
   # Stable PPK identity; the key material behind it is what rotates.
   VICI_PPK_ID: ppk-qkd@pqcqkd.local
   VICI_REAUTH_TIMEOUT: ${VICI_REAUTH_TIMEOUT:-10s}

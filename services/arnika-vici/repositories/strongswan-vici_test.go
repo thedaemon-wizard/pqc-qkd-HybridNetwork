@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -346,6 +348,7 @@ func testConfig(path string) ViciConfig {
 		ChildName:        "tunnel",
 		PPKID:            "ppk-qkd@pqcqkd.local",
 		CredentialPrefix: "qkd-bob",
+		BootstrapCredentialID: "ppk-qkd-bootstrap",
 		ReauthTimeout:    5 * time.Second,
 		// The tests exercise the rotation path, which only the peer that owns
 		// the IKE_SA walks. The responder path is a single early return.
@@ -421,12 +424,90 @@ func TestSetPSKPerformsOverlapThenSwap(t *testing.T) {
 	}
 
 	// Only the first generation is unloaded, and only after the second landed.
-	unloads := f.callsTo("unload-shared")
-	if len(unloads) != 1 {
-		t.Fatalf("want 1 unload-shared, got %d", len(unloads))
+	// The bootstrap credential is retired alongside it -- once, on the first
+	// rotation -- so two unloads total across two rotations.
+	var unloadedIDs []string
+	for _, u := range f.callsTo("unload-shared") {
+		unloadedIDs = append(unloadedIDs, u.fields["id"])
 	}
-	if got := unloads[0].fields["id"]; got != "qkd-bob-1" {
-		t.Errorf("unloaded %q, want qkd-bob-1", got)
+	want := []string{"ppk-qkd-bootstrap", "qkd-bob-1"}
+	got := append([]string(nil), unloadedIDs...)
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unloaded %v, want exactly %v", unloadedIDs, want)
+	}
+}
+
+func TestBootstrapCredentialIsRetiredOnce(t *testing.T) {
+	// The bootstrap PPK is registered under the SAME PPK_ID as every rotated
+	// credential, so leaving it loaded means two keys answer one IKE_AUTH
+	// lookup and charon's choice is unspecified. It carries no QKD material, so
+	// selecting it would present as PPK-protected while delivering none of the
+	// quantum contribution the lane exists for.
+	f := newFakeVici(t)
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	for i, fill := range []byte{0x11, 0x12, 0x13} {
+		if err := repo.SetPSK(psk32(fill)); err != nil {
+			t.Fatalf("rotation %d: %v", i+1, err)
+		}
+	}
+
+	n := 0
+	for _, u := range f.callsTo("unload-shared") {
+		if u.fields["id"] == "ppk-qkd-bootstrap" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("bootstrap unloaded %d times across 3 rotations, want exactly 1", n)
+	}
+	if f.loaded["ppk-qkd-bootstrap"] {
+		t.Error("bootstrap credential is still registered with charon")
+	}
+}
+
+func TestReconcileAdoptsNewestAndDropsOlderOrphans(t *testing.T) {
+	// generation and loadedID are process-local, so without reconciliation a
+	// restart begins again at qkd-bob-1 while every id from the previous run
+	// stays registered forever -- SetPSK only unloads what this process loaded.
+	f := newFakeVici(t)
+	f.loaded["qkd-bob-3"] = true
+	f.loaded["qkd-bob-7"] = true
+	f.loaded["qkd-bob-5"] = true
+	f.loaded["some-other-cred"] = true
+
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+
+	// The newest survives: its key material came from a QKD exchange that
+	// already happened and cannot be re-derived here, and it is what the peer
+	// most likely still holds. Dropping it would strand this node on the
+	// bootstrap PPK until the next rotation.
+	if !f.loaded["qkd-bob-7"] {
+		t.Error("qkd-bob-7 should have been adopted, not unloaded")
+	}
+	for _, id := range []string{"qkd-bob-3", "qkd-bob-5"} {
+		if f.loaded[id] {
+			t.Errorf("%s is an older orphan and should have been unloaded", id)
+		}
+	}
+	// Credentials this adapter did not create are left strictly alone.
+	if !f.loaded["some-other-cred"] {
+		t.Error("unrelated credential must not be touched")
+	}
+
+	// Numbering continues from the adopted generation rather than colliding.
+	if err := repo.SetPSK(psk32(0x21)); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	loads := f.callsTo("load-shared")
+	if got := loads[len(loads)-1].fields["id"]; got != "qkd-bob-8" {
+		t.Errorf("next generation = %q, want qkd-bob-8", got)
 	}
 }
 

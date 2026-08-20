@@ -37,6 +37,7 @@ const (
 	envViciTimeout    = "VICI_REAUTH_TIMEOUT"
 	envViciRole       = "VICI_IKE_ROLE"
 	envViciChild      = "VICI_CHILD"
+	envViciBootstrap  = "VICI_BOOTSTRAP_ID"
 )
 
 func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error) {
@@ -46,6 +47,7 @@ func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error)
 		ChildName:        os.Getenv(envViciChild),
 		PPKID:            os.Getenv(envViciPPKID),
 		CredentialPrefix: os.Getenv(envViciPrefix),
+		BootstrapCredentialID: os.Getenv(envViciBootstrap),
 	}
 
 	// No silent defaults: an unset or malformed timeout is a configuration
