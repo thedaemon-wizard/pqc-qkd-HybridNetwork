@@ -4,7 +4,15 @@ export type StackItem = { name: string; status: string; image?: string; started_
 export type Stats = Record<string, any>;
 export type Topo = { nodes: { id: string; label: string; type: string }[]; edges: { source: string; target: string; label: string }[] };
 
-export type RuntimeConfig = { demo_mode: boolean; rate_limit: { max: number; window_s: number } | null };
+/** Mirrors the `/api/config` response in services/webui-backend/app/main.py. */
+export type RuntimeConfig = {
+  demo_mode: boolean;
+  /** Whether the backend will actually accept /api/stack/* container control.
+   *  Reported separately from demo_mode because control is opt-in server-side,
+   *  so "not a demo" does not imply "control is available". */
+  container_control: boolean;
+  rate_limit: { max: number; window_s: number } | null;
+};
 
 export async function getConfig(): Promise<RuntimeConfig> {
   const r = await fetch(`${BASE}/api/config`); return r.json();
