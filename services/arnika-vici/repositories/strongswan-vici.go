@@ -37,6 +37,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -63,6 +64,10 @@ type ViciConfig struct {
 	// ConnectionName is the swanctl connection to reauthenticate, and must
 	// match the section name under `connections { ... }`.
 	ConnectionName string
+	// ChildName is the CHILD_SA to initiate when no IKE_SA exists, and must
+	// match the section name under `connections.<ConnectionName>.children`.
+	// Only the peer with DriveReauth set ever initiates.
+	ChildName string
 	// PPKID is the RFC 8784 PPK identity. It is stable for the lifetime of the
 	// process: the responder resolves PPK_IDENTITY with a synchronous
 	// credential lookup during IKE_AUTH (ike_auth.c, get_ppk_r), so a
@@ -76,6 +81,25 @@ type ViciConfig struct {
 	CredentialPrefix string
 	// ReauthTimeout bounds the wait for a reauthenticated IKE_SA to establish.
 	ReauthTimeout time.Duration
+	// DriveReauth makes this node responsible for reauthenticating the tunnel
+	// after a rotation. Exactly one of the two peers must set it.
+	//
+	// Both peers run arnika and both rotate their own copy of the PPK, but they
+	// share ONE IKE_SA. If both also reauthenticate it, each rotation triggers
+	// two make-before-break reauthentications that each create a replacement SA,
+	// so the SA count grows by roughly one per rotation and never settles --
+	// measured at +1 per rotation even after the ike-id fix below, and at 140
+	// concurrent SAs before it.
+	//
+	// The peer that does not drive still loads the rotated PPK, which is what
+	// lets it answer the driver's IKE_AUTH. Loading is the part that must happen
+	// on both sides; driving is the part that must happen on exactly one. This
+	// mirrors IKEv2's own asymmetry, where the initiator owns the SA lifecycle.
+	//
+	// It is deliberately independent of arnika's PRIMARY/BACKUP election, which
+	// alternates per interval and decides who *generates* the key, not who owns
+	// the SA.
+	DriveReauth bool
 }
 
 func (c ViciConfig) validate() error {
@@ -84,6 +108,8 @@ func (c ViciConfig) validate() error {
 		return errors.New("vici: SocketPath must be set")
 	case c.ConnectionName == "":
 		return errors.New("vici: ConnectionName must be set")
+	case c.ChildName == "":
+		return errors.New("vici: ChildName must be set")
 	case c.PPKID == "":
 		return errors.New("vici: PPKID must be set")
 	case c.CredentialPrefix == "":
@@ -194,11 +220,18 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 	if err := r.assertLoaded(ctx, sess, next); err != nil {
 		return err
 	}
-	if err := r.reauthenticate(ctx, sess); err != nil {
-		// The new credential is loaded but unused. Leave it: the next rotation
-		// replaces it by id, and leaving it costs one entry rather than
-		// stranding the connection with no PPK at all.
-		return err
+	if r.cfg.DriveReauth {
+		if err := r.reauthenticate(ctx, sess); err != nil {
+			// The new credential is loaded but unused. Leave it: the next
+			// rotation replaces it by id, and leaving it costs one entry rather
+			// than stranding the connection with no PPK at all.
+			return err
+		}
+	} else {
+		// Loaded, not driven. The peer that owns the SA will reauthenticate and
+		// this node answers that IKE_AUTH with the credential just installed.
+		log.Printf("[INFO] [VICI] PPK %s loaded; not reauthenticating (the peer "+
+			"drives the SA for %q)", next, r.cfg.ConnectionName)
 	}
 
 	r.generation++
@@ -295,10 +328,45 @@ func (r *StrongswanViciRepository) assertLoaded(ctx context.Context, sess *vici.
 
 // reauthenticate forces a full IKE_SA_INIT + IKE_AUTH so the newly loaded PPK
 // enters SK_d/SK_pi/SK_pr. A plain rekey would not re-read credentials.
+//
+// It targets ONE IKE_SA by unique id. Selecting with `ike` (the connection
+// name) instead -- as this did originally -- makes charon reauthenticate every
+// SA on the connection, and because a make-before-break reauth creates the
+// replacement before removing the original, N SAs become 2N. That is a
+// multiplier, not a leak: a two-node run reached 140 concurrent IKE_SAs in nine
+// minutes and was still climbing. `ike-id` makes one rotation cost exactly one
+// reauthentication regardless of how many SAs happen to exist.
 func (r *StrongswanViciRepository) reauthenticate(ctx context.Context, sess *vici.Session) error {
+	ids, err := r.saIDs(ctx, sess)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		// No SA to reauthenticate. Bring one up instead: this node owns the
+		// lane, and the rotation loop is the only thing that runs periodically,
+		// so it is also the supervisor.
+		//
+		// charon does not reliably do this for us. `start_action = start`
+		// initiates once at config load, and an initiation that the peer
+		// rejects -- NO_PROPOSAL_CHOSEN is the normal answer when the peer's
+		// charon is up but has not loaded its connections yet, which is exactly
+		// what happens when both containers boot together -- destroys the SA
+		// with no further attempt. Observed directly: one initiation, then
+		// nothing for the following ten minutes.
+		return r.initiate(ctx, sess)
+	}
+	if len(ids) > 1 {
+		// `unique = replace` in swanctl.conf should collapse these. Surfacing it
+		// matters because the tunnel still passes traffic while it happens, so
+		// nothing else in the system would notice.
+		log.Printf("[WARN] [VICI] %d IKE_SAs exist for %q (expected 1): %v; "+
+			"reauthenticating the newest only", len(ids), r.cfg.ConnectionName, ids)
+	}
+	target := newestSAID(ids)
+
 	msg := vici.NewMessage()
-	if err := msg.Set("ike", r.cfg.ConnectionName); err != nil {
-		return fmt.Errorf("vici: encoding ike: %w", err)
+	if err := msg.Set("ike-id", target); err != nil {
+		return fmt.Errorf("vici: encoding ike-id: %w", err)
 	}
 	if err := msg.Set("reauth", "yes"); err != nil {
 		return fmt.Errorf("vici: encoding reauth: %w", err)
@@ -306,20 +374,128 @@ func (r *StrongswanViciRepository) reauthenticate(ctx context.Context, sess *vic
 
 	resp, err := sess.Call(ctx, "rekey", msg)
 	if err != nil {
-		return fmt.Errorf("vici: rekey: %w", err)
+		return fmt.Errorf("vici: rekey ike-id=%s: %w", target, err)
 	}
 	if err := checkSuccess(resp, "rekey"); err != nil {
 		return err
 	}
 	// success=yes with matches=0 is charon's normal answer when the selector
-	// matched nothing, so success alone proves nothing happened.
+	// matched nothing, so success alone proves nothing happened. Here it means
+	// the SA disappeared between the list and the rekey, which is a real
+	// failure: the PPK is loaded but nothing consumed it.
 	matches, _ := resp.Get("matches").(string)
 	if matches == "" || matches == "0" {
 		return fmt.Errorf(
-			"vici: rekey matched no IKE_SA for connection %q (matches=%q); "+
-				"the PPK was loaded but is not in use", r.cfg.ConnectionName, matches)
+			"vici: rekey matched no IKE_SA for unique id %s on %q (matches=%q); "+
+				"the PPK was loaded but is not in use",
+			target, r.cfg.ConnectionName, matches)
 	}
 	return nil
+}
+
+// initiate brings the tunnel up when no IKE_SA exists.
+//
+// A failure here is reported but NOT returned as an error. arnika answers a
+// failed SetPSK by calling InvalidateTunnel, which installs a random PPK the
+// peer cannot match -- useful when a live tunnel must be torn down, actively
+// harmful when there is no tunnel at all, because it poisons the credential the
+// next handshake would have used. The PPK for this generation is already
+// loaded; the next rotation will try again in one interval.
+//
+// The loud WARN is the point: a lane that never comes up must be visible in the
+// log rather than inferred from an empty `swanctl --list-sas`.
+func (r *StrongswanViciRepository) initiate(ctx context.Context, sess *vici.Session) error {
+	msg := vici.NewMessage()
+	if err := msg.Set("child", r.cfg.ChildName); err != nil {
+		return fmt.Errorf("vici: encoding child: %w", err)
+	}
+	if err := msg.Set("ike", r.cfg.ConnectionName); err != nil {
+		return fmt.Errorf("vici: encoding ike: %w", err)
+	}
+	// charon's own bound, in milliseconds, so the call cannot outlive ctx.
+	if err := msg.Set("timeout", strconv.FormatInt(r.cfg.ReauthTimeout.Milliseconds(), 10)); err != nil {
+		return fmt.Errorf("vici: encoding timeout: %w", err)
+	}
+
+	log.Printf("[INFO] [VICI] no IKE_SA for %q; initiating %s",
+		r.cfg.ConnectionName, r.cfg.ChildName)
+
+	resp, err := sess.Call(ctx, "initiate", msg)
+	if err != nil {
+		log.Printf("[WARN] [VICI] initiate %s failed: %v; PPK is loaded, retrying "+
+			"on the next rotation", r.cfg.ChildName, err)
+		return nil
+	}
+	if err := checkSuccess(resp, "initiate"); err != nil {
+		log.Printf("[WARN] [VICI] initiate %s did not succeed: %v; PPK is loaded, "+
+			"retrying on the next rotation", r.cfg.ChildName, err)
+		return nil
+	}
+	log.Printf("[INFO] [VICI] initiated %s for %q", r.cfg.ChildName, r.cfg.ConnectionName)
+	return nil
+}
+
+// newestSAID picks the highest unique id. charon assigns them monotonically, so
+// the highest is the most recently established -- the one a reauthentication
+// should carry forward. Compared numerically, because "10" sorts before "9" as
+// a string and reauthenticating a stale SA would leave the live one on the old
+// PPK.
+func newestSAID(ids []string) string {
+	best, bestN := ids[0], -1
+	for _, id := range ids {
+		n, err := strconv.Atoi(id)
+		if err != nil {
+			continue
+		}
+		if n > bestN {
+			best, bestN = id, n
+		}
+	}
+	return best
+}
+
+// saIDs returns the unique ids of every IKE_SA charon currently holds for the
+// connection, newest last is NOT guaranteed -- callers that care must order.
+//
+// arnika starts rotating the moment charon's VICI socket appears, which is
+// before the initial IKE_SA_INIT/IKE_AUTH has completed, so an empty result is
+// the normal state immediately after boot rather than an error. The PPK is
+// already loaded by then and charon resolves the PPK_ID synchronously during
+// IKE_AUTH, so the handshake still in flight picks it up. Treating that as a
+// failure is not merely noisy: arnika answers a failed SetPSK by calling
+// InvalidateTunnel, which installs a deliberately unmatched random PPK, turning
+// a benign startup race into a tunnel that cannot come up at all.
+func (r *StrongswanViciRepository) saIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
+	msg := vici.NewMessage()
+	if err := msg.Set("ike", r.cfg.ConnectionName); err != nil {
+		return nil, fmt.Errorf("vici: encoding ike: %w", err)
+	}
+	// list-sas is a streamed command: charon emits one `list-sa` event per SA
+	// and the command response itself carries no SA data, so a plain Call would
+	// always look like zero SAs.
+	var ids []string
+	for m, err := range sess.CallStreaming(ctx, "list-sas", "list-sa", msg) {
+		if err != nil {
+			return nil, fmt.Errorf("vici: list-sas: %w", err)
+		}
+		// Each event is keyed by the connection name; the `ike` selector above
+		// already filters, but check the key so an unrelated event cannot be
+		// counted as one of ours.
+		sa, ok := m.Get(r.cfg.ConnectionName).(*vici.Message)
+		if !ok {
+			continue
+		}
+		id, ok := sa.Get("uniqueid").(string)
+		if !ok || id == "" {
+			// An SA charon will not name cannot be targeted by ike-id, and
+			// silently skipping it would understate the count that drives the
+			// duplicate-SA warning.
+			return nil, fmt.Errorf("vici: list-sas returned an SA on %q with no uniqueid",
+				r.cfg.ConnectionName)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // checkSuccess treats an absent success field as failure. govici's Message.Err
