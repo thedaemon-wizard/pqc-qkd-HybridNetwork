@@ -232,7 +232,8 @@ This launches the `charlie` relay (compose profile `multihop`).
 
 ### 5.5 Cloud deployment (single host + TLS)
 
-To run the full real-WireGuard stack on a single public host (e.g. a KVM VPS) behind automatic HTTPS, use the artifacts in [`deploy/`](deploy/):
+To run the full real-WireGuard stack on a single public host (any KVM
+KVM VPS) behind automatic HTTPS, use the artifacts in [`deploy/`](deploy/):
 
 ```bash
 cp deploy/.env.example .env       # set PUBLIC_HOST + ACME_EMAIL

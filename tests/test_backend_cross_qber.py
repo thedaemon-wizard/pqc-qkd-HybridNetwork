@@ -79,12 +79,55 @@ def test_backend_keys_match_lo_ma_qber(backend_name):
     )
 
 
-def test_optimizer_yields_positive_skr():
+def test_optimizer_beats_a_naive_intensity_choice():
+    """The optimiser must actually improve on an arbitrary intensity.
+
+    The previous version of this test asserted only `skr > 0` plus
+    `0.30 <= mu <= 0.90` and `0.05 <= nu1 <= 0.20` -- which are exactly the
+    optimiser's own search bounds, so they held no matter what it returned. It
+    also called optimize_from_yaml(), running the production 50-call Bayesian
+    search, which took ~94 s and made the whole suite unpleasant to run.
+
+    This drives the deterministic closed-form scan instead: fast, seedless, and
+    it checks the property that actually matters -- the chosen intensity beats
+    a plausible naive one, and the reported SKR matches the shared key-rate
+    model at those parameters.
+    """
     from app import config_loader
     config_loader.reload()
-    from app.optimizer import optimize_from_yaml
+    from app.backends._skr import skr_finite, total_transmittance
+    from app.backends.base import cfg_from_yaml
+    from app.optimizer import optimize_closed_form
 
-    result = optimize_from_yaml()
-    assert result.skr_per_pulse > 0, "BO should find a positive SKR for default cfg"
-    assert 0.30 <= result.mu <= 0.90
-    assert 0.05 <= result.nu1 <= 0.20
+    cfg = cfg_from_yaml()
+    eta = total_transmittance(
+        cfg.detector_efficiency, cfg.fiber_attenuation_db_per_km, cfg.link_length_km,
+    )
+    Y0 = cfg.dark_count_rate_hz / max(cfg.pulse_rate_hz, 1.0)
+    fixed = {
+        "eta_total": eta, "Y0": Y0, "e_d": cfg.misalignment_error_ed,
+        "f_EC": cfg.ec_efficiency_f, "N": cfg.block_size_N,
+        "eps": cfg.security_epsilon,
+    }
+
+    result = optimize_closed_form(**fixed)
+
+    assert result.skr_per_pulse > 0, "no positive SKR found for the default config"
+    assert result.n_calls > 1, "the scan evaluated only one point"
+
+    # The reported optimum must agree with the shared key-rate model, not with
+    # some private copy of it inside the optimiser.
+    recomputed = skr_finite(
+        mu=result.mu, nu1=result.nu1, nu2=result.nu2, **fixed,
+    )
+    assert result.skr_per_pulse == pytest.approx(recomputed, rel=1e-9), (
+        "optimiser SKR disagrees with _skr.skr_finite at the same parameters"
+    )
+
+    # And it must beat a naive guess taken from the opposite end of the range.
+    naive_mu = 0.9
+    naive = skr_finite(mu=naive_mu, nu1=naive_mu / 5.0, nu2=0.0, **fixed)
+    assert result.skr_per_pulse >= naive, (
+        f"optimiser picked mu={result.mu:.2f} (SKR {result.skr_per_pulse:.3e}) "
+        f"which is worse than a naive mu={naive_mu} (SKR {naive:.3e})"
+    )
