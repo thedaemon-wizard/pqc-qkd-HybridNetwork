@@ -113,3 +113,36 @@ def test_connecting_sa_is_running_not_established():
 def test_multiple_established_sas_are_counted():
     st = _parse_ipsec_sas(SAS_ESTABLISHED + SAS_ESTABLISHED, CONNS_PPK)
     assert st["active_sa"] == 2
+
+
+# The failure mode the exit-code check exists for: charon is not answering, so
+# swanctl writes an error and exits non-zero. Verbatim from a container whose
+# charon had died.
+SWANCTL_ERROR = """\
+connecting to 'unix:///var/run/charon.vici' failed: No such file or directory
+unable to connect to daemon, is it running?
+"""
+
+
+def test_swanctl_error_text_would_otherwise_read_as_running():
+    """Error output is non-empty, so a naive parse calls a dead charon "running".
+
+    This documents WHY app.main checks exec_run's exit code rather than
+    handing whatever came back to the parser. The parser is given only the
+    text, so on its own it cannot tell an error from real output -- it decides
+    "running" purely because the string is non-empty. That is exactly the
+    "healthy while doing nothing" mode the strongSwan lane rewrite exists to
+    eliminate, and it would have been reproduced in the status API.
+    """
+    out = _parse_ipsec_sas(SWANCTL_ERROR, "")
+    assert out["status"] == "running", (
+        "fixture no longer reproduces the trap this guard is about; if the "
+        "parser learned to detect error text, tighten the assertion instead "
+        "of deleting the test"
+    )
+    # And it invents nothing, which is why the exit-code check upstream is the
+    # right place to catch this rather than pattern-matching error strings.
+    assert out["active_sa"] == 0
+    assert out["proposal"] is None
+    assert out["ppk_id"] is None
+    assert out["pq_key_exchange"] is None
