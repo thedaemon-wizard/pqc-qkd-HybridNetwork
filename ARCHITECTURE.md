@@ -132,10 +132,10 @@ Detailed image-to-code mapping: see `docs/IMAGE1_VPN_SCOPE.md`.
                    └────────────── arnika HKDF(QKD‖PQC) ────────┘
                                               │
                 ┌─────────────────────────────▼─────────────────────────────┐
-                │ Phase 8: 6 QKD backends + paper supplementary             │
-                │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┐    │
-                │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │    │
-                │ └──────┴─────┴────────┴───────┴──────────┴──────────┘    │
+                │ Phase 8: 7 QKD backends + paper supplementary             │
+                │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┬───┐│
+                │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │tno││
+                │ └──────┴─────┴────────┴───────┴──────────┴──────────┴───┘│
                 │ openQKDsecurity (offline SKR) + PQClean (NIST reference) │
                 │ aparcar/qkd-pqc-paper-supplementary (Phase 9-B baseline) │
                 └───────────────────────────────────────────────────────────┘
@@ -147,7 +147,7 @@ PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696 + NIST SP 800-131A Rev.3):
 - `Dockerfile.openssl35-native` — FIPS-stable native ML-KEM / ML-DSA (OpenSSL 3.5+)
 - Application chooses via `PQC_PROVIDER={oqs|native}` env
 
-## 0. Phase 8 — 5-backend pluggable QKD pipeline
+## 0. Phase 8 — 7-backend pluggable QKD pipeline
 
 ```
                 ┌─────────────────────────────────────────────────────────┐
@@ -197,6 +197,8 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 - `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
 - `qkdnetsim_proxy.py` — pulls keys from the NS-3 reference KME (ETSI 014 cross-check)
 - `composite_sim_to_net.py` — SimQN computes per-link SKR → injected into qkdnetsim
+- `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
+  engine, used to cross-check this project's own rate model
 
 Parameter pipeline:
 - `config_loader.py` watches YAML and pushes `BackendConfig` on change

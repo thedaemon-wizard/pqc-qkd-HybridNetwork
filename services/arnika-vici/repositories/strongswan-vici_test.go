@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,10 +25,30 @@ import (
 //	LIST_START   = 4: <u8 name len> <name>
 //	LIST_ITEM    = 5: <u16_be val len> <value>
 //	LIST_END     = 6
+//
+// list-sas is a STREAMED command, which is a different exchange: the client
+// registers for an event, issues the request, receives zero or more EVENT
+// packets, then a terminating CMD_RESPONSE, then unregisters. The fake has to
+// speak that too, otherwise every rotation test fails at the SA lookup rather
+// than at the behaviour it is asserting.
+//
+//	EVENT_REGISTER   = 3 -> EVENT_CONFIRM = 5 / EVENT_UNKNOWN = 6
+//	EVENT_UNREGISTER = 4 -> EVENT_CONFIRM = 5
+//	EVENT            = 7: <u8 name len> <name> <elements...>
+//
+// Section markers nest a sub-message: SECTION_START = 1, SECTION_END = 2.
 
 const (
 	pktCmdRequest  = 0
 	pktCmdResponse = 1
+
+	pktEventRegister   = 3
+	pktEventUnregister = 4
+	pktEventConfirm    = 5
+	pktEvent           = 7
+
+	elSectionStart = 1
+	elSectionEnd   = 2
 
 	elKeyValue  = 3
 	elListStart = 4
@@ -53,6 +75,12 @@ type fakeVici struct {
 	// truthfully and the test can assert unload behaviour.
 	loaded map[string]bool
 	failOn map[string]string
+	// saIDs are the IKE_SA unique ids list-sas reports. Empty models a lane
+	// that has not come up yet, which is the branch that initiates rather than
+	// reauthenticates.
+	saIDs []string
+	// registered tracks which streamed events the client subscribed to.
+	registered map[string]bool
 }
 
 func newFakeVici(t *testing.T) *fakeVici {
@@ -68,9 +96,13 @@ func newFakeVici(t *testing.T) *fakeVici {
 		t:         t,
 		ln:        ln,
 		path:      path,
-		responses: map[string]map[string]string{},
-		loaded:    map[string]bool{},
-		failOn:    map[string]string{},
+		responses:  map[string]map[string]string{},
+		loaded:     map[string]bool{},
+		failOn:     map[string]string{},
+		registered: map[string]bool{},
+		// One established SA is the normal steady state, so it is the default
+		// the rotation tests run against.
+		saIDs: []string{"1"},
 	}
 	go f.serve()
 	t.Cleanup(func() { _ = ln.Close(); _ = os.Remove(path) })
@@ -94,19 +126,66 @@ func (f *fakeVici) handle(conn net.Conn) {
 		if err != nil {
 			return
 		}
-		if len(payload) == 0 || payload[0] != pktCmdRequest {
+		if len(payload) == 0 {
 			return
 		}
 		nameLen := int(payload[1])
 		name := string(payload[2 : 2+nameLen])
+
+		switch payload[0] {
+		case pktEventRegister:
+			f.registered[name] = true
+			if err := writeSegment(conn, []byte{pktEventConfirm}); err != nil {
+				return
+			}
+			continue
+		case pktEventUnregister:
+			delete(f.registered, name)
+			if err := writeSegment(conn, []byte{pktEventConfirm}); err != nil {
+				return
+			}
+			continue
+		case pktCmdRequest:
+		default:
+			return
+		}
+
 		req := parseElements(payload[2+nameLen:])
 		req.name = name
 		f.requests = append(f.requests, req)
+
+		// Streamed commands emit their payload as events before the response.
+		if name == "list-sas" && f.registered["list-sa"] {
+			for _, id := range f.saIDs {
+				if err := writeSegment(conn, f.listSAEvent(req.fields["ike"], id)); err != nil {
+					return
+				}
+			}
+		}
 
 		if err := writeSegment(conn, f.reply(req)); err != nil {
 			return
 		}
 	}
+}
+
+// listSAEvent builds one `list-sa` event: a section named for the connection,
+// containing the SA's uniqueid. That nesting is what the adapter reads, so a
+// flat message here would let a broken parser pass.
+func (f *fakeVici) listSAEvent(conn, uniqueID string) []byte {
+	out := []byte{pktEvent, byte(len("list-sa"))}
+	out = append(out, "list-sa"...)
+
+	out = append(out, elSectionStart, byte(len(conn)))
+	out = append(out, conn...)
+
+	out = append(out, elKeyValue, byte(len("uniqueid")))
+	out = append(out, "uniqueid"...)
+	out = append(out, byte(len(uniqueID)>>8), byte(len(uniqueID)))
+	out = append(out, uniqueID...)
+
+	out = append(out, elSectionEnd)
+	return out
 }
 
 func (f *fakeVici) reply(req request) []byte {
@@ -266,9 +345,14 @@ func testConfig(path string) ViciConfig {
 	return ViciConfig{
 		SocketPath:       path,
 		ConnectionName:   "pqcqkd-vpn",
+		ChildName:        "tunnel",
 		PPKID:            "ppk-qkd@pqcqkd.local",
 		CredentialPrefix: "qkd-bob",
+		BootstrapCredentialID: "ppk-qkd-bootstrap",
 		ReauthTimeout:    5 * time.Second,
+		// The tests exercise the rotation path, which only the peer that owns
+		// the IKE_SA walks. The responder path is a single early return.
+		DriveReauth: true,
 	}
 }
 
@@ -340,12 +424,90 @@ func TestSetPSKPerformsOverlapThenSwap(t *testing.T) {
 	}
 
 	// Only the first generation is unloaded, and only after the second landed.
-	unloads := f.callsTo("unload-shared")
-	if len(unloads) != 1 {
-		t.Fatalf("want 1 unload-shared, got %d", len(unloads))
+	// The bootstrap credential is retired alongside it -- once, on the first
+	// rotation -- so two unloads total across two rotations.
+	var unloadedIDs []string
+	for _, u := range f.callsTo("unload-shared") {
+		unloadedIDs = append(unloadedIDs, u.fields["id"])
 	}
-	if got := unloads[0].fields["id"]; got != "qkd-bob-1" {
-		t.Errorf("unloaded %q, want qkd-bob-1", got)
+	want := []string{"ppk-qkd-bootstrap", "qkd-bob-1"}
+	got := append([]string(nil), unloadedIDs...)
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unloaded %v, want exactly %v", unloadedIDs, want)
+	}
+}
+
+func TestBootstrapCredentialIsRetiredOnce(t *testing.T) {
+	// The bootstrap PPK is registered under the SAME PPK_ID as every rotated
+	// credential, so leaving it loaded means two keys answer one IKE_AUTH
+	// lookup and charon's choice is unspecified. It carries no QKD material, so
+	// selecting it would present as PPK-protected while delivering none of the
+	// quantum contribution the lane exists for.
+	f := newFakeVici(t)
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	for i, fill := range []byte{0x11, 0x12, 0x13} {
+		if err := repo.SetPSK(psk32(fill)); err != nil {
+			t.Fatalf("rotation %d: %v", i+1, err)
+		}
+	}
+
+	n := 0
+	for _, u := range f.callsTo("unload-shared") {
+		if u.fields["id"] == "ppk-qkd-bootstrap" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("bootstrap unloaded %d times across 3 rotations, want exactly 1", n)
+	}
+	if f.loaded["ppk-qkd-bootstrap"] {
+		t.Error("bootstrap credential is still registered with charon")
+	}
+}
+
+func TestReconcileAdoptsNewestAndDropsOlderOrphans(t *testing.T) {
+	// generation and loadedID are process-local, so without reconciliation a
+	// restart begins again at qkd-bob-1 while every id from the previous run
+	// stays registered forever -- SetPSK only unloads what this process loaded.
+	f := newFakeVici(t)
+	f.loaded["qkd-bob-3"] = true
+	f.loaded["qkd-bob-7"] = true
+	f.loaded["qkd-bob-5"] = true
+	f.loaded["some-other-cred"] = true
+
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+
+	// The newest survives: its key material came from a QKD exchange that
+	// already happened and cannot be re-derived here, and it is what the peer
+	// most likely still holds. Dropping it would strand this node on the
+	// bootstrap PPK until the next rotation.
+	if !f.loaded["qkd-bob-7"] {
+		t.Error("qkd-bob-7 should have been adopted, not unloaded")
+	}
+	for _, id := range []string{"qkd-bob-3", "qkd-bob-5"} {
+		if f.loaded[id] {
+			t.Errorf("%s is an older orphan and should have been unloaded", id)
+		}
+	}
+	// Credentials this adapter did not create are left strictly alone.
+	if !f.loaded["some-other-cred"] {
+		t.Error("unrelated credential must not be touched")
+	}
+
+	// Numbering continues from the adopted generation rather than colliding.
+	if err := repo.SetPSK(psk32(0x21)); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	loads := f.callsTo("load-shared")
+	if got := loads[len(loads)-1].fields["id"]; got != "qkd-bob-8" {
+		t.Errorf("next generation = %q, want qkd-bob-8", got)
 	}
 }
 
@@ -385,8 +547,81 @@ func TestSetPSKDrivesReauthNotPlainRekey(t *testing.T) {
 	if got := rekeys[0].fields["reauth"]; got != "yes" {
 		t.Errorf("reauth = %q, want yes", got)
 	}
-	if got := rekeys[0].fields["ike"]; got != "pqcqkd-vpn" {
+	// Selected by unique id, NOT by connection name. `ike = <connection>` makes
+	// charon reauthenticate every SA on the connection, and because a
+	// make-before-break reauth builds the replacement before dropping the
+	// original, N SAs become 2N -- a multiplier that took a live two-node run to
+	// 140 concurrent SAs. `ike-id` costs exactly one reauthentication.
+	if got := rekeys[0].fields["ike"]; got != "" {
+		t.Errorf("ike = %q, want it unset so the rekey cannot fan out", got)
+	}
+	if got := rekeys[0].fields["ike-id"]; got != "1" {
+		t.Errorf("ike-id = %q, want 1 (the only SA the fake reports)", got)
+	}
+}
+
+func TestSetPSKInitiatesWhenNoSAExists(t *testing.T) {
+	// arnika starts rotating before the first IKE_AUTH completes, so an empty
+	// SA list is the normal state at boot rather than an error.
+	//
+	// It must not be reported as a failed rotation: arnika answers a failed
+	// SetPSK with InvalidateTunnel, which installs a random PPK the peer cannot
+	// match -- poisoning the credential the pending handshake was about to use.
+	// It must instead bring the lane up, because charon does not reliably retry
+	// an initiation the peer rejected while it was still loading its config.
+	f := newFakeVici(t)
+	f.saIDs = nil
+
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	if err := repo.SetPSK(psk32(0x07)); err != nil {
+		t.Fatalf("rotate with no SA must succeed, got: %v", err)
+	}
+
+	if n := len(f.callsTo("rekey")); n != 0 {
+		t.Errorf("got %d rekey calls, want 0 -- there is no SA to reauthenticate", n)
+	}
+	initiates := f.callsTo("initiate")
+	if len(initiates) != 1 {
+		t.Fatalf("want 1 initiate, got %d", len(initiates))
+	}
+	if got := initiates[0].fields["child"]; got != "tunnel" {
+		t.Errorf("child = %q, want tunnel", got)
+	}
+	if got := initiates[0].fields["ike"]; got != "pqcqkd-vpn" {
 		t.Errorf("ike = %q, want pqcqkd-vpn", got)
+	}
+}
+
+func TestSetPSKOnResponderLoadsButDoesNotDrive(t *testing.T) {
+	// Both peers rotate their own copy of the PPK, but they share one IKE_SA.
+	// If both also reauthenticate it, each rotation triggers two
+	// make-before-break reauthentications and the SA count climbs by one per
+	// rotation forever. The responder loads and stops there.
+	f := newFakeVici(t)
+	cfg := testConfig(f.path)
+	cfg.DriveReauth = false
+
+	repo, err := NewStrongswanViciRepository(cfg)
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	if err := repo.SetPSK(psk32(0x08)); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+
+	// The load is the part that must still happen: it is what lets this node
+	// answer the initiator's IKE_AUTH.
+	if n := len(f.callsTo("load-shared")); n != 1 {
+		t.Errorf("got %d load-shared calls, want 1", n)
+	}
+	if n := len(f.callsTo("rekey")); n != 0 {
+		t.Errorf("got %d rekey calls, want 0 -- the peer drives the SA", n)
+	}
+	if n := len(f.callsTo("initiate")); n != 0 {
+		t.Errorf("got %d initiate calls, want 0 -- the responder never initiates", n)
 	}
 }
 

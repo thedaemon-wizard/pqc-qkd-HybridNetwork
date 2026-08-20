@@ -35,14 +35,19 @@ const (
 	envViciPPKID      = "VICI_PPK_ID"
 	envViciPrefix     = "VICI_CREDENTIAL_PREFIX"
 	envViciTimeout    = "VICI_REAUTH_TIMEOUT"
+	envViciRole       = "VICI_IKE_ROLE"
+	envViciChild      = "VICI_CHILD"
+	envViciBootstrap  = "VICI_BOOTSTRAP_ID"
 )
 
 func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error) {
 	viciCfg := repositories.ViciConfig{
 		SocketPath:       os.Getenv(envViciSocket),
 		ConnectionName:   os.Getenv(envViciConnection),
+		ChildName:        os.Getenv(envViciChild),
 		PPKID:            os.Getenv(envViciPPKID),
 		CredentialPrefix: os.Getenv(envViciPrefix),
+		BootstrapCredentialID: os.Getenv(envViciBootstrap),
 	}
 
 	// No silent defaults: an unset or malformed timeout is a configuration
@@ -56,6 +61,22 @@ func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error)
 		return nil, fmt.Errorf("%s is not a valid duration: %w", envViciTimeout, err)
 	}
 	viciCfg.ReauthTimeout = timeout
+
+	// Which peer owns the shared IKE_SA. Both peers rotate the PPK; exactly one
+	// reauthenticates. No default: guessing wrong gives either two drivers (the
+	// SA count grows without bound) or none (rotated keys never enter the key
+	// schedule), and both look like a working tunnel from the outside.
+	switch role := os.Getenv(envViciRole); role {
+	case "initiator":
+		viciCfg.DriveReauth = true
+	case "responder":
+		viciCfg.DriveReauth = false
+	case "":
+		return nil, fmt.Errorf("%s must be set to \"initiator\" or \"responder\"", envViciRole)
+	default:
+		return nil, fmt.Errorf("%s is %q; expected \"initiator\" or \"responder\"",
+			envViciRole, role)
+	}
 
 	// The reauthentication this adapter drives must complete within one arnika
 	// rotation interval, otherwise rotations queue up behind each other.

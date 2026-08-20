@@ -22,10 +22,23 @@ x-ipsec-crypto: &ipsec-crypto
   IKE_PROPOSALS: aes256gcm16-prfsha384-ecp256-ke1_mlkem768
   ESP_PROPOSALS: aes256gcm16-ecp256-ke1_mlkem768
   # RFC 8784 PPKs apply to the initial IKE SA only, so fresh QKD material is
-  # consumed by reauthenticating rather than rekeying. Keep this aligned with
-  # ARNIKA_INTERVAL: arnika drives the reauth, this is the safety net.
-  REAUTH_TIME: ${ARNIKA_INTERVAL:-30s}
+  # consumed by reauthenticating rather than rekeying.
+  #
+  # arnika drives that reauthentication after each key rotation. This value is
+  # only the backstop for arnika rotating silently without exiting, so it MUST
+  # be several times ARNIKA_INTERVAL. It was previously set to ARNIKA_INTERVAL
+  # itself, which made charon a second reauth driver running at the same cadence
+  # as the first and racing it -- not a safety net at all.
+  REAUTH_TIME: ${REAUTH_TIME:-300s}
   VICI_CONNECTION: pqcqkd-vpn
+  # The CHILD_SA name under connections.pqcqkd-vpn.children, used by the
+  # initiator to bring the lane up when no IKE_SA exists. Must match
+  # swanctl.conf.tmpl.
+  VICI_CHILD: tunnel
+  # The swanctl.conf secrets.ppk section holding the pre-QKD bootstrap key.
+  # The adapter unloads it after the first rotation: it answers the same
+  # PPK_ID as the rotated credential but contains no QKD material.
+  VICI_BOOTSTRAP_ID: ppk-qkd-bootstrap
   # Stable PPK identity; the key material behind it is what rotates.
   VICI_PPK_ID: ppk-qkd@pqcqkd.local
   VICI_REAUTH_TIMEOUT: ${VICI_REAUTH_TIMEOUT:-10s}
@@ -43,6 +56,9 @@ services:
     image: pqcqkd/strongswan:local
     container_name: alice-ipsec
     profiles: ["ipsec"]
+    # A peer that is not up yet is a normal transient state at boot,
+    # not a reason to stay dead.
+    restart: unless-stopped
     cap_add: [NET_ADMIN, SYS_MODULE]
     sysctls:
       net.ipv4.ip_forward: 1
@@ -64,6 +80,11 @@ services:
       # Must differ from the peer's -- arnika XORs it into the master election.
       ARNIKA_ID: ${ARNIKA_ID_ALICE_IPSEC:-11}
       VICI_CREDENTIAL_PREFIX: qkd-bob
+      # The two peers share one IKE_SA, so exactly one of them initiates it and
+      # exactly one reauthenticates it after a key rotation. This single value
+      # decides both. It is unrelated to arnika's PRIMARY/BACKUP election, which
+      # alternates every interval and decides who *generates* the key.
+      VICI_IKE_ROLE: initiator
     volumes:
       # The PQC half of HKDF(QKD || PQC). Without this mount PQC_PSK_FILE never
       # exists, arnika's PQC reader yields nothing, and MODE=QkdAndPqcRequired
@@ -93,6 +114,9 @@ services:
     image: pqcqkd/strongswan:local
     container_name: bob-ipsec
     profiles: ["ipsec"]
+    # A peer that is not up yet is a normal transient state at boot,
+    # not a reason to stay dead.
+    restart: unless-stopped
     cap_add: [NET_ADMIN, SYS_MODULE]
     sysctls:
       net.ipv4.ip_forward: 1
@@ -109,6 +133,8 @@ services:
       LISTEN_ADDRESS: 0.0.0.0:9998
       SERVER_ADDRESS: alice-ipsec:9998
       ARNIKA_ID: ${ARNIKA_ID_BOB_IPSEC:-12}
+      # See alice-ipsec. Must be the opposite role.
+      VICI_IKE_ROLE: responder
       VICI_CREDENTIAL_PREFIX: qkd-alice
     volumes:
       - pqc-psk-bob:/var/lib/rosenpass

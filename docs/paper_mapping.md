@@ -9,7 +9,7 @@ we record (a) where it is implemented and (b) how to reproduce it.
 
 | Paper / Standard | Code | Verification |
 |---|---|---|
-| RFC 9370 (2023) "Multiple Key Exchanges in IKEv2" | `nodes/strongswan/swanctl.conf.tmpl` → `proposals = aes256gcm16-sha256-prfsha256-ecp256-ke1_ml_kem_768` | `docker exec alice-ipsec swanctl --list-sas` shows `ml_kem_768` in established SA |
+| RFC 9370 (2023) "Multiple Key Exchanges in IKEv2" | `nodes/strongswan/swanctl.conf.tmpl` → `proposals = aes256gcm16-prfsha384-ecp256-ke1_mlkem768` | `docker exec alice-ipsec swanctl --list-sas` shows `KE1_ML_KEM_768` in the established SA. **Superseded spelling:** `ke1_ml_kem_768` appears in earlier drafts and does NOT parse -- `mlkem768` is the only form strongSwan's proposal parser accepts, while `ML_KEM_768` is the long name it prints. |
 | RFC 7696 "Cryptographic Algorithm Agility" | `services/pqc-tls-demo/Dockerfile.oqs-provider` + `.openssl35-native` (two PQC providers, `PQC_PROVIDER` env switch) | `make pqc-tls-demo-both` + `openssl s_client -groups X25519MLKEM768` |
 | NIST SP 800-131A Rev.3 | crypto agility lane documented in README §11.6 / §15.2 | — |
 | OpenSSL 3.5.0 native PQC (2025-07) | `services/pqc-tls-demo/Dockerfile.openssl35-native` | `openssl s_server -groups X25519MLKEM768` running on Debian trixie |
@@ -23,7 +23,7 @@ we record (a) where it is implemented and (b) how to reproduce it.
 | II.A | KMS-free layered overlay (no centralised KMS) | docker-compose 3-network split; per-node `bb84-kme-*` instead of central KMS | `make ps` shows no central KMS container; `qkd-net` is `internal: true` |
 | II.B | ETSI GS QKD 014 between QKD device and gateway | `services/bb84-kme/app/etsi014.py` (matches `submodules/arnika/repositories/kms.go:43-101`) | `pytest tests/test_etsi014_contract.py` |
 | II.C | Arnika as the QKD↔WireGuard PSK injector | unmodified `submodules/arnika/` (Go binary baked into node image) | `docker logs alice \| grep "PSK configured"` |
-| II.D | Rosenpass E2E PQC handshake (Classic McEliece + Kyber/ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary or urandom fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
+| II.D | Rosenpass E2E PQC handshake (Classic McEliece + Kyber/ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
 | III   | Multi-hop trusted-node chain (Alice—Charlie—Bob) | `docker-compose.multihop.yml` (profile `multihop`) | `make up-multihop && docker exec alice ping 10.0.0.2` |
 | IV.A | Periodic PSK rotation, default 120s | `ARNIKA_INTERVAL` env, default 30s in PoC for demo speed | `wg show wg0` PSK changes within 30s |
 | IV.B | Setup time dominated by slowest QKD hop, not cumulative | `benchmarks/handshake_timer.py` | `make bench` |
