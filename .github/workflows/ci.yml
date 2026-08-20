@@ -127,8 +127,12 @@ jobs:
           cd "$work"
           go get github.com/strongswan/govici@v0.8.2
           go mod tidy
-          go vet ./...
-          go test ./repositories/... -v
+          # -tags strongswan_vici is required, not decorative: strongswanvici.go
+          # carries that build constraint, so without it the adapter selector --
+          # including the VICI_IKE_ROLE validation that decides which peer owns
+          # the IKE_SA -- is excluded from both vet and test.
+          go vet -tags strongswan_vici ./...
+          go test -tags strongswan_vici ./repositories/... -v
 
   secrets:
     name: Secret scan
@@ -219,3 +223,100 @@ jobs:
       - name: Diagnostics on failure
         if: failure()
         run: docker compose logs --tail 200
+
+  ipsec:
+    name: strongSwan lane — two-node IKEv2 with ML-KEM and RFC 8784 PPK
+    runs-on: ubuntu-latest
+    # Every assertion here corresponds to a defect that shipped because the lane
+    # had only ever been exercised on a single node in isolation. A one-node
+    # check can confirm that the config renders, the proposal parses and the PPK
+    # loads -- and all three passed while the tunnel could not come up at all.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start both IPsec nodes
+        run: |
+          cp .env.example .env
+          sed -i "s|^ARNIKA_PSK=.*|ARNIKA_PSK=$(openssl rand -base64 32)|" .env
+          docker compose -f docker-compose.yml -f docker-compose.strongswan.yml \
+            --profile ipsec up -d --build alice-ipsec bob-ipsec
+
+      # The tunnel must come up on its own. Nothing here initiates it by hand:
+      # an explicit swanctl --initiate would mask exactly the boot-ordering and
+      # supervision failures this job exists to catch.
+      - name: Wait for the SA to establish on both nodes
+        run: |
+          for i in $(seq 1 60); do
+            a=$(docker exec alice-ipsec swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            b=$(docker exec bob-ipsec   swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            if [ "$a" -ge 1 ] && [ "$b" -ge 1 ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::no IKE_SA established within 300s"
+          exit 1
+
+      # A tunnel can be ESTABLISHED with neither the post-quantum key exchange
+      # nor the PPK: without ppk_required charon silently falls back to
+      # NO_PPK_AUTH, which is the whole thing this project exists to prevent.
+      - name: Assert ML-KEM-768 and the PPK are in the negotiated proposal
+        run: |
+          set -eu
+          for node in alice-ipsec bob-ipsec; do
+            line=$(docker exec "$node" swanctl --list-sas | grep -m1 'ESTABLISHED' -A3 | grep -m1 'ML_KEM' || true)
+            echo "$node: ${line:-<no proposal line>}"
+            case "$line" in
+              *KE1_ML_KEM_768*) ;;
+              *) echo "::error::$node negotiated no ML-KEM-768"; exit 1 ;;
+            esac
+            case "$line" in
+              *"/PPK"*) ;;
+              *) echo "::error::$node established without an RFC 8784 PPK"; exit 1 ;;
+            esac
+          done
+
+      # The PPK ids differ by design (each side namespaces by peer name), so
+      # comparing them proves nothing. What proves the two peers derived the
+      # SAME key is that reauthentication keeps succeeding under
+      # ppk_required = yes -- a mismatch is AUTHENTICATION_FAILED.
+      - name: Rotate keys and assert the SA count stays at one
+        run: |
+          set -eu
+          sleep 240
+          fail=0
+          for node in alice-ipsec bob-ipsec; do
+            sas=$(docker exec "$node" swanctl --list-sas | grep -c ESTABLISHED || true)
+            authfail=$(docker logs "$node" 2>&1 | grep -cE 'AUTH_FAILED|no PPK found' || true)
+            rot=$(docker logs "$node" 2>&1 | grep -c 'PPK rotated' || true)
+            echo "$node: $sas SA(s), $rot rotation(s), $authfail auth failure(s)"
+
+            [ "$rot" -ge 2 ] || { echo "::error::$node rotated $rot times, expected >= 2"; fail=1; }
+            [ "$authfail" -eq 0 ] || { echo "::error::$node saw $authfail auth failures -- the peers hold different PPKs"; fail=1; }
+            # Two owners for one SA made this climb by one per rotation, and
+            # reached 140 before it was found. Allow 2 for a make-before-break
+            # reauth caught mid-flight; anything above that is the runaway.
+            [ "$sas" -le 2 ] || { echo "::error::$node holds $sas IKE_SAs; expected 1"; fail=1; }
+          done
+          exit "$fail"
+
+      - name: Assert traffic actually traverses ESP
+        run: |
+          set -eu
+          docker exec alice-ipsec ping -c 3 -W 2 10.30.0.21
+          out=$(docker exec alice-ipsec swanctl --list-sas | grep -m1 'out ')
+          echo "$out"
+          # A tunnel that is up but installs no ESP counters is passing traffic
+          # in the clear past the policy.
+          echo "$out" | grep -qE '[1-9][0-9]* bytes' \
+            || { echo "::error::no bytes counted on the outbound ESP SA"; exit 1; }
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          for node in alice-ipsec bob-ipsec; do
+            echo "===== $node ====="
+            docker logs --tail 200 "$node" 2>&1 || true
+            docker exec "$node" swanctl --list-sas 2>&1 || true
+            docker exec "$node" ip xfrm policy 2>&1 || true
+          done
