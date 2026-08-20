@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,10 @@ import (
 // minPPKBytes is the RFC 8784 entropy floor: "The PPK MUST be at least 256 bits
 // of entropy; this will provide 128 bits of post-quantum security."
 const minPPKBytes = 32
+
+// unloadTimeout bounds a single unload-shared. See unloadPPK for why it does not
+// share the rotation's deadline.
+const unloadTimeout = 5 * time.Second
 
 // randRead is indirected so tests can assert InvalidateTunnel's behaviour
 // deterministically. Production always reads from crypto/rand.
@@ -81,6 +86,17 @@ type ViciConfig struct {
 	CredentialPrefix string
 	// ReauthTimeout bounds the wait for a reauthenticated IKE_SA to establish.
 	ReauthTimeout time.Duration
+	// BootstrapCredentialID is the swanctl.conf `secrets.ppk` section name whose
+	// key lets the very first IKE_AUTH complete before any QKD material exists.
+	//
+	// It is unloaded after the first successful rotation. Leaving it in place is
+	// not cosmetic: it is registered under the SAME PPKID as every rotated
+	// credential, so two keys answer one PPK_ID lookup and which one charon
+	// returns during IKE_AUTH is unspecified. The bootstrap key is derived from
+	// ARNIKA_PSK and contains no QKD material at all, so a lane that silently
+	// selected it would present as PPK-protected while carrying none of the
+	// quantum contribution the design exists to deliver.
+	BootstrapCredentialID string
 	// DriveReauth makes this node responsible for reauthenticating the tunnel
 	// after a rotation. Exactly one of the two peers must set it.
 	//
@@ -114,6 +130,8 @@ func (c ViciConfig) validate() error {
 		return errors.New("vici: PPKID must be set")
 	case c.CredentialPrefix == "":
 		return errors.New("vici: CredentialPrefix must be set")
+	case c.BootstrapCredentialID == "":
+		return errors.New("vici: BootstrapCredentialID must be set")
 	case c.ReauthTimeout <= 0:
 		return errors.New("vici: ReauthTimeout must be positive")
 	}
@@ -136,6 +154,9 @@ type StrongswanViciRepository struct {
 	// loadedID is the credential id currently installed, retained so it can be
 	// unloaded only after its successor is confirmed live.
 	loadedID string
+	// bootstrapRetired records that the pre-QKD credential is gone, so the
+	// unload is not retried on every rotation forever.
+	bootstrapRetired bool
 }
 
 // NewStrongswanViciRepository creates a VICI-backed key writer. It performs a
@@ -168,7 +189,75 @@ func NewStrongswanViciRepository(cfg ViciConfig) (*StrongswanViciRepository, err
 	log.Printf("[INFO] [VICI] connected to %v %v on %s",
 		resp.Get("daemon"), resp.Get("version"), cfg.SocketPath)
 
+	if err := r.reconcile(ctx, sess); err != nil {
+		return nil, err
+	}
 	return r, nil
+}
+
+// reconcile adopts the credentials a previous process left behind.
+//
+// generation and loadedID live in this process, so a restart would otherwise
+// begin again at <prefix>-1 while every <prefix>-N from the previous run is
+// still registered with charon. Nothing would ever remove them: SetPSK unloads
+// only the id THIS process installed. That is the unbounded accumulation
+// docs/vici-ppk.md warns about, and it is invisible from swanctl --list-conns.
+//
+// Adopt rather than clear. The highest surviving generation is the credential
+// the peer is most likely still holding, and its key material cannot be
+// re-derived here -- it came from a QKD exchange that already happened. Keeping
+// it loaded preserves the tunnel across a restart; unloading it would strand
+// this node on the bootstrap PPK, mismatched against the peer, until the next
+// rotation. Older generations are unloaded because leaving several credentials
+// answering one PPK_ID makes charon's lookup ambiguous.
+func (r *StrongswanViciRepository) reconcile(ctx context.Context, sess *vici.Session) error {
+	ids, err := r.sharedIDs(ctx, sess)
+	if err != nil {
+		return fmt.Errorf("vici: cannot reconcile existing credentials: %w", err)
+	}
+
+	prefix := r.cfg.CredentialPrefix + "-"
+	var newest string
+	var newestGen uint64
+	var stale []string
+	for _, id := range ids {
+		if !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		gen, err := strconv.ParseUint(strings.TrimPrefix(id, prefix), 10, 64)
+		if err != nil {
+			// Same prefix, not our numbering. Leave it alone rather than
+			// unloading a credential this adapter did not create.
+			log.Printf("[WARN] [VICI] ignoring unrecognised credential id %q", id)
+			continue
+		}
+		if gen > newestGen {
+			if newest != "" {
+				stale = append(stale, newest)
+			}
+			newest, newestGen = id, gen
+			continue
+		}
+		stale = append(stale, id)
+	}
+
+	if newest == "" {
+		return nil
+	}
+	r.generation, r.loadedID = newestGen, newest
+	log.Printf("[INFO] [VICI] adopted %s from a previous process; next rotation will be %s-%d",
+		newest, r.cfg.CredentialPrefix, newestGen+1)
+
+	for _, id := range stale {
+		if err := r.unloadPPK(ctx, sess, id); err != nil {
+			// Not fatal: the adoption above is what keeps the tunnel working.
+			// Loud, because this is exactly the leak being cleaned up.
+			log.Printf("[WARN] [VICI] could not unload orphaned credential %s: %v", id, err)
+			continue
+		}
+		log.Printf("[INFO] [VICI] unloaded orphaned credential %s", id)
+	}
+	return nil
 }
 
 // SetPSK installs psk as the RFC 8784 PPK and reauthenticates the IKE_SA so the
@@ -181,13 +270,28 @@ func NewStrongswanViciRepository(cfg ViciConfig) (*StrongswanViciRepository, err
 //
 //  1. load-shared the new generation   (both generations now loaded)
 //  2. get-shared to confirm it landed
-//  3. rekey with reauth=yes
-//  4. wait for a new established IKE_SA
-//  5. unload-shared the previous generation
+//  3. list-sas, then rekey that one SA by unique id with reauth=yes
+//     (or initiate, if no SA exists yet)
+//  4. unload-shared the previous generation
+//  5. unload-shared the bootstrap credential, once
 //
-// Step 5 must come last. Unloading the in-use credential before the replacement
-// is confirmed does not tear down the current SA -- it breaks the *next*
-// reauthentication, hours later, which is a far harder failure to diagnose.
+// Step 4 must come after step 3. Unloading the in-use credential before the
+// replacement is driven does not tear down the current SA -- it breaks the
+// *next* reauthentication, which is a far harder failure to diagnose.
+//
+// What this does NOT do is block until the reauthenticated IKE_SA reaches
+// ESTABLISHED. The vici `rekey` command returns once charon has queued the
+// reauthentication, not once it has completed, so step 4 can run while the new
+// SA is still in IKE_AUTH. That is tolerable because both generations remain
+// loaded across the gap and either satisfies the PPK_ID lookup, and because a
+// reauthentication that ultimately fails leaves the old SA in place under
+// make-before-break. An earlier version of this comment claimed a "wait for a
+// new established IKE_SA" step; no such step was ever implemented, and the
+// claim is recorded here as absent rather than quietly deleted because it
+// changes how a reader reasons about the overlap window.
+//
+// Closing that gap properly means subscribing to the `ike-updown` event stream
+// rather than polling, and is tracked in docs/roadmap.md.
 func (r *StrongswanViciRepository) SetPSK(psk string) error {
 	raw, err := base64.StdEncoding.DecodeString(psk)
 	if err != nil {
@@ -246,9 +350,34 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 		}
 	}
 
+	r.retireBootstrap(ctx, sess)
+
 	log.Printf("[INFO] [VICI] PPK rotated (id=%s ppk_id=%s bytes=%d)",
 		next, r.cfg.PPKID, len(raw))
 	return nil
+}
+
+// retireBootstrap removes the pre-QKD credential once real material is loaded.
+//
+// Called after every rotation rather than only the first: unload-shared on an
+// absent id is harmless, and a single missed attempt would otherwise leave a
+// non-QKD key answering the PPK_ID for the lifetime of the process. Failure is
+// logged, never returned -- the rotation itself succeeded, and reporting an
+// error here would send arnika into InvalidateTunnel over a cleanup step.
+func (r *StrongswanViciRepository) retireBootstrap(ctx context.Context, sess *vici.Session) {
+	if r.bootstrapRetired {
+		return
+	}
+	if err := r.unloadPPK(ctx, sess, r.cfg.BootstrapCredentialID); err != nil {
+		log.Printf("[WARN] [VICI] could not unload the bootstrap credential %s: %v; "+
+			"it still answers PPK_ID %s alongside the rotated key",
+			r.cfg.BootstrapCredentialID, err, r.cfg.PPKID)
+		return
+	}
+	r.bootstrapRetired = true
+	log.Printf("[INFO] [VICI] unloaded the bootstrap credential %s; PPK_ID %s is now "+
+		"answered only by QKD-derived material",
+		r.cfg.BootstrapCredentialID, r.cfg.PPKID)
 }
 
 // InvalidateTunnel installs a locally-generated random PPK, which the peer
@@ -293,11 +422,26 @@ func (r *StrongswanViciRepository) loadPPK(ctx context.Context, sess *vici.Sessi
 	return checkSuccess(resp, "load-shared "+id)
 }
 
-func (r *StrongswanViciRepository) unloadPPK(ctx context.Context, sess *vici.Session, id string) error {
+func (r *StrongswanViciRepository) unloadPPK(parent context.Context, sess *vici.Session, id string) error {
 	msg := vici.NewMessage()
 	if err := msg.Set("id", id); err != nil {
 		return fmt.Errorf("vici: encoding id: %w", err)
 	}
+
+	// A deadline of its own, deliberately NOT inherited from the caller.
+	//
+	// The rotation path spends its budget on the reauthentication, so a reauth
+	// that used most of ReauthTimeout would leave an unload sharing the same
+	// context with no time left -- and the unload would fail precisely on the
+	// slow rotations where credential cleanup matters most. unload-shared is a
+	// single in-memory operation on charon's credential set, so it needs a small
+	// fixed allowance rather than whatever happens to remain.
+	//
+	// context.WithoutCancel keeps the parent's values while dropping its
+	// deadline and cancellation.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), unloadTimeout)
+	defer cancel()
+
 	resp, err := sess.Call(ctx, "unload-shared", msg)
 	if err != nil {
 		return fmt.Errorf("vici: unload-shared %s: %w", id, err)
@@ -310,13 +454,9 @@ func (r *StrongswanViciRepository) unloadPPK(ctx context.Context, sess *vici.Ses
 // get-shared is the only reliable existence check, and an id-less load would
 // silently not appear here at all.
 func (r *StrongswanViciRepository) assertLoaded(ctx context.Context, sess *vici.Session, id string) error {
-	resp, err := sess.Call(ctx, "get-shared", vici.NewMessage())
+	keys, err := r.sharedIDs(ctx, sess)
 	if err != nil {
-		return fmt.Errorf("vici: get-shared: %w", err)
-	}
-	keys, ok := resp.Get("keys").([]string)
-	if !ok {
-		return fmt.Errorf("vici: get-shared returned no key list (got %T)", resp.Get("keys"))
+		return err
 	}
 	for _, k := range keys {
 		if k == id {
@@ -324,6 +464,30 @@ func (r *StrongswanViciRepository) assertLoaded(ctx context.Context, sess *vici.
 		}
 	}
 	return fmt.Errorf("vici: %s was not registered by charon (loaded ids: %v)", id, keys)
+}
+
+// sharedIDs lists every shared-secret id charon currently holds.
+func (r *StrongswanViciRepository) sharedIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
+	resp, err := sess.Call(ctx, "get-shared", vici.NewMessage())
+	if err != nil {
+		return nil, fmt.Errorf("vici: get-shared: %w", err)
+	}
+	keys, ok := resp.Get("keys").([]string)
+	if !ok {
+		// A charon holding exactly one shared key encodes `keys` as a bare
+		// string rather than a list, and holding none omits it entirely.
+		// Treating either as an error would fail reconciliation on a fresh
+		// daemon, which is the common case at boot.
+		switch v := resp.Get("keys").(type) {
+		case string:
+			return []string{v}, nil
+		case nil:
+			return nil, nil
+		default:
+			return nil, fmt.Errorf("vici: get-shared returned an unusable key list (got %T)", v)
+		}
+	}
+	return keys, nil
 }
 
 // reauthenticate forces a full IKE_SA_INIT + IKE_AUTH so the newly loaded PPK
