@@ -16,8 +16,8 @@
 #   - Adds restart policies for unattended operation.
 #
 # The privileged WireGuard nodes (cap NET_ADMIN/SYS_MODULE, /dev/net/tun)
-# require a real kernel — fine on a ConoHa KVM VPS, impossible on managed
-# PaaS. See MONETIZATION.md for the full deployment rationale.
+# require a real kernel — fine on a KVM VPS, impossible on managed PaaS.
+# See deploy/README.md for the deployment rationale.
 # ============================================================
 
 services:

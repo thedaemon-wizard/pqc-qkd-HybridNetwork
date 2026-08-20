@@ -230,8 +230,8 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --
 A Caddy reverse proxy is the only public service (80/443, auto Let's Encrypt);
 the KME/backend and WireGuard nodes stay on the internal networks. The
 privileged WG nodes need a real kernel (fine on a KVM VPS, not on managed PaaS).
-See [`deploy/README.md`](deploy/README.md). Detailed deployment/business and
-per-OSS license & commercial-use notes live in the private `MONETIZATION.md`.
+See [`deploy/README.md`](deploy/README.md). Per-dependency licence terms are
+in [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).
 
 ### 5.6 Public-demo profile — client-side simulation (near-zero backend load)
 
@@ -908,14 +908,21 @@ export-control regulations (e.g. US ECCN 5D002) before public deployment.
 
 ### 15.1 Pre-release checklist (mandatory)
 
-- [ ] `.gitignore` excludes `pki/*.pem`, `*.psk`, `.env`, `node_modules/`, build artefacts
-- [ ] Generated private keys under `pki/` do not appear in `git status`
-- [ ] `make smoke` passes
-- [ ] `pytest tests/` passes in full
-- [ ] `submodules/` commit hashes are pinned
-- [ ] PDFs / .docx under `references/` are inside the redistribution licence
-- [ ] [Apache-2.0 NOTICE](LICENSE) and the licence text of every dependency are bundled
-- [ ] (Recommended) `gitleaks detect` is wired into CI
+- [x] `.gitignore` excludes `pki/*.pem`, `*.psk`, `.env`, `node_modules/`, build artefacts
+- [x] Generated private keys under `pki/` do not appear in `git status`
+- [x] `pytest tests/` passes (contract tests skip without a running stack; CI runs them with one)
+- [x] `submodules/` commit hashes are pinned — notably `arnika` and `strongswan` (6.0.7)
+- [x] Everything under `references/` is within its redistribution licence:
+      Spooren et al. is CC BY 4.0 and is included; QuLore is CC BY-NC-ND and is
+      cited only. See [`docs/references.md`](docs/references.md).
+- [x] No third-party vendor binaries are redistributed
+- [x] [Apache-2.0 NOTICE](LICENSE) and per-dependency licences are recorded in
+      [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md)
+- [x] `gitleaks detect` runs in CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
+- [ ] `make smoke` passes (needs the full privileged WireGuard stack)
+
+Browser-level release verification is tracked separately in
+[`VERIFICATION_CHECKLIST.md`](VERIFICATION_CHECKLIST.md).
 
 ### 15.2 Operational recommendations
 
@@ -942,18 +949,12 @@ See [`docs/roadmap.md`](docs/roadmap.md). Each item below is recommended as an i
 | **C** | **QLSTM-IDS for QKD attack detection** | Generate eight labelled scenarios (normal / intercept-resend / PNS / Trojan-horse / RNG-bias / wavelength-trojan / detector-blinding / combined) from this PoC's BB84 simulator and detect them with a QLSTM (PennyLane) + classical RandomForest ensemble. Target F1 = 93.9 %. | Wiley IET Quantum Comm. 2026 |
 | **D** | **Full NIST PQC algorithm sweep** | Use `services/pqc-benchmark/` to benchmark every NIST standard offered by liboqs / oqs-provider (ML-KEM-512/768/1024, ML-DSA-44/65/87, SLH-DSA variants, Falcon), including hybrid TLS 1.3 cipher suites such as `X25519MLKEM768` per the IETF draft. | NIST FIPS 203/204/205 |
 | **E** | **Sweep of NIST-recommended controls** | Apply NIST SP 800-208 (stateful hash-based signatures, LMS/XMSS) to OTA update signing and produce a six-function NIST CSF 2.0 mapping in `docs/compliance.md`. | SP 800-208, CSF 2.0 |
-| **F** | **QuLore adaptive-security implementation** | Implement the QuLore 4-level security model (L1-L4 in `references/QuLore_*.pdf`) with a central controller in `services/qusec/` and colour-code WebUI Topology edges by the active level. | Sanz et al. (UPV) |
+| **F** | **QuLore adaptive-security implementation** | Implement the QuLore 4-level security model (L1-L4; see [arXiv:2511.22416](https://arxiv.org/abs/2511.22416)) with a central controller in `services/qusec/` and colour-code WebUI Topology edges by the active level. | Sanz et al. (UPV) |
 | **G** | **QRNG + AI quality assessment** | Replace the BB84 simulator's classical RNG with a QRNG model output and integrate the CNN-based quality-assessment framework from MDPI Electronics 2026. | MDPI Electronics 2026 |
 | **H** | **Quantum Federated Learning + FHE** | Distribute FHE parameters securely using QKD-exchanged keys (`elucidator8918/QFL-MLNCP-NeurIPS`). | NeurIPS 2024 |
 
 Suggested priority: **D → C → A → B → E → F / G / H**.
 
-### 15.4 Commercial deployment considerations
-
-See the private `MONETIZATION.md` (not committed) for personal-monetisation
-workflows and the 2026-06 industry-trend snapshot.
-
----
 
 ## Contributing
 

@@ -2,7 +2,7 @@
 
 For each major claim in
 `references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf` and
-`references/QuLore_An_Adaptive_Security_Framework...pdf`,
+QuLore ([arXiv:2511.22416](https://arxiv.org/abs/2511.22416); CC BY-NC-ND, not redistributed here),
 we record (a) where it is implemented and (b) how to reproduce it.
 
 ## Phase 9 additions (Quantum-Secure VPN)

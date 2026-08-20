@@ -102,6 +102,5 @@ PUBLIC_HOST=":80" ACME_EMAIL="" \
 # WebUI now reachable via the proxy at http://localhost/
 ```
 
-> Detailed business / monetization rationale, recommended ConoHa plan & cost,
-> Value-Domain DNS steps, security hardening, and the per-OSS license &
-> commercial-use analysis live in the private `MONETIZATION.md` (not committed).
+> Per-dependency licence terms are in
+> [`../docs/THIRD_PARTY_NOTICES.md`](../docs/THIRD_PARTY_NOTICES.md).
