@@ -576,16 +576,44 @@ async def vpn_protocols():
                 "proposal": "ChaCha20-Poly1305 + Noise + PSK",
                 "last_handshake": "via wg show",
             }
-        except Exception:
-            pass
+        except Exception as e:
+            # The IPsec branch below logs; this one used to swallow silently, so
+            # a WireGuard lane that was never reachable looked identical to one
+            # that was simply absent.
+            log.warning("wireguard status unavailable: %s", e)
         try:
             c = cli.containers.get("alice-ipsec")
-            _, sas = c.exec_run("swanctl --list-sas")
-            _, conns = c.exec_run("swanctl --list-conns")
-            ipsec_status = _parse_ipsec_sas(
-                sas.decode("utf-8", errors="replace"),
-                conns.decode("utf-8", errors="replace"),
-            )
+            rc_sas, sas = c.exec_run("swanctl --list-sas")
+            rc_conns, conns = c.exec_run("swanctl --list-conns")
+            # Check the exit codes. swanctl writes its error text to the same
+            # stream as its output, and that text is non-empty, so passing a
+            # failed invocation into the parser makes `sas.strip()` truthy and
+            # reports status "running" for a charon that is dead. That is the
+            # precise "healthy while doing nothing" mode this lane exists to
+            # eliminate, reproduced in the status API.
+            if rc_sas != 0 or rc_conns != 0:
+                detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
+                log.warning(
+                    "swanctl failed in alice-ipsec (list-sas rc=%s, list-conns rc=%s): %s",
+                    rc_sas, rc_conns, detail.strip()[:200],
+                )
+                ipsec_status = {
+                    "name": "ipsec",
+                    "status": "error",
+                    "active_sa": 0,
+                    "proposal": None,
+                    "last_handshake": None,
+                    "pq_key_exchange": None,
+                    # Same keys as the success path, so a consumer never has to
+                    # branch on which shape it received.
+                    "ppk_id": None,
+                    "ppk_required": None,
+                }
+            else:
+                ipsec_status = _parse_ipsec_sas(
+                    sas.decode("utf-8", errors="replace"),
+                    conns.decode("utf-8", errors="replace"),
+                )
         except Exception as e:
             log.warning("ipsec status unavailable: %s", e)
     return {"wireguard": wg_status, "ipsec": ipsec_status}

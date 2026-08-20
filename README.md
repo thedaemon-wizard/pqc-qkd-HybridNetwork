@@ -379,7 +379,10 @@ Tested on:
   Future Shor-attack-simulator (roadmap A) will leverage CUDA-Q + cuQuantum.
 - **Python**: 3.12 in a `.venv` for host-side scripts (tests, benchmarks, manim)
 - **Docker**: 24+ with Compose v2
-- **WireGuard**: kernel module via `kmod-wireguard` (ELRepo)
+- **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
+  `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
+  required. If `modprobe wireguard` fails on your host, see the userspace
+  `boringtun` fallback in section 5.3.
 
 Host-side Python venv (for running `pytest` and Manim outside Docker):
 
@@ -404,12 +407,17 @@ layer, and the Paper Data Exchange page.
 When citing or releasing the PoC, **please always disclose the limitations below.**
 
 ### 12.1 QKD physical simulation
-- **Reinforced from five complementary backends**:
+- **Reinforced from seven complementary backends**:
   - `qutip` — lightweight, educational, photon-level
   - `simqn` — Cascade error correction + Toeplitz privacy amplification + fibre attenuation (`submodules/SimQN`, 2026-05-25 active)
   - `sequence` — the SeQUeNCe physical-layer model (`submodules/SeQUeNCe`, 2026-05-12 active, Argonne National Lab)
   - `cvqkd` — Strawberry Fields GG02 continuous-variable QKD (`submodules/strawberryfields`)
   - `composite_sim_to_net` — SimQN physical layer + qkdnetsim NS-3 v3.46 network layer
+  - `tno_keyrate` — TNO-Quantum's independently developed decoy-state BB84/BBM92
+    key-rate engine (`submodules/tno-qkd-key-rate`, Apache-2.0), used to
+    cross-check this project's own rate model against a third-party one
+  - `qkdnetsim_proxy` — fetches keys from the NS-3 reference KME's own C++
+    ETSI GS QKD 014 implementation, for cross-validating the REST contract
 - All parameters are **scientifically grounded** — `config/qkd_keyrate_table.json` is precomputed offline from the openQKDsecurity Winick SDP and the arXiv:2511.21253 closed-form formula.
 - Device-specific non-idealities such as **temperature drift, bandpass filtering, and wavelength-dependent quantum efficiency** are still not modelled.
 

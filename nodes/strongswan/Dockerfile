@@ -106,5 +106,9 @@ RUN set -eu; \
     chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 500/udp 4500/udp
-ENTRYPOINT ["/sbin/tini", "--"]
+# Debian trixie ships tini at /usr/bin/tini, not /sbin/tini as on bookworm.
+# Asserted at build time so a base-image move cannot make the container
+# fail only at `docker run`.
+RUN test -x /usr/bin/tini || { echo "FATAL: tini not at /usr/bin/tini" >&2; exit 1; }
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/entrypoint.sh"]

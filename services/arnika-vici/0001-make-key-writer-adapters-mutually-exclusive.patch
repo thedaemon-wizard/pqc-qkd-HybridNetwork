@@ -1,4 +1,3 @@
-From: Amon Koike <amon.koike@daemons.jp>
 Subject: [PATCH] build: make key-writer adapters mutually exclusive
 
 Upstream selects the WireGuard netlink key-writer with

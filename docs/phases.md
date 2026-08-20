@@ -182,9 +182,9 @@ mean handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes.
 | 12 | `/hil` | Hardware-In-The-Loop bridge instructions |
 | 13 | `/vpn` | VPN Protocols (WireGuard ⟷ strongSwan) |
 
-Verified via Chrome DevTools MCP: all 13 React Router paths render their correct headings,
+Verified in a browser: all 13 React Router paths render their correct headings,
 the four simulation pages run client-side (no `/ws/*`), and console errors = 0.
-- 0 console errors (only Electron CSP + React Router v7 future-flag warnings, both benign)
+- 0 console errors (only React Router v7 future-flag warnings, which are benign)
 - `/api/*` proxy targets backend; pages with API dependencies show "Loading…" gracefully
 
 ---
@@ -346,7 +346,7 @@ page only declares the providers it can supply.
 All downloads are produced client-side (`Blob` + `URL.createObjectURL`), with a
 best-effort backend save for re-download; **no server-side generation is required**.
 
-### Browser verification (Chrome DevTools MCP)
+### Browser verification
 
 - `/e2e` export toolbar exposes `["Logs","PNG","JSON","WebM (HQ)","GIF","Saved"]`;
   verified PNG = 2480×1200 (2×), GIF = 1240×600 (full-res), WebM = valid VP9 video
