@@ -25,7 +25,7 @@
                                              │
                               ┌──────────────┴──────────────────┐
                               │  3 independent ETSI 014 KMEs    │
-                              │  - bb84-kme   (Python + SimQN)  │
+                              │  - bb84-kme (Python + SimQN)  │
                               │  - qkdnetsim-kme (NS-3 C++)     │
                               │  - submodules/qkd_kme_server    │
                               │      (Rust, 2026-04-01 active)  │
@@ -40,10 +40,10 @@
    │   <PageHeader title=... exports={ logService, jsonProvider,     │
    │                                    csvProvider, ... }>          │
    │     └─ <ExportToolbar>                                          │
-   │          💾 Logs / 🖼 PNG / 📋 JSON / 📊 CSV / 🎞 Animation     │
+   │           Logs /  PNG /  JSON /  CSV /  Animation     │
    │             │                                                   │
    │             ├─ lib/exporters.ts (lazy-loads html-to-image,      │
-   │             │                    gifshot only on demand)        │
+   │             │                    GIF encoder on demand)        │
    │             └─ Blob → URL.createObjectURL → <a download>        │
    └─────────────────────────────────────────────────────────────────┘
                                   │ /api/logs/{files,download/<svc>}
@@ -51,11 +51,11 @@
    ┌─────────────────────────────────────────────────────────────────┐
    │   webui-backend                                                 │
    │   logging_setup.configure("webui-backend") on startup           │
-   │     - stdout handler  (for `docker logs`)                       │
+   │     - stdout handler (for `docker logs`)                       │
    │     - RotatingFileHandler /var/log/pqcqkd/webui-backend.log     │
    │     - list_log_files() + read_tail() used by HTTP endpoints     │
    └────────────────────────┬────────────────────────────────────────┘
-                            │ /var/log/pqcqkd  (shared volume)
+                            │ /var/log/pqcqkd (shared volume)
    ┌────────────────────────┼────────────────────────────────────────┐
    │  pqcqkd-logs volume    │                                        │
    │   alice.log / bob.log / webui-backend.log / pqc-validator.log   │
@@ -87,10 +87,10 @@ A single WebUI page (`/e2e`) drives an actual background simulation through the
    │  pub/sub WS at ~4 Hz                                             │
    └─────┬──────────────┬───────────────┬──────────────────┬──────────┘
          │              │               │                  │
-   Phase 1            Phase 2         Phase 3            Phase 4
-   Poll KME           ETSI 014        HKDF-SHA3-256      ChaCha20-Poly1305
-   /status            enc/dec_keys    (qkd ‖ pqc)        × 64 packets
-   (bb84-kme-a/b)     (arnika sim)    (Rosenpass sim)    (WireGuard sim)
+   Phase 1 Phase 2 Phase 3 Phase 4
+   Poll KME ETSI 014 HKDF-SHA3-256 ChaCha20-Poly1305
+   /status enc/dec_keys (qkd ‖ pqc)        × 64 packets
+   (bb84-kme-a/b) (arnika sim) (Rosenpass sim) (WireGuard sim)
 ```
 
 REST surface:
@@ -151,13 +151,13 @@ PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696 + NIST SP 800-131A Rev.3):
 
 ```
                 ┌─────────────────────────────────────────────────────────┐
-                │ WebUI (9 pages)  Overview / BB84 / KeyFlow / Topology   │
+                │ WebUI (9 pages) Overview / BB84 / KeyFlow / Topology   │
                 │   Benchmarks / Console / PhysicsParams / PQCValidator   │
                 │   Hardware-In-Loop                                       │
                 └──────────────┬──────────────────────────────────────────┘
                                │  REST + WebSocket
                 ┌──────────────▼──────────────────────────────────────────┐
-                │  webui-backend  (FastAPI)                               │
+                │  webui-backend (FastAPI)                               │
                 │   /api/sim/params, /api/sim/backend, /api/sim/optimize  │
                 │   /api/pqc/algorithms, /api/pqc/roundtrip               │
                 └──┬─────────────────────────────────────────────┬────────┘
@@ -213,21 +213,21 @@ Tests (host venv):
 
 ```
 +---------------------------------------------------------------------+
-|  Layer 3 — End-to-End PQC                                           |
-|    Rosenpass sidecar in each node                                   |
-|    Output: /var/lib/rosenpass/pqc.psk  (32B, refreshed periodically) |
+| Layer 3 — End-to-End PQC                                           |
+| Rosenpass sidecar in each node                                   |
+| Output: /var/lib/rosenpass/pqc.psk (32B, refreshed periodically) |
 +---------------------------------------------------------------------+
-|  Layer 2 — Transport orchestration                                  |
-|    arnika (Go, unmodified from submodules/arnika/)               |
-|    - ETSI 014 client (HTTP/mTLS)                                    |
-|    - reads pqc.psk file                                             |
-|    - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
-|    - wgctrl netlink call -> writes PSK to wg0 peer entry            |
+| Layer 2 — Transport orchestration                                  |
+| arnika (Go, unmodified from submodules/arnika/)               |
+| - ETSI 014 client (HTTP/mTLS)                                    |
+| - reads pqc.psk file                                             |
+| - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
+| - wgctrl netlink call -> writes PSK to wg0 peer entry            |
 +---------------------------------------------------------------------+
-|  Layer 1 — Hop encryption                                           |
-|    WireGuard wg0 between alice and bob (or alice-charlie-bob)       |
-|    ChaCha20-Poly1305 + Noise + PSK                                  |
-|    PSK rotated by arnika every `ARNIKA_INTERVAL` (30s default)      |
+| Layer 1 — Hop encryption                                           |
+| WireGuard wg0 between alice and bob (or alice-charlie-bob)       |
+| ChaCha20-Poly1305 + Noise + PSK                                  |
+| PSK rotated by arnika every `ARNIKA_INTERVAL` (30s default)      |
 +---------------------------------------------------------------------+
 ```
 
@@ -251,7 +251,7 @@ Networks:
 ## 3. Data flow (a single PSK rotation)
 
 ```
-T+0   bb84-kme-a runs a BB84 round (QuTiP photon simulation)
+T+0 bb84-kme-a runs a BB84 round (QuTiP photon simulation)
 T+0.1 reconciliation produces a 256-bit secret key, base64-encoded
 T+0.1 KME-a stores key by UUID and POSTs /internal/sync to KME-b
 T+0.2 arnika@alice polls /api/v1/keys/ALICE/enc_keys?number=1&size=256

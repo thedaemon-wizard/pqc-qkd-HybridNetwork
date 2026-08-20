@@ -200,3 +200,17 @@ For each page, exercise **every** button, checkbox and select:
 | 6.8 | No AI-tooling references in any tracked file or commit trailer |
 | 6.9 | No hosting-provider names, hostnames, IPs or credentials in tracked files |
 | 6.10 | Pinned upstream facts re-verified against primary sources, with the date recorded |
+
+---
+
+## 7. Documentation
+
+| # | Check |
+|---|---|
+| 7.1 | No emoji in any documentation file. Arrows and box-drawing glyphs in ASCII diagrams are technical notation, not emoji, and stay. |
+| 7.2 | README stays a navigational entry point; detail lives in `docs/` and is linked, not inlined |
+| 7.3 | Every internal document link resolves |
+| 7.4 | No document states as current a design that has been superseded; historical records say so inline |
+| 7.5 | Dependency tables match what is actually installed |
+| 7.6 | Formulas are in MathJax, not ASCII art |
+| 7.7 | No claim that the system silently degrades when the code does not |

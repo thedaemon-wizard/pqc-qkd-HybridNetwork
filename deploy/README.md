@@ -13,7 +13,7 @@ automatic TLS.
 | `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes). Recommended for a public demo. |
 | `.env.example` | Copy to repo-root `.env`; set `PUBLIC_HOST`, `ACME_EMAIL`, backend profile, ports. |
 
-## ⚠️ Which deploy do I want? (read this first)
+## Note: Which deploy do I want? (read this first)
 
 - **`deploy/deploy.sh` — FULL real-WireGuard stack.** Builds liboqs + **rosenpass (Rust)** +
   **strongSwan** from source for the privileged `alice`/`bob` nodes. **Requires a real kernel and
@@ -97,7 +97,7 @@ VPS (root) provides this; managed PaaS (Railway/Render) cannot.
 ## Local smoke test (through Caddy, plain HTTP)
 
 ```sh
-PUBLIC_HOST=":80" ACME_EMAIL="" \
+PUBLIC_HOST=":80"ACME_EMAIL="" \
   docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
 # WebUI now reachable via the proxy at http://localhost/
 ```

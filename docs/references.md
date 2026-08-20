@@ -36,9 +36,7 @@ revision rather than being implemented here.
 |---|---|---|
 | Dosan, **Spooren**, … **Hühn**, de Vries, *Secure Medical Data Transmission Using QKD and PQC in Real-World Fiber Networks* | [arXiv:2608.18869](https://arxiv.org/abs/2608.18869) (2026-08-19) | The field-deployment sequel to the paper this PoC reproduces, by overlapping authors, and it uses **arnika** for exactly the role it plays here. Gives measured link numbers (below) that bound how fast a PSK can honestly be rotated. |
 | Paixão, Tomkelski, Freire *et al.*, *Real-Time VPN Traffic over ETSI GS QKD 014 Key Delivery* | [arXiv:2607.06602](https://arxiv.org/abs/2607.06602) (2026-07-07) | Binds the ETSI `key_ID` into the AES-GCM **AAD**, cryptographically tying the key identifier to the ciphertext. A concrete hardening this project does not yet do. |
-| Malik, Anwar, Raza, *Beyond the Quantum Promise: A Security Analysis of Classical Control in QKD* | [arXiv:2608.07626](https://arxiv.org/abs/2608.07626) (2026-08-07) | Tamarin analysis of 23 ETSI/ITU-T QKD documents. Its finding **V3 (message reflection: MAC inputs lack role binding)** is worth checking against any shared-PSK control channel — see the open question in [`vici-ppk.md`](vici-ppk.md). |
-
-**Measured field values from arXiv:2608.18869**, useful for calibrating a
+| Malik, Anwar, Raza, *Beyond the Quantum Promise: A Security Analysis of Classical Control in QKD* | [arXiv:2608.07626](https://arxiv.org/abs/2608.07626) (2026-08-07) | Tamarin analysis of 23 ETSI/ITU-T QKD documents. Its finding **V3 (message reflection: MAC inputs lack role binding)** is worth checking against any shared-PSK control channel — see the open question in [`vici-ppk.md`](vici-ppk.md). | **Measured field values from arXiv:2608.18869**, useful for calibrating a
 simulator against reality rather than lab conditions:
 
 | Link | Length | Loss | Secret key rate | QBER |
