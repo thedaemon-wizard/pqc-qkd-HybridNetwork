@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
-import sys
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -29,7 +27,7 @@ log = logging.getLogger("pqc-validator")
 PQCLEAN_DIR = os.environ.get("PQCLEAN_DIR", "/submodules/PQClean")
 
 try:
-    import oqs       # liboqs-python
+    import oqs  # liboqs-python
     _OQS_AVAILABLE = True
 except Exception as e:    # pragma: no cover (env)
     log.warning("liboqs-python not importable: %s", e)

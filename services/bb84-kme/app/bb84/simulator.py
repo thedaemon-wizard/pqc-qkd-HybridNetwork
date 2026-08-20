@@ -17,7 +17,6 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
-import qutip as qt
 
 from . import alice, bob, eve, reconciliation
 

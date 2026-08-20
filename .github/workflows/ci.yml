@@ -1,0 +1,221 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run redundant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python — lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-asyncio httpx
+          pip install -r services/bb84-kme/requirements.txt
+          pip install -r services/webui-backend/requirements.txt
+
+      # No `|| true`: the Makefile targets used to swallow lint failures, so
+      # they never gated anything.
+      #
+      # `ruff format --check` is deliberately NOT run here. The existing code
+      # predates the formatter and reformatting it would be a ~38-file
+      # cosmetic diff; that is worth doing as its own change, not as a gate
+      # that fails every PR until someone does it.
+      - name: Lint
+        run: ruff check services/ tests/ tools/ benchmarks/
+
+      # Contract tests self-skip without a live KME; the `live-stack` job runs
+      # them for real.
+      - name: Unit tests
+        run: pytest tests/ -v
+
+  keyrate:
+    name: Key-rate model — golden vector and port parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/webui-frontend/package-lock.json
+
+      - run: pip install pytest pytest-asyncio numpy pyyaml
+      - run: npm ci
+        working-directory: services/webui-frontend
+
+      # Pins the model to published values (Ma et al. 2005, GYS worked example:
+      # R = 2.555e-3 bits/pulse) and checks the TypeScript port still agrees
+      # with the Python reference. The same model is implemented three times in
+      # this repo, so drift is a real risk.
+      - name: Golden vector and cross-implementation parity
+        run: pytest tests/test_keyrate_golden_vector.py tests/test_keyrate_ports_agree.py -v
+
+  frontend:
+    name: Frontend — typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: services/webui-frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: services/webui-frontend
+
+      # `npm run build` was `vite build` alone for a long time, so type errors
+      # accumulated unnoticed. tsc is part of the build now; this makes it a gate.
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: services/webui-frontend
+
+      - name: Build
+        run: npx vite build
+        working-directory: services/webui-frontend
+
+  go:
+    name: arnika VICI adapter — vet, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          # arnika hardens key material with runtime/secret, which needs 1.26.
+          go-version: "1.26"
+
+      # Builds the adapter against the pinned upstream arnika tree exactly as
+      # nodes/strongswan/Dockerfile does, so the image build cannot be the
+      # first place a compile error shows up.
+      - name: Build with the strongswan_vici adapter
+        run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
+
+      - name: Vet and test the adapter
+        env:
+          CGO_ENABLED: "0"
+          GOEXPERIMENT: runtimesecret
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          cp -a submodules/arnika/. "$work"/
+          cp services/arnika-vici/repositories/*.go "$work"/repositories/
+          cp services/arnika-vici/strongswanvici.go "$work"/
+          cd "$work"
+          go get github.com/strongswan/govici@v0.8.2
+          go mod tidy
+          go vet ./...
+          go test ./repositories/... -v
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Promised in the README pre-release checklist since before publication.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  images:
+    name: Container images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The strongSwan image previously could not build at all (it COPY'd a
+      # liboqs lib64 directory that is never created on Debian) and nothing
+      # noticed, because no job ever built it.
+      - name: strongSwan node
+        run: docker build -f nodes/strongswan/Dockerfile -t pqcqkd/strongswan:ci .
+
+      # ML-KEM must be reachable at runtime, not merely compiled: the plugin
+      # also has to be named in charon's `load` line. Assert it end-to-end.
+      - name: ML-KEM-768 is available to charon
+        run: |
+          docker run --rm --cap-add NET_ADMIN --entrypoint sh pqcqkd/strongswan:ci -c '
+            /usr/local/libexec/ipsec/charon 2>/dev/null &
+            for i in $(seq 1 30); do [ -S /var/run/charon.vici ] && break; sleep 1; done
+            swanctl --list-algs | grep -q "ML_KEM_768" \
+              || { echo "FATAL: ML_KEM_768 not available"; swanctl --list-algs; exit 1; }
+            echo "OK: $(swanctl --list-algs | grep ML_KEM_768)"
+          '
+
+      - name: WireGuard node
+        run: docker build -f nodes/alice/Dockerfile -t pqcqkd/node-alice:ci .
+
+  live-stack:
+    name: ETSI GS QKD 014 contract tests (live KMEs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest pytest-asyncio httpx
+
+      - name: Start the two KMEs
+        run: |
+          cp .env.example .env
+          sed -i "s|^ARNIKA_PSK=.*|ARNIKA_PSK=$(openssl rand -base64 32)|" .env
+          docker compose up -d --build bb84-kme-a bb84-kme-b
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 60); do
+            a=$(docker inspect -f '{{.State.Health.Status}}' bb84-kme-a 2>/dev/null || echo starting)
+            b=$(docker inspect -f '{{.State.Health.Status}}' bb84-kme-b 2>/dev/null || echo starting)
+            [ "$a" = healthy ] && [ "$b" = healthy ] && exit 0
+            sleep 2
+          done
+          docker compose logs bb84-kme-a bb84-kme-b
+          exit 1
+
+      # The single most important contract in the project: if this JSON shape
+      # drifts, arnika cannot parse it and the whole hybrid layer breaks.
+      - name: Contract tests
+        env:
+          KME_URL: http://127.0.0.1:18080
+          PEER_KME_URL: http://127.0.0.1:18081
+          SAE_ID: ALICE
+          PEER_SAE_ID: BOB
+        run: |
+          docker run -d --name kme-a-proxy --network host alpine/socat \
+            TCP-LISTEN:18080,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-a):8080
+          docker run -d --name kme-b-proxy --network host alpine/socat \
+            TCP-LISTEN:18081,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-b):8080
+          sleep 3
+          pytest tests/test_etsi014_contract.py -v
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker compose logs --tail 200

@@ -19,7 +19,6 @@ import base64
 import importlib
 
 import pytest
-
 from conftest import load_service_app
 
 load_service_app("bb84-kme", "bb84_kme_app")

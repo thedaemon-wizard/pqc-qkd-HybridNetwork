@@ -25,12 +25,12 @@ os.environ.setdefault("QKD_PARAMS_FILE", str(ROOT / "config" / "qkd_params.yaml"
 def test_backend_keys_match_lo_ma_qber(backend_name):
     from app import config_loader
     config_loader.reload()
-    from app.backends.base import cfg_from_yaml
+    from app.backends import make_backend
     from app.backends._skr import (
         qber_Emu,
         total_transmittance,
     )
-    from app.backends import make_backend
+    from app.backends.base import cfg_from_yaml
 
     cfg = cfg_from_yaml()
     try:
@@ -48,14 +48,35 @@ def test_backend_keys_match_lo_ma_qber(backend_name):
                               cfg.intensity_signal_mu)
 
     out = asyncio.run(backend.run_round())
+
+    # A round the backend rejected used to be skipped, which meant a backend
+    # that rejected EVERY round still reported a green test. Rejection is a
+    # real outcome and must be asserted on: it is only legitimate when the
+    # observed QBER is at or above the abort threshold.
     if not out.accepted:
-        pytest.skip(f"backend {backend_name} did not accept this round")
-    # QBER should be within 20× of analytical (loose because backends use
-    # different sift / sample strategies). Mostly we want < threshold.
+        assert out.qber >= cfg.qber_threshold_abort, (
+            f"{backend_name} rejected a round at QBER {out.qber:.4f}, "
+            f"below the abort threshold {cfg.qber_threshold_abort}"
+        )
+        return
+
     assert out.qber < cfg.qber_threshold_abort, (
         f"{backend_name} QBER {out.qber:.3f} >= threshold {cfg.qber_threshold_abort}"
     )
     assert len(out.key_bytes) == cfg.out_bits_per_key // 8
+
+    # The actual cross-validation this test is named for. `expected_qber` was
+    # computed and then never used, so the analytical comparison -- the whole
+    # point -- never happened.
+    #
+    # The tolerance is deliberately wide: backends differ in sifting and
+    # sampling strategy, and a Monte-Carlo QBER estimated from a finite block
+    # fluctuates. What this catches is an order-of-magnitude divergence from
+    # the Lo-Ma channel model, which is the failure mode that matters.
+    assert out.qber == pytest.approx(expected_qber, abs=0.05), (
+        f"{backend_name} QBER {out.qber:.4f} diverges from the analytical "
+        f"Lo-Ma value {expected_qber:.4f} (eta={eta:.3e}, Y0={Y0:.3e})"
+    )
 
 
 def test_optimizer_yields_positive_skr():

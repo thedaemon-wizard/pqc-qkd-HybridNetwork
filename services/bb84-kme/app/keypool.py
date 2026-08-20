@@ -25,7 +25,6 @@ import httpx
 
 from . import config_loader as cl
 from .backends import (
-    BackendConfig,
     KeyProducer,
     RoundOutcome,
     make_backend,
@@ -124,7 +123,7 @@ class KeyPool:
             if len(self._buf) >= self.low_watermark:
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=idle_timeout_s)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 self._wake.clear()
                 continue
