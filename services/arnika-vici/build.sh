@@ -18,6 +18,17 @@ ARNIKA_SRC=${1:?usage: build.sh <arnika-src> <adapter-src> <output-binary>}
 ADAPTER_SRC=${2:?usage: build.sh <arnika-src> <adapter-src> <output-binary>}
 OUTPUT=${3:?usage: build.sh <arnika-src> <adapter-src> <output-binary>}
 
+# Resolve to absolute paths before anything cd's. Relative arguments would
+# silently stop resolving once we move into the work directory below -- which
+# is exactly what happens when this is invoked from a repository root rather
+# than from the Dockerfile, where the arguments are already absolute.
+ARNIKA_SRC=$(cd "$ARNIKA_SRC" && pwd)
+ADAPTER_SRC=$(cd "$ADAPTER_SRC" && pwd)
+case $OUTPUT in
+    /*) ;;
+    *)  OUTPUT="$(pwd)/$OUTPUT" ;;
+esac
+
 # Upstream's own build vars (see submodules/arnika/Makefile). arnika hardens key
 # material with runtime/secret, which is gated behind this GOEXPERIMENT and
 # requires Go >= 1.26.
