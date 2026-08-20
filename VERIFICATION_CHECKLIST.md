@@ -24,6 +24,10 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 | 1.9 | Key-rate model matches published values | `pytest tests/test_keyrate_golden_vector.py` | CI `keyrate` |
 | 1.10 | Browser port matches backend model | `pytest tests/test_keyrate_ports_agree.py` | CI `keyrate` |
 | 1.11 | ETSI 014 contract holds | `pytest tests/test_etsi014_contract.py` with a live stack | CI `live-stack` |
+| 1.12 | A seeded round is reproducible | `pytest tests/test_bb84_simulator.py::test_seeded_round_is_reproducible` | CI `python` |
+| 1.13 | Eve's intercept-resend drives QBER to 0.25 (mean over seeds, not one draw) | `pytest tests/test_bb84_simulator.py` | CI `python` |
+| 1.14 | Optimiser SKR agrees with the shared rate model | `pytest tests/test_backend_cross_qber.py` | CI `python` |
+| 1.15 | Backend QBER matches the analytical Lo-Ma value | `pytest tests/test_backend_cross_qber.py` | CI `python` |
 
 ---
 
@@ -175,6 +179,10 @@ For each page, exercise **every** button, checkbox and select:
 | 5.3 | No `\|\| true` masking failures in Makefile, entrypoints or CI |
 | 5.4 | Cross-implementation constants are shared, not duplicated |
 | 5.5 | New behaviour has a test that fails without the change |
+| 5.6 | Randomness is injectable — no module builds its own unseeded generator, or a seeded run is not reproducible |
+| 5.7 | Statistical assertions use a mean over seeds, not a single draw against a threshold |
+| 5.8 | A quantity computed two ways is cross-checked, not just asserted non-zero |
+| 5.9 | Tests are fast enough to actually run — no single test dominates the suite |
 
 ---
 
@@ -189,3 +197,6 @@ For each page, exercise **every** button, checkbox and select:
 | 6.5 | Submodules pinned to explicit commits |
 | 6.6 | `docs/THIRD_PARTY_NOTICES.md` matches the pinned versions |
 | 6.7 | Screenshots in `docs/images/screenshots/` refreshed |
+| 6.8 | No AI-tooling references in any tracked file or commit trailer |
+| 6.9 | No hosting-provider names, hostnames, IPs or credentials in tracked files |
+| 6.10 | Pinned upstream facts re-verified against primary sources, with the date recorded |
