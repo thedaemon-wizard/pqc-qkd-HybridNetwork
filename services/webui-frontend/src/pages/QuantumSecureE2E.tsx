@@ -206,12 +206,17 @@ export default function QuantumSecureE2E() {
                 disabled={!state?.failed_layer}>clear</Button>
         {state?.failed_layer && (
           <span style={{ fontSize: 11, color: "#e0a33a" }} role="status">
+            {/* Reads the simulator's verdict instead of recomputing the rule.
+                The earlier version assumed "not mode C means fatal", which
+                mislabelled mode A with PQC down -- a layer mode A never used. */}
             ⚠ {state.failed_layer} layer down —{" "}
-            {state.failed_layer === "data"
-              ? "fatal: AEAD has no fallback"
-              : (state.mode === "C"
+            {!state.failure_is_fatal
+              ? (state.mode === "C"
                   ? "mode C continues on the surviving leg"
-                  : `fatal in mode ${state.mode}: no other key source`)}
+                  : `mode ${state.mode} never used this layer; run continues`)
+              : state.failed_layer === "data"
+                ? "fatal: AEAD has no fallback"
+                : `fatal in mode ${state.mode}: no other key source`}
           </span>
         )}
       </div>
