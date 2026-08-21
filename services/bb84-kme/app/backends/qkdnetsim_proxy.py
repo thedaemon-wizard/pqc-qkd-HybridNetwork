@@ -16,6 +16,7 @@ from base64 import b64decode
 
 import httpx
 
+from ._skr import skr_bps_from_config
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
@@ -57,7 +58,9 @@ class QKDNetSimProxyBackend(KeyProducer):
             n_sifted=self.cfg.bb84_batch_size // 2,
             intercepted=0,
             elapsed_ms=elapsed_ms,
-            skr_bps=self.cfg.pulse_rate_hz / 2,
+            # Was pulse_rate_hz / 2 -- a constant with no physics in it at all,
+            # reported in a field named skr_bps.
+            skr_bps=skr_bps_from_config(self.cfg),
             backend_meta={"backend": "qkdnetsim_proxy", "source": self._url},
         )
 

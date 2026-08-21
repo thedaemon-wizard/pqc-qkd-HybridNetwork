@@ -12,6 +12,7 @@ import time
 import numpy as np
 
 from ..bb84.simulator import RoundConfig, run_round
+from ._skr import skr_bps_from_config
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
@@ -58,8 +59,11 @@ class QuTiPBackend(KeyProducer):
         t0 = time.perf_counter()
         result = await asyncio.to_thread(run_round, self._round_cfg(), rng=self._rng)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        skr_per_pulse = float(result.n_sifted) / max(float(result.n_photons), 1.0)
-        skr_bps = skr_per_pulse * self.cfg.pulse_rate_hz
+        # n_sifted/n_photons is the SIFTING fraction, not a secret-key rate:
+        # it counts pulses surviving basis reconciliation, before error
+        # correction leaks f_EC*h2(E_mu) and privacy amplification removes
+        # Eve's information. Use the shared GLLP/Lo-Ma model instead.
+        skr_bps = skr_bps_from_config(self.cfg)
         return RoundOutcome(
             accepted=result.accepted,
             qber=result.qber,

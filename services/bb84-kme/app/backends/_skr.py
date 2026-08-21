@@ -74,3 +74,38 @@ def skr_finite(*, Y0, eta_total, e_d, mu, nu1, nu2, f_EC, N, eps) -> float:
 def drop_rate_for_simulator(*, Y0: float, eta_total: float, mu: float) -> float:
     """1 - Q_μ — usable directly as photonic loss probability for SimQN/SeQUeNCe."""
     return max(0.0, min(1.0, 1.0 - gain_Qmu(Y0, eta_total, mu)))
+
+
+def skr_bps_from_config(cfg) -> float:
+    """Secret-key rate in bits/second for a BackendConfig.
+
+    Every backend previously derived `skr_bps` its own way, and none of them
+    computed a secret-key rate:
+
+        qutip            n_sifted / n_photons * pulse_rate     (sifting fraction)
+        simqn            sifted / batch_size * pulse_rate      (sifting fraction)
+        qkdnetsim_proxy  pulse_rate / 2                        (a constant)
+
+    A sifting fraction is the proportion of pulses that survive basis
+    reconciliation. The secret-key rate is what remains after error correction
+    leaks f_EC * h2(E_mu) and privacy amplification removes Eve's information --
+    always strictly smaller, and on the default configuration smaller by a
+    factor of about 41. Reporting the former in a field named `skr_bps`
+    overstates the project's headline result.
+
+    This routes all three through the GLLP/Lo-Ma decoy-state model already in
+    this module, which tests/test_keyrate_golden_vector.py pins to the
+    published worked example (Ma et al. 2005, GYS parameters,
+    R = 2.555e-3 bits/pulse). One implementation, one test.
+    """
+    eta = total_transmittance(
+        cfg.detector_efficiency, cfg.fiber_attenuation_db_per_km, cfg.link_length_km,
+    )
+    Y0 = cfg.dark_count_rate_hz / max(cfg.pulse_rate_hz, 1.0)
+    r_per_pulse = skr_finite(
+        Y0=Y0, eta_total=eta, e_d=cfg.misalignment_error_ed,
+        mu=cfg.intensity_signal_mu, nu1=cfg.intensity_decoy_1_nu1,
+        nu2=cfg.intensity_decoy_2_nu2, f_EC=cfg.ec_efficiency_f,
+        N=cfg.block_size_N, eps=cfg.security_epsilon,
+    )
+    return r_per_pulse * cfg.pulse_rate_hz
