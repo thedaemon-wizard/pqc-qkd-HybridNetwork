@@ -197,11 +197,28 @@ claiming otherwise:
 
 - **NSA**, [Quantum Key Distribution (QKD) and Quantum Cryptography (QC)](https://www.nsa.gov/Cybersecurity/Quantum-Key-Distribution-QKD-and-Quantum-Cryptography-QC/) — does not support QKD for national-security systems, and recommends post-quantum cryptography instead.
 - **UK NCSC**, [Quantum security technologies](https://www.ncsc.gov.uk/whitepaper/quantum-security-technologies) — advises against QKD for government and critical national infrastructure.
-- **BSI / ANSSI / NLNCSA / NCSC**, [Position Paper on Quantum Key Distribution](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Quantum_Positionspapier.pdf) — QKD is not yet suitable for most use cases without substantial further development.
+- **ANSSI / BSI / NLNCSA / Swedish Armed Forces**, [Position Paper on Quantum Key Distribution](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Quantum_Positionspapier.pdf) (2024-01-26) — QKD "can however currently only be used in practice in some niche use cases" and is "not yet sufficiently mature from a security perspective"; migration to PQC is "the clear priority". The fourth signatory is the **Swedish** authority, not the UK NCSC, which this list previously named by mistake. The Czech NÚKIB issued a Letter of Support (2024-09-19) but is not a signatory.
+- **BSI**, [TR-02102-1 v2026-01](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TG02102/BSI-TR-02102-1.pdf) (2026-01-23) — Germany's operative crypto guideline now states plainly that "**the BSI does not recommend QKD protocols at this time**". This is a harder line than the 2022 BSI brochure, which recommended QKD "only as an add-on in hybrid mode"; that brochure has not been revised since and should not be cited as the current position.
 
-The counter-argument this project embodies is narrower and worth stating
-plainly: QKD material is used here **in addition to** post-quantum
-cryptography, never instead of it.
+Worth recording because it is easy to miss: QKD has been written out of the
+European policy architecture rather than argued down. It appears **zero times**
+in the EU NIS Cooperation Group's [Coordinated Implementation Roadmap for the
+Transition to Post-Quantum Cryptography](https://digital-strategy.ec.europa.eu/en/library/coordinated-implementation-roadmap-transition-post-quantum-cryptography)
+(2025-06), zero times in the [G7 Cybersecurity Working Group statement](https://www.cyber.gc.ca/en/news-events/g7-cybersecurity-working-group-statement-preparing-post-quantum-cryptography-migration)
+(2026-06), and zero times in the ECCG *Agreed Cryptographic Mechanisms* v2.0
+(2025-04), which is the approved-algorithm list for EU-certified products.
+Those documents set the deadlines the field is now working to: high-risk use
+cases off quantum-vulnerable public key by **end-2030**, medium-risk by
+**end-2035**.
+
+The counter-argument this project embodies is narrower than "QKD is good", and
+worth stating plainly: QKD material is used here **in addition to**
+post-quantum cryptography, never instead of it. Nothing above contradicts that
+composition -- the agencies' objection is to QKD as a *replacement* for PQC,
+which is not what is built here. Note also that Germany is simultaneously
+building QKD assurance: BSI certified the ETSI Common Criteria Protection
+Profile for prepare-and-measure QKD in January 2024. The European position is
+"not yet, and not instead", not "never".
 
 NIST SP 800-227 supports that composition, but the precise wording matters and
 an earlier version of this paragraph got both the section and the modality
