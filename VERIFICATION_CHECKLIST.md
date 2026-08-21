@@ -130,6 +130,9 @@ below was taken from the live demo on 2026-08-21 with real navigations; a
 | 4.4.10 | KPIs | cycles, packets, bytes, throughput all advance |
 | 4.4.11 | **Disabled set matches the state** | Read `button.disabled` per state. `idle` -> Pause, Resume, Abort disabled. `running` -> Run, Resume, Step disabled. `paused` -> Pause disabled only. Measured on the demo 2026-08-21; this is what makes 4.3.3 checkable rather than a matter of opinion. |
 | 4.4.12 | **Pause really stops the clock** | Note `Cycles`, wait 4 s, read again: unchanged. A paused run that keeps counting is the failure this catches; a paused run that merely stops repainting is not. |
+| 4.4.13 | **Failure injection exists on `/e2e` too** | Three buttons (`qkd`, `pqc`, `data`) plus `clear`. Previously only `/paper-flow` had this, though both pages are specified to. |
+| 4.4.14 | **Injection outcome depends on the mode** | Not a cascade -- a single tunnel has nothing to cascade through. Mode C survives `qkd` or `pqc` (degrades to the surviving leg, `total_packets` keeps rising, banner says `Degraded:`). Mode A dies on `qkd`, mode B dies on `pqc` (`status: paused`, `total_packets` 0). Mode A ignores `pqc` and mode B ignores `qkd` -- a layer a mode never used must not stop it, or the control is a global kill switch. |
+| 4.4.15 | **`data` is fatal in every mode** | AEAD has no second leg. All three modes reach `status: paused` with an error naming AEAD. |
 
 ### 4.4b Paper Data Exchange simulator (`/paper-flow`)
 
