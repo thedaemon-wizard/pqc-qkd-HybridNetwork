@@ -8,8 +8,16 @@
  *
  * It is only ADOPTED if it actually beats the CPU Worker (the controller
  * benchmarks it) — so a software rasteriser (SwiftShader) won't be used.
+ *
+ * readPixels returns summed counts only, so the photon table is reconstructed
+ * by replaying the first vertices of the same draw on the CPU
+ * (bb84Channel.ts) — the pulses this round actually simulated, rather than the
+ * unrelated Math.random() sample it used to display.
  */
 import type { Bb84Cfg, RoundResult } from "./bb84Gpu";
+import {
+  advanceKeyPool, framesFromGlRound, type ChannelCfg,
+} from "./bb84Channel";
 
 const GRID = 256;                 // 256×256 = 65 536 accumulation bins
 const VS = `#version 300 es
@@ -107,7 +115,9 @@ export class Bb84Gl {
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
-    gl.uniform1ui(this.uSeed, (Math.random() * 0xffffffff) >>> 0);
+    // Held in a local as well as a uniform: the frame replay needs the same seed.
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    gl.uniform1ui(this.uSeed, seed);
     gl.uniform1f(this.uDetect, cfg.etaTotal + cfg.Y0);
     gl.uniform1f(this.uED, cfg.eD);
     gl.uniform1f(this.uEve, cfg.eveOn ? cfg.eveProb : 0);
@@ -120,12 +130,11 @@ export class Bb84Gl {
     }
     const dt = Math.max(performance.now() - t0, 1e-3);
     const qber = sifted > 0 ? errors / sifted : 0;
-    this.pool = Math.max(0, Math.min(4096,
-      this.pool + Math.floor(sifted * (1 - 2 * qber) * 0.25) - 64));
+    this.pool = advanceKeyPool(this.pool, sifted, qber);
     return {
       qber, pool_size: this.pool,
       pulsesPerSec: Math.round(cfg.pulsesPerRound / (dt / 1000)),
-      frames: cpuSampleFrames(cfg, 16),
+      frames: framesFromGlRound(cfg as ChannelCfg, seed, cfg.pulsesPerRound, 16),
     };
   }
 
@@ -143,24 +152,4 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
     throw new Error("WebGL shader compile failed: " + gl.getShaderInfoLog(sh));
   }
   return sh;
-}
-
-function cpuSampleFrames(cfg: Bb84Cfg, n: number) {
-  const frames = [];
-  const bit = () => (Math.random() < 0.5 ? 0 : 1);
-  let i = 0, guard = 0;
-  while (frames.length < n && guard++ < n * 50) {
-    i++;
-    if (Math.random() >= cfg.etaTotal + cfg.Y0) continue;
-    const aBit = bit(), aBasis = bit();
-    let cBit = aBit, cBasis = aBasis;
-    if (cfg.eveOn && Math.random() < cfg.eveProb) {
-      const eBasis = bit(); cBit = eBasis === aBasis ? aBit : bit(); cBasis = eBasis;
-    }
-    const bBasis = bit();
-    const bBit = bBasis === cBasis ? (Math.random() < cfg.eD ? cBit ^ 1 : cBit) : bit();
-    frames.push({ i, alice_bit: aBit, alice_basis: aBasis,
-      bob_basis: bBasis, bob_bit: bBit, basis_match: aBasis === bBasis });
-  }
-  return frames;
 }
