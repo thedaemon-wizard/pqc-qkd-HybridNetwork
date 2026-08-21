@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import { Bb84Engine, type Bb84Frame } from "../lib/sim/bb84Sim";
 import { channelFromParams } from "../lib/sim/keyrate";
+import ExportToolbar from "../components/ExportToolbar";
 
 /**
  * BB84 Live — Round 5: the photon-level Monte-Carlo runs CLIENT-SIDE in a Web
@@ -88,9 +89,62 @@ export default function BB84() {
     engineRef.current?.setConfig({ eveOn: on, eveProb: prob });
   }
 
+  /**
+   * Client-side run log. `logProvider`, never `logService`: this page's
+   * Monte-Carlo runs entirely in the browser, so the server log says nothing
+   * about the run and offering it under "Logs" would hand the user a
+   * successful download of an unrelated file.
+   */
+  function runLog(): string {
+    const lines = [
+      "# BB84 live simulation run log",
+      `# generated:   ${new Date().toISOString()}`,
+      `# engine:      ${engineName}`,
+      `# throughput:  ${pps.toLocaleString()} pulses/s`,
+      `# eve:         ${eveOn ? `on, P(intercept)=${eveProb}` : "off"}`,
+      `# abort thr.:  ${qberThreshold}`,
+      `# rounds:      ${qberHistory.length}`,
+      "#",
+      "# round\tqber\tpool_size",
+    ];
+    qberHistory.forEach((q, i) => {
+      lines.push(`${i}\t${q.toFixed(6)}\t${poolHistory[i] ?? ""}`);
+    });
+    lines.push("#", "# last photon frames (i, a_bit, a_basis, b_basis, b_bit, match)");
+    frames.forEach((f) => {
+      lines.push(
+        `${f.i}\t${f.alice_bit}\t${f.alice_basis}\t${f.bob_basis}\t${f.bob_bit}\t${f.basis_match}`,
+      );
+    });
+    return lines.join("\n") + "\n";
+  }
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>BB84 Live Simulation</h2>
+
+      {/* This page produced QBER, key-pool and photon-frame data with no way to
+          export any of it, while five other routes had a toolbar. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="bb84"
+          logProvider={runLog}
+          jsonProvider={() => ({
+            engine: engineName,
+            pulses_per_sec: pps,
+            eve: { enabled: eveOn, intercept_probability: eveProb },
+            qber_threshold_abort: qberThreshold,
+            last_qber: lastQber,
+            pool_size: pool,
+            qber_history: qberHistory,
+            pool_history: poolHistory,
+            frames,
+          })}
+          csvProvider={() => qberHistory.map((q, i) => ({
+            round: i, qber: q, pool_size: poolHistory[i] ?? null,
+          }))}
+        />
+      </div>
 
       {/* Controls */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>

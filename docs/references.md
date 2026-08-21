@@ -102,9 +102,19 @@ The formulas actually implemented, and where, are set out in
 
 | Result | Work |
 |---|---|
-| 1002 km twin-field QKD (current fibre distance record) | Y. Liu *et al.*, Phys. Rev. Lett. **130**, 210801 (2023), [doi:10.1103/PhysRevLett.130.210801](https://doi.org/10.1103/PhysRevLett.130.210801) |
-| 64 Mbit/s at 10 km (highest secret-key rate) | F. Grünenfelder, A. Boaron *et al.*, Nat. Photon. **17**, 422 (2023), [doi:10.1038/s41566-023-01168-2](https://doi.org/10.1038/s41566-023-01168-2) |
+| 1002 km twin-field QKD — longest fibre QKD distance to date, on **spooled laboratory fibre** (<0.157 dB/km, 156.5 dB total), **not** deployed fibre. At that distance the rate is 9.53e-12 per pulse (~0.0034 bit/s) and **asymptotic only**; the longest finite-size distance in the PRL is 952 km. Finite-key security at the full 1002 km (3.11e-12 per pulse) is shown in the companion paper. | Y. Liu *et al.*, Phys. Rev. Lett. **130**, 210801 (2023), [doi:10.1103/PhysRevLett.130.210801](https://doi.org/10.1103/PhysRevLett.130.210801); finite-key: Y. Liu *et al.*, Quantum Front. **2**, 16 (2023), [doi:10.1007/s44214-023-00039-9](https://doi.org/10.1007/s44214-023-00039-9) |
+| 254 km twin-field QKD over a **live commercial telecom network** (Frankfurt-Kehl), 110 bit/s, non-cryogenic detectors — the figure that matters for real-world deployment. Longer *installed dark-fibre* spans exist: a 428 km field test, and a 511 km Qingdao-Jinan link that is 430 km deployed trunk plus 81 km of added spool. | M. Pittaluga *et al.*, Nature **640**, 911 (2025), [doi:10.1038/s41586-025-08801-w](https://doi.org/10.1038/s41586-025-08801-w); J.-P. Chen *et al.*, Nat. Photon. **15**, 570 (2021), [doi:10.1038/s41566-021-00828-5](https://doi.org/10.1038/s41566-021-00828-5) |
+| 115.8 Mbit/s at 10 km — highest peer-reviewed secret-key rate for discrete-variable QKD as of 2026-08 (decoy-state BB84, 2.5 GHz clock, standard G.652 spooled fibre, composable finite-size security); the same system reaches 328 km of ultralow-loss fibre | W. Li, L. Zhang, F. Xu, J.-W. Pan *et al.*, Nat. Photon. **17**, 416 (2023), [doi:10.1038/s41566-023-01166-4](https://doi.org/10.1038/s41566-023-01166-4) |
+| 64 Mbit/s at 10.0 km and 3.0 Mbit/s at 102.4 km (2.5 GHz time-bin QKD with real-time key distillation) — the companion paper in the same issue, pp. 422-426. This table previously labelled it "highest secret-key rate"; it was not the highest even in its own issue. | F. Grünenfelder, A. Boaron *et al.*, Nat. Photon. **17**, 422 (2023), [doi:10.1038/s41566-023-01168-2](https://doi.org/10.1038/s41566-023-01168-2) |
 | 12 900 km satellite QKD, portable ground station | Y. Li *et al.*, Nature **640** (2025), [doi:10.1038/s41586-025-08739-z](https://doi.org/10.1038/s41586-025-08739-z) |
+
+> **Records are scope-dependent.** The rate figure above is discrete-variable on spooled
+> fibre with finite-size security. The highest peer-reviewed *continuous-variable* rate is
+> 18.93 Mbit/s over 25 km (M. Wu *et al.*, Phys. Rev. X **16**, 021039 (2026),
+> [doi:10.1103/882y-w4zy](https://doi.org/10.1103/882y-w4zy)). A higher CV figure --
+> 153.22 Mbit/s asymptotic / 149.99 Mbit/s finite-size over 24.3 km of anti-resonant
+> hollow-core fibre -- exists in preprint only (arXiv:2607.14704, 2026-07) and is not
+> peer-reviewed. Verified against Crossref and arXiv on 2026-08-22.
 
 ### Simulators
 
