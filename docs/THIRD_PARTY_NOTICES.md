@@ -12,12 +12,11 @@ Each retains its original copyright notice and license terms.
 | `SimQN` | GPLv3 | independent (Cui et al.) | 8 | 2026-05-25 (active) |
 | `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | v0.8.5, 2026-05-12 (active) |
 | `qkdnetsim` | GPL v2 | QKDNetSim project (Mehic et al.) | 8 | 2026-05-03 (active) |
-| `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | 2025-08 |
-| `strawberryfields` | Apache-2.0 | Xanadu | 8 | 2026-01 (cloud decommissioned) |
+| `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | active; upstream last pushed 2026-06-17. The pin is 3 commits **ahead** of tag v2.2.0, so it already includes that release. |
+| `strawberryfields` | Apache-2.0 | Xanadu | 8 | **ARCHIVED on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
 | `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned submodule **v2.0.4**, 2026-02 (active); `tno` backend + key-rate cross-check |
 | `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; blowfish/des/md4/md5 plugins differ) | strongSwan project | 9 | 2026-05-28 (active) |
-| `qkd-pqc-paper-supplementary` | **NO license** — reference-only, optional, not redistributed | aparcar / Spooren et al. | 9 | 2026-02-16 |
-| `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | 2026-05-14 (active) |
+| `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | **ARCHIVED on GitHub** (read-only; last push 2026-08-04). Previously listed here as "active", which was wrong. Reference implementations only; nothing is built from it today. |
 | `qkd-pqc-paper-supplementary` | **NONE — no licence file of any kind** | aparcar / Spooren et al. | 9 | Reference only: not redistributed, not built into any image, and not to be vendored into a derived work without the authors' permission. Absent from this table until now, which is the omission that matters most here. |
 | `cryptography` (PyPI) | Apache-2.0 / BSD-3-Clause dual | Python Cryptographic Authority | 10 | v44.0.0. Was used by the deleted `e2e_orchestrator`; the shipped HKDF-SHA3-256 and ChaCha20-Poly1305 now run in the browser via `@noble/hashes` and `@noble/ciphers` (rows below). Retained for other backend uses. |
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | 2026-05-08 (active); alternative PSK-injection (benchmark reference, no live integration) |
@@ -55,7 +54,7 @@ Each retains its original copyright notice and license terms.
 - **Strawberry Fields (Apache-2.0)** and **PQClean (per-file MIT / Public
   Domain)** are fully compatible with this repository's Apache-2.0 baseline.
 - **strongSwan (GPL-2.0-or-later, with an OpenSSL/LGPL linking exception)** runs
-  in a dedicated Docker container (`services/strongswan` / `nodes/strongswan/`).
+  in a dedicated Docker container built from `nodes/strongswan/`.
   Its source is unmodified and we invoke its binaries over the network; our
   wrapper `entrypoint.sh` and the Go VICI key-writer in
   `services/arnika-vici/` are our own work and

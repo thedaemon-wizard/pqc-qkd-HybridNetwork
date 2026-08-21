@@ -72,8 +72,56 @@ def test_as_dict_shape_matches_the_endpoint_contract():
     """`/api/verify/paper-budgets` and the WebUI depend on these exact keys."""
     d = paper_budgets.as_dict()
     assert set(d) == {"phases", "total_handshake_packets", "total_handshake_bytes",
+                      "paper_total_packets", "paper_total_bytes",
                       "mean_10_hop_setup_s", "mean_100_hop_setup_s"}
     assert [p["phase"] for p in d["phases"]] == [1, 2, 3, 4, 5]
     for p in d["phases"]:
         assert {"phase", "name", "packets", "bytes",
                 "period_s", "grace_s", "description"} <= set(p)
+
+
+def test_the_totals_are_transcribed_independently_of_the_table():
+    """`packets_match` on /verify must be able to fail.
+
+    It used to compare `sum(PHASE_BUDGETS)` against `TOTAL_HANDSHAKE_PACKETS`,
+    which is defined as `sum(PHASE_BUDGETS)`. Editing any per-phase figure moved
+    both sides together, so the flag was true by construction and the /verify
+    page displayed a check that could not detect anything.
+
+    The paper totals are now literals, so a per-phase edit breaks the match --
+    which is the only thing that makes displaying it worth doing.
+    """
+    import ast
+    import inspect
+
+    src = inspect.getsource(paper_budgets)
+    tree = ast.parse(src)
+    literals = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name in ("PAPER_TOTAL_PACKETS", "PAPER_TOTAL_BYTES"):
+                literals[name] = node.value
+
+    assert set(literals) == {"PAPER_TOTAL_PACKETS", "PAPER_TOTAL_BYTES"}
+    for name, value in literals.items():
+        assert isinstance(value, ast.Constant), (
+            f"{name} must be a literal transcribed from the paper, not a "
+            f"computed expression -- otherwise the match check compares the "
+            f"table against itself"
+        )
+
+    # And they must equal the sums today, or the table disagrees with the paper.
+    assert paper_budgets.PAPER_TOTAL_PACKETS == paper_budgets.TOTAL_HANDSHAKE_PACKETS == 9
+    assert paper_budgets.PAPER_TOTAL_BYTES == paper_budgets.TOTAL_HANDSHAKE_BYTES == 5248
+
+
+def test_a_per_phase_edit_breaks_the_paper_match():
+    """The failure mode the flag exists to catch."""
+    original = paper_budgets.PHASE_BUDGETS[3]["packets"]
+    try:
+        paper_budgets.PHASE_BUDGETS[3]["packets"] = original + 1
+        recomputed = sum(p["packets"] for p in paper_budgets.PHASE_BUDGETS.values())
+        assert recomputed != paper_budgets.PAPER_TOTAL_PACKETS
+    finally:
+        paper_budgets.PHASE_BUDGETS[3]["packets"] = original

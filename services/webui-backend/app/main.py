@@ -505,14 +505,18 @@ async def verify_paper_budgets():
     phases = budgets["phases"]
     total_pkts = sum(int(p.get("packets", 0)) for p in phases)
     total_bytes = sum(int(p.get("bytes", 0)) for p in phases)
+    # Compared against the separately transcribed paper totals, NOT against
+    # `total_handshake_*`, which is the sum of these very phases. That earlier
+    # comparison was a sum against itself -- always true, whatever the paper
+    # says -- and /verify displayed it as evidence.
     return {
         "phases": phases,
         "computed_total_packets": total_pkts,
         "computed_total_bytes": total_bytes,
-        "paper_total_packets": budgets["total_handshake_packets"],
-        "paper_total_bytes": budgets["total_handshake_bytes"],
-        "packets_match": total_pkts == budgets["total_handshake_packets"],
-        "bytes_match": total_bytes == budgets["total_handshake_bytes"],
+        "paper_total_packets": budgets["paper_total_packets"],
+        "paper_total_bytes": budgets["paper_total_bytes"],
+        "packets_match": total_pkts == budgets["paper_total_packets"],
+        "bytes_match": total_bytes == budgets["paper_total_bytes"],
         "reference": "Spooren et al. arXiv:2604.05599 §IV-B Table III",
     }
 

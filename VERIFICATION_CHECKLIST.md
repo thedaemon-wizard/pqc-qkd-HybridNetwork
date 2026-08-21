@@ -99,15 +99,20 @@ Run against the local stack (`http://localhost:5173`) **and** the public demo.
 
 ### 4.3 Every control
 
-For each page, exercise **every** button, checkbox and select:
+For each page, exercise **every** button, checkbox and select. The inventory
+below was taken from the live demo on 2026-08-21 with real navigations; a
+`pushState` sweep samples mid-render and under-reports, which produced false
+"unlabelled control" findings more than once.
 
-| # | Check |
-|---|---|
-| 4.3.1 | Each control does what its label says |
-| 4.3.2 | Disabled controls render as disabled — `opacity < 1` **and** `cursor: not-allowed` |
-| 4.3.3 | A control that cannot act is disabled rather than silently doing nothing |
-| 4.3.4 | Every `<select>` option produces a visible change |
-| 4.3.5 | Errors are shown in the UI, not only in the console |
+| # | Check | Expected |
+|---|---|---|
+| 4.3.1 | Each control does what its label says | Exercise it and observe the stated effect. |
+| 4.3.2 | Disabled controls render as disabled | `opacity < 1` **and** `cursor: not-allowed`. |
+| 4.3.3 | A control that cannot act is disabled, not inert | Compare `button.disabled` against the run state; see 4.4.11 for the measured matrix. |
+| 4.3.4 | Every `<select>` option produces a visible change | Set each option in turn and diff the rendered text. |
+| 4.3.5 | Errors surface in the UI, not only the console | Force one (stop the backend, then export) and read the toolbar. |
+| 4.3.6 | **Control inventory per route** | `/` 16 buttons + 3 selects; `/e2e` 16 + 3 (Run, Pause, Resume, Abort, Reset, Step, modes A/B/C); `/paper-flow` 18 + 3 + hop slider (adds 5 inject buttons and clear, no Abort); `/bb84` 1 checkbox + 1 slider + Plotly modebar only; `/pqc` 1 button + KEM and signature selects; `/physics` 10 buttons + 14 number inputs + Eve checkbox; `/verify` 1; `/benchmarks` and `/console` 7 and 10; `/topology`, `/vpn`, `/keyflow`, `/hil` none. A change here is either a new feature or a regression -- both worth noticing. |
+| 4.3.7 | **Export toolbars are only on 5 of 13 routes** | Present on `/`, `/benchmarks`, `/console`, `/e2e`, `/paper-flow`. Absent elsewhere, including `/bb84`, which produces QBER, key-pool and photon-frame data with no way to export any of it. Recorded so the gap is deliberate rather than forgotten. |
 
 ### 4.4 E2E orchestration simulator (`/e2e`)
 
@@ -123,6 +128,8 @@ For each page, exercise **every** button, checkbox and select:
 | 4.4.8 | Mode A / B / C | changes which key inputs are used; label updates |
 | 4.4.9 | Phase history | 4 rows per cycle; each detail JSON non-empty. Phase 2 carries `key_id`, phase 3 `psk_prefix`/`qkd_bytes`/`pqc_bytes`, phase 4 `packets`/`bytes`/`rate_mbps` |
 | 4.4.10 | KPIs | cycles, packets, bytes, throughput all advance |
+| 4.4.11 | **Disabled set matches the state** | Read `button.disabled` per state. `idle` -> Pause, Resume, Abort disabled. `running` -> Run, Resume, Step disabled. `paused` -> Pause disabled only. Measured on the demo 2026-08-21; this is what makes 4.3.3 checkable rather than a matter of opinion. |
+| 4.4.12 | **Pause really stops the clock** | Note `Cycles`, wait 4 s, read again: unchanged. A paused run that keeps counting is the failure this catches; a paused run that merely stops repainting is not. |
 
 ### 4.4b Paper Data Exchange simulator (`/paper-flow`)
 
@@ -139,6 +146,8 @@ question about it could not be answered from this checklist.
 | 4.4b.6 | `clear` | removes the banner and empties the cascade timeline |
 | 4.4b.7 | Hop slider | `aria-label="Trusted node hop count"`, range 1-8, topology redraws |
 | 4.4b.8 | **Logs exports this run** | tooltip reads "Download this run's log (client-side)"; file contains the phase history, **not** backend HTTP request lines |
+| 4.4b.9 | **Run log reproduces Table III per phase** | Run, then export Logs and read the per-phase lines: phase 1 `pkts=0 bytes=0`, 2 `pkts=2 bytes=78`, 3 `pkts=3 bytes=398`, 4 `pkts=4 bytes=4772`. Handshake total **9 / 5248**, which is the paper figure. Phase 5 is application data and is deliberately not part of that total. Verified on the demo 2026-08-21. |
+| 4.4b.10 | **Step advances exactly one phase** | From `status: paused · phase: idle`, one Step gives `phase: 1` and marks Quantum Plane `active`, and the status stays `paused`. Diff the page text rather than trusting a status regex -- the badge is combined (`status: X · phase: Y`) and a naive match reads the wrong field. |
 
 ### 4.5 Export and animation
 
@@ -157,6 +166,8 @@ question about it could not be answered from this checklist.
 | 4.5.8 | GIF records for the selected duration | frame count ≈ duration × fps |
 | 4.5.9 | Export failures are visible | force one; an error appears in the UI |
 | 4.5.10 | Saved gallery | lists, downloads and deletes |
+| 4.5.11 | **GIF plays back at the recording speed** | Frame delays are the measured gaps between captures, not `1000/fps`. Rendering is not free, so encoding the nominal interval made a 10 s capture play back in appreciably less. `gifFrameDelays` is pure and unit-tested; the sum of delays equals the real capture span. |
+| 4.5.12 | **A local-only save says so** | With the backend unreachable the file still downloads and the toolbar shows `downloaded to this device only`. Silence here is what made a static-only deployment look like it had a working gallery. |
 
 ### 4.6 Client-side compute (the public demo must not load the server)
 
@@ -173,14 +184,17 @@ question about it could not be answered from this checklist.
 
 ### 4.7 Numbers match the model
 
-| # | Check |
-|---|---|
-| 4.7.1 | `/physics` key rate matches [`docs/keyrate.md`](docs/keyrate.md) for the same inputs |
-| 4.7.2 | QBER responds correctly to link length, `e_d` and dark-count rate |
-| 4.7.3 | Rate falls monotonically with distance and reaches 0 above ~11 % QBER |
-| 4.7.4 | `/verify` TNO cross-check agrees with the closed-form rate |
-| 4.7.5 | `/paper-flow` packet/byte budgets match the cited paper table |
-| 4.7.6 | `/vpn` shows the **negotiated** proposal, not a placeholder |
+| # | Check | Expected |
+|---|---|---|
+| 4.7.1 | `/physics` key rate matches the derivation | Same inputs into [`docs/keyrate.md`](docs/keyrate.md) section 4 give the same rate to 3 significant figures. |
+| 4.7.2 | QBER responds to the channel | Raising `link_length_km`, `misalignment_error_ed` or `dark_count_rate_hz` each raises QBER; lowering each lowers it. A figure that does not move is not modelling the channel. |
+| 4.7.3 | Rate falls with distance and vanishes | Monotonic decrease over 0-100 km, reaching 0 above roughly 11 % QBER (the Lo-Ma asymptotic bound, `protocol.qber_threshold_abort`). |
+| 4.7.4 | `/verify` TNO cross-check agrees | `same_order_of_magnitude: true`. Measured 2026-08-21: closed form 12,333,658 bps against TNO 45,726,822 bps at 10 km -- same order, and the two use independent implementations. |
+| 4.7.5 | `/paper-flow` budgets match the paper | Per phase 0/0, 2/78, 3/398, 4/4772; handshake total 9 packets / 5248 bytes. |
+| 4.7.6 | `/vpn` shows the **negotiated** proposal | The string comes from `swanctl --list-sas`, not a constant: it names the KEM actually agreed. |
+| 4.7.7 | **The Table III match check can fail** | `GET /api/verify/paper-budgets` -> `packets_match` and `bytes_match` compare the phase-table sum against `PAPER_TOTAL_PACKETS`/`PAPER_TOTAL_BYTES`, which are literals transcribed from the paper. They previously compared the sum against a constant defined as that same sum, so they were true by construction. Edit one phase figure and the flag must go false. |
+| 4.7.8 | **`/bb84` offline defaults equal `qkd_params.yaml`** | Stop the backend, reload `/bb84`: the simulated link must be the configured one. They had drifted to 25 km and 1e7 against a configured 10 km and 1e9. Pinned by `tests/test_frontend_defaults_match_config.py`. |
+| 4.7.9 | **Reported key rate is a rate, not a sifting fraction** | `/verify` `ours_closed_form.skr_bps` must sit far below `pulse_rate_hz / 2`. All three backends once reported the sifting fraction: 500 Mbps against an actual 12.07 Mbps. |
 
 ### 4.8 Demo-mode hardening
 

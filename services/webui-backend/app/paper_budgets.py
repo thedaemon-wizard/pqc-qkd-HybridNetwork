@@ -53,6 +53,19 @@ PHASE_BUDGETS: dict[int, dict[str, Any]] = {
                        "uses a PSK derived from the Rosenpass output."},
 }
 
+# The totals AS PRINTED IN THE PAPER, transcribed independently of the table
+# above. They are deliberately literals and not a sum.
+#
+# `/api/verify/paper-budgets` reports `packets_match` and `bytes_match`, which
+# the /verify page shows as evidence. Those flags used to compare the sum of
+# PHASE_BUDGETS against a constant that was itself the sum of PHASE_BUDGETS, so
+# they were true by construction: editing a per-phase figure moved both sides
+# together and the check could not fail, whatever the paper says. Comparing the
+# sum against a separately transcribed figure is what makes the check able to
+# fail, which is the only reason to display it.
+PAPER_TOTAL_PACKETS = 9
+PAPER_TOTAL_BYTES = 5248
+
 TOTAL_HANDSHAKE_PACKETS = sum(p["packets"] for p in PHASE_BUDGETS.values())
 TOTAL_HANDSHAKE_BYTES = sum(p["bytes"] for p in PHASE_BUDGETS.values())
 
@@ -64,11 +77,20 @@ MEAN_100_HOP_SETUP_S = 10.62
 
 
 def as_dict() -> dict[str, Any]:
-    """The payload shape `/api/verify/paper-budgets` returns."""
+    """The literature values, as this module holds them.
+
+    NOT the shape `/api/verify/paper-budgets` returns -- that endpoint wraps
+    this, renaming the totals to `paper_total_*` and adding its own
+    `computed_total_*` and match flags. An earlier version of this docstring
+    claimed the two were the same, which is the kind of small untruth that
+    sends a reader to the wrong place.
+    """
     return {
         "phases": [{"phase": k, **v} for k, v in sorted(PHASE_BUDGETS.items())],
         "total_handshake_packets": TOTAL_HANDSHAKE_PACKETS,
         "total_handshake_bytes": TOTAL_HANDSHAKE_BYTES,
+        "paper_total_packets": PAPER_TOTAL_PACKETS,
+        "paper_total_bytes": PAPER_TOTAL_BYTES,
         "mean_10_hop_setup_s": MEAN_10_HOP_SETUP_S,
         "mean_100_hop_setup_s": MEAN_100_HOP_SETUP_S,
     }

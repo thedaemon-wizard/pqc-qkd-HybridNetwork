@@ -20,10 +20,11 @@ here so the roadmap does not keep proposing work that already exists.
 | Secret scanning in CI | `.github/workflows/ci.yml`, job `secrets` (was listed as "recommended" for months) |
 | Reproducible seeded simulation runs | `reconcile()` now takes an injectable RNG |
 
-## Known gaps, carried forward
+## Known gaps - model and protocol
 
-Recorded rather than scheduled. Each is a real limitation of the current
-implementation, not a speculative feature.
+Recorded rather than scheduled. These are limitations of the physics and
+protocol modelling, and are not expected to close without new work upstream.
+Implementation gaps are tracked separately, under "Status" below.
 
 | Gap | Consequence |
 |---|---|
@@ -180,25 +181,54 @@ Closed this round, with the evidence rather than the intention:
   MathJax subset and were showing as raw source.
 - **Two shell scripts were unrunnable** (CRLF), including the repository's own
   secret scanner. Fixed by normalisation; `.gitattributes` prevents recurrence.
+- **`skr_bps` reported a sifting fraction, not a secret-key rate**, in all
+  three backends -- 500 Mbps against an actual 12.07 Mbps, a factor of 41. All
+  now route through the golden-vector-tested GLLP/Lo-Ma model. SimQN also
+  flags synthesised rounds, which the default configuration produces.
+- **The CV-QKD backend emitted zero keys** (165 rounds, 165 aborts on the live
+  demo). Five defects: transmittance applied twice, excess noise passed as a
+  thermal photon number, modulation at twice the intended variance,
+  `Coherent(r, phi)` used as if Cartesian, and a BB84 QBER threshold gating a
+  continuous-variable protocol. The Holevo bound is now the symplectic form.
+- **GIF playback ran faster than the recording.** Frame delays are timed as
+  captured rather than assumed from the nominal interval.
+- **`/bb84`'s photon table is now the run** on the GPU tiers: the round is
+  replayed from its own seed instead of resampled with `Math.random()`.
+- **The QBER threshold line reads `qber_threshold_abort`** rather than a
+  literal `0.11`, and the key-pool model is one shared function instead of
+  three verbatim copies.
+- **`/bb84`'s offline defaults had drifted from `qkd_params.yaml`** -- 25 km
+  against a configured 10 km, and 1e7 against 1e9 pulses per second. A test now
+  compares the two files.
+- **The paper-budget match check could not fail.** It compared the sum of the
+  phase table against a constant defined as that same sum; the paper totals are
+  now transcribed independently.
 
-### Known gaps, carried forward
+### Implementation gaps still open
 
-- **Exports round-trip through the backend.** `saveToBackendAndDownload` POSTs
-  every JSON/PNG/CSV/GIF/WebM to `/api/exports/save` before handing it over,
-  falling back to a local blob only on failure. A static-only deployment
-  therefore loses the saved-exports gallery silently. See
-  [`deployment-economics.md`](deployment-economics.md).
-- **GIF playback is faster than real time.** Frame delays are written as the
-  nominal interval while the capture loop sleeps *after* a synchronous
-  serialise-and-encode, so real elapsed time exceeds the request.
-- **`/bb84`'s photon-frame table is not the run** on a GPU tier:
-  `cpuSampleFrames` regenerates frames with `Math.random()` independently of
-  the pass that produced the QBER.
-- **Hardcoding.** The QBER threshold line is the literal `0.11` rather than the
-  editable `qber_threshold_abort`; the key-pool model is duplicated verbatim
-  across three engines.
-- **PQClean cross-check is not performed** -- the test binaries are never
-  built. The scope note in `services/pqc-validator/Dockerfile` says so.
+Four entries previously listed here have been closed and are recorded above
+instead; leaving them would have kept the roadmap arguing for work that exists.
+
+- **Exports still round-trip through the backend.** `saveToBackendAndDownload`
+  POSTs every JSON/PNG/CSV/GIF/WebM to `/api/exports/save` before handing it
+  over. It no longer fails silently -- a local-only save is now reported in the
+  toolbar -- but a static-only deployment still cannot populate the
+  saved-exports gallery. See [`deployment-economics.md`](deployment-economics.md).
+- **PQClean cross-check is not performed.** The `test/test_<algo>` binaries are
+  never built, so every response carries `pqclean_test_present: false`.
+  Conformance rests on liboqs alone. Stated in
+  `services/pqc-validator/Dockerfile` and in [`LIMITATIONS.md`](LIMITATIONS.md).
 - **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
   rather than faked; wiring the two TLS lanes into compose behind a real switch
-  is the remaining work for that RFC 7696 claim.
+  is the remaining work for that RFC 7696 claim. Neither lane appears in any
+  compose file today.
+- **`/verify` is server-side.** It calls `/api/pqc/agility`,
+  `/api/verify/keyrate` and `/api/verify/paper-budgets`, so it is one of the
+  seven routes that degrade without a backend.
+- **`/physics` renders nothing without the backend.** The editable field list
+  comes from `/api/sim/params/editable`; the key-rate mathematics beside it is
+  already client-side.
+- **Export toolbars are on 5 of 13 pages** (Overview, Benchmarks, Console,
+  `/e2e`, `/paper-flow`). `/bb84` in particular produces QBER, key-pool and
+  photon-frame data with no way to export any of it.
+- **`/e2e` has no failure-injection control**, though `/paper-flow` does.
