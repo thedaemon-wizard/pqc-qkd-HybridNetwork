@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # =====================================================================
 # Assert that every MANDATORY compose variable is present in the example
 # env file operators are told to copy.
@@ -42,7 +42,17 @@ check() {
     provided=$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$example" \
                | tr -d '=' | sort -u)
 
-    missing=$(comm -23 <(printf '%s\n' "$required") <(printf '%s\n' "$provided"))
+    # Set subtraction without process substitution: `comm <(..) <(..)` is a
+    # bashism, and CI invokes this with `sh`, which on Ubuntu is dash. Running
+    # it locally under bash hid that until CI failed with
+    # `Syntax error: "(" unexpected`. Keep this file POSIX so it behaves the
+    # same however it is invoked.
+    missing=""
+    for var in $required; do
+        if ! printf '%s\n' "$provided" | grep -qx "$var"; then
+            missing="$missing $var"
+        fi
+    done
 
     if [ -n "$missing" ]; then
         for var in $missing; do
