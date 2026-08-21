@@ -26,6 +26,32 @@ const WEBM_MAX_WIDTH = 1920;
 const WEBM_CHUNK_MS = 100;
 /** Matches the app background so exports do not render on transparent black. */
 const CANVAS_BG = "#0a0e17";
+/**
+ * GIF stores frame delay in centiseconds, and most decoders treat anything
+ * under 2 cs as "unspecified" and substitute 100 ms. Clamping here keeps a
+ * fast frame fast instead of letting the decoder stretch it tenfold.
+ */
+const MIN_GIF_DELAY_MS = 20;
+
+/**
+ * Per-frame delays from the times the frames were actually captured.
+ *
+ * The capture loop used to sleep `1000 / fps` between frames and then encode
+ * every frame with that same delay -- but rendering an SVG to a PNG data URL
+ * is not free, so each frame cost `render + interval` of wall clock while
+ * claiming to have cost `interval`. A 10-second recording played back in
+ * appreciably less than 10 seconds, faster than the animation it recorded.
+ *
+ * Timing the captures instead makes playback match the recording whatever the
+ * render cost, which also means a slow machine produces a shorter but
+ * real-time GIF rather than a sped-up one.
+ */
+export function gifFrameDelays(captureTimes: number[], endedAt: number): number[] {
+  return captureTimes.map((t, i) => {
+    const until = i + 1 < captureTimes.length ? captureTimes[i + 1] : endedAt;
+    return Math.max(MIN_GIF_DELAY_MS, Math.round(until - t));
+  });
+}
 
 function timestamp(): string {
   const d = new Date();
@@ -41,10 +67,40 @@ function triggerDownload(blob: Blob, filename: string): void {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
 }
 
-/** Phase 13: upload a blob to the backend so it persists across browser sessions,
- *  then trigger the browser to download the stable URL the backend returned.
- *  If the backend save fails (e.g. webui-backend offline) we fall back to a
- *  pure-client Blob download so the user always gets something. */
+/**
+ * A note about the last export, for the toolbar to display.
+ *
+ * Not an error channel: the user always receives their file. It exists because
+ * the backend save can fail while the download succeeds, and the two outcomes
+ * are meaningfully different -- one puts the artefact in the saved-exports
+ * gallery, the other does not. Previously that difference was a console.warn,
+ * so on a static-only deployment every export took the local path, the gallery
+ * stayed permanently empty, and nothing on screen explained why.
+ */
+let pendingNotice = "";
+
+/** Record that the file was delivered, but not everywhere it was meant to go. */
+export function noteExportFallback(reason: string): void {
+  pendingNotice = reason;
+}
+
+/**
+ * Read and clear the note left by the most recent export.
+ *
+ * Clearing on read is the point: the toolbar reads once per export, and a
+ * sticky notice would keep reporting a stale local-only save long after the
+ * backend came back.
+ */
+export function takeExportNotice(): string {
+  const n = pendingNotice;
+  pendingNotice = "";
+  return n;
+}
+
+/** Upload a blob to the backend so it persists across browser sessions, then
+ *  download it from the stable URL the backend returned. When the backend is
+ *  absent the file is still delivered from memory, and the difference is
+ *  reported through `takeExportNotice` rather than swallowed. */
 async function saveToBackendAndDownload(
   blob: Blob, name: string, ext: string, filenameFallback: string,
 ): Promise<void> {
@@ -74,7 +130,9 @@ async function saveToBackendAndDownload(
     document.body.appendChild(a); a.click();
     setTimeout(() => document.body.removeChild(a), 500);
   } catch (e) {
-    console.warn("backend export save failed, falling back to client-only", e);
+    const why = e instanceof Error ? e.message : String(e);
+    noteExportFallback(`downloaded to this device only -- not added to saved exports (${why})`);
+    console.warn("backend export save failed, delivering the file locally", e);
     triggerDownload(blob, filenameFallback);
   }
 }
@@ -206,10 +264,15 @@ export async function downloadGif(
   const intervalMs = 1000 / fps;
 
   const frames: string[] = [];
+  const captureTimes: number[] = [];
   const t0 = performance.now();
+  // Absolute schedule rather than a fixed sleep, so a slow render steals from
+  // the next gap instead of adding to the total.
+  let nextCaptureAt = t0;
   let frameW = 0, frameH = 0;
 
   while (performance.now() - t0 < durationMs) {
+    captureTimes.push(performance.now());
     let dataUrl: string;
     if (target instanceof SVGSVGElement) {
       const vb = target.viewBox && target.viewBox.baseVal;
@@ -226,17 +289,21 @@ export async function downloadGif(
       frameH = target.clientHeight;
     }
     frames.push(dataUrl);
-    await new Promise(r => setTimeout(r, intervalMs));
+    nextCaptureAt += intervalMs;
+    const wait = nextCaptureAt - performance.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
+  const endedAt = performance.now();
 
   if (!frames.length) throw new Error("no frames captured");
   if (!frameW || !frameH) throw new Error("target has zero size; nothing to record");
 
   const { encode } = await import("modern-gif");
+  const delays = gifFrameDelays(captureTimes, endedAt);
   const output = await encode({
     width: frameW,
     height: frameH,
-    frames: frames.map((src) => ({ data: src, delay: Math.round(intervalMs) })),
+    frames: frames.map((src, i) => ({ data: src, delay: delays[i] })),
   });
 
   await saveToBackendAndDownload(
