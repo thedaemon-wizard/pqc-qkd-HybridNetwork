@@ -282,7 +282,7 @@ webui-frontend, all healthy):
   "PQC-only" / "Hybrid (QKD ‖ PQC)" respectively
 - WebSocket delivered 3 snapshots in 250 ms intervals with phase transitions visible
 - **0 console errors** (only React Router v7 future-flag warnings, benign)
-- Screenshots captured for idle / running / paused states
+- Idle / running / paused states reviewed on screen (captures not committed)
 
 ### Layout v2 (Phase 11)
 
@@ -305,7 +305,7 @@ as a reference for the alternative "PQC-only PSK rotation" approach used in
 production by Mullvad VPN; see [`docs/IMAGE1_VPN_SCOPE.md`](IMAGE1_VPN_SCOPE.md)
 for a head-to-head comparison with arnika.
 
-Screenshots: `docs/images/screenshots/e2e-v2-idle.png`, `e2e-v2-phase1.png`.
+Screenshots were reviewed for this layout but not committed. These specific captures were never committed; the files in `docs/images/screenshots/` are listed in the repository. Kept as a record of what was checked at the time, not as a pointer to an artefact.
 
 ---
 
@@ -383,7 +383,7 @@ best-effort backend save for re-download; **no server-side generation is require
 - `/api/logs/files` returns the three rotating log files actually written under
   `/var/log/pqcqkd/` (verified inside the container)
 - **0 console errors**
-- Screenshot: `docs/images/screenshots/e2e-v3-export-toolbar-top.png`
+- Toolbar layout reviewed on screen; the capture was not committed
 
 ---
 
