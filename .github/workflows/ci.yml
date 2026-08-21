@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    # `main` is the only long-lived branch; feature branches are covered by the
+    # pull_request trigger below.
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -126,6 +128,20 @@ jobs:
           ARNIKA_VICI_VET_AND_TEST: "1"
         run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
 
+  env-example:
+    name: Example env files satisfy the compose set
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Compose interpolates the ENTIRE file before selecting services, so a
+      # missing ${VAR:?} aborts an `up` that names only unrelated ones. A
+      # mandatory variable absent from the example file operators are told to
+      # copy is therefore a total deploy failure, and it was one: the public
+      # demo sat on a two-month-old build because deploy/.env.example never
+      # listed ARNIKA_PSK.
+      - name: Check
+        run: sh scripts/check_env_example.sh
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -137,6 +153,33 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Commit MESSAGES are published alongside the tree, and gitleaks does not
+      # read them. This repository has already shipped a commit whose message
+      # named the assistant tooling used to drive a browser check -- in the very
+      # commit that removed those references from the files. Messages cannot be
+      # edited after the fact without rewriting history, so the check belongs on
+      # the way in.
+      - name: Commit messages are free of tooling references
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            range="origin/${{ github.base_ref }}..HEAD"
+          else
+            range="${{ github.event.before }}..${{ github.sha }}"
+          fi
+          # A first push to a new branch reports an all-zero "before".
+          case "${range}" in 0000000*) range="HEAD~1..HEAD" ;; esac
+
+          bad=$(git log --format='%H %s%n%b' "${range}" \
+                | grep -inE 'claude|anthropic|copilot|chatgpt|\bLLM\b|devtools mcp|co-authored-by: *claude' \
+                || true)
+          if [ -n "${bad}" ]; then
+            echo "::error::commit message(s) in ${range} reference assistant tooling:"
+            printf '%s\n' "${bad}"
+            exit 1
+          fi
+          echo "ok: no tooling references in ${range}"
 
   images:
     name: Container images build

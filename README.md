@@ -68,8 +68,10 @@ The QKD layer is supplied by a **pluggable BB84 physical simulator** wrapped
 behind the ETSI GS QKD 014 REST API; seven backends are selectable at runtime
 (QuTiP, SimQN, SeQUeNCe, CV-QKD, TNO, composite and a QKDNetSim proxy). The
 key-rate model they share is derived in [`docs/keyrate.md`](docs/keyrate.md). Eve's intercept-resend attack can be
-toggled from the WebUI, and the resulting QBER jump and arnika's fall-back
-behaviour are visible in real time.
+toggled from the WebUI, and the resulting QBER jump is visible in real time.
+The toggle reconfigures the in-browser simulation engine only -- it does not
+reach a KME or arnika, so it does not exercise arnika's fall-back path. (An
+earlier version of this sentence claimed it did.)
 
 ---
 
@@ -133,7 +135,7 @@ pqc-qkd-hybrid/
 │   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
 │   └── qkd_keyrate_table.json         # Pre-computed SKR table (arXiv:2511.21253)
 ├── services/
-│   ├── bb84-kme/                      # Python: 6-backend BB84/CV-QKD + ETSI-014 REST
+│   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
 │   ├── webui-backend/                 # FastAPI orchestrator
 │   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
@@ -147,7 +149,8 @@ pqc-qkd-hybrid/
 ├── animations/                        # Manim scenes (.py)
 ├── benchmarks/                        # Latency / throughput scripts
 ├── tests/                             # pytest contract & unit tests
-└── docs/                              # paper_mapping.md, roadmap.md
+└── docs/                              # keyrate, vici-ppk, references, roadmap,
+                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
 ```
 
 ---
@@ -326,7 +329,7 @@ Most pages provide per-page export buttons below the description — **high-DPI 
 | wg0 reachability | `docker exec alice ping -c 3 10.0.0.2` | All replies received |
 | PSK injection log | `docker logs alice \| grep "PSK configured"` | One match per `ARNIKA_INTERVAL` |
 | HKDF fusion log | `docker logs alice \| grep "HKDF derivation completed for QKD+PQC"` | Present in `QkdAndPqcRequired` mode |
-| Eve raises QBER | toggle Eve in WebUI → QBER chart spikes ≥ 25% within 2 rounds; arnika falls back per mode | observable in WebUI |
+| Eve raises QBER | toggle Eve in WebUI → QBER chart spikes ≥ 25% within 2 rounds | observable in WebUI; client-side engine only, arnika is not involved |
 | Encrypted on the wire | `docker exec alice tcpdump -i eth1 -X udp port 51820 -c 5` | only opaque ciphertext, no ICMP plaintext |
 | Multi-hop ping (optional) | `make up-multihop && docker exec alice ping 10.0.0.2` | Replies via charlie |
 

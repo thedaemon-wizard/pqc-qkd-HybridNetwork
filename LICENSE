@@ -15,11 +15,47 @@
    limitations under the License.
 
 ----------------------------------------------------------------------
-NOTICE — Third-party software incorporated by reference (git submodules):
-  * arnika-vq        — Apache-2.0  © CANCOM Converged Services GmbH
-  * liboqs           — MIT          © Open Quantum Safe project
-  * oqs-provider     — Apache-2.0   © Open Quantum Safe project
-  * rosenpass        — MIT / Apache-2.0  © Rosenpass project
+NOTICE — Third-party software incorporated by reference (git submodules)
+
+The Apache-2.0 grant above covers THIS repository's own code only. The 15
+submodules are separate works under their own terms. All of them are listed
+below: the previous notice named four, one of which ("arnika-vq") is not a
+submodule of this project, and it omitted every copyleft dependency.
+
+Permissive:
+  * arnika           — Apache-2.0        © CANCOM Converged Services GmbH
+  * strawberryfields — Apache-2.0        © Xanadu Quantum Technologies
+  * tno-qkd-key-rate — Apache-2.0        © TNO
+  * liboqs           — MIT               © Open Quantum Safe project
+  * oqs-provider     — MIT               © Open Quantum Safe project
+  * openQKDsecurity  — MIT               © Optical Quantum Communication Theory group
+  * qkd_kme_server   — MIT               © Thomas Prévost
+  * rosenpass        — MIT OR Apache-2.0 © Rosenpass project
+  * SeQUeNCe         — BSD-3-clause-style open-source licence
+                                         © UChicago Argonne, LLC
+
+Copyleft — these carry obligations when a combined work is redistributed:
+  * SimQN            — GPL-3.0           © QNLab, USTC
+  * wgephemeralpeer  — GPL-3.0           © Mullvad VPN AB
+  * qkdnetsim        — GPL-2.0           © QKDNetSim authors
+  * strongswan       — GPL-2.0-or-later, with an OpenSSL linking exception
+                                         © strongSwan project
+
+Per-file or unstated:
+  * PQClean          — no repository-wide licence. Each implementation
+                       subdirectory carries its own LICENSE, mostly public
+                       domain / CC0 / MIT. Check per algorithm.
+  * qkd-pqc-paper-supplementary
+                     — no licence file of any kind. Reference only: not
+                       redistributed, not built into any image, and not to be
+                       vendored into a derived work without the authors'
+                       permission.
+
+None of the copyleft components is linked into this repository's own binaries;
+they run as separate processes or containers. That separation is what keeps the
+combination distributable, so it is a constraint on how this project may be
+integrated rather than a footnote. See docs/THIRD_PARTY_NOTICES.md for
+per-dependency detail, including the npm packages.
 
 This repository re-distributes cryptographic implementations. Users must
 verify their jurisdiction's export-control regulations (e.g. US ECCN 5D002)

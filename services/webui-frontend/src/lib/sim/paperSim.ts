@@ -2,10 +2,10 @@
  * Client-side Paper Data Exchange orchestrator (Round 5) — TS port of
  * services/webui-backend/app/paper_flow.py. Reproduces the 5-phase multi-hop
  * flow, arXiv:2604.05599 Table-III packet budgets, the layer-aware failure
- * cascade (Round 4 fix), and the per-cycle ChaCha20 data payload — all in the
+ * cascade (Round 4 fix), and the per-cycle ChaCha20-Poly1305 data payload — all in the
  * browser. Emits the same PaperFlowState shape the page already renders.
  */
-import { randomBytes } from "./crypto";
+import { chachaSeal, deriveHkdfSha3, encodeUtf8, randomBytes, toHex } from "./crypto";
 
 export type Layer = "qkd" | "arnika" | "wireguard" | "rosenpass" | "data";
 
@@ -75,6 +75,9 @@ export class PaperSim {
   private cyclesTotal = 0; private cyclesSucceeded = 0;
   private packetsTotal = 0; private bytesTotal = 0;
   private lastPayload = "";
+  // Key material for the phase-5 AEAD, produced by phases 2 and 4.
+  private qkdKey: Uint8Array | null = null;
+  private pqcSecret: Uint8Array | null = null;
   private failLayer: Layer | null = null;
   private failStarted: number | null = null;
   private cascade: CascadeSched[] = [];
@@ -118,12 +121,20 @@ export class PaperSim {
   private emit() { this.onState(this.snapshot()); }
 
   start() { this.status = "running"; if (this.phase === 0) this.beginCycle(); this.ensureLoop(); this.emit(); }
-  pause() { this.status = "paused"; this.emit(); }
+  pause() {
+    this.status = "paused";
+    // Stop the timer, matching E2ESim.pause(). Leaving it running only for
+    // tick() to early-return kept waking the main thread 10x a second on a
+    // paused page, which on a public demo is a battery cost for nothing.
+    this.stopLoop();
+    this.emit();
+  }
   resume() { this.status = "running"; this.ensureLoop(); this.emit(); }
   reset() {
     this.status = "idle"; this.phase = 0;
     this.cyclesTotal = this.cyclesSucceeded = this.packetsTotal = this.bytesTotal = 0;
     this.lastPayload = ""; this.failLayer = null; this.failStarted = null;
+    this.qkdKey = null; this.pqcSecret = null;
     this.cascade = []; this.history = []; this.cycleAccepted = true; this.emit();
   }
   setHopCount(n: number) { this.hop = Math.max(1, Math.min(8, Math.round(n))); this.emit(); }
@@ -141,7 +152,12 @@ export class PaperSim {
   }
   clearFailure() { this.failLayer = null; this.failStarted = null; this.cascade = []; this.emit(); }
 
-  dispose() { if (this.timer !== null) { clearInterval(this.timer); this.timer = null; } }
+  /** Stop the tick timer. Idempotent. */
+  private stopLoop() {
+    if (this.timer !== null) { clearInterval(this.timer); this.timer = null; }
+  }
+
+  dispose() { this.stopLoop(); }
 
   private ensureLoop() {
     if (this.timer !== null) return;
@@ -172,10 +188,38 @@ export class PaperSim {
     const detail: Record<string, unknown> = {
       period_s: info.period_s, grace_s: info.grace_s, failed: failedThisPhase };
 
+    // Phase 2 yields the QKD key, phase 4 the PQC secret. Both are generated
+    // where the modelled flow produces them so phase 5 cannot silently run on
+    // material that was never established -- if a cascade failure skipped the
+    // producing phase, the seal below has nothing to work with and says so.
+    if (phase === 2 && !failedThisPhase) this.qkdKey = randomBytes(32);
+    if (phase === 4 && !failedThisPhase) this.pqcSecret = randomBytes(32);
+
     if (phase === 5 && !failedThisPhase) {
-      const payload = randomBytes(64);
-      pkts = 1; bytes = payload.length; this.lastPayload = b64(payload);
-      detail.data_bytes = bytes;
+      // PHASE_BUDGETS[5] describes this as "WireGuard with ChaCha20-Poly1305
+      // ... a PSK derived from the Rosenpass output", and the page titles the
+      // panel accordingly. Previously the payload was plain randomBytes(64) and
+      // no AEAD ran at all, so the label asserted a cryptographic property the
+      // code did not provide. Do what the description says.
+      if (this.qkdKey && this.pqcSecret) {
+        const psk = deriveHkdfSha3(this.qkdKey, this.pqcSecret, "paper-flow");
+        const plaintext = encodeUtf8(
+          `PAPER-FLOW cycle ${this.cyclesTotal + 1} hops=${this.hop} Alice->Bob`);
+        const { ciphertext, nonce } = chachaSeal(psk, plaintext);
+        pkts = 1;
+        // On the wire the nonce travels with the ciphertext, so both count.
+        bytes = ciphertext.length + nonce.length;
+        this.lastPayload = b64(ciphertext);
+        detail.data_bytes = bytes;
+        detail.aead = "ChaCha20-Poly1305";
+        detail.psk_prefix = toHex(psk).slice(0, 16);
+      } else {
+        // Reached only if an upstream phase failed without tripping
+        // failedThisPhase. Surface it rather than emitting a decorative blob.
+        pkts = 0; bytes = 0; this.lastPayload = "";
+        detail.data_bytes = 0;
+        detail.error = "no PSK: QKD or PQC material missing";
+      }
     }
     this.packetsTotal += pkts; this.bytesTotal += bytes;
     // close the open history record
