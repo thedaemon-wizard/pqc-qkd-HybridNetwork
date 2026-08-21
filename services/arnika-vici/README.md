@@ -164,8 +164,25 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   ESTABLISHED. `rekey` returns once charon has queued the reauthentication.
   This is tolerable because both generations stay loaded across the gap, but
   closing it properly means subscribing to the `ike-updown` event stream.
-- arnika's KDF is salt-less and info-less, a gap against NIST SP 800-227
-  section 4.6.3. Kept bit-compatible with upstream deliberately.
+- **arnika's KDF does not meet the SP 800-227 combiner requirement.** This was
+  previously recorded as a vague "gap against section 4.6.3"; the specific
+  position is:
+
+  SP 800-227 §4.6.2 says an approved key combiner **shall** be used, and points
+  at SP 800-56C, whose two-step form is
+  `K <- Expand(Extract(salt, Z), FixedInfo)`. arnika supplies **neither** salt
+  nor FixedInfo, so it does not instantiate that form.
+
+  A second point in the same section is worth recording because it is the one
+  that turns out to be satisfied: SP 800-227 warns that concatenating inputs is
+  ambiguous when their lengths can vary, since `x‖y` may equal `x'‖y'` for a
+  different pair. Here both inputs are **fixed 32-byte keys**, so the encoding
+  is unambiguous. `HKDF(QKD ‖ PQC)` is therefore sound *because the lengths are
+  fixed*, not because bare concatenation is generally safe — a distinction that
+  disappears the moment anyone makes an input variable-length.
+
+  Kept bit-compatible with upstream deliberately. Adding salt and FixedInfo is
+  the change to propose upstream, and it is a wire-format break.
 - `WIREGUARD_INTERFACE` and `WIREGUARD_PEER_PUBLIC_KEY` must still be set even
   though this adapter ignores them; upstream's config parser requires them
   unconditionally. Making them conditional on the selected adapter is the
