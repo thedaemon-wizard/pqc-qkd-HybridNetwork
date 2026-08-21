@@ -92,6 +92,7 @@ Run against the local stack (`http://localhost:5173`) **and** the public demo.
 | 4.2.1 | Zero console errors | DevTools console. Only the two React Router v7 future-flag warnings are acceptable. |
 | 4.2.2 | No Japanese text | `document.documentElement.innerText.match(/[぀-ヿ㐀-䶿一-鿿]/g)` → `null` |
 | 4.2.3 | `<html lang="en">` | view source |
+| 4.2.4 | **Every form control is labelled** | For each page: `[...document.querySelectorAll('input,select')].filter(x => !x.getAttribute('aria-label') && !x.labels?.length && !x.closest('label')).length` -> `0`. `/physics` had 15 unlabelled inputs whose parameter name was only adjacent text, so a screen reader announced bare "number" fields on the page that sets the simulation's physics. **Sample only a fully-settled page** -- querying during an SPA route transition reports false positives, which is how three already-correct pages were first misdiagnosed. |
 | 4.2.4 | No horizontal overflow | resize to 1280 and 1920 |
 | 4.2.5 | SVG connectors meet box edges | endpoints on a border, not a centre (±2.5 px) |
 | 4.2.6 | No overlapping SVG text | visual |
@@ -148,6 +149,8 @@ question about it could not be answered from this checklist.
 | 4.5.3 | Logs exports THIS run, not a server file | On `/e2e` the button tooltip reads "Download this run's log (client-side)" and the file contains the phase history. A page whose simulation runs in the browser must not offer a server log here: it downloads successfully and contains nothing about the run. |
 | 4.5.4 | **Duration select defaults to 10 s** | options 3/5/10/15/20/30/60 |
 | 4.5.4b | `/paper-flow` payload is really encrypted | Run, then `atob(<payload b64>).length` = plaintext + **16** (Poly1305 tag). Exactly `64` means the page reverted to `randomBytes(64)` while still titled ChaCha20-Poly1305 -- the panel asserted an AEAD that never ran. Measured 52 B on the live demo. |
+| 4.5.4c | **Exports contain the run, not a shell** | After a run on `/e2e`: the CSV header lists one column per detail key (`phase,name,started_at,completed_at,duration_ms,alice_pool,key_id,qkd_key_len,psk_prefix,qkd_bytes,pqc_bytes,packets,bytes,rate_mbps`) and rows carry a real `key_id` and `psk_prefix`; the JSON has non-empty `history` and `engine: client-side`. A non-empty file is not sufficient evidence. |
+| 4.5.4d | **Which exports touch the server** | Only `Logs` is a pure client-side blob. JSON/PNG/CSV/WebM/GIF POST to `/api/exports/save` first and fall back to a local blob only on failure, so a static-only deployment silently loses the saved-exports gallery. Verified by wrapping `URL.createObjectURL`: exactly one blob is captured for three export clicks. |
 | 4.5.5 | WebM fps select | 12–60, default 25 |
 | 4.5.6 | GIF fps select | 2–15, default 4 |
 | 4.5.7 | WebM records for the selected duration | file length ≈ selection |

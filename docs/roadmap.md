@@ -157,3 +157,48 @@ The QLSTM-IDS work in section C is the first item that genuinely wants an ML
 runtime. If it lands in the browser rather than server-side, ONNX Runtime Web is
 the candidate to revisit, and it should be scoped to that page alone rather than
 adopted as the general compute story.
+
+
+---
+
+## Status as of 2026-08-21
+
+Closed this round, with the evidence rather than the intention:
+
+- **VICI lane** verified in CI on `main`: both peers negotiate
+  `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`, hold exactly
+  one IKE_SA, and rotate. One authentication failure per ~9 rotations remains
+  and is the documented sub-millisecond race in [`vici-ppk.md`](vici-ppk.md),
+  not a regression.
+- **Dead backend removed.** `e2e_orchestrator.py` and `paper_flow.py` are gone
+  along with ~200 lines of unreachable routes; `main.py` 842 -> 653. The paper
+  budgets moved to `paper_budgets.py` and are now pinned by a test.
+- **rosenpass** 2024 pin -> v0.2.3, which forced `rust:1.83` -> `rust:1.90`
+  because a transitive dependency declares edition 2024.
+- **README** 490 -> 376 lines; build detail and limitations split out.
+- **Formulas** all render on GitHub -- `\boxed{}` and `aligned` are not in its
+  MathJax subset and were showing as raw source.
+- **Two shell scripts were unrunnable** (CRLF), including the repository's own
+  secret scanner. Fixed by normalisation; `.gitattributes` prevents recurrence.
+
+### Known gaps, carried forward
+
+- **Exports round-trip through the backend.** `saveToBackendAndDownload` POSTs
+  every JSON/PNG/CSV/GIF/WebM to `/api/exports/save` before handing it over,
+  falling back to a local blob only on failure. A static-only deployment
+  therefore loses the saved-exports gallery silently. See
+  [`deployment-economics.md`](deployment-economics.md).
+- **GIF playback is faster than real time.** Frame delays are written as the
+  nominal interval while the capture loop sleeps *after* a synchronous
+  serialise-and-encode, so real elapsed time exceeds the request.
+- **`/bb84`'s photon-frame table is not the run** on a GPU tier:
+  `cpuSampleFrames` regenerates frames with `Math.random()` independently of
+  the pass that produced the QBER.
+- **Hardcoding.** The QBER threshold line is the literal `0.11` rather than the
+  editable `qber_threshold_abort`; the key-pool model is duplicated verbatim
+  across three engines.
+- **PQClean cross-check is not performed** -- the test binaries are never
+  built. The scope note in `services/pqc-validator/Dockerfile` says so.
+- **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
+  rather than faked; wiring the two TLS lanes into compose behind a real switch
+  is the remaining work for that RFC 7696 claim.
