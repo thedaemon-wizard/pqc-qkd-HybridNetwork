@@ -6,16 +6,12 @@ Endpoints:
     GET  /api/stats          : aggregated KME + arnika stats
     GET  /api/logs/{name}    : last N log lines from a container
     GET  /api/wg/{node}      : `wg show wg0 dump` for the node
-    POST /api/sim/eve        : forward Eve control to KME-a
-    POST /api/sim/rotate     : ask KME-a to rotate
     POST /api/stack/{action} : start|stop|restart a service
     POST /api/bench/ping     : run ping benchmark
     GET  /api/topology       : graph nodes/edges for D3
-    WS   /ws/frames          : multiplexed KME frame stream
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import time
@@ -23,10 +19,9 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 try:
     import docker
@@ -34,7 +29,7 @@ try:
 except ImportError:
     _docker_available = False
 
-from . import logging_setup
+from . import logging_setup, paper_budgets
 
 log = logging_setup.configure("webui-backend")
 
@@ -55,31 +50,12 @@ async def lifespan(app: FastAPI):
     else:
         app.state.docker = None
 
-    # Phase 10: E2E orchestrator
-    from .e2e_orchestrator import E2EOrchestrator
-    app.state.e2e = E2EOrchestrator()
-    app.state.e2e_task = asyncio.create_task(app.state.e2e.run(),
-                                              name="e2e-orchestrator")
-
-    # Phase 14: Paper Data Exchange orchestrator
-    from .paper_flow import PaperFlowOrchestrator
-    app.state.paper_flow = PaperFlowOrchestrator()
-    app.state.paper_flow_task = asyncio.create_task(
-        app.state.paper_flow.run(), name="paper-flow-orchestrator")
+    # The /e2e and /paper-flow orchestrators used to start here. Both pages
+    # moved to client-side simulation, nothing has called their endpoints
+    # since, and the only thing still reading them was the static budget dict
+    # now in `paper_budgets`. Two background tasks per process, for nothing.
 
     yield
-    for task_name in ("e2e_task", "paper_flow_task"):
-        task = getattr(app.state, task_name, None)
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass  # expected: we just cancelled it
-            except Exception:
-                # Any OTHER exception means the orchestrator died of something
-                # real. Cancelling on shutdown must not be what hides it.
-                log.exception("%s raised during shutdown", task_name)
     await app.state.http.aclose()
 
 
@@ -372,33 +348,17 @@ async def wg_show(node: str):
         raise HTTPException(404, str(e))
 
 
-# ----------------------- Eve control -----------------------
-class EveCtl(BaseModel):
-    enabled: bool
-    prob: float = 1.0
-
-
-@app.post("/api/sim/eve")
-async def sim_eve(ctl: EveCtl):
-    # Apply to BOTH KMEs so both producers see consistent attack
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        for url in (KME_A_URL, KME_B_URL):
-            try:
-                await client.post(f"{url}/sim/eve", json=ctl.model_dump())
-            except Exception as e:
-                log.warning("eve forward to %s failed: %s", url, e)
-    return {"ok": True}
-
-
-@app.post("/api/sim/rotate")
-async def sim_rotate():
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        for url in (KME_A_URL, KME_B_URL):
-            try:
-                await client.post(f"{url}/sim/rotate")
-            except Exception as e:
-                log.warning("rotate %s failed: %s", url, e)
-    return {"ok": True}
+# The Eve-control, E2E-orchestrator, Paper-Data-Exchange and WebSocket fan-out
+# routes were removed here. Every one of them was fully routed and unreachable:
+# the frontend has contained no `new WebSocket(...)` since the simulation pages
+# moved client-side, and nothing in the repository -- no page, test, Makefile
+# target or CI job -- referenced /api/e2e/*, /api/paper-flow/*, /ws/e2e,
+# /ws/paper-flow, /ws/frames, /api/sim/eve or /api/sim/rotate.
+#
+# The Eve and frames routes were thin proxies to services/bb84-kme, which still
+# serves them directly; only the unused pass-through is gone.
+#
+# See docs/phases.md for the superseded design.
 
 
 # ----------------------- Stack control -----------------------
@@ -534,24 +494,25 @@ async def verify_keyrate():
 
 @app.get("/api/verify/paper-budgets")
 async def verify_paper_budgets():
-    """Paper packet-budget match (arXiv:2604.05599 Table III) from the
-    paper-flow orchestrator — read-only verification evidence."""
-    pf = getattr(app.state, "paper_flow", None)
-    if pf is None:
-        raise HTTPException(503, "paper-flow not ready")
-    snap = pf.snapshot()
-    budgets = snap.get("paper_budgets", {})
-    phases = budgets.get("phases", [])
+    """Paper packet-budget match (arXiv:2604.05599 Table III).
+
+    Reads the literature values directly from `paper_budgets`. It used to reach
+    into a running paper-flow orchestrator for the same static dict, which meant
+    a dead 400-line module had to keep booting with the application, and a 503
+    here whenever it had not started yet.
+    """
+    budgets = paper_budgets.as_dict()
+    phases = budgets["phases"]
     total_pkts = sum(int(p.get("packets", 0)) for p in phases)
     total_bytes = sum(int(p.get("bytes", 0)) for p in phases)
     return {
         "phases": phases,
         "computed_total_packets": total_pkts,
         "computed_total_bytes": total_bytes,
-        "paper_total_packets": budgets.get("total_handshake_packets"),
-        "paper_total_bytes": budgets.get("total_handshake_bytes"),
-        "packets_match": total_pkts == budgets.get("total_handshake_packets"),
-        "bytes_match": total_bytes == budgets.get("total_handshake_bytes"),
+        "paper_total_packets": budgets["total_handshake_packets"],
+        "paper_total_bytes": budgets["total_handshake_bytes"],
+        "packets_match": total_pkts == budgets["total_handshake_packets"],
+        "bytes_match": total_bytes == budgets["total_handshake_bytes"],
         "reference": "Spooren et al. arXiv:2604.05599 §IV-B Table III",
     }
 
@@ -692,169 +653,3 @@ async def topology():
     return {"nodes": nodes, "edges": edges}
 
 
-# ----------------------- E2E orchestrator (Phase 10) -----------------------
-class E2EMode(BaseModel):
-    mode: str   # "A" | "B" | "C"
-
-
-@app.get("/api/e2e/state")
-async def e2e_state():
-    return app.state.e2e.snapshot()
-
-
-@app.post("/api/e2e/start")
-async def e2e_start():
-    await app.state.e2e.start()
-    return {"ok": True, "status": app.state.e2e.state.status}
-
-
-@app.post("/api/e2e/pause")
-async def e2e_pause():
-    await app.state.e2e.pause()
-    return {"ok": True, "status": app.state.e2e.state.status}
-
-
-@app.post("/api/e2e/resume")
-async def e2e_resume():
-    await app.state.e2e.resume()
-    return {"ok": True, "status": app.state.e2e.state.status}
-
-
-@app.post("/api/e2e/reset")
-async def e2e_reset():
-    await app.state.e2e.reset()
-    return {"ok": True}
-
-
-@app.post("/api/e2e/step")
-async def e2e_step():
-    await app.state.e2e.step()
-    return {"ok": True}
-
-
-@app.post("/api/e2e/mode")
-async def e2e_set_mode(req: E2EMode):
-    try:
-        await app.state.e2e.set_mode(req.mode)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return {"ok": True, "mode": req.mode}
-
-
-@app.websocket("/ws/e2e")
-async def ws_e2e(ws: WebSocket):
-    await ws.accept()
-    q = app.state.e2e.subscribe()
-    try:
-        # send initial snapshot
-        await ws.send_json(app.state.e2e.snapshot())
-        while True:
-            payload = await q.get()
-            await ws.send_json(payload)
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        log.warning("ws_e2e error: %s", e)
-    finally:
-        app.state.e2e.unsubscribe(q)
-
-
-# ----------------------- Phase 14: Paper Data Exchange orchestrator -----------------------
-class PaperFlowMode(BaseModel):
-    hop_count: int | None = None
-    dual_path: bool | None = None
-
-
-class PaperFlowFailure(BaseModel):
-    layer: str       # "qkd" | "arnika" | "wireguard" | "rosenpass" | "data"
-
-
-@app.get("/api/paper-flow/state")
-async def paper_flow_state():
-    return app.state.paper_flow.snapshot()
-
-
-@app.post("/api/paper-flow/start")
-async def paper_flow_start():
-    await app.state.paper_flow.start()
-    return {"ok": True, "status": app.state.paper_flow.state.status}
-
-
-@app.post("/api/paper-flow/pause")
-async def paper_flow_pause():
-    await app.state.paper_flow.pause()
-    return {"ok": True, "status": app.state.paper_flow.state.status}
-
-
-@app.post("/api/paper-flow/resume")
-async def paper_flow_resume():
-    await app.state.paper_flow.resume()
-    return {"ok": True, "status": app.state.paper_flow.state.status}
-
-
-@app.post("/api/paper-flow/reset")
-async def paper_flow_reset():
-    await app.state.paper_flow.reset()
-    return {"ok": True}
-
-
-@app.post("/api/paper-flow/config")
-async def paper_flow_config(req: PaperFlowMode):
-    if req.hop_count is not None:
-        await app.state.paper_flow.set_hop_count(req.hop_count)
-    if req.dual_path is not None:
-        await app.state.paper_flow.set_dual_path(req.dual_path)
-    return {"ok": True,
-            "hop_count": app.state.paper_flow.state.hop_count,
-            "dual_path": app.state.paper_flow.state.dual_path}
-
-
-@app.post("/api/paper-flow/inject-failure")
-async def paper_flow_inject_failure(req: PaperFlowFailure):
-    if req.layer not in ("qkd", "arnika", "wireguard", "rosenpass", "data"):
-        raise HTTPException(400, "layer must be qkd/arnika/wireguard/rosenpass/data")
-    await app.state.paper_flow.inject_failure(req.layer)  # type: ignore[arg-type]
-    return {"ok": True, "layer": req.layer}
-
-
-@app.post("/api/paper-flow/clear-failure")
-async def paper_flow_clear_failure():
-    await app.state.paper_flow.clear_failure()
-    return {"ok": True}
-
-
-@app.websocket("/ws/paper-flow")
-async def ws_paper_flow(ws: WebSocket):
-    await ws.accept()
-    q = app.state.paper_flow.subscribe()
-    try:
-        await ws.send_json(app.state.paper_flow.snapshot())
-        while True:
-            payload = await q.get()
-            await ws.send_json(payload)
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        log.warning("ws_paper_flow error: %s", e)
-    finally:
-        app.state.paper_flow.unsubscribe(q)
-
-
-# ----------------------- WebSocket fan-out -----------------------
-@app.websocket("/ws/frames")
-async def ws_frames(ws: WebSocket):
-    await ws.accept()
-    url = KME_A_URL.replace("http", "ws") + "/ws/frames"
-    try:
-        import websockets
-        async with websockets.connect(url) as upstream:
-            while True:
-                payload = await upstream.recv()
-                await ws.send_text(payload)
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        try:
-            await ws.send_json({"type": "error", "message": str(e)})
-        except Exception:
-            pass
