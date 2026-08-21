@@ -14,6 +14,10 @@ import { channelFromParams } from "../lib/sim/keyrate";
 const DEFAULT_PARAMS = {
   detectorEfficiency: 0.2, fiberAttenuationDbPerKm: 0.2, linkLengthKm: 25,
   darkCountRateHz: 100, pulseRateHz: 1e7, misalignmentErrorEd: 0.015,
+  // config/qkd_params.yaml protocol.qber_threshold_abort. The chart drew this
+  // line at a literal 0.11, so editing the abort threshold moved the protocol's
+  // behaviour without moving the line a viewer judges it against.
+  qberThresholdAbort: 0.11,
 };
 
 export default function BB84() {
@@ -26,6 +30,7 @@ export default function BB84() {
   const [pps, setPps] = useState(0);
   const [lastQber, setLastQber] = useState(0);
   const [pool, setPool] = useState(0);
+  const [qberThreshold, setQberThreshold] = useState(DEFAULT_PARAMS.qberThresholdAbort);
   const engineRef = useRef<Bb84Engine | null>(null);
 
   useEffect(() => {
@@ -53,9 +58,11 @@ export default function BB84() {
             darkCountRateHz: j.physical?.dark_count_rate_hz ?? p.darkCountRateHz,
             pulseRateHz: j.source?.pulse_rate_hz ?? p.pulseRateHz,
             misalignmentErrorEd: j.physical?.misalignment_error_ed ?? p.misalignmentErrorEd,
+            qberThresholdAbort: j.protocol?.qber_threshold_abort ?? p.qberThresholdAbort,
           };
         }
       } catch { /* offline → bundled defaults */ }
+      setQberThreshold(p.qberThresholdAbort);
       const { etaTotal, Y0 } = channelFromParams(p);
       eng.setConfig({ etaTotal, Y0, eD: p.misalignmentErrorEd, eveOn, eveProb });
       eng.start();
@@ -98,7 +105,17 @@ export default function BB84() {
             layout={{
               ...plotLayout, height: 240,
               yaxis: { range: [0, 0.5], color: "#9aa9d8" },
-              shapes: [{ type: "line", x0: 0, x1: 1, xref: "paper", y0: 0.11, y1: 0.11, line: { dash: "dash", color: "#888" } }],
+              shapes: [{
+                type: "line", x0: 0, x1: 1, xref: "paper",
+                y0: qberThreshold, y1: qberThreshold,
+                line: { dash: "dash", color: "#888" },
+              }],
+              annotations: [{
+                xref: "paper", x: 1, xanchor: "right",
+                y: qberThreshold, yanchor: "bottom", showarrow: false,
+                text: `abort threshold ${(qberThreshold * 100).toFixed(1)} %`,
+                font: { color: "#9aa9d8", size: 10 },
+              }],
             }}
             config={{ displaylogo: false }}
             style={{ width: "100%" }}

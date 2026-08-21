@@ -8,7 +8,12 @@
  * measurement → sift (Alice basis == Bob basis) → QBER (misalignment e_d + dark
  * counts). Mirrors the discrete-variable BB84 the backend simulates, using the
  * closed-form channel params (η_total, Y0, e_d) from keyrate.ts.
+ *
+ * Unlike the GPU tiers this loop records its frames inline as it runs, so the
+ * photon table is the run by construction. The key-pool model is shared with
+ * them via bb84Channel.ts, where it used to be a third verbatim copy.
  */
+import { advanceKeyPool } from "./bb84Channel";
 
 interface Cfg {
   etaTotal: number; eD: number; Y0: number;
@@ -69,8 +74,7 @@ function runRound(): { qber: number; pool_size: number; frames: Frame[]; pulses:
     }
   }
   const qber = sifted > 0 ? errors / sifted : 0;
-  // Key pool: grows with privacy-amplified sifted bits, drained by "consumers".
-  pool = Math.max(0, Math.min(4096, pool + Math.floor(sifted * (1 - 2 * qber) * 0.25) - 64));
+    pool = advanceKeyPool(pool, sifted, qber);
   return { qber, pool_size: pool, frames, pulses: pulsesPerRound };
 }
 

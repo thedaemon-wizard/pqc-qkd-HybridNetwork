@@ -75,7 +75,7 @@ jobs:
         run: pytest tests/test_keyrate_golden_vector.py tests/test_keyrate_ports_agree.py -v
 
   frontend:
-    name: Frontend — typecheck and build
+    name: Frontend — typecheck, test and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +92,13 @@ jobs:
       # accumulated unnoticed. tsc is part of the build now; this makes it a gate.
       - name: Typecheck
         run: npm run typecheck
+        working-directory: services/webui-frontend
+
+      # The BB84 channel replay and the key-pool model had no test of any kind
+      # until vitest was added -- the frontend carries real simulation code, so
+      # "it compiles" was never enough of a gate.
+      - name: Unit tests
+        run: npm test
         working-directory: services/webui-frontend
 
       - name: Build
