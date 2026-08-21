@@ -115,13 +115,29 @@ For each page, exercise **every** button, checkbox and select:
 | 4.4.1 | **Run** | `idle → running` |
 | 4.4.2 | **Pause** | `running → paused`, counters freeze, and the tick timer actually stops |
 | 4.4.3 | **Resume** | `paused → running`, counters continue from where they stopped |
-| 4.4.4 | **Step** | advances exactly one phase; disabled while running |
+| 4.4.4 | **Step** | advances exactly one phase (`idle → 1 → 2`); **disabled while running**, enabled when paused. It previously ignored status and advanced the machine underneath the running timer while the badge still read `running` |
 | 4.4.5 | **Abort** | stops the run, clears key material, **keeps** counters/history; disabled when idle |
 | 4.4.6 | **Reset** | returns to `idle` and clears counters |
 | 4.4.7 | Reset then Run | phase timing is correct (the timer was re-seeded, not left running) |
 | 4.4.8 | Mode A / B / C | changes which key inputs are used; label updates |
-| 4.4.9 | Phase history | records phase, name, duration, detail |
+| 4.4.9 | Phase history | 4 rows per cycle; each detail JSON non-empty. Phase 2 carries `key_id`, phase 3 `psk_prefix`/`qkd_bytes`/`pqc_bytes`, phase 4 `packets`/`bytes`/`rate_mbps` |
 | 4.4.10 | KPIs | cycles, packets, bytes, throughput all advance |
+
+### 4.4b Paper Data Exchange simulator (`/paper-flow`)
+
+The failure-injection feature had no falsifiable row before, which is why a
+question about it could not be answered from this checklist.
+
+| # | Check | Expected |
+|---|---|---|
+| 4.4b.1 | Controls present | Run, Pause, Resume, Reset, **Step**, five inject-failure buttons, clear |
+| 4.4b.2 | **Step** | `idle → 1 → 2`; disabled while running, enabled when paused |
+| 4.4b.3 | **Inject failure differs per layer** | Cascade stage count is **7 / 6 / 5 / 4 / 2** for qkd / arnika / wireguard / rosenpass / data. A lower layer must cascade through more layers above it (arXiv:2604.05599). Equal counts mean `injectFailure` stopped slicing `CASCADE_STAGES` from the injected layer |
+| 4.4b.4 | Banner names the layer and the cascade | e.g. `⚠ qkd failure — 7-stage cascade`. Identical text across layers is the symptom that prompted this row |
+| 4.4b.5 | Injecting while stopped says so | banner appends `(armed; press Run)`; a red bar with no motion and no explanation is not acceptable feedback |
+| 4.4b.6 | `clear` | removes the banner and empties the cascade timeline |
+| 4.4b.7 | Hop slider | `aria-label="Trusted node hop count"`, range 1-8, topology redraws |
+| 4.4b.8 | **Logs exports this run** | tooltip reads "Download this run's log (client-side)"; file contains the phase history, **not** backend HTTP request lines |
 
 ### 4.5 Export and animation
 
@@ -210,6 +226,8 @@ For each page, exercise **every** button, checkbox and select:
 | # | Check |
 |---|---|
 | 7.1 | No emoji in any documentation file. Arrows and box-drawing glyphs in ASCII diagrams are technical notation, not emoji, and stay. |
+| 7.0 | **Documented capabilities exist** | For every env switch, provider selection or cross-check a document claims: grep the code for it and confirm it is read, not just declared. Four claims failed this in one pass -- `PQC_PROVIDER` (display-only const cited as the RFC 7696 evidence), the PQClean byte-equality check (never runs), FIPS 205 (not imported), and a TLS group name absent from the pinned provider. A research repository asserting conformance it does not have is worse than one with stale prose. |
+| 7.0b | **Static-hosting claim is accurate** | `docs/deployment-economics.md` page table matches reality: 6 of 13 routes fully self-contained, 7 need the backend. Said "only /verify" for a long time, understating it by seven pages. |
 | 7.2 | README stays a navigational entry point; detail lives in `docs/` and is linked, not inlined |
 | 7.3 | Every internal document link resolves |
 | 7.4 | No document states as current a design that has been superseded; historical records say so inline |
