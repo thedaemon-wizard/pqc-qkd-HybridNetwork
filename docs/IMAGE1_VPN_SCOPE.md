@@ -7,21 +7,29 @@ labelled element in that image is realised by the Phase 10 implementation.
 
 ## Element-by-element mapping
 
+> **Superseded implementation paths.** The rows below were written when
+> `/e2e` was driven by a backend orchestrator. That page now runs entirely
+> in the browser and `services/webui-backend/app/lib/sim/e2eSim.ts` has
+> been deleted; the equivalent logic lives in
+> `services/webui-frontend/src/lib/sim/e2eSim.ts`. Module references have
+> been repointed, and `POST /api/e2e/mode` is now a direct
+> `simRef.current.setMode(...)` call with no HTTP involved.
+
 | Image element | Code | Notes |
 |---|---|---|
 | Site A / Site B boundary | `services/webui-frontend/src/pages/QuantumSecureE2E.tsx::ArchSvg` (vertical centre divider line) | Pure SVG, no per-site backend split |
-| **KEY-CONTROL function** "ARNIKA" | `submodules/arnika` (Go binary, unmodified) — modelled in `e2e_orchestrator.py::_run_one_cycle` Phase 2 | Real arnika container runs in WireGuard lane (Phase 0-7); orchestrator emulates the KEY-CONTROL semantics |
-| **PQC function** "ROSENPASS" | `submodules/rosenpass` (Phase 0) — modelled in `e2e_orchestrator.py` Phase 3 (`secrets.token_bytes(32)` as Rosenpass surrogate) | Real Rosenpass sidecar runs in alice/bob node containers |
-| **VPN function** "WIREGUARD" | `nodes/alice/entrypoint.sh` (Phase 0) — modelled in `e2e_orchestrator.py` Phase 4 (`ChaCha20Poly1305(derived_psk)`) | Real kernel wg0 runs in alice/bob; orchestrator uses the same AEAD that WireGuard uses internally |
+| **KEY-CONTROL function** "ARNIKA" | `submodules/arnika` (Go binary, unmodified) — modelled in `lib/sim/e2eSim.ts` phase 2 | Real arnika container runs in WireGuard lane (Phase 0-7); orchestrator emulates the KEY-CONTROL semantics |
+| **PQC function** "ROSENPASS" | `submodules/rosenpass` (Phase 0) — modelled in `lib/sim/e2eSim.ts` phase 3 (`secrets.token_bytes(32)` as Rosenpass surrogate) | Real Rosenpass sidecar runs in alice/bob node containers |
+| **VPN function** "WIREGUARD" | `nodes/alice/entrypoint.sh` (Phase 0) — modelled in `lib/sim/e2eSim.ts` phase 4 (`ChaCha20Poly1305(derived_psk)`) | Real kernel wg0 runs in alice/bob; orchestrator uses the same AEAD that WireGuard uses internally |
 | **KMS Keystore [ETSI 014]** | `services/bb84-kme/app/etsi014.py` (Phase 1) | Live ETSI 014 server; orchestrator phase 1 polls `/api/v1/keys/ALICE/status` |
-| **QKD KEY** (yellow, label A) | `e2e_orchestrator.py` Phase 2 → `qkd_key_b` (base64-decoded from KME-A `/enc_keys`) | 256-bit material from SimQN backend |
-| **PQC KEY** (pink, label B) | `e2e_orchestrator.py` Phase 3 → `pqc_secret` (random 32 B) | Mock Rosenpass output; mode B / C only |
-| **QKD+PQC KEY** (red, label C) | `e2e_orchestrator.py` Phase 3 → `derived` (HKDF-SHA3-256 of qkd ‖ pqc) | 32 B WireGuard-style PSK |
-| **HKDF (SHA3)** (red circle inside ARNIKA) | `e2e_orchestrator.py` → `HKDF(algorithm=hashes.SHA3_256(), ...)` from `cryptography==44.0.0` | Surrogates `submodules/arnika/kdf/kdf.go:17-28` (same SHA-3-256 primitive) |
+| **QKD KEY** (yellow, label A) | `lib/sim/e2eSim.ts` phase 2 → `qkd_key_b` (base64-decoded from KME-A `/enc_keys`) | 256-bit material from SimQN backend |
+| **PQC KEY** (pink, label B) | `lib/sim/e2eSim.ts` phase 3 → `pqc_secret` (random 32 B) | Mock Rosenpass output; mode B / C only |
+| **QKD+PQC KEY** (red, label C) | `lib/sim/e2eSim.ts` phase 3 → `derived` (HKDF-SHA3-256 of qkd ‖ pqc) | 32 B WireGuard-style PSK |
+| **HKDF (SHA3)** (red circle inside ARNIKA) | `lib/sim/e2eSim.ts` → `HKDF(algorithm=hashes.SHA3_256(), ...)` from `cryptography==44.0.0` | Surrogates `submodules/arnika/kdf/kdf.go:17-28` (same SHA-3-256 primitive) |
 | **QKD key_ID exchange** (green dashed line) | Phase 2 internal step (`GET /dec_keys?key_ID=…` at KME-B) + SVG dashed arc on `phase===2` | Mirror of arnika's enc_keys → dec_keys handshake |
 | **PQC KEY exchange** (pink curve) | Phase 3 active path + SVG curve with `mode B/C` highlight | Conceptual; orchestrator uses local random as Rosenpass surrogate |
 | **Quantum channel** (purple dashed top arc) | Phase 1 active path + SVG curve with `phase===1` highlight | Implicit in SimQN's `QubitLossChannel` model |
-| **Mode A** label | `QuantumSecureE2E.tsx` `setMode("A")` → POST `/api/e2e/mode {mode:"A"}` → `state.mode = "A"` (mode_label = "QKD-only") | Skips PQC in Phase 3 |
+| **Mode A** label | `QuantumSecureE2E.tsx` `setMode("A")` → `simRef.current.setMode("A")` (no HTTP) → `state.mode = "A"` (mode_label = "QKD-only") | Skips PQC in Phase 3 |
 | **Mode B** label | Same flow with `mode="B"` (mode_label = "PQC-only") | Skips QKD in Phase 2 |
 | **Mode C** label | Same flow with `mode="C"` (mode_label = "Hybrid (QKD ‖ PQC)") | Default; both Phase 2 and Phase 3 active |
 | **ETSI interface E** | `services/bb84-kme/app/etsi014.py` (`/api/v1/keys/{SAE}/{enc,dec}_keys`) | Matches `submodules/arnika/repositories/kms.go:43-101` byte-for-byte |
