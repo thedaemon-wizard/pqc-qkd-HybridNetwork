@@ -2,7 +2,7 @@
 # ============================================================
 # Rosenpass sidecar — runs a REAL post-quantum key exchange.
 #
-# rosenpass(1) v0.2.2 performs the Rosenpass PQ handshake with the peer
+# rosenpass(1) v0.2.3 performs the Rosenpass PQ handshake with the peer
 # over UDP and periodically (~every 2 min) derives a fresh Output Shared
 # Key (OSK), writing it base64-encoded to $PQC_PSK_FILE. arnika then
 # HKDF-combines that PQC half with the QKD key (MODE=QkdAndPqcRequired):
