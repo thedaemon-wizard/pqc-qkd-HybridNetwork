@@ -277,12 +277,18 @@ function FieldRow({ field, draft, onChange }:
                 style={{ color: "#f5a623", marginLeft: 6 }}>●</span>
         )}
       </span>
+      {/* aria-label, not just adjacent text. The parameter name was rendered in
+          a neighbouring <span> with no association to the control, so a screen
+          reader announced fifteen bare "number" inputs with no indication of
+          which physical quantity each one sets. */}
       {field.type === "bool" ? (
         <input type="checkbox" checked={Boolean(cur)}
+               aria-label={label}
                onChange={(e) => onChange(e.target.checked)} />
       ) : (
         <input type="number" value={String(cur)}
                step="any"
+               aria-label={label}
                onChange={(e) => {
                  const n = field.type === "int"
                    ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
