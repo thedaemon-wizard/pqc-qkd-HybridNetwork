@@ -93,9 +93,9 @@ Run against the local stack (`http://localhost:5173`) **and** the public demo.
 | 4.2.2 | No Japanese text | `document.documentElement.innerText.match(/[぀-ヿ㐀-䶿一-鿿]/g)` → `null` |
 | 4.2.3 | `<html lang="en">` | view source |
 | 4.2.4 | **Every form control is labelled** | For each page: `[...document.querySelectorAll('input,select')].filter(x => !x.getAttribute('aria-label') && !x.labels?.length && !x.closest('label')).length` -> `0`. `/physics` had 15 unlabelled inputs whose parameter name was only adjacent text, so a screen reader announced bare "number" fields on the page that sets the simulation's physics. **Sample only a fully-settled page** -- querying during an SPA route transition reports false positives, which is how three already-correct pages were first misdiagnosed. |
-| 4.2.4 | No horizontal overflow | resize to 1280 and 1920 |
-| 4.2.5 | SVG connectors meet box edges | endpoints on a border, not a centre (±2.5 px) |
-| 4.2.6 | No overlapping SVG text | visual |
+| 4.2.5 | No horizontal overflow | resize to 1280 and 1920 |
+| 4.2.6 | SVG connectors meet box edges | endpoints on a border, not a centre (±2.5 px) |
+| 4.2.7 | No overlapping SVG text | visual |
 
 ### 4.3 Every control
 
@@ -163,13 +163,13 @@ question about it could not be answered from this checklist.
 | # | Check | How |
 |---|---|---|
 | 4.6.1 | `/e2e`, `/paper-flow`, `/bb84`, `/physics`, `/pqc` open no WebSocket | DevTools Network → WS empty |
-| 4.6.2 | No server call **in the compute path** | Per page during a run, `performance.getEntriesByType('resource')` gains no `/api/` or `/ws` entry -- **measured 0 for `/e2e`, `/paper-flow` and `/bb84`**. Two deliberate exceptions, which are cross-checks and not the computation: `/pqc` computes the round-trip client-side (`PQCValidator.tsx:44-45` calling `lib/sim/pqc`) and *then* posts `/api/pqc/roundtrip` to compare @noble against server liboqs -- that comparison is the page's entire purpose; and `/physics` polls `/api/stats` for display. For those two, assert the client result renders with the backend stopped. An earlier version of this row said simply "no /api entry", which would have failed `/pqc` for behaving correctly.
+| 4.6.2 | No server call **in the compute path** | Per page during a run, `performance.getEntriesByType('resource')` gains no `/api/` or `/ws` entry -- **measured 0 for `/e2e`, `/paper-flow` and `/bb84`**. Two deliberate exceptions, which are cross-checks and not the computation: `/pqc` computes the round-trip client-side (`PQCValidator.tsx:44-45` calling `lib/sim/pqc`) and *then* posts `/api/pqc/roundtrip` to compare @noble against server liboqs -- that comparison is the page's entire purpose; and `/physics` polls `/api/stats` for display. For those two, assert the client result renders with the backend stopped. An earlier version of this row said simply "no /api entry", which would have failed `/pqc` for behaving correctly. |
 | 4.6.3 | BB84 engine badge names the engine | `Worker`, `WebGL2` or `WebGPU`, with a throughput figure. Measured on the live demo: `Worker (CPU) - 107.5M pulses/s`. WebGPU being available in the browser (`'gpu' in navigator` is true) but unused is correct, not a failure: `bb84Sim.ts` only adopts a GPU tier when it benchmarks at least 15% faster than the Worker. |
 | 4.6.4 | Recording duration is settable in-page, default 10 s | `document.querySelector('select[aria-label*="duration"]').value` -> `10`, options `[3,5,10,15,20,30,60]`; separate WebM fps (default 25) and GIF fps (default 4) selects. Backed by `DEFAULT_CAPTURE_MS = 10_000` in `lib/exporters.ts`, passed through as `durationSec * 1000` to both encoders -- so the default is one constant, not a literal repeated per call site. |
 | 4.6.5 | No WASM / WebNN / WebLLM / ONNX is loaded | Zero occurrences in `services/webui-frontend/src/`. This is a deliberate choice, not an omission: those runtimes target neural inference, where approximate arithmetic and non-deterministic operator scheduling are acceptable, while this needs exact integer arithmetic for ML-KEM and bit-reproducible physics. See the decision record in `docs/roadmap.md`. |
-| 4.6.4 | PQC round-trips run in-browser | `/pqc` works with the backend stopped |
-| 4.6.5 | PQC sizes are correct | ML-KEM-768: pk 1184 / sk 2400 / ct 1088 / ss 32 B; ML-DSA-65 sig 3309 B |
-| 4.6.6 | Tampered signature rejected | `/pqc` shows "Rejects tampered message: pass" |
+| 4.6.6 | PQC round-trips run in-browser | `/pqc` works with the backend stopped |
+| 4.6.7 | PQC sizes are correct | ML-KEM-768: pk 1184 / sk 2400 / ct 1088 / ss 32 B; ML-DSA-65 sig 3309 B |
+| 4.6.8 | Tampered signature rejected | `/pqc` shows "Rejects tampered message: pass" |
 
 ### 4.7 Numbers match the model
 
@@ -228,15 +228,15 @@ question about it could not be answered from this checklist.
 
 ## 7. Documentation
 
-| # | Check |
-|---|---|
-| 7.1 | No emoji in any documentation file. Arrows and box-drawing glyphs in ASCII diagrams are technical notation, not emoji, and stay. |
-| 7.0 | **Documented capabilities exist** | For every env switch, provider selection or cross-check a document claims: grep the code for it and confirm it is read, not just declared. Four claims failed this in one pass -- `PQC_PROVIDER` (display-only const cited as the RFC 7696 evidence), the PQClean byte-equality check (never runs), FIPS 205 (not imported), and a TLS group name absent from the pinned provider. A research repository asserting conformance it does not have is worse than one with stale prose. |
-| 7.0b | **Static-hosting claim is accurate** | `docs/deployment-economics.md` page table matches reality: 6 of 13 routes fully self-contained, 7 need the backend. Said "only /verify" for a long time, understating it by seven pages. |
-| 7.0c | **`references/` holds only redistributable material** | `git ls-files references/` lists exactly one PDF, arXiv:2604.05599, whose arXiv abstract page states **CC BY 4.0** -- redistribution permitted with attribution, which `docs/references.md` gives. `.gitignore:132` excludes `references/QuLore_*.pdf` because that paper is CC BY-NC-ND, where NoDerivatives and NonCommercial make redistribution from a repository documenting commercial deployment unclear. Check the licence on the arXiv abstract page, not the PDF: this one carries an IEEE copyright line inside it for the conference version while the arXiv posting is CC BY 4.0. |
-| 7.2 | README stays a navigational entry point; detail lives in `docs/` and is linked, not inlined |
-| 7.3 | Every internal document link resolves |
-| 7.4 | No document states as current a design that has been superseded; historical records say so inline |
-| 7.5 | Dependency tables match what is actually installed |
-| 7.6 | Formulas are in MathJax, not ASCII art |
-| 7.7 | No claim that the system silently degrades when the code does not |
+| # | Check | How |
+|---|---|---|
+| 7.1 | **Documented capabilities exist** | For every env switch, provider selection or cross-check a document claims: grep the code for it and confirm it is read, not just declared. Four claims failed this in one pass -- `PQC_PROVIDER` (display-only const cited as the RFC 7696 evidence), the PQClean byte-equality check (never runs), FIPS 205 (not imported), and a TLS group name absent from the pinned provider. A research repository asserting conformance it does not have is worse than one with stale prose. |
+| 7.2 | **Static-hosting claim is accurate** | `docs/deployment-economics.md` page table matches reality: 6 of 13 routes fully self-contained, 7 need the backend. Said "only /verify" for a long time, understating it by seven pages. |
+| 7.3 | **`references/` holds only redistributable material** | `git ls-files references/` lists exactly one PDF, arXiv:2604.05599, whose arXiv abstract page states **CC BY 4.0** -- redistribution permitted with attribution, which `docs/references.md` gives. `.gitignore:132` excludes `references/QuLore_*.pdf` because that paper is CC BY-NC-ND, where NoDerivatives and NonCommercial make redistribution from a repository documenting commercial deployment unclear. Check the licence on the arXiv abstract page, not the PDF: this one carries an IEEE copyright line inside it for the conference version while the arXiv posting is CC BY 4.0. |
+| 7.4 | No emoji in any documentation file | Arrows and box-drawing glyphs in ASCII diagrams are technical notation, not emoji, and stay. `git ls-files '*.md' \| grep -v submodules \| xargs perl -ne 's/`[^`]*`//g; print "$ARGV:$.\n" if /[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{FE0F}]/'` -> no output. Code spans are stripped first because quoting a UI string that contains a glyph is not decoration. |
+| 7.5 | README stays a navigational entry point | Detail lives in `docs/` and is linked, not inlined. `wc -l < README.md` -> **376**, and the Table of Contents anchors all resolve to a heading. It was 490 before section 5 moved to `docs/BUILD.md` and section 12 to `docs/LIMITATIONS.md`. |
+| 7.6 | Every internal document link resolves | `git ls-files '*.md' \| grep -v submodules` and, for every Markdown link whose target is not `http`, `mailto` or a bare anchor, `test -e` the path relative to the citing file -> no output. Write the example without a literal bracket-paren pair, or the row matches its own check. Anchors are checked by eye: `docs/paper_mapping.md` cited README sections 11.6 and 15.2, neither of which exists, while the file path resolved -- a path check alone would have passed it. |
+| 7.7 | No document states as current a design that has been superseded | Historical records say so inline, using the convention in `docs/phases.md`: a blockquote opening `> **Superseded.**`, placed immediately after the stale content, ending in a relative link to what replaced it. `grep -rn '^> \*\*Superseded' *.md docs/*.md` -> 7 markers covering the deleted WebSocket orchestrators and the pre-PPK strongSwan lane. `ARCHITECTURE.md` keeps its phase history in Appendix A for the same reason. |
+| 7.8 | Dependency tables match what is actually installed | Version tables in `README.md` and `docs/` against `pip list`, `npm ls --depth=0` and the pinned submodule tags in `.gitmodules`. `docs/THIRD_PARTY_NOTICES.md` must list every submodule that ships in an image, with its licence. |
+| 7.9 | Formulas are in MathJax, not ASCII art | `docs/keyrate.md` and `docs/vici-ppk.md` carry the derivations in `$$...$$`. ASCII box-drawing in `README.md` section 2 and `ARCHITECTURE.md` is topology, not mathematics, and stays as it is -- the rule is about equations, not diagrams. |
+| 7.10 | No claim that the system silently degrades when the code does not | Where a page needs the backend it must say so on screen rather than render an empty state. `docs/deployment-economics.md` records the per-route behaviour; `/pqc` is the model, stating that the server cross-check was skipped. |

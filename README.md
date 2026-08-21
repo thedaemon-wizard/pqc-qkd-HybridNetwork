@@ -79,24 +79,24 @@ earlier version of this sentence claimed it did.)
 
 ```
                      ┌────────────────────────────────────┐
-                     │   WebUI (React + Plotly + D3)     │
+                     │   WebUI (React + Plotly + D3)      │
                      │   localhost:5173                   │
                      └──────────────┬─────────────────────┘
-                                    │ REST + WS
+                                    │ REST
                      ┌──────────────▼─────────────────────┐
                      │  webui-backend (FastAPI)           │
-                     │  /api/stack /api/stats /ws/frames  │
+                     │  /api/stack /api/stats /api/verify │
                      └──┬───────────────────────┬─────────┘
                         │                       │
         ┌───────────────▼───┐               ┌───▼──────────────┐
         │  bb84-kme-a       │ /internal/sync│  bb84-kme-b      │
-        │  QuTiP BB84 + ETSI│◄─────────────►│  QuTiP BB84+ETSI │
+        │  BB84 sim + ETSI  │◄─────────────►│  BB84 sim + ETSI │
         └────────▲──────────┘               └──────────▲───────┘
                  │ HTTP (mTLS opt.)                    │
         ┌────────┴───────────┐               ┌─────────┴────────┐
         │  alice (node)      │ WireGuard wg0 │  bob (node)      │
         │  - arnika (Go)     │◄─────────────►│  - arnika (Go)   │
-        │  - rosenpass       │ PSK = HKDF(│  - rosenpass     │
+        │  - rosenpass       │ PSK = HKDF(   │  - rosenpass     │
         │  - wg0 10.0.0.1/24 │   QKD || PQC) │  - wg0 10.0.0.2  │
         └────────────────────┘               └──────────────────┘
 ```
