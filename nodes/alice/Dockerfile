@@ -10,7 +10,7 @@
 #
 # Three build stages:
 #   1) arnika-build    : compile arnika from submodules/arnika
-#   2) rosenpass-build : compile REAL rosenpass from submodules/rosenpass (v0.2.2)
+#   2) rosenpass-build : compile REAL rosenpass from submodules/rosenpass (v0.2.3)
 #   3) runtime         : Debian (glibc) with wireguard-tools + iproute2
 #
 # NOTE: the runtime is Debian (glibc), not Alpine (musl), because the
@@ -33,7 +33,12 @@ RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
     go build -trimpath -ldflags "-w -s" -o /out/arnika .
 
 # ---- Stage 2: build REAL rosenpass from the local submodule -
-FROM rust:1.83-bookworm AS rosenpass-build
+# rust 1.90, not 1.83. rosenpass v0.2.3 is itself edition 2021, but its
+# dependency graph pulls clap_lex 1.1.0, which declares edition 2024 --
+# stabilised in Rust 1.85. Cargo 1.83 fails the manifest parse outright:
+#   feature `edition2024` is required ... not stabilized in this version
+# Bump this together with the submodule pin.
+FROM rust:1.90-bookworm AS rosenpass-build
 RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config libsodium-dev clang cmake git build-essential \
     && rm -rf /var/lib/apt/lists/*
