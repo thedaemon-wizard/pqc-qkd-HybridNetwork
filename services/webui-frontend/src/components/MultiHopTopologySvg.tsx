@@ -16,10 +16,14 @@ export interface MultiHopTopologyProps {
   hopCount: number;       // number of Trusted Nodes between Alice and Bob
   currentPhase: number;   // 0=idle, 1..5
   failureLayer?: string | null;
+  /** Number of cascade stages the injected layer triggers. */
+  cascadeStages?: number;
+  /** True when the simulation is not running, so the cascade is only armed. */
+  idle?: boolean;
 }
 
 export default function MultiHopTopologySvg({
-  hopCount, currentPhase, failureLayer,
+  hopCount, currentPhase, failureLayer, cascadeStages, idle,
 }: MultiHopTopologyProps) {
   const tnCount = Math.max(0, Math.min(8, hopCount));
   // Build columns: [Alice, TN1, TN2, ..., TNn, Bob]
@@ -275,7 +279,12 @@ export default function MultiHopTopologySvg({
                 fill={colors.danger} opacity={0.85} />
           <text x={W / 2} y={H - 14} fill="#fff" fontSize={11}
                 textAnchor="middle" fontWeight={700}>
-            ⚠ Failure injected on layer: {failureLayer}
+            {/* The cascade length is what actually differs between layers --
+                without it every injection renders the same wide red bar with a
+                one-word suffix, which reads as "nothing happened". */}
+            ⚠ {failureLayer} failure
+            {cascadeStages ? ` — ${cascadeStages}-stage cascade` : ""}
+            {idle ? " (armed; press Run)" : ""}
           </text>
         </g>
       )}

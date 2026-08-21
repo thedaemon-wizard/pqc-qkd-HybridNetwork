@@ -130,6 +130,21 @@ export class PaperSim {
     this.emit();
   }
   resume() { this.status = "running"; this.ensureLoop(); this.emit(); }
+
+  /**
+   * Advance exactly one phase without starting the timer.
+   *
+   * Refuses while running, unlike E2ESim.step(), which ignores status and so
+   * advances a paused run while leaving the badge reading "paused". Stepping a
+   * simulation that is already advancing on its own is not a meaningful
+   * request, and silently honouring it makes the phase counter disagree with
+   * what the user sees.
+   */
+  step() {
+    if (this.status === "running") return;
+    if (this.phase === 0) { this.beginCycle(); this.emit(); return; }
+    this.runPhase();
+  }
   reset() {
     this.status = "idle"; this.phase = 0;
     this.cyclesTotal = this.cyclesSucceeded = this.packetsTotal = this.bytesTotal = 0;

@@ -56,7 +56,6 @@ export class E2ESim {
   private derived: Uint8Array = new Uint8Array(0);
   private keyId = "";
   private cycleBytes = 0;
-  private stepPending = false;
   private onState: (s: E2EState) => void;
 
   constructor(onState: (s: E2EState) => void) {
@@ -122,7 +121,20 @@ export class E2ESim {
     this.s.last_error = "Run aborted by operator";
     this.emit();
   }
-  step() { this.stepPending = true; if (this.s.current_phase === 0) this.enter(1); this.runPhaseWork(); this.advance(true); this.emit(); }
+  /**
+   * Advance exactly one phase.
+   *
+   * Refuses while running. It previously did not check status, so pressing
+   * Step during a run advanced the machine underneath the timer and the badge
+   * still read "running" -- two things driving the same state machine.
+   */
+  step() {
+    if (this.s.status === "running") return;
+    if (this.s.current_phase === 0) this.enter(1);
+    this.runPhaseWork();
+    this.advance(true);
+    this.emit();
+  }
   setMode(m: Mode) { this.s.mode = m; this.s.mode_label = MODE_LABEL[m]; this.emit(); }
 
   dispose() { this.stopLoop(); this.clearKeyMaterial(); }
@@ -227,7 +239,6 @@ export class E2ESim {
       this.s.current_phase = 0;
       this.s.phase_name = "idle";
       if (this.s.status === "running" && !stepping) this.enter(1);   // loop
-      if (stepping) this.stepPending = false;
     } else {
       this.enter(cur + 1);
     }

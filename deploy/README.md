@@ -31,9 +31,13 @@ cp deploy/.env.example .env   # set PUBLIC_HOST + ACME_EMAIL
 sudo bash deploy/deploy-demo.sh
 ```
 
-**Leanest (near-$0):** the four simulation pages need **no backend at all** — build the frontend
-(`cd services/webui-frontend && npm ci && npx vite build`) and serve `dist/` statically on
-GitHub / Cloudflare / Netlify Pages (only `/verify` is then unavailable).
+**Leanest (near-$0):** build the frontend
+(`cd services/webui-frontend && npm ci && npx vite build`) and serve `dist/` statically.
+`/e2e`, `/paper-flow`, `/keyflow` and `/hil` are fully self-contained; `/bb84` and `/pqc`
+degrade to bundled defaults. The other seven pages need the backend — this text previously
+claimed only `/verify` was lost, which understated it.
+See [`../docs/deployment-economics.md`](../docs/deployment-economics.md) for the
+page-by-page breakdown and current hosting costs.
 
 ### Troubleshooting "Error dependency bb84-kme-a failed to start"
 `bb84-kme-b` (and `alice`/`bob`) only report this because they **depend on `bb84-kme-a`** — the real
