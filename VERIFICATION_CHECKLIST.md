@@ -128,9 +128,10 @@ For each page, exercise **every** button, checkbox and select:
 | # | Check | Expected |
 |---|---|---|
 | 4.5.1 | PNG | downloads, correct content, **not** all black |
-| 4.5.2 | JSON / CSV | download and parse |
-| 4.5.3 | Logs | downloads |
+| 4.5.2 | JSON / CSV | both buttons **present on `/e2e`** and download parseable files. The CSV button renders only when the page passes a `csvProvider`; it was absent on `/e2e` for a long time while the docs listed CSV as supported, so check the button exists, not just that the format works somewhere. |
+| 4.5.3 | Logs exports THIS run, not a server file | On `/e2e` the button tooltip reads "Download this run's log (client-side)" and the file contains the phase history. A page whose simulation runs in the browser must not offer a server log here: it downloads successfully and contains nothing about the run. |
 | 4.5.4 | **Duration select defaults to 10 s** | options 3/5/10/15/20/30/60 |
+| 4.5.4b | `/paper-flow` payload is really encrypted | Run, then `atob(<payload b64>).length` = plaintext + **16** (Poly1305 tag). Exactly `64` means the page reverted to `randomBytes(64)` while still titled ChaCha20-Poly1305 -- the panel asserted an AEAD that never ran. Measured 52 B on the live demo. |
 | 4.5.5 | WebM fps select | 12–60, default 25 |
 | 4.5.6 | GIF fps select | 2–15, default 4 |
 | 4.5.7 | WebM records for the selected duration | file length ≈ selection |
@@ -143,7 +144,7 @@ For each page, exercise **every** button, checkbox and select:
 | # | Check | How |
 |---|---|---|
 | 4.6.1 | `/e2e`, `/paper-flow`, `/bb84`, `/physics`, `/pqc` open no WebSocket | DevTools Network → WS empty |
-| 4.6.2 | Their simulation work makes no API call | Network → Fetch/XHR shows no `/api/sim/*` during a run |
+| 4.6.2 | No server call **in the compute path** | During a run: `performance.getEntriesByType('resource')` gains no `/api/` or `/ws` entry. Deliberately broader than "no `/api/sim/*`": `/pqc` probes `/api/pqc/algorithms` and `/physics` polls `/api/stats`, so naming one prefix would pass a page that still computed server-side. |
 | 4.6.3 | BB84 engine badge names the engine | `Worker`, `WebGL2` or `WebGPU` |
 | 4.6.4 | PQC round-trips run in-browser | `/pqc` works with the backend stopped |
 | 4.6.5 | PQC sizes are correct | ML-KEM-768: pk 1184 / sk 2400 / ct 1088 / ss 32 B; ML-DSA-65 sig 3309 B |
