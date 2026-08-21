@@ -18,6 +18,34 @@ Verified 2026-08-20.
 This is the paper the PoC reproduces: the layered model in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md), the `/paper-flow` page's Table III
 packet budgets, and the multi-hop trusted-node figure all come from it.
+
+### Directly comparable work on hybrid QKD/PQC for IPsec
+
+| Work | Identifier | Why it matters here |
+|---|---|---|
+| *Hybrid Quantum Security for IPsec* | [arXiv:2507.09288](https://arxiv.org/abs/2507.09288) | The first systematic comparison of **sequential vs parallel** hybrid QKD-PQC key establishment for IPsec. This project's `HKDF(QKD ‖ PQC)` is the *parallel* construction: both secrets are obtained independently and combined once. The paper's finding is that parallel schemes avoid the multiplicative latency the sequential ones incur, which is the closest external support for the design chosen here. |
+| *Quantum-safe IPsec in the banking industry* | [arXiv:2604.12985](https://arxiv.org/html/2604.12985v1) | 2026 deployment case study in a regulated sector — useful as a reality check on rotation cadence and operational constraints. |
+| *Practical hybrid PQC-QKD protocols with enhanced security and performance* | [arXiv:2411.01086](https://arxiv.org/abs/2411.01086) | Security and performance analysis of the hybrid construction itself. |
+
+### A different architecture, considered and not adopted
+
+[`qursa-uc3m/qkd-plugins-strongswan`](https://github.com/qursa-uc3m/qkd-plugins-strongswan)
+integrates QKD into strongSwan as an IKEv2 **key-exchange method** (proposals
+of the form `aes128-sha256-qkd`), supporting both ETSI GS QKD 014 and 004.
+
+That is a genuinely stronger claim than what this project does: a KE method
+feeds the QKD secret into `SKEYSEED` directly, whereas RFC 8784 mixes the PPK in
+via `prf+` afterwards. It was not adopted for three reasons, in order of weight:
+
+1. **It does not interoperate.** A custom KE method requires the same plugin on
+   both peers. RFC 8784 is a standard that any conforming implementation
+   already speaks.
+2. **Maintenance.** Nine commits, tested on Ubuntu 22.04/24.04, with no stated
+   support for the strongSwan 6.x line this project pins.
+3. **Licensing is unclear** from the repository, which fails the requirement
+   that dependencies be commercially usable.
+
+Worth revisiting if it matures, because the security argument is better.
 Andreas Neuhold, a co-author, maintains [arnika](https://github.com/arnika-project/arnika),
 which this project uses as its key-management layer.
 
@@ -124,7 +152,7 @@ The formulas actually implemented, and where, are set out in
 | FIPS 204 | ML-DSA | Final, 2024-08-13 |
 | FIPS 205 | SLH-DSA | Final, 2024-08-13 |
 | FIPS 206 | FN-DSA (Falcon) | **No public draft as of 2026-08.** Do not plan around it. |
-| **SP 800-227** | Recommendations for Key-Encapsulation Mechanisms | **Final, Sept 2025.** §4.6 governs how a QKD key may be combined with a KEM secret — see [`keyrate.md`](keyrate.md) and [`vici-ppk.md`](vici-ppk.md). [doi:10.6028/NIST.SP.800-227](https://doi.org/10.6028/NIST.SP.800-227) |
+| **SP 800-227** | Recommendations for Key-Encapsulation Mechanisms | **Final, Sept 2025.** §4.6.1 acknowledges that a multi-algorithm scheme may include a secret established via QKD; §4.6.2 then requires ("shall") an approved key combiner, drawn from SP 800-56C or SP 800-133. See [`vici-ppk.md`](vici-ppk.md) for how far this project meets that. [doi:10.6028/NIST.SP.800-227](https://doi.org/10.6028/NIST.SP.800-227) |
 | SP 800-56C Rev. 2 | Key-Derivation Methods in Key-Establishment Schemes | Defines the hybrid shared secret `Z' = Z ‖ T` |
 | SP 800-131A Rev. 3 | Transitioning the Use of Cryptographic Algorithms | Deprecation timelines |
 | SP 800-208 | Stateful Hash-Based Signatures | LMS/XMSS |
@@ -173,7 +201,21 @@ claiming otherwise:
 
 The counter-argument this project embodies is narrower and worth stating
 plainly: QKD material is used here **in addition to** post-quantum
-cryptography, never instead of it. NIST SP 800-227 §4.6.2 permits exactly this
-composition — a QKD key may participate in an approved key combiner **provided
-at least one input comes from an approved KEM**. A QKD key alone would not
-qualify.
+cryptography, never instead of it.
+
+NIST SP 800-227 supports that composition, but the precise wording matters and
+an earlier version of this paragraph got both the section and the modality
+wrong. QKD is mentioned exactly once in the publication, in the *General
+multi-algorithm schemes* discussion of **§4.6.1** — not §4.6.2:
+
+> "such schemes could potentially include pre-shared keys or shared secrets
+> established via quantum key distribution. Still, most multi-algorithm schemes
+> will likely include a step in which a series of shared secrets are combined
+> via a key combiner algorithm of a form similar to KeyCombine above. In those
+> cases, an approved key combiner discussed in Sec. 4.6.2 **shall** be used."
+
+So §4.6.2 does not *permit* anything: it imposes a requirement. Including a QKD
+secret in a multi-algorithm scheme is acknowledged as possible, and doing so
+obliges the design to use an approved combiner. That is a bar this project must
+clear, not a licence it enjoys — and it is not currently cleared in full; see
+the KDF conformance note in [`vici-ppk.md`](vici-ppk.md).
