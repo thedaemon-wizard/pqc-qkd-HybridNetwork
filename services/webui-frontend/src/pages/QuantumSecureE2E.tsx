@@ -5,7 +5,7 @@ import Button from "../components/Button";
 import { E2ESim, type E2EState } from "../lib/sim/e2eSim";
 
 /**
- * Quantum-Secure E2E Simulation (Phase 10).
+ * Quantum-Secure E2E Simulation.
  *
  * Visualises the 4-phase data exchange from the reference architecture image:
  *   Phase 1  Quantum Plane           — bb84-kme keys appear
@@ -113,7 +113,7 @@ export default function QuantumSecureE2E() {
   return (
     <div>
       <PageHeader
-        title="Quantum-Secure E2E Simulation (Phase 10)"
+        title="Quantum-Secure E2E Simulation"
         subtitle={<>Run and visualise the live <b>4-phase Data Exchange</b> between Alice
           and Bob. This runs <b>client-side in your browser</b>: a QKD key + key_ID are
           generated, the orchestrator fuses QKD ‖ PQC with <b>real HKDF-SHA3-256</b>, and

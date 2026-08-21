@@ -267,9 +267,13 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
 The backend then only serves `/api/config`, `/api/sim/params` defaults and the
 `/verify` cross-check; only container-control (`/api/stack/*`) is disabled and
 POSTs are per-IP rate-limited (backend switching + bounded export-save allowed).
-Leaner still, the four sim pages need **no
-backend at all** — the frontend bundle can be served statically (GitHub /
-Cloudflare / Netlify Pages) for a near-$0 demo (only `/verify` is then disabled).
+Leaner still, the simulation pages need **no backend at all** and the bundle can
+be served statically for a near-$0 demo. Be precise about what that costs,
+though: **eight** pages call the API, not one. `/e2e`, `/paper-flow`,
+`/keyflow` and `/hil` are fully self-contained; `/bb84` and `/pqc` degrade to
+bundled defaults; `/`, `/benchmarks`, `/console`, `/physics`, `/topology`,
+`/verify` and `/vpn` need the backend. See
+[`docs/deployment-economics.md`](docs/deployment-economics.md).
 
 ---
 

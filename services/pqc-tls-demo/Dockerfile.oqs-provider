@@ -50,7 +50,14 @@ EXPOSE 4433
 
 # Algorithm agility lane: includes both NIST standards and experimental
 # algorithms (HQC, Falcon, SLH-DSA variants, etc.)
-ENV TLS_GROUPS="X25519MLKEM768:p384_kyber768:mlkem768:hqc128:frodo640aes"
+# p384_kyber768 was listed here and does NOT exist in the pinned oqs-provider:
+# ALGORITHMS.md contains zero kyber group rows (Kyber was superseded by ML-KEM
+# when FIPS 203 landed). OpenSSL rejects the whole -groups string on an unknown
+# name, so this would have failed at runtime -- it was never caught because no
+# compose file instantiates this image. Every name below is verified present in
+# submodules/oqs-provider/ALGORITHMS.md. hqc128 was dropped for the same
+# reason: the pinned provider exposes no HQC group at all.
+ENV TLS_GROUPS="X25519MLKEM768:p384_mlkem768:mlkem768:SecP256r1MLKEM768:frodo640aes"
 
 CMD ["sh", "-c", "OPENSSL_MODULES=${OPENSSL_MODULES} \
                   openssl s_server -tls1_3 -provider default -provider oqsprovider \

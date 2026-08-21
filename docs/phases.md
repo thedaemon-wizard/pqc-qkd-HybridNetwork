@@ -147,8 +147,27 @@ openssl s_client -tls1_3 -groups X25519MLKEM768 -provider oqsprovider \
                  -connect tls-oqs:4433
 ```
 
-The `PQC_PROVIDER` env (oqs / native) selects which lane the WebUI "PQC Validator"
-page targets.
+> **Correction.** Earlier revisions of this section stated that a `PQC_PROVIDER`
+> env selects which of these two lanes the WebUI "PQC Validator" page targets.
+> **No such switch exists.** `PQC_PROVIDER` is a display-only constant in
+> `services/webui-frontend/src/lib/sim/pqc.ts` recording the provenance of
+> `@noble/post-quantum`; it is read once for a label and never selects anything.
+> Neither TLS image is instantiated by any compose file, so there is no running
+> lane to target. The claim is withdrawn rather than papered over, because RFC
+> 7696 conformance was being asserted on the strength of it.
+>
+> What crypto agility this project actually has:
+>
+> * **IKEv2 proposals are env-driven and real** — `IKE_PROPOSALS` /
+>   `ESP_PROPOSALS` in `docker-compose.strongswan.yml` are substituted into
+>   `nodes/strongswan/swanctl.conf.tmpl`, so the KEM can be changed without
+>   touching code. This is the strongest agility story in the repository.
+> * **Algorithm choice is per-request on the validator** — `POST /api/agility`
+>   accepts `kems`/`sigs` lists and `POST /api/roundtrip` accepts `algo`
+>   (`services/pqc-validator/app/main.py`).
+> * **The two TLS images are build artefacts**, reachable only through
+>   `make pqc-tls-demo-both`. Wiring them into compose and behind a real switch
+>   is tracked in [`roadmap.md`](roadmap.md).
 
 ### Paper baseline comparison (`tools/compare_to_paper.py`)
 
