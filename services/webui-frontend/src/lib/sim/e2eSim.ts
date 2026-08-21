@@ -1,6 +1,7 @@
 /**
  * Client-side E2E orchestrator (Round 5) — TS port of the 4-phase
- * services/webui-backend/app/e2e_orchestrator.py state machine, run entirely in
+ * the former services/webui-backend/app/e2e_orchestrator.py state machine (that
+ * module has since been deleted; this is now the only implementation), run in
  * the browser with REAL crypto (HKDF-SHA3-256 + ChaCha20-Poly1305 via @noble).
  * Emits the same E2EState shape the page already renders, so no UI changes.
  */

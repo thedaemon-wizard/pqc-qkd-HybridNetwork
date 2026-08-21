@@ -15,7 +15,7 @@
                                                     │ REST + /ws/paper-flow
                                 ┌───────────────────▼──────────────────┐
                                 │ services/webui-backend/app/          │
-                                │   paper_flow.py                       │
+                                │   paper_budgets.py (constants only)   │
                                 │     - 5-phase state machine           │
                                 │     - PHASE_BUDGETS constant          │
                                 │       (paper §IV-B Table III)         │
@@ -81,7 +81,7 @@ A single WebUI page (`/e2e`) drives an actual background simulation through the
    └────────────────────────────┬────────────────────────────────────┘
                                 │ REST + WS
    ┌────────────────────────────▼────────────────────────────────────┐
-   │ services/webui-backend/app/e2e_orchestrator.py                  │
+   │ (deleted -- see the Superseded note below)                      │
    │  state: idle → running ↔ paused; reset → idle                   │
    │  cycle: phase1 → phase2 → phase3 → phase4 → phase1 …            │
    │  pub/sub WS at ~4 Hz                                             │
@@ -97,6 +97,15 @@ REST surface:
 - `GET /api/e2e/state`
 - `POST /api/e2e/{start,pause,resume,reset,step,mode}`
 - `WS /ws/e2e` (~4 Hz live snapshots)
+
+> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
+> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
+> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
+> orchestrators and the REST/WebSocket surface described above have been
+> deleted. The paper budgets survive in
+> `services/webui-backend/app/paper_budgets.py`, which is what
+> `/api/verify/paper-budgets` now reads.
+
 
 Mode mapping:
 - `A` → `mode_label = "QKD-only"` (skips PQC in Phase 3)

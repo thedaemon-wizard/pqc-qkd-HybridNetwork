@@ -29,7 +29,7 @@ end-to-end PQC handshake, and a final WireGuard data tunnel.
 
 ## Per-phase backend semantics
 
-`services/webui-backend/app/paper_flow.py::PHASE_BUDGETS` quotes the paper:
+`services/webui-backend/app/paper_budgets.py::PHASE_BUDGETS` quotes the paper (extracted when `paper_flow.py` was deleted; `paperSim.ts` carries the client-side copy):
 
 | Phase | Name | Packets | Bytes | Period | Grace |
 |---|---|---|---|---|---|
@@ -43,6 +43,15 @@ end-to-end PQC handshake, and a final WireGuard data tunnel.
 ## 7-stage failure cascade (`CASCADE_STAGES`)
 
 Triggered by `POST /api/paper-flow/inject-failure {layer}`:
+
+> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
+> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
+> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
+> orchestrators and the REST/WebSocket surface described above have been
+> deleted. The paper budgets survive in
+> `services/webui-backend/app/paper_budgets.py`, which is what
+> `/api/verify/paper-budgets` now reads.
+
 
 | t (s) | Layer | Description |
 |---|---|---|
