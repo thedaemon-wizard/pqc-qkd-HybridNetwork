@@ -49,6 +49,9 @@ export default function QuantumSecureE2E() {
   function setMode(mode: "A" | "B" | "C") {
     simRef.current?.setMode(mode);
   }
+  function inject(layer: "qkd" | "pqc" | "data") {
+    simRef.current?.injectFailure(layer);
+  }
 
   /**
    * Phase history as CSV rows.
@@ -182,6 +185,42 @@ export default function QuantumSecureE2E() {
                color={status === "running" ? "#3ddc84"
                       : status === "paused" ? "#f5a623" : "#445"} />
       </div>
+
+      {/* Failure injection.
+          /paper-flow had this and /e2e did not, though both are specified to
+          have it. The outcome here is mode-dependent rather than a cascade:
+          knocking out one leg of a hybrid run degrades it, knocking out the
+          only leg of a single-source run stops it. That difference is the
+          layered-security argument, so it is worth being able to press. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center",
+                    marginBottom: 16, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "#9aa9d8" }}>Inject failure:</span>
+        {(["qkd", "pqc", "data"] as const).map((layer) => (
+          <Button key={layer} variant="ghost" size="sm"
+                  onClick={() => inject(layer)}
+                  disabled={state?.failed_layer === layer}>
+            {state?.failed_layer === layer ? "● " : ""}{layer}
+          </Button>
+        ))}
+        <Button variant="ghost" size="sm" onClick={() => simRef.current?.clearFailure()}
+                disabled={!state?.failed_layer}>clear</Button>
+        {state?.failed_layer && (
+          <span style={{ fontSize: 11, color: "#e0a33a" }} role="status">
+            ⚠ {state.failed_layer} layer down —{" "}
+            {state.failed_layer === "data"
+              ? "fatal: AEAD has no fallback"
+              : (state.mode === "C"
+                  ? "mode C continues on the surviving leg"
+                  : `fatal in mode ${state.mode}: no other key source`)}
+          </span>
+        )}
+      </div>
+
+      {state?.last_error && (
+        <div style={{ fontSize: 12, color: "#e0a33a", marginBottom: 12 }} role="status">
+          {state.last_error}
+        </div>
+      )}
 
       {/* Phase progress strip */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
