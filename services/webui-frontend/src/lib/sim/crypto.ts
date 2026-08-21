@@ -44,9 +44,24 @@ export function deriveHkdfSha3(
 export function chachaEncrypt(
   key: Uint8Array, plaintext: Uint8Array,
 ): { ctLen: number; nonceLen: number } {
+  const { ciphertext, nonce } = chachaSeal(key, plaintext);
+  return { ctLen: ciphertext.length, nonceLen: nonce.length };
+}
+
+/**
+ * Encrypt one packet and return the ciphertext itself, for callers that display
+ * or export the sealed bytes rather than only accounting for their size.
+ *
+ * `chachaEncrypt` above delegates here so there is exactly one AEAD invocation
+ * in this module: a second copy would be free to drift in nonce length or AAD,
+ * and the two call sites are meant to be the same operation counted two ways.
+ */
+export function chachaSeal(
+  key: Uint8Array, plaintext: Uint8Array,
+): { ciphertext: Uint8Array; nonce: Uint8Array } {
   const nonce = randomBytes(12);
-  const ct = chacha20poly1305(key, nonce, enc.encode("alice->bob")).encrypt(plaintext);
-  return { ctLen: ct.length, nonceLen: nonce.length };
+  const ciphertext = chacha20poly1305(key, nonce, enc.encode("alice->bob")).encrypt(plaintext);
+  return { ciphertext, nonce };
 }
 
 export function encodeUtf8(s: string): Uint8Array {

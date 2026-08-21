@@ -325,6 +325,29 @@ export async function downloadWebM(
 
 export async function downloadServiceLog(service: string, lines: number = 1000): Promise<void> {
   const r = await fetch(`/api/logs/download/${service}?lines=${lines}`);
-  const blob = await r.blob();
-  triggerDownload(blob, `${service}-${timestamp()}.log`);
+  // Check the status. Without this, a 404 or 500 body downloaded as a .log and
+  // looked like a successful export of an empty-looking file.
+  if (!r.ok) {
+    throw new Error(`server log ${service} unavailable (HTTP ${r.status})`);
+  }
+  const text = await r.text();
+  // The backend answers 200 with this literal when the file is absent, so a
+  // status check alone is not enough to tell "no log" from "here is the log".
+  if (text.startsWith("# log file") && text.includes("not found")) {
+    throw new Error(`server has no log for ${service} yet`);
+  }
+  triggerDownload(new Blob([text], { type: "text/plain" }),
+                  `${service}-${timestamp()}.log`);
+}
+
+/**
+ * Save client-side text (a run log) without a server round trip.
+ *
+ * Deliberately does NOT go through saveToBackendAndDownload: a page that
+ * computes entirely in the browser should not have to post its log to the
+ * backend to hand it to the user.
+ */
+export function downloadText(name: string, ext: string, text: string): void {
+  triggerDownload(new Blob([text], { type: "text/plain" }),
+                  `${name}-${timestamp()}.${ext}`);
 }

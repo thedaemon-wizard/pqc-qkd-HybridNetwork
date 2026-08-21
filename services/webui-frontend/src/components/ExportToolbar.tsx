@@ -7,7 +7,8 @@
 import { useState } from "react";
 import {
   DEFAULT_CAPTURE_MS, DEFAULT_GIF_FPS, DEFAULT_WEBM_FPS,
-  downloadCSV, downloadGif, downloadJSON, downloadPNG, downloadServiceLog, downloadWebM,
+  downloadCSV, downloadGif, downloadJSON, downloadPNG, downloadServiceLog, downloadText,
+  downloadWebM,
 } from "../lib/exporters";
 import Button from "./Button";
 import SavedExportsPicker from "./SavedExportsPicker";
@@ -15,6 +16,15 @@ import SavedExportsPicker from "./SavedExportsPicker";
 export interface ExportToolbarProps {
   /** When set, "💾 Logs" downloads /api/logs/download/<logService>. */
   logService?: string;
+  /**
+   * Returns the CLIENT-side run log to save when "💾 Logs" is pressed.
+   *
+   * Takes precedence over `logService`. On a page whose simulation runs
+   * entirely in the browser, the server log contains nothing about the run, so
+   * offering it under a "Logs" button is actively misleading -- the user gets a
+   * successful download of an unrelated file.
+   */
+  logProvider?: () => string;
   /** Capture this element to PNG / Animation. Defaults to "main". */
   pngTargetSelector?: string;
   /** Returns the JSON snapshot to download when "📋 JSON" is pressed. */
@@ -65,11 +75,14 @@ export default function ExportToolbar(props: ExportToolbarProps) {
       <span style={{ fontSize: 11, color: "#6b7796", marginRight: 4 }}>
         Save artefact:
       </span>
-      {props.logService && (
+      {(props.logProvider || props.logService) && (
         <Button variant="ghost" size="sm" disabled={busy !== null}
-                title="Download rotating server log"
-                onClick={() => wrap("log",
-                  () => downloadServiceLog(props.logService!))}>
+                title={props.logProvider
+                  ? "Download this run's log (client-side)"
+                  : "Download rotating server log"}
+                onClick={() => wrap("log", () => props.logProvider
+                  ? downloadText(`${name}-log`, "log", props.logProvider())
+                  : downloadServiceLog(props.logService!))}>
           💾 Logs
         </Button>
       )}
