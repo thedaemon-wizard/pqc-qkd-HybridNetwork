@@ -31,13 +31,11 @@ This project's IPsec lane used to do exactly that.
 
 RFC 8784 mixes a Post-quantum Preshared Key into the key schedule itself:
 
-$$
-\begin{aligned}
-\mathrm{SK\_d}  &= \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_d}')\\
-\mathrm{SK\_pi} &= \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pi}')\\
-\mathrm{SK\_pr} &= \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pr}')
-\end{aligned}
-$$
+$$\mathrm{SK\_d} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_d}')$$
+
+$$\mathrm{SK\_pi} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pi}')$$
+
+$$\mathrm{SK\_pr} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pr}')$$
 
 `SK_d` is the root of every Child SA's `KEYMAT` and of all subsequent rekeys, so
 an attacker now needs **both** the DH secret **and** the QKD key. That is the

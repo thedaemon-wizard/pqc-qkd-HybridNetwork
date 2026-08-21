@@ -44,7 +44,7 @@ Design documents:
 9. [Benchmarks](#9-benchmarks)
 10. [Paper Mapping](#10-paper-mapping)
 11. [Dev Environment](#11-dev-environment)
-11.5 [Implementation phases](#115-implementation-phases)
+    - [Implementation phases](#115-implementation-phases)
 12. [Limitations](#12-limitations)
 13. [References](#13-references)
 14. [License](#14-license)
@@ -186,96 +186,12 @@ and greps for `PSK configured` + `HKDF derivation completed` in arnika's logs.
 
 ## 5. Build details
 
-### 5.1 Host prerequisites (AlmaLinux 9.7)
+Toolchain versions, per-service build steps, the submodule build graph and the
+platform notes are in [`docs/BUILD.md`](docs/BUILD.md).
 
-```bash
-sudo dnf install -y epel-release
-sudo dnf config-manager --set-enabled crb
-# WireGuard ships in AlmaLinux 9.7's mainline kernel — only the userspace
-# tools are needed; ELRepo's kmod-wireguard is NOT required.
-sudo dnf install -y wireguard-tools gcc cmake ninja-build git \
-                    python3.12 python3.12-devel openssl-devel libsodium-devel \
-                    docker-ce docker-compose-plugin nodejs
-sudo modprobe wireguard
-echo wireguard | sudo tee /etc/modules-load.d/wireguard.conf
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER && newgrp docker
-```
-
-### 5.2 liboqs + oqs-provider (host install, optional)
-
-For the `services/pqc-tls-demo/` sanity check only; the main hybrid pipeline does NOT
-require liboqs on the host (Rosenpass is bundled in the node image).
-
-```bash
-make build-liboqs
-make build-oqs-provider
-make pqc-list    # should show ML-KEM-768 etc.
-```
-
-### 5.3 WireGuard kernel module fallback
-
-If `modprobe wireguard` fails on your host, use the userspace `boringtun` build:
-
-```bash
-make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.boringtun.yml"
-```
-
-### 5.4 Multi-hop (Alice—Charlie—Bob)
-
-```bash
-make up-multihop
-```
-
-This launches the `charlie` relay (compose profile `multihop`).
-
-### 5.5 Cloud deployment (single host + TLS)
-
-To run the full real-WireGuard stack on a single public host (any KVM
-KVM VPS) behind automatic HTTPS, use the artifacts in [`deploy/`](deploy/):
-
-```bash
-cp deploy/.env.example .env       # set PUBLIC_HOST + ACME_EMAIL
-sudo bash deploy/deploy.sh        # Docker + WireGuard module + UFW + build & up
-# or manually:
-docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
-```
-
-A Caddy reverse proxy is the only public service (80/443, auto Let's Encrypt);
-the KME/backend and WireGuard nodes stay on the internal networks. The
-privileged WG nodes need a real kernel (fine on a KVM VPS, not on managed PaaS).
-See [`deploy/README.md`](deploy/README.md). Per-dependency licence terms are
-in [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).
-
-### 5.6 Public-demo profile — client-side simulation (near-zero backend load)
-
-The **Quantum-Secure E2E**, **Paper Data Exchange**, **Physics Params** and
-**BB84 Live** pages run their simulation **entirely client-side** in the browser
-— real HKDF-SHA3-256 + ChaCha20-Poly1305 via [`@noble`](https://github.com/paulmillr/noble-hashes),
-the closed-form Lo-Ma key-rate ported to TypeScript, and a **Web Worker**
-Monte-Carlo for BB84 (~70–100M pulses/s) with an optional **WebGPU** compute
-path (WGSL + atomics) that auto-falls-back to the Worker. No `/ws/*` sockets are
-opened for these pages, so each visitor runs an independent sim on their own
-device and a public multi-user demo puts ~no load on the server.
-
-```bash
-# Sim-only public-demo profile (DEMO_MODE=1, no privileged WG nodes / docker.sock):
-docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
-  up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
-```
-
-The backend then only serves `/api/config`, `/api/sim/params` defaults and the
-`/verify` cross-check; only container-control (`/api/stack/*`) is disabled and
-POSTs are per-IP rate-limited (backend switching + bounded export-save allowed).
-Leaner still, the simulation pages need **no backend at all** and the bundle can
-be served statically for a near-$0 demo. Be precise about what that costs,
-though: **eight** pages call the API, not one. `/e2e`, `/paper-flow`,
-`/keyflow` and `/hil` are fully self-contained; `/bb84` and `/pqc` degrade to
-bundled defaults; `/`, `/benchmarks`, `/console`, `/physics`, `/topology`,
-`/verify` and `/vpn` need the backend. See
+For deployment see [`deploy/README.md`](deploy/README.md); for what each hosting
+option costs and which pages survive it, see
 [`docs/deployment-economics.md`](docs/deployment-economics.md).
-
----
 
 ## 6. Configuration
 
@@ -411,40 +327,10 @@ layer, and the Paper Data Exchange page.
 
 ## 12. Limitations
 
-When citing or releasing the PoC, **please always disclose the limitations below.**
-
-### 12.1 QKD physical simulation
-- **Reinforced from seven complementary backends**:
-  - `qutip` — lightweight, educational, photon-level
-  - `simqn` — Cascade error correction + Toeplitz privacy amplification + fibre attenuation (`submodules/SimQN`, 2026-05-25 active)
-  - `sequence` — the SeQUeNCe physical-layer model (`submodules/SeQUeNCe`, 2026-05-12 active, Argonne National Lab)
-  - `cvqkd` — Strawberry Fields GG02 continuous-variable QKD (`submodules/strawberryfields`)
-  - `composite_sim_to_net` — SimQN physical layer + qkdnetsim NS-3 v3.46 network layer
-  - `tno_keyrate` — TNO-Quantum's independently developed decoy-state BB84/BBM92
-    key-rate engine (`submodules/tno-qkd-key-rate`, Apache-2.0), used to
-    cross-check this project's own rate model against a third-party one
-  - `qkdnetsim_proxy` — fetches keys from the NS-3 reference KME's own C++
-    ETSI GS QKD 014 implementation, for cross-validating the REST contract
-- All parameters are **scientifically grounded** — `config/qkd_keyrate_table.json` is precomputed offline from the openQKDsecurity Winick SDP and the arXiv:2511.21253 closed-form formula.
-- Device-specific non-idealities such as **temperature drift, bandpass filtering, and wavelength-dependent quantum efficiency** are still not modelled.
-
-### 12.2 Hardware connectivity
-- Because we speak the **ETSI GS QKD 014 standard interface**, commercial QKD devices (ID Quantique Cerberis, Toshiba MUSE, Thinkquantum TQ-KME, etc.) can be plugged in by **changing a single `KMS_URL` line** — see the WebUI "Hardware-In-Loop" page for the HIL mode.
-- Vendor-specific drivers (USB / serial) and HSM-backed key-management APIs are out of scope.
-- **Xanadu's cloud CV-QKD service was decommissioned in 2026-01**, but local CV-QKD simulation remains available.
-
-### 12.3 Residual limitations
-- **Single-host PoC**: all containers run on a single physical host, so a real QKD network's latency, loss and physical isolation are not reproduced.
-- **KME-to-KME synchronisation is over HTTP**: in a real deployment both ends derive a symmetric key over a quantum channel plus an authenticated classical channel, but here `bb84-kme-a` ↔ `bb84-kme-b` simply exchange material via `POST /internal/sync` (isolated by `qkd-net` with `internal: true`).
-- **The PQC focus is ML-KEM-768**, but NIST conformance can be independently verified via the **liboqs vs PQClean cross-validator** (`services/pqc-validator/`) and other algorithms can be tried from the "PQC Validator" page.
-- **HKDF-SHA3-256 is the arnika default**; alternative constructions (concatenate-then-HMAC, XOR-only, Cascade KDF, etc.) are out of scope.
-- **Two parallel VPN protocol lanes** (Phase 9-A):
-  - WireGuard PSK mode (default): the Noise Protocol itself still uses classical primitives (Curve25519 / ChaCha20-Poly1305); arnika layers PSK rotation on top for additive protection.
-  - **strongSwan IPsec/IKEv2 + RFC 9370 hybrid** (recommended for real hardware): ML-KEM-768 is exchanged directly inside the IKE_SA_INIT KE1 payload and combined with classical ECDH to strengthen forward secrecy.
-- **No FIPS or Common Criteria certification**: this is a research PoC, not for production deployment.
-- **Regulation and export control**: re-distributing cryptographic software may be covered by ECCN 5D002 or similar — check your jurisdiction before redistribution.
-
----
+This is a research proof of concept. What it does not do -- the error-correction,
+finite-key, channel-model and standards gaps -- is set out in full in
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md), alongside the carried-forward
+items in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## 13. References
 
