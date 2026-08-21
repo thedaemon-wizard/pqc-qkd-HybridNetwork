@@ -5,7 +5,15 @@
  * CPU Web Worker (bb84.worker.ts) when WebGPU is unavailable. Per the
  * diagnose-before-fallback protocol, init() distinguishes "no GPU" (expected →
  * caller uses the Worker) from an implementation error (thrown → investigate).
+ *
+ * The shader returns counts only, so the photon table is reconstructed by
+ * replaying invocation 0 of the same round on the CPU (bb84Channel.ts). Those
+ * are the pulses the GPU actually simulated; it previously showed an unrelated
+ * Math.random() sample instead.
  */
+import {
+  advanceKeyPool, framesFromGpuRound, type ChannelCfg,
+} from "./bb84Channel";
 export interface Bb84Cfg {
   etaTotal: number; eD: number; Y0: number;
   eveOn: boolean; eveProb: number; pulsesPerRound: number;
@@ -145,35 +153,13 @@ export class Bb84Gpu {
     const dt = Math.max(performance.now() - t0, 1e-3);
 
     const qber = sifted > 0 ? errors / sifted : 0;
-    this.pool = Math.max(0, Math.min(4096,
-      this.pool + Math.floor(sifted * (1 - 2 * qber) * 0.25) - 64));
+    this.pool = advanceKeyPool(this.pool, sifted, qber);
     return {
       qber, pool_size: this.pool,
       pulsesPerSec: Math.round(totalPulses / (dt / 1000)),
-      frames: cpuSampleFrames(cfg, 16),
+      frames: framesFromGpuRound(cfg as ChannelCfg, seed, pulsesPerThread, 16),
     };
   }
 
   dispose() { this.device?.destroy?.(); this.device = null; }
-}
-
-/** Small CPU helper to produce display sample frames (GPU only returns counts). */
-function cpuSampleFrames(cfg: Bb84Cfg, n: number) {
-  const frames = [];
-  const bit = () => (Math.random() < 0.5 ? 0 : 1);
-  let i = 0, guard = 0;
-  while (frames.length < n && guard++ < n * 50) {
-    i++;
-    if (Math.random() >= cfg.etaTotal + cfg.Y0) continue;
-    const aBit = bit(), aBasis = bit();
-    let cBit = aBit, cBasis = aBasis;
-    if (cfg.eveOn && Math.random() < cfg.eveProb) {
-      const eBasis = bit(); cBit = eBasis === aBasis ? aBit : bit(); cBasis = eBasis;
-    }
-    const bBasis = bit();
-    const bBit = bBasis === cBasis ? (Math.random() < cfg.eD ? cBit ^ 1 : cBit) : bit();
-    frames.push({ i, alice_bit: aBit, alice_basis: aBasis,
-      bob_basis: bBasis, bob_bit: bBit, basis_match: aBasis === bBasis });
-  }
-  return frames;
 }
