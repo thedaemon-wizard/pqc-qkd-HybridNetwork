@@ -1,4 +1,15 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic==2.10.4
-liboqs-python>=0.14.0,<0.16
+# Pinned EXACTLY, and coupled to submodules/liboqs (tag 0.16.0), which the
+# Dockerfile builds and installs to /opt/liboqs.
+#
+# liboqs-python performs no version check on a liboqs it finds -- a mismatch
+# shows up as a missing ctypes symbol or a crash rather than a clear error --
+# so a range would let the two drift apart silently. Bump this and the
+# submodule together.
+#
+# The previous `>=0.14.0,<0.16` was a speculative cap from the initial commit.
+# It became unsatisfiable when PyPI stopped publishing anything below 0.16.0,
+# and the image could no longer be built at all.
+liboqs-python==0.16.0
