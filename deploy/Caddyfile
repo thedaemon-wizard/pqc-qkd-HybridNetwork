@@ -18,6 +18,12 @@
 	email {$ACME_EMAIL:admin@localhost}
 }
 
+# Extra sites contributed by the operator of this host, e.g. a second
+# project sharing this Caddy. Must come after the global options block,
+# which Caddy requires to be first. A glob matching nothing is not an
+# error, so this is a no-op on a fresh clone.
+import /etc/caddy/conf.d/*.caddy
+
 {$PUBLIC_HOST} {
 	encode zstd gzip
 	reverse_proxy webui-frontend:80

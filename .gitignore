@@ -130,3 +130,6 @@ archives/
 # QuLore (arXiv:2511.22416) is CC BY-NC-ND 4.0 -- NonCommercial and
 # NoDerivatives -- so it must not be shipped here. See docs/references.md.
 references/QuLore_*.pdf
+
+# Operator Caddy drop-ins (host-owned, see deploy/caddy.d/README)
+deploy/caddy.d/*.caddy
