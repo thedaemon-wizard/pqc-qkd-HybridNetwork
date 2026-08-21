@@ -7,7 +7,7 @@ Each retains its original copyright notice and license terms.
 |---|---|---|---|---|
 | `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — prototype developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642) | 0–7, 9 | pinned to `018b3541` (2026-07-31), post-v1.0.1 `main` |
 | `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | active |
-| `oqs-provider` | Apache-2.0 | Open Quantum Safe project | 0–7 | active |
+| `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | active. Verified against `submodules/oqs-provider/LICENSE.txt`, which is the MIT text; this table previously said Apache-2.0. |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned submodule **v0.2.2**; real PQ key exchange in `nodes/alice` |
 | `SimQN` | GPLv3 | independent (Cui et al.) | 8 | 2026-05-25 (active) |
 | `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | v0.8.5, 2026-05-12 (active) |
