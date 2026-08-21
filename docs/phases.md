@@ -217,7 +217,7 @@ Data Exchange depicted in the reference architecture image, with live buttons.
 ### What runs in the background
 
 A coroutine-based state machine
-(`services/webui-backend/app/e2e_orchestrator.py`) cycles through four phases:
+(since deleted; now `services/webui-frontend/src/lib/sim/e2eSim.ts`) cycles through four phases:
 
 | Phase | Name | What actually happens |
 |---|---|---|
@@ -247,6 +247,15 @@ encrypted**, with rotating QKD key IDs and per-cycle PSK derivation.
 7. **Phase history table** — last 8 phase entries with detail JSON.
 
 State streams live over WebSocket (`/ws/e2e`) at ~4 Hz.
+
+> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
+> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
+> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
+> orchestrators and the REST/WebSocket surface described above have been
+> deleted. The paper budgets survive in
+> `services/webui-backend/app/paper_budgets.py`, which is what
+> `/api/verify/paper-budgets` now reads.
+
 
 ### REST + WebSocket surface
 
@@ -398,13 +407,22 @@ existing "Quantum-Secure E2E "). The page is intentionally distinct from
 | Failure model | Eve attack on BB84 | **240-720 s layer cascade** per §VI |
 | Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper §IV-B Table III |
 
-Backend orchestrator (`services/webui-backend/app/paper_flow.py`):
+Backend orchestrator (deleted; now `services/webui-frontend/src/lib/sim/paperSim.ts`):
 - 5-phase state machine: **Quantum Plane → Arnika QKD key_ID → WG hop handshake → Rosenpass PQC handshake → Final data tunnel**
 - Paper budgets embedded as the source of truth (`PHASE_BUDGETS` constant):
   Phase 2 = 2 pkt / 78 B; Phase 3 = 3 pkt / 398 B; Phase 4 = 4 pkt / 4772 B;
   **total handshake = 9 pkt / 5248 B**
 - Failure cascade scheduler with 7 stages (0/180/240/360/420/540/720 s)
 - WebSocket `/ws/paper-flow` at ~4 Hz
+
+> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
+> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
+> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
+> orchestrators and the REST/WebSocket surface described above have been
+> deleted. The paper budgets survive in
+> `services/webui-backend/app/paper_budgets.py`, which is what
+> `/api/verify/paper-budgets` now reads.
+
 - REST: `/api/paper-flow/{state,start,pause,resume,reset,config,inject-failure,clear-failure}`
 
 Frontend (`services/webui-frontend/src/pages/PaperDataExchange.tsx`):

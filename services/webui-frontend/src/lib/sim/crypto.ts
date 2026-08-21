@@ -3,7 +3,7 @@
  *
  * Uses @noble/hashes + @noble/ciphers (MIT, audited) so the public demo keeps
  * the project's "real crypto" fidelity with NO backend:
- *   - HKDF-SHA3-256  (mirrors services/webui-backend/app/e2e_orchestrator.py:
+ *   - HKDF-SHA3-256  (parameters inherited from the deleted e2e_orchestrator.py:
  *                     salt="pqcqkd-e2e", info="mode-<A|B|C>", length 32)
  *   - ChaCha20-Poly1305 (mirrors the Phase-4 data-exchange AEAD, AAD "alice->bob")
  */
