@@ -36,6 +36,12 @@ services:
       - "443:443/udp"   # HTTP/3
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Operator drop-in directory for extra sites on this host (for
+      # example a second project sharing this Caddy). Contents are
+      # gitignored, so they survive `git reset --hard` and re-clones --
+      # unlike editing the tracked Caddyfile, which a history rewrite or
+      # a reset would silently revert and take those sites offline.
+      - ./deploy/caddy.d:/etc/caddy/conf.d:ro
       - caddy-data:/data
       - caddy-config:/config
     networks:
