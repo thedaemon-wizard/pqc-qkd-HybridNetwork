@@ -50,6 +50,62 @@ export default function QuantumSecureE2E() {
     simRef.current?.setMode(mode);
   }
 
+  /**
+   * Phase history as CSV rows.
+   *
+   * The toolbar renders its CSV button only when a csvProvider is supplied, so
+   * without this the button simply did not exist on this page even though the
+   * export set is documented as JSON/PNG/CSV.
+   */
+  function csvRows(): Record<string, unknown>[] {
+    return (state?.history ?? []).map((h) => ({
+      phase: h.phase,
+      name: h.name,
+      started_at: new Date(h.started_at * 1000).toISOString(),
+      completed_at: h.completed_at
+        ? new Date(h.completed_at * 1000).toISOString() : "",
+      duration_ms: h.completed_at
+        ? Math.round((h.completed_at - h.started_at) * 1000) : "",
+      // One column per detail key rather than a JSON blob, so the CSV is
+      // usable in a spreadsheet without post-processing.
+      ...h.detail,
+    }));
+  }
+
+  /**
+   * This run's log, assembled from client state.
+   *
+   * The page previously passed logService="webui-backend", which downloaded the
+   * server's rotating log -- a file containing nothing about a run that happens
+   * entirely in the browser.
+   */
+  function runLog(): string {
+    const s = state;
+    if (!s) return "no run state\n";
+    const head = [
+      `# Quantum-Secure E2E run log`,
+      `# generated:  ${new Date().toISOString()}`,
+      `# engine:     ${s.engine ?? "client-side"}`,
+      `# mode:       ${s.mode}`,
+      `# status:     ${s.status}`,
+      `# cycles:     ${s.completed_cycles}`,
+      `# packets:    ${s.total_packets}`,
+      `# bytes:      ${s.total_bytes_encrypted}`,
+      `# rate_bps:   ${s.rate_bps}`,
+      `# last_key_id:${s.last_qkd_key_id}`,
+      `# psk_prefix: ${s.last_psk_prefix_hex}`,
+      s.last_error ? `# last_error: ${s.last_error}` : "",
+      "",
+    ].filter(Boolean);
+    const body = (s.history ?? []).map((h) => {
+      const started = new Date(h.started_at * 1000).toISOString();
+      const dur = h.completed_at
+        ? `${Math.round((h.completed_at - h.started_at) * 1000)}ms` : "open";
+      return `${started}  phase ${h.phase}  ${h.name}  (${dur})  ${JSON.stringify(h.detail)}`;
+    });
+    return [...head, ...body, ""].join("\n");
+  }
+
   const status = state?.status ?? "idle";
   const phase = state?.current_phase ?? 0;
   const mode = state?.mode ?? "C";
@@ -72,9 +128,10 @@ export default function QuantumSecureE2E() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="e2e-architecture"
-          logService="webui-backend"
+          logProvider={runLog}
           pngTargetSelector="#e2e-arch-svg"
           jsonProvider={() => state ?? { status: "loading" }}
+          csvProvider={csvRows}
         />
       </div>
 
