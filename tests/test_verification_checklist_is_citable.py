@@ -132,3 +132,35 @@ def test_ids_cited_by_other_documents_still_exist(cited):
     assert cited in {row_id for _, row_id in _ids()}, (
         f"{cited} is cited elsewhere in the repository but no longer exists"
     )
+
+
+def test_every_screenshot_a_document_names_actually_exists():
+    """Prose naming a file is a claim about the repository too.
+
+    `docs/phases.md` and `docs/IMAGE1_VPN_SCOPE.md` cited three captures --
+    e2e-v2-idle.png, e2e-v2-phase1.png, e2e-v3-export-toolbar-top.png -- that
+    were never committed. The Markdown link checker in checklist row 7.6 could
+    not see them: they were written as inline code spans, not links, so nothing
+    resolved them and the claim read as verified evidence.
+    """
+    import re
+    import subprocess
+
+    root = CHECKLIST.parent
+    shots = root / "docs" / "images" / "screenshots"
+    present = {p.name for p in shots.iterdir()} if shots.is_dir() else set()
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True, check=True,
+    ).stdout.split()
+
+    missing = []
+    for rel in tracked:
+        if rel.startswith("submodules/"):
+            continue
+        text = (root / rel).read_text(encoding="utf-8", errors="replace")
+        for name in re.findall(r"docs/images/screenshots/([A-Za-z0-9_.-]+\.png)", text):
+            if name not in present:
+                missing.append(f"{rel} names docs/images/screenshots/{name}")
+
+    assert not missing, "documents cite screenshots that do not exist:\n  " + "\n  ".join(missing)
