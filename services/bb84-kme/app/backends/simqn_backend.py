@@ -15,7 +15,7 @@ import os
 import sys
 import time
 
-from ._skr import drop_rate_for_simulator, total_transmittance
+from ._skr import drop_rate_for_simulator, skr_bps_from_config, total_transmittance
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
@@ -106,9 +106,16 @@ def _run_one_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     common_ids = sorted(set(sender_all.keys()) & set(receiver_all.keys()))
 
     if len(common_ids) < cfg.out_bits_per_key * 2:
-        # SimQN didn't accumulate enough sifted material in this window — emit
-        # a synthetic photon stream calibrated to SimQN's drop_rate so we still
-        # honour the configured physics layer.
+        # SimQN did not accumulate enough sifted material in this window, so
+        # the stream below is SYNTHESISED from the configured drop_rate and
+        # physical QBER -- it is not a SimQN measurement.
+        #
+        # It is calibrated to the same physics, so the QBER it yields is
+        # meaningful, but the caller must be able to tell the two apart: this
+        # is the default backend, and silently presenting generated bits as a
+        # simulation result is how a demo starts reporting numbers nobody can
+        # reproduce. The fifth return value carries that flag up to
+        # RoundOutcome.backend_meta["synthetic"].
         import numpy as np
         rng = np.random.default_rng(cfg.rng_seed)
         # When SimQN didn't accumulate enough sifted bits because of timing,
@@ -130,8 +137,8 @@ def _run_one_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
             out_bits=cfg.out_bits_per_key,
         )
         if not rec.accepted:
-            return b"", rec.qber, n_keep, send_rate
-        return rec.final_key, rec.qber, n_keep, send_rate
+            return b"", rec.qber, n_keep, send_rate, True
+        return rec.final_key, rec.qber, n_keep, send_rate, True
 
     sifted_a = np.array([int(sender_raw[i]) for i in common_ids], dtype=np.uint8)
     sifted_b = np.array([int(receiver_raw[i]) for i in common_ids], dtype=np.uint8)
@@ -141,8 +148,8 @@ def _run_one_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
         out_bits=cfg.out_bits_per_key,
     )
     if not rec.accepted:
-        return b"", rec.qber, len(common_ids), send_rate
-    return rec.final_key, rec.qber, len(common_ids), send_rate
+        return b"", rec.qber, len(common_ids), send_rate, False
+    return rec.final_key, rec.qber, len(common_ids), send_rate, False
 
 
 class SimQNBackend(KeyProducer):
@@ -158,7 +165,8 @@ class SimQNBackend(KeyProducer):
     async def run_round(self) -> RoundOutcome:
         t0 = time.perf_counter()
         try:
-            key, qber, sifted, n = await asyncio.to_thread(_run_one_round_sync, self.cfg)
+            key, qber, sifted, n, synthetic = await asyncio.to_thread(
+                _run_one_round_sync, self.cfg)
         except Exception as e:
             log.warning("SimQN round failed: %s", e)
             return RoundOutcome(
@@ -169,7 +177,11 @@ class SimQNBackend(KeyProducer):
             )
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         accepted = bool(key) and qber < self.cfg.qber_threshold_abort
-        skr_bps = (sifted / max(self.cfg.bb84_batch_size, 1)) * self.cfg.pulse_rate_hz
+        # Was (sifted / batch_size) * pulse_rate -- a SIFTING fraction, which
+        # omits error-correction leakage and privacy amplification entirely and
+        # so overstates the rate by more than an order of magnitude. The shared
+        # GLLP/Lo-Ma model is pinned by tests/test_keyrate_golden_vector.py.
+        skr_bps = skr_bps_from_config(self.cfg)
         return RoundOutcome(
             accepted=accepted,
             qber=qber,
@@ -179,5 +191,9 @@ class SimQNBackend(KeyProducer):
             intercepted=0,
             elapsed_ms=elapsed_ms,
             skr_bps=skr_bps,
-            backend_meta={"backend": "simqn", "blocks": sifted // 512},
+            backend_meta={"backend": "simqn", "blocks": sifted // 512,
+                          # True when SimQN under-produced and the stream was
+                          # synthesised from the configured physics rather than
+                          # measured. Consumers must not treat the two alike.
+                          "synthetic": synthetic},
         )
