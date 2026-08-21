@@ -10,10 +10,23 @@ import { channelFromParams } from "../lib/sim/keyrate";
  * config defaults; Eve controls reconfigure the engine live.
  */
 
-// Bundled fallback defaults (used if the backend /api/sim/params is absent).
+/**
+ * Offline defaults, which MUST equal `config/qkd_params.yaml`.
+ *
+ * That file calls itself the single source of truth for every numeric value,
+ * and these had drifted from it: 25 km against a configured 10 km, and 1e7
+ * against a configured 1e9 pulses per second -- a factor of 100. Since the
+ * project recommends static hosting, where /api/sim/params is absent by
+ * design, the offline path is a normal way to view this page, and it was
+ * simulating a different physical link from every other component.
+ *
+ * tests/test_frontend_defaults_match_config.py compares these against the YAML
+ * and fails on any divergence, because keeping two copies in step by hand is
+ * what produced the drift.
+ */
 const DEFAULT_PARAMS = {
-  detectorEfficiency: 0.2, fiberAttenuationDbPerKm: 0.2, linkLengthKm: 25,
-  darkCountRateHz: 100, pulseRateHz: 1e7, misalignmentErrorEd: 0.015,
+  detectorEfficiency: 0.2, fiberAttenuationDbPerKm: 0.2, linkLengthKm: 10,
+  darkCountRateHz: 100, pulseRateHz: 1e9, misalignmentErrorEd: 0.015,
   // config/qkd_params.yaml protocol.qber_threshold_abort. The chart drew this
   // line at a literal 0.11, so editing the abort threshold moved the protocol's
   // behaviour without moving the line a viewer judges it against.

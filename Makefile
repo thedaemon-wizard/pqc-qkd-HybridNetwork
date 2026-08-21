@@ -63,7 +63,10 @@ logs-bob: ## Tail bob logs
 
 .PHONY: tail-logs
 tail-logs: ## (Phase 12-A) Tail rotating log files inside pqcqkd-logs volume
-	$(DC) exec webui-backend ls -lh /var/log/pqcqkd/ || true
+	# No `|| true`: if the container is not up, failing here names the real
+	# problem, whereas swallowing it produced a confusing error from `tail -f`
+	# one line later. VERIFICATION_CHECKLIST.md row 5.3 forbids the pattern.
+	$(DC) exec webui-backend ls -lh /var/log/pqcqkd/
 	$(DC) exec webui-backend tail -f /var/log/pqcqkd/webui-backend.log
 
 # -------------------------------------------------------------------
@@ -119,7 +122,10 @@ down-ipsec: ## Stop the strongSwan lane
 
 .PHONY: pqc-tls-demo-both
 pqc-tls-demo-both: ## Build both PQC TLS lanes (oqs-provider + OpenSSL 3.5 native)
-	$(COMPOSE) build pqc-tls-demo-oqs || \
+	# Built directly, not through compose: no compose file defines a
+	# `pqc-tls-demo-oqs` service, so `$(COMPOSE) build pqc-tls-demo-oqs` could
+	# only ever fail into its own fallback. Both lanes are image-only build
+	# artefacts with no compose service, and are treated the same way.
 	docker build -t pqcqkd/pqc-tls-demo-oqs:local -f services/pqc-tls-demo/Dockerfile.oqs-provider .
 	docker build -t pqcqkd/pqc-tls-demo-native:local -f services/pqc-tls-demo/Dockerfile.openssl35-native .
 
