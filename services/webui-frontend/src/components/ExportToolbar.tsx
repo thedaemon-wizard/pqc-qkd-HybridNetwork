@@ -8,7 +8,7 @@ import { useState } from "react";
 import {
   DEFAULT_CAPTURE_MS, DEFAULT_GIF_FPS, DEFAULT_WEBM_FPS,
   downloadCSV, downloadGif, downloadJSON, downloadPNG, downloadServiceLog, downloadText,
-  downloadWebM,
+  downloadWebM, takeExportNotice,
 } from "../lib/exporters";
 import Button from "./Button";
 import SavedExportsPicker from "./SavedExportsPicker";
@@ -41,6 +41,9 @@ export default function ExportToolbar(props: ExportToolbarProps) {
   // failures were only ever shown if some unrelated state change happened to
   // repaint the toolbar. In practice they were invisible.
   const [error, setError] = useState<string>("");
+  // Distinct from `error`: the export succeeded, but not everywhere the user
+  // might expect it to have gone.
+  const [notice, setNotice] = useState<string>("");
   // User-selectable animation capture settings (WebM/GIF).
   const [durationSec, setDurationSec] = useState(DEFAULT_CAPTURE_MS / 1000);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
@@ -49,8 +52,8 @@ export default function ExportToolbar(props: ExportToolbarProps) {
   const name = props.name ?? "export";
 
   const wrap = async (key: string, fn: () => Promise<void> | void) => {
-    setBusy(key); setError("");
-    try { await fn(); }
+    setBusy(key); setError(""); setNotice("");
+    try { await fn(); setNotice(takeExportNotice()); }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       console.error("export", key, e);
@@ -182,6 +185,9 @@ export default function ExportToolbar(props: ExportToolbarProps) {
       {busy && <span style={{ fontSize: 11, color: "#9aa9d8" }}>… {busy}</span>}
       {error && (
         <span style={{ fontSize: 11, color: "#e25555" }} role="alert">✗ {error}</span>
+      )}
+      {!error && notice && (
+        <span style={{ fontSize: 11, color: "#e0a33a" }} role="status">{notice}</span>
       )}
     </div>
   );
