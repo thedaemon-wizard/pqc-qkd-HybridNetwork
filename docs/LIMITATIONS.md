@@ -30,7 +30,7 @@ When citing or releasing the PoC, **please always disclose the limitations below
 ### 12.3 Residual limitations
 - **Single-host PoC**: all containers run on a single physical host, so a real QKD network's latency, loss and physical isolation are not reproduced.
 - **KME-to-KME synchronisation is over HTTP**: in a real deployment both ends derive a symmetric key over a quantum channel plus an authenticated classical channel, but here `bb84-kme-a` ↔ `bb84-kme-b` simply exchange material via `POST /internal/sync` (isolated by `qkd-net` with `internal: true`).
-- **The PQC focus is ML-KEM-768**, but NIST conformance can be independently verified via the **liboqs vs PQClean cross-validator** (`services/pqc-validator/`) and other algorithms can be tried from the "PQC Validator" page.
+- **The PQC focus is ML-KEM-768**; other algorithms can be tried from the "PQC Validator" page. The byte-equality cross-check against PQClean is **not performed**: `services/pqc-validator/` looks for `test/test_<algo>` binaries that the image never builds, so every response reports `pqclean_test_present: false`. Conformance therefore rests on liboqs alone, which is a weaker claim than an independent second implementation.
 - **HKDF-SHA3-256 is the arnika default**; alternative constructions (concatenate-then-HMAC, XOR-only, Cascade KDF, etc.) are out of scope.
 - **Two parallel VPN protocol lanes** (Phase 9-A):
   - WireGuard PSK mode (default): the Noise Protocol itself still uses classical primitives (Curve25519 / ChaCha20-Poly1305); arnika layers PSK rotation on top for additive protection.

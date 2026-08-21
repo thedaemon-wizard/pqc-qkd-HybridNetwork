@@ -45,6 +45,9 @@ const N_PACKETS = 64;
 const PHASE_MS = 450;          // dwell per phase so the animation is watchable
 
 export class E2ESim {
+  /** Pool ceiling, so a long run reports a bounded depth rather than a ramp. */
+  static readonly KEY_POOL_CAPACITY = 8;
+
   private s: E2EState;
   private timer: number | null = null;
   private phaseStart = 0;
@@ -57,6 +60,16 @@ export class E2ESim {
   private derived: Uint8Array = new Uint8Array(0);
   private keyId = "";
   private cycleBytes = 0;
+  /**
+   * Depth of Alice's QKD key pool, as a real quantity.
+   *
+   * Phase 1 reported `1 + Math.floor(Math.random() * 8)` here, and that number
+   * was surfaced in the phase-history table and in the JSON and CSV exports as
+   * if it were a measurement. It is now driven by the run: the quantum plane
+   * deposits a key each cycle, and the ETSI 014 exchange in phase 2 draws one,
+   * so the depth reflects what the simulation actually did.
+   */
+  private alicePool = 0;
   private onState: (s: E2EState) => void;
 
   constructor(onState: (s: E2EState) => void) {
@@ -103,7 +116,7 @@ export class E2ESim {
     const mode = this.s.mode;
     this.s = this.fresh(mode);
     this.clearKeyMaterial();
-    this.cycleBytes = 0; this.keyId = "";
+    this.cycleBytes = 0; this.keyId = ""; this.alicePool = 0;
     this.emit();
   }
 
@@ -196,14 +209,21 @@ export class E2ESim {
     const mode = this.s.mode;
     switch (this.s.current_phase) {
       case 1:
-        this.exit({ alice_pool: 1 + Math.floor(Math.random() * 8) });
+        // Quantum plane: the QKD device deposits key material into the pool.
+        this.alicePool = Math.min(this.alicePool + 1, E2ESim.KEY_POOL_CAPACITY);
+        this.exit({ alice_pool: this.alicePool });
         break;
       case 2:
         if (mode === "A" || mode === "C") {
           this.qkdKey = randomBytes(32);
           this.keyId = crypto.randomUUID();
+          // The ETSI 014 exchange consumes one key from the pool. Modes that
+          // use no QKD key draw nothing, which is why the depth differs
+          // between modes rather than drifting the same way in all of them.
+          this.alicePool = Math.max(0, this.alicePool - 1);
         } else { this.qkdKey = new Uint8Array(0); this.keyId = "(PQC-only mode)"; }
-        this.exit({ key_id: this.keyId, qkd_key_len: this.qkdKey.length });
+        this.exit({ key_id: this.keyId, qkd_key_len: this.qkdKey.length,
+                    alice_pool: this.alicePool });
         break;
       case 3:
         this.pqcSecret = (mode === "B" || mode === "C") ? randomBytes(32) : new Uint8Array(0);
