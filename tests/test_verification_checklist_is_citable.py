@@ -164,3 +164,53 @@ def test_every_screenshot_a_document_names_actually_exists():
                 missing.append(f"{rel} names docs/images/screenshots/{name}")
 
     assert not missing, "documents cite screenshots that do not exist:\n  " + "\n  ".join(missing)
+
+
+def test_no_markdown_table_anywhere_drops_cells():
+    """The same GFM truncation, across every tracked document.
+
+    This check began life scoped to VERIFICATION_CHECKLIST.md, and then I
+    introduced exactly the defect it exists to catch -- a six-cell row under a
+    five-column header -- in docs/THIRD_PARTY_NOTICES.md, which it was not
+    watching. A guard that only covers the file where the bug was first found
+    is a guard that catches the bug once.
+
+    Cells past the header width are discarded by the renderer, so the source
+    looks fine and the published page silently loses content.
+    """
+    import re
+    import subprocess
+
+    root = CHECKLIST.parent
+    files = subprocess.run(
+        ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True, check=True,
+    ).stdout.split()
+
+    dropped = []
+    for rel in files:
+        if rel.startswith("submodules/"):
+            continue
+        lines = (root / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        header_width = None
+        fenced = False
+        for n, line in enumerate(lines, 1):
+            s = line.strip()
+            if s.startswith("```"):
+                fenced = not fenced
+            if fenced or not (s.startswith("|") and s.endswith("|")):
+                header_width = None
+                continue
+            cells = [c.strip() for c in re.split(r"(?<!\\)\|", s[1:-1])]
+            if all(DELIMITER.fullmatch(c) or not c for c in cells):
+                continue
+            if header_width is None:
+                header_width = len(cells)
+                continue
+            if len(cells) > header_width:
+                dropped.append(
+                    f"{rel}:{n}: {len(cells)} cells under a {header_width}-column header"
+                )
+
+    assert not dropped, (
+        "these table cells render nowhere:\n  " + "\n  ".join(dropped)
+    )
