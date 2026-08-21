@@ -56,7 +56,9 @@ def test_skr_is_strictly_below_the_sifting_bound():
 def test_skr_matches_the_shared_model_exactly():
     """It must come from the golden-vector-tested model, not a private copy."""
     from app.backends._skr import (
-        skr_bps_from_config, skr_finite, total_transmittance,
+        skr_bps_from_config,
+        skr_finite,
+        total_transmittance,
     )
 
     cfg = _cfg()
