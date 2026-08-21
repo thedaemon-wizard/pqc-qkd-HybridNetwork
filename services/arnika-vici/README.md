@@ -80,9 +80,27 @@ produce a binary with the wrong adapter.
 
 ## Configuration
 
-All variables are mandatory. There are no defaults, because every plausible
-default silently masks a misconfiguration that still looks like a working
-tunnel.
+All variables are mandatory **in the adapter**: `getKeyWriterService` returns an
+error for an unset `VICI_REAUTH_TIMEOUT` or `VICI_IKE_ROLE`, and `ViciConfig`
+documents every field as required. The reasoning is that every plausible default
+silently masks a misconfiguration that still looks like a working tunnel.
+
+Note what that does and does not guarantee. The layers above the adapter supply
+values anyway, so in the shipped configuration the adapter never sees three of
+these unset:
+
+| Where | Default |
+|---|---|
+| `nodes/strongswan/entrypoint.sh:26` | `VICI_SOCKET=/var/run/charon.vici` |
+| `docker-compose.strongswan.yml:44` | `VICI_REAUTH_TIMEOUT=10s` |
+| `docker-compose.strongswan.yml:32` | `REAUTH_TIME=300s` |
+
+Those are deployment conveniences rather than adapter behaviour, but the
+distinction matters: an operator reading "there are no defaults" and then
+omitting `VICI_REAUTH_TIMEOUT` from their own compose file gets 10 s, not an
+error. `WIREGUARD_INTERFACE` and `WIREGUARD_PEER_PUBLIC_KEY` are also defaulted
+to a placeholder at `entrypoint.sh:218-219`, for the separate reason recorded
+under Known gaps below.
 
 | Variable | Meaning |
 |---|---|
@@ -177,6 +195,27 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   is unambiguous. `HKDF(QKD ‖ PQC)` is therefore sound *because the lengths are
   fixed*, not because bare concatenation is generally safe — a distinction that
   disappears the moment anyone makes an input variable-length.
+
+  A third point, now quoted rather than paraphrased, because the earlier note
+  reached for §4.6.3 and then retreated from it. §4.6.3 says:
+
+  > "the straightforward key combiner K <- KDF(K1, K2) that only uses the two
+  > shared secret keys K1 and K2 does not preserve IND-CCA security, regardless
+  > of the properties of the KDF."
+
+  It then encourages combiners that "generically preserve IND-CCA security",
+  giving `H(K1, K2, c1, c2, ek1, ek2, domain_sep)` as an example -- binding the
+  ciphertexts is what carries the proof; binding the encapsulation keys is an
+  optional extra that NIST justifies on other grounds.
+
+  How much of that bites here is a real question and should not be overstated.
+  §4.6.3 is about composite schemes built from **two KEMs**, where the argument
+  turns on an attacker mauling the second KEM's ciphertext. The QKD side of this
+  construction has no ciphertext to bind: it is a symmetric key fetched over
+  ETSI 014, not an encapsulation. So the specific IND-CCA counterexample does
+  not transfer directly. What does transfer is the shape of the requirement --
+  a combiner should bind the context that produced each input, and
+  `HKDF(QKD || PQC)` binds none of it.
 
   Kept bit-compatible with upstream deliberately. Adding salt and FixedInfo is
   the change to propose upstream, and it is a wire-format break.
