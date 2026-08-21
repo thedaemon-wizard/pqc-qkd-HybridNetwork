@@ -14,19 +14,16 @@ An IKEv2 PSK is consumed only when computing the IKE_AUTH AUTH payload
 (RFC 7296 section 2.15). It never enters `SKEYSEED`, so a QKD key delivered as a
 PSK contributes nothing against a harvest-now-decrypt-later adversary.
 
-RFC 8784 mixes the PPK into the key schedule instead:
+RFC 8784 instead mixes the PPK into the key schedule, deriving `SK_d`, `SK_pi`
+and `SK_pr` through `prf+` keyed by the PPK. `SK_d` is the root of every Child
+SA KEYMAT and of all later rekeys, so an attacker must break **both** the
+(EC)DH/KEM exchange and obtain the QKD key.
 
-```
-SK_d  = prf+(PPK, SK_d')
-SK_pi = prf+(PPK, SK_pi')
-SK_pr = prf+(PPK, SK_pr')
-```
-
-`SK_d` is the root of every Child SA KEYMAT and of all later rekeys, so an
-attacker must break **both** the (EC)DH/KEM exchange and obtain the QKD key.
-
-See [`docs/vici-ppk.md`](../../docs/vici-ppk.md) for the full argument and the
-known limitations.
+The derivation is written out, in LaTeX, in
+[`docs/vici-ppk.md`](../../docs/vici-ppk.md) -- along with the full argument and
+the known limitations. It is deliberately not repeated here: it was previously
+duplicated as ASCII art in this file, which is both the last un-converted
+formula in the repository and a second copy free to drift from the first.
 
 ## Why rotation needs a reauthentication
 
