@@ -9,10 +9,10 @@ import PhaseSequenceSvg, { type PhaseBudget } from "../components/PhaseSequenceS
 import PacketFlowTable from "../components/PacketFlowTable";
 import FailureCascadeTimeline, { type CascadeEvent } from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
-import { PaperSim } from "../lib/sim/paperSim";
+import { PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
 
 /**
- * Paper Data Exchange page (Phase 14).
+ * Paper Data Exchange page.
  *
  * Implements the multi-hop trusted-node Data Exchange described in
  * references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf and matches the
@@ -27,37 +27,10 @@ import { PaperSim } from "../lib/sim/paperSim";
  * (src/lib/sim/paperSim.ts); no backend / no /ws/paper-flow.
  */
 
-interface PaperFlowState {
-  status: "idle" | "running" | "paused";
-  current_phase: number;
-  current_phase_name: string;
-  hop_count: number;
-  dual_path: boolean;
-  cycles_total: number;
-  cycles_succeeded: number;
-  packets_total: number;
-  bytes_total: number;
-  last_data_payload_b64: string;
-  failure: {
-    active_layer: string | null;
-    started_at: number | null;
-    cascade: CascadeEvent[];
-  };
-  history: {
-    phase: number; name: string;
-    started_at: number; completed_at: number | null;
-    packets: number; bytes: number;
-    detail: Record<string, unknown>;
-  }[];
-  paper_budgets: {
-    phases: PhaseBudget[];
-    total_handshake_packets: number;
-    total_handshake_bytes: number;
-    mean_10_hop_setup_s: number;
-    mean_100_hop_setup_s: number;
-  };
-}
-
+// PaperFlowState is imported from the simulator rather than re-declared here.
+// The page previously carried its own copy of the interface, and the two drifted:
+// the sim gained `engine` and the page's copy did not, so reading it failed to
+// compile. One shape, one definition.
 export default function PaperDataExchange() {
   const [state, setState] = useState<PaperFlowState | null>(null);
   const [hopCount, setHopCount] = useState(4);
@@ -70,7 +43,42 @@ export default function PaperDataExchange() {
     return () => sim.dispose();
   }, []);
 
-  function ctl(action: "start" | "pause" | "resume" | "reset") {
+  /**
+   * This run's log, from client state.
+   *
+   * Was logService="webui-backend", which downloaded the server's rotating log
+   * -- a file containing nothing about a simulation that runs in the browser.
+   */
+  function runLog(): string {
+    const s = state;
+    if (!s) return "no run state\n";
+    const head = [
+      `# Paper Data Exchange run log`,
+      `# generated:   ${new Date().toISOString()}`,
+      `# engine:      ${s.engine ?? "client-side"}`,
+      `# status:      ${s.status}`,
+      `# hops:        ${s.hop_count}  dual_path: ${s.dual_path}`,
+      `# cycles:      ${s.cycles_total} (${s.cycles_succeeded} accepted)`,
+      `# packets:     ${s.packets_total}  bytes: ${s.bytes_total}`,
+      s.failure.active_layer
+        ? `# failure:     ${s.failure.active_layer} (${s.failure.cascade.length}-stage cascade)`
+        : "",
+      "",
+    ].filter(Boolean);
+    const body = (s.history ?? []).map((h) => {
+      const started = new Date(h.started_at * 1000).toISOString();
+      const dur = h.completed_at
+        ? `${Math.round((h.completed_at - h.started_at) * 1000)}ms` : "open";
+      return `${started}  phase ${h.phase}  ${h.name}  (${dur})  ` +
+             `pkts=${h.packets} bytes=${h.bytes}  ${JSON.stringify(h.detail)}`;
+    });
+    const cascade = (s.failure.cascade ?? []).map((c) =>
+      `  +${c.t_offset_s}s  ${c.layer}: ${c.description}${c.fired ? "  [fired]" : ""}`);
+    return [...head, ...body,
+            ...(cascade.length ? ["", "# cascade schedule", ...cascade] : []), ""].join("\n");
+  }
+
+  function ctl(action: "start" | "pause" | "resume" | "reset" | "step") {
     simRef.current?.[action]();
   }
   function configHopCount(n: number) {
@@ -108,7 +116,7 @@ export default function PaperDataExchange() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="paper-data-exchange"
-          logService="webui-backend"
+          logProvider={runLog}
           pngTargetSelector="#paper-flow-topology-svg"
           jsonProvider={() => state ?? { status: "loading" }}
           csvProvider={() => (state?.history ?? []).map((h) => ({
@@ -141,6 +149,8 @@ export default function PaperDataExchange() {
           hopCount={state?.hop_count ?? hopCount}
           currentPhase={phase}
           failureLayer={state?.failure.active_layer ?? null}
+          cascadeStages={state?.failure.cascade.length ?? 0}
+          idle={status !== "running"}
         />
         <div style={{ display: "flex", gap: 10, alignItems: "center",
                        marginTop: 8, flexWrap: "wrap" }}>
@@ -148,6 +158,7 @@ export default function PaperDataExchange() {
             Trusted Nodes (hop count): {state?.hop_count ?? hopCount}
           </span>
           <input type="range" min={1} max={8}
+                 aria-label="Trusted node hop count"
                  value={state?.hop_count ?? hopCount}
                  onChange={(e) => configHopCount(parseInt(e.target.value, 10))}
                  style={{ flex: 1, maxWidth: 320 }} />
@@ -164,6 +175,9 @@ export default function PaperDataExchange() {
         <Button variant="secondary" onClick={() => ctl("resume")}
                 disabled={status !== "paused"}>▶ Resume</Button>
         <Button variant="danger" onClick={() => ctl("reset")}>⏹ Reset</Button>
+        <Button variant="secondary" onClick={() => ctl("step")}
+                disabled={status === "running"}
+                title="Advance exactly one phase (only while stopped or paused)">⏭ Step</Button>
         <span style={{ width: 1, height: 18, background: colors.borderLt,
                         margin: "0 8px" }} />
         <span style={{ color: colors.textSec, fontSize: 12 }}>Inject failure:</span>

@@ -1,6 +1,13 @@
 # =====================================================================
-# pqc-validator — runs the same NIST PQC test vectors through both
-# liboqs (production) and PQClean (reference) and asserts byte-equality.
+# pqc-validator — exercises NIST PQC primitives through liboqs.
+#
+# NOTE ON SCOPE: this header used to say the service "runs the same NIST PQC
+# test vectors through both liboqs and PQClean and asserts byte-equality". It
+# does not. app/main.py only os.path.isfile()-checks for PQClean test binaries
+# under $PQCLEAN_DIR/test/, which are never built, so every response carries
+# `pqclean_test_present: false` and no comparison is performed. Building those
+# binaries and doing the comparison is tracked in docs/roadmap.md; until then
+# the liboqs results stand alone.
 #
 # liboqs is built HERE, from the vendored submodule, rather than being
 # downloaded by liboqs-python at first import.
