@@ -134,9 +134,11 @@ The formulas actually implemented, and where, are set out in
 | RFC | Title | Relevance |
 |---|---|---|
 | **RFC 8784** | Mixing Preshared Keys in IKEv2 for Post-quantum Security | The mechanism this project uses to deliver QKD material. See [`vici-ppk.md`](vici-ppk.md). |
+| RFC 9954 | Hybrid Key Exchange in TLS 1.3 (Informational, 2026-07) | The framework; defines no named groups. |
+| **RFC 10024** | PQ/T Hybrid Key Agreement for TLS 1.3 (**Proposed Standard**, 2026-08) | Standardises `X25519MLKEM768` (0x11EC), `SecP256r1MLKEM768` (0x11EB) and `SecP384r1MLKEM1024` (0x11ED), and marks the Kyber draft groups 25497/25498 **obsolete**. Hybrid ML-KEM in TLS is settled standards-track work; calling it a draft is out of date. |
 | **RFC 9370** | Multiple Key Exchanges in IKEv2 | ECP-256 + ML-KEM-768 hybrid (`ke1_mlkem768`) |
 | **RFC 9242** | Intermediate Exchange in IKEv2 | Carries the ML-KEM payloads encrypted, so they can be fragmented |
-| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.0.7 does not implement it** — verified 2026-08-20 at source level: `notify_payload.h` on `master` defines only `USE_PPK` (16435), `PPK_IDENTITY` (16436) and `NO_PPK_AUTH` (16437); neither `USE_PPK_INT` (16445) nor `PPK_IDENTITY_KEY` (16446) exists, and no branch implements them. Future work. |
+| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.0.7 does not implement it** — verified 2026-08-20 at source level: `notify_payload.h` on `master` defines only `USE_PPK` (16435), `PPK_IDENTITY` (16436) and `NO_PPK_AUTH` (16437); neither `USE_PPK_INT` (16445) nor `PPK_IDENTITY_KEY` (16446) exists, and no branch implements them. Future work. **No open-source IKEv2 implementation exists.** strongSwan marks it unsupported in its own `docs/features/ietf.adoc`, and Libreswan HEAD has no reference to it either, despite Libreswan 5.4 (2026-08-13) shipping ML-KEM in `IKE_SA_INIT` and `IKE_INTERMEDIATE`. This is not a matter of waiting for one vendor. |
 | RFC 7296 | IKEv2 | §2.15 defines the AUTH payload, i.e. the only place a plain PSK is used |
 | RFC 7383 | IKEv2 Fragmentation | Required for ML-KEM-sized payloads |
 | RFC 7696 | Guidelines for Cryptographic Algorithm Agility | Crypto-agility framing |
