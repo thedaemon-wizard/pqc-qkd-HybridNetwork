@@ -1,0 +1,2 @@
+# Drop .caddy files here to add sites to this host's Caddy.
+# Gitignored: they belong to the host, not the repository.
