@@ -17,6 +17,8 @@ export interface PhaseRec {
 
 export interface E2EState {
   status: "idle" | "running" | "paused";
+  /** Layer the operator has knocked out, or null. See `injectFailure`. */
+  failed_layer: E2ELayer | null;
   current_phase: number;
   phase_name: string;
   mode: Mode;
@@ -38,6 +40,17 @@ const PHASE_NAMES: Record<number, string> = {
   3: "PQC Handshake (HKDF-SHA3-256)",
   4: "Data Exchange (ChaCha20-Poly1305)",
 };
+/**
+ * A layer the operator can knock out.
+ *
+ * `/paper-flow` models failure as a cascade down a multi-hop chain, which is
+ * what its paper describes. Here the interesting behaviour is different and
+ * more to the point of this project: whether a knocked-out layer stops the run
+ * depends on the MODE. Mode C keeps going on one leg when the other dies,
+ * which is the entire claim a hybrid makes; modes A and B cannot.
+ */
+export type E2ELayer = "qkd" | "pqc" | "data";
+
 const MODE_LABEL: Record<Mode, string> = {
   A: "QKD-only", B: "PQC-only", C: "Hybrid (QKD ‖ PQC)",
 };
@@ -79,7 +92,7 @@ export class E2ESim {
 
   private fresh(mode: Mode): E2EState {
     return {
-      status: "idle", current_phase: 0, phase_name: "idle", mode,
+      status: "idle", current_phase: 0, phase_name: "idle", mode, failed_layer: null,
       mode_label: MODE_LABEL[mode], completed_cycles: 0,
       total_bytes_encrypted: 0, total_packets: 0, last_qkd_key_id: "",
       last_psk_prefix_hex: "", last_error: "", rate_bps: 0, history: [],
@@ -204,16 +217,62 @@ export class E2ESim {
     }
   }
 
+  /**
+   * Knock out a layer, and let the mode decide whether that ends the run.
+   *
+   * Deliberately not a cascade: on a single tunnel there is nothing to cascade
+   * through. What this shows instead is the layered-security argument the
+   * project rests on -- in hybrid mode, losing the QKD leg degrades the run to
+   * PQC-only rather than stopping it, and losing the PQC leg degrades it to
+   * QKD-only. In single-source modes the same injection aborts, because there
+   * is no second leg to fall back to.
+   */
+  injectFailure(layer: E2ELayer) {
+    this.s.failed_layer = layer;
+    this.emit();
+  }
+
+  clearFailure() {
+    this.s.failed_layer = null;
+    this.s.last_error = "";
+    this.emit();
+  }
+
+  /** True when the run cannot continue: the failed layer is the only source. */
+  private failureIsFatal(): boolean {
+    const f = this.s.failed_layer;
+    if (!f) return false;
+    if (f === "data") return true;              // AEAD is not duplicated
+    // Fatal only where the failed layer was the mode's ONLY key source.
+    // Mode C has both legs, so neither single-leg failure is fatal for it --
+    // that is the whole point of the hybrid, and writing this as
+    // `mode !== "B"` inverted it and made C the most fragile mode.
+    if (f === "qkd") return this.s.mode === "A";   // A is QKD-only
+    return this.s.mode === "B";                    // f === "pqc"; B is PQC-only
+  }
+
   /** Do the actual crypto/work for the CURRENT phase. */
   private runPhaseWork() {
     const mode = this.s.mode;
     switch (this.s.current_phase) {
       case 1:
+        if (this.s.failed_layer === "qkd") {
+          // No key material is produced at all; the pool cannot grow.
+          this.exit({ alice_pool: this.alicePool, failed: "qkd" });
+          break;
+        }
         // Quantum plane: the QKD device deposits key material into the pool.
         this.alicePool = Math.min(this.alicePool + 1, E2ESim.KEY_POOL_CAPACITY);
         this.exit({ alice_pool: this.alicePool });
         break;
       case 2:
+        if (this.s.failed_layer === "qkd") {
+          this.qkdKey = new Uint8Array(0);
+          this.keyId = "(QKD layer failed)";
+          this.exit({ key_id: this.keyId, qkd_key_len: 0, failed: "qkd",
+                      alice_pool: this.alicePool });
+          break;
+        }
         if (mode === "A" || mode === "C") {
           this.qkdKey = randomBytes(32);
           this.keyId = crypto.randomUUID();
@@ -226,13 +285,32 @@ export class E2ESim {
                     alice_pool: this.alicePool });
         break;
       case 3:
-        this.pqcSecret = (mode === "B" || mode === "C") ? randomBytes(32) : new Uint8Array(0);
+        this.pqcSecret = (this.s.failed_layer === "pqc" || mode === "A")
+          ? new Uint8Array(0)
+          : randomBytes(32);
+        // The derivation still runs on whatever survives. With one leg gone the
+        // PSK is weaker, not absent -- that is the property being demonstrated,
+        // so it is shown rather than short-circuited.
         this.derived = deriveHkdfSha3(this.qkdKey, this.pqcSecret, mode);
         this.s.last_psk_prefix_hex = toHex(this.derived).slice(0, 16);
         this.exit({ psk_prefix: this.s.last_psk_prefix_hex,
           qkd_bytes: this.qkdKey.length, pqc_bytes: this.pqcSecret.length });
         break;
       case 4: {
+        if (this.failureIsFatal()) {
+          // Nothing survives to key the tunnel. Stop, and say which layer and
+          // why -- a run that silently produced no bytes would look like the
+          // simulator had hung.
+          const f = this.s.failed_layer;
+          this.s.last_error = f === "data"
+            ? "Data layer failed: AEAD cannot encrypt (no fallback exists)"
+            : `${f!.toUpperCase()} layer failed and mode ${mode} has no other key source`;
+          this.s.status = "paused";
+          this.stopLoop();
+          this.exit({ packets: 0, bytes: 0, failed: f, fatal: true });
+          this.emit();
+          break;
+        }
         let bytes = 0;
         for (let i = 0; i < N_PACKETS; i++) {
           const payload = encodeUtf8(`PING ${i} Alice->Bob over Quantum-Secure VPN`);
@@ -246,7 +324,10 @@ export class E2ESim {
         this.s.completed_cycles += 1;
         this.s.last_qkd_key_id = this.keyId;
         this.s.rate_bps = (bytes * 8.0) / elapsed;
-        this.s.last_error = "";
+        this.s.last_error = this.s.failed_layer
+          ? `Degraded: ${this.s.failed_layer.toUpperCase()} layer failed; `
+            + `mode ${mode} continued on the surviving leg`
+          : "";
         this.exit({ packets: N_PACKETS, bytes, rate_mbps: (bytes * 8.0) / elapsed / 1e6 });
         break;
       }
