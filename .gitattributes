@@ -1,0 +1,25 @@
+# Normalise line endings in the repository.
+#
+# There was no .gitattributes and 78 tracked files mixed CRLF with LF. That is
+# not cosmetic: a read-modify-write by any tool that opens files in text mode
+# silently rewrites every line, so a three-line change arrives as a
+# thousand-line diff and the real edit is impossible to review. It happened
+# repeatedly, and it also hid a 43,562-line churn inside a submodule.
+#
+# LF in the repository, whatever the checkout platform. Shell scripts and
+# Dockerfiles are consumed by Linux containers, so LF is also what they need at
+# runtime.
+* text=auto eol=lf
+
+# Binary: never touch these, and never try to diff them as text.
+*.pdf   -text
+*.png   -text
+*.jpg   -text
+*.jpeg  -text
+*.gif   -text
+*.ico   -text
+*.webm  -text
+*.zip   -text
+*.gz    -text
+*.woff  -text
+*.woff2 -text
