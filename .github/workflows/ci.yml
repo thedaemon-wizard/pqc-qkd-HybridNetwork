@@ -210,6 +210,14 @@ jobs:
       - name: WireGuard node
         run: docker build -f nodes/alice/Dockerfile -t pqcqkd/node-alice:ci .
 
+      # Nothing built this image, which is how it stayed broken: its
+      # liboqs-python pin became unsatisfiable on PyPI and nobody noticed until
+      # a deploy tried to rebuild. The Dockerfile ends with an ML-KEM-768
+      # roundtrip and an ML-DSA-65 sign/verify, so a green build here is also a
+      # statement that the post-quantum primitives actually work in the image.
+      - name: PQC validator
+        run: docker build -f services/pqc-validator/Dockerfile -t pqcqkd/pqc-validator:ci .
+
   live-stack:
     name: ETSI GS QKD 014 contract tests (live KMEs)
     runs-on: ubuntu-latest
