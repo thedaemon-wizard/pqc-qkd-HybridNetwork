@@ -145,7 +145,10 @@ PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696 + NIST SP 800-131A Rev.3):
 - `Dockerfile.oqs-provider` — broadest algorithm space (ML-KEM, ML-DSA, SLH-DSA,
   Falcon, HQC, Classic McEliece) for research and crypto agility
 - `Dockerfile.openssl35-native` — FIPS-stable native ML-KEM / ML-DSA (OpenSSL 3.5+)
-- Application chooses via `PQC_PROVIDER={oqs|native}` env
+- Both are **build artefacts only** — neither is a service in any
+  `docker-compose*.yml`, so neither runs. A `PQC_PROVIDER={oqs|native}` switch
+  was previously documented here; it does not exist. See the correction in
+  [`docs/phases.md`](docs/phases.md) for what agility is actually implemented.
 
 ## 0. Phase 8 — 7-backend pluggable QKD pipeline
 

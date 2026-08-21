@@ -1,7 +1,11 @@
 /**
  * Client-side post-quantum cryptography.
  *
- * Runs FIPS 203 / 204 / 205 primitives in the browser via `@noble/post-quantum`
+ * Runs FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) primitives in the browser via
+ * `@noble/post-quantum`. FIPS 205 (SLH-DSA) is NOT included -- this header used
+ * to claim it, but only ml-kem.js and ml-dsa.js are imported below. Adding it
+ * means importing slh-dsa.js and extending the SIGS map; it is not a
+ * configuration option today.
  * so the public demo's crypto-agility matrix and KEM round-trips need no
  * backend at all. The liboqs-backed `pqc-validator` service remains the
  * server-side cross-check for the full stack and for CI.
