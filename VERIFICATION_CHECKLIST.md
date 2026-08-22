@@ -69,7 +69,16 @@ Everything CI can check, in one command:
 
 ## 2. IPsec lane (needs privileged containers)
 
-`make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.strongswan.yml" --profile ipsec`
+`make up-ipsec`
+
+> This section previously opened with
+> `make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.strongswan.yml" --profile ipsec`.
+> That command does not run: `--profile` is a docker compose flag, not a make
+> flag, so make exits with `unrecognized option '--profile'` before any recipe
+> executes. Every row below was therefore unrunnable as written, and the note
+> further down -- that a missing `alice-ipsec` container "is expected" -- would
+> have explained away the resulting emptiness. `up-ipsec` (`Makefile`) passes
+> the profile to compose in the right position.
 
 Most of this section is **not** manual: the CI job `strongswan-lane` brings both
 nodes up on every pull request and asserts 2.6, 2.7, 2.8, 2.8b, 2.11, 2.12 and

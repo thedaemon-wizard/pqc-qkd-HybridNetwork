@@ -117,9 +117,13 @@ comparison, and end-to-end browser verification.
 Bring up either lane (or both):
 
 ```bash
-make up                                   # WireGuard (default profile)
-make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.strongswan.yml" \
-   --profile ipsec                        # IPsec/IKEv2 (RFC 9370) lane
+make up        # WireGuard (default profile)
+make up-ipsec  # IPsec/IKEv2 (RFC 9370) lane
+
+# NOT `make up COMPOSE_FILES=... --profile ipsec`, which this file used to
+# give: `--profile` is a docker compose flag, not a make flag, so make exits
+# with "unrecognized option '--profile'" before running any recipe. `up-ipsec`
+# passes it to compose in the right place.
 ```
 
 Verify RFC 9370 hybrid handshake:

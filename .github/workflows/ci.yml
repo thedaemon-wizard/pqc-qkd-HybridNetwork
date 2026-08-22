@@ -239,6 +239,7 @@ jobs:
               cd /repo && python -m pytest \
                 tests/test_pqc_interop_is_a_real_crosscheck.py \
                 tests/test_mlkem_kat_matches_liboqs.py \
+                tests/test_agility_matrix_spans_two_families.py \
                 -q -p no:cacheprovider -o cache_dir=/tmp/pytest-cache
             '
 
@@ -382,12 +383,17 @@ jobs:
             # Dumping only on failure meant those runs told us nothing, and two
             # local reproductions (7 rotations, 0 failures each) could not
             # produce the condition at all.
-            if [ "$authfail" -gt 0 ]; then
-              echo "--- $node: $authfail auth failure(s) in $rot rotations, in context ---"
-              docker logs -t "$node" 2>&1 \
-                | grep -nE 'AUTH_FAILED|no PPK found|unloaded the bootstrap|unloaded orphaned|PPK rotated' \
-                | head -60
-            fi
+            # UNCONDITIONAL. This dump was guarded by `authfail > 0`, and that
+            # guard is why nine observations produced no diagnosis: a run with
+            # ZERO failures is precisely the discriminating case, and it
+            # printed nothing. Worse, the absence reads as evidence -- a
+            # passing run looks like it shows "the bootstrap was never retired"
+            # when in truth nothing was dumped at all. Measured that misreading
+            # on 2026-08-22 while diagnosing this very assertion.
+            echo "--- $node: $authfail auth failure(s) in $rot rotations, in context ---"
+            docker logs -t "$node" 2>&1 \
+              | grep -nE 'AUTH_FAILED|no PPK found|MAC mismatched|tried [0-9]+ shared key|loaded PPK shared key|unloaded shared key|unloaded the bootstrap|unloaded orphaned|PPK rotated|IKE_SA .* established|reauthenticating IKE_SA' \
+              | head -120
 
             if [ $((authfail * 5)) -gt "$rot" ]; then
               echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
@@ -411,6 +417,47 @@ jobs:
             [ "$sas" -le 2 ] || { echo "::error::$node holds $sas IKE_SAs; expected 1"; fail=1; }
           done
           exit "$fail"
+
+      # Which half of HKDF(QKD || PQC) do the two peers disagree on?
+      #
+      # On 2026-08-22 the lane was measured failing every QKD-derived
+      # reauthentication: "tried 1 shared key for 'bob@pqcqkd.local' -
+      # 'alice@pqcqkd.local', but MAC mismatched", 8 times in 8 rotations.
+      # Exactly one credential, correct generation, MAC still wrong -- so the
+      # two peers hold DIFFERENT 32 bytes. That rules out ordering, id
+      # namespacing and a missing credential by observation.
+      #
+      # It does not say WHICH input differs. arnika derives the PPK as
+      # HKDF-SHA3-256(qkd_key || pqc_key) (submodules/arnika/kdf/kdf.go), so
+      # exactly one of the two halves must differ, and nothing in the system
+      # ever compares them across the pair. This step does.
+      #
+      # Hashes only -- never key material -- and truncated, so the output
+      # identifies agreement/disagreement without disclosing anything useful.
+      # Non-fatal by design: it is evidence, not an assertion. Making it fail
+      # the build before the mechanism is understood would only add a second
+      # red job saying the same thing as the first.
+      - name: Which half of HKDF(QKD || PQC) diverges
+        if: always()
+        run: |
+          set -u
+          echo "=== PQC half: sha256(/var/lib/rosenpass/pqc.psk), first 24 hex ==="
+          for node in alice-ipsec bob-ipsec; do
+            h=$(docker exec "$node" sh -c \
+                  'sha256sum /var/lib/rosenpass/pqc.psk 2>/dev/null | cut -c1-24' 2>/dev/null || true)
+            printf '  %-12s %s\n' "$node" "${h:-<absent or unreadable>}"
+          done
+          echo "=== QKD half: key_ids each node used, most recent last ==="
+          for node in alice-ipsec bob-ipsec; do
+            echo "  --- $node"
+            docker logs "$node" 2>&1 \
+              | grep -aoE 'key_id [0-9a-f-]{36}' | tail -6 | sed 's/^/      /' || true
+          done
+          echo
+          echo "Reading it: identical PQC hashes + a shared key_id means both"
+          echo "inputs agreed and the divergence is downstream of the KDF."
+          echo "Differing PQC hashes localise it to the rosenpass half; a"
+          echo "key_id present on one node only localises it to the QKD half."
 
       - name: Assert traffic actually traverses ESP
         run: |
