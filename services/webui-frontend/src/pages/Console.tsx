@@ -51,7 +51,16 @@ export default function Console() {
             returned "# log file bb84-kme-a.log not found" with HTTP 200. */}
         <ExportToolbar
           name={`console-${active}`}
-          logProvider={() => log}
+          logProvider={() => {
+            // Refuse rather than hand over an empty file. `ExportToolbar.wrap`
+            // surfaces a throw in the toolbar, but an empty string throws
+            // nothing -- which is the same silent-empty-output shape as the
+            // backend stub this page's export was just fixed for. The window
+            // is short (the poll below fills `log` within 1.5 s) but "saved a
+            // 0-byte log" and "the service was quiet" must not look alike.
+            if (!log) throw new Error("no log yet: the first poll has not returned");
+            return log;
+          }}
           jsonProvider={() => ({ container: active, log })}
         />
       </div>
