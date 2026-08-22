@@ -1,0 +1,61 @@
+Subject: [PATCH] wireguard-netlink: find the peer among several, not only alone
+
+`SetPSK` verifies the configured peer is present on the interface before
+installing the key:
+
+    for _, peer := range peers.Peers {
+        if peer.PublicKey.String() != r.PeerPublicKey {
+            return fmt.Errorf("peer with public key %s not found on interface %s", ...)
+        }
+    }
+
+The loop returns "not found" on the first peer that does NOT match, rather than
+after finding that none match. It therefore only succeeds when the interface has
+exactly one peer and that peer is the configured one. With two peers it fails on
+whichever is iterated first, even though the peer it wants is present.
+
+The failure mode is quiet and it is a security one. `SetPSK` returning an error
+means no QKD-derived preshared key is installed; WireGuard itself is unaffected,
+so the tunnel comes up, handshakes, and passes traffic -- with none of the
+post-quantum protection the key was there to provide. `InvalidateTunnel`, the
+safety path that should install a random PSK to tear the session down, calls the
+same function and fails identically, so the failure cannot even fail closed.
+
+Observed on a three-node trusted-node chain where the middle node faces two
+neighbours: `wg show` lists both peers with recent handshakes while arnika logs
+
+    failed to configure PSK on WireGuard interface:
+      peer with public key <bob> not found on interface wg0
+
+for a key `wg show` is displaying at that moment.
+
+diff --git a/repositories/wireguard-netlink.go b/repositories/wireguard-netlink.go
+index 173d16c..f40f893 100644
+--- a/repositories/wireguard-netlink.go
++++ b/repositories/wireguard-netlink.go
+@@ -39,12 +39,22 @@ func (r *WireguardNetlinkRepository) SetPSK(psk string) error {
+ 	if err != nil {
+ 		return fmt.Errorf("failed to get device %s: %w", r.InterfaceName, err)
+ 	}
+-	// verify that the peer public key exists
++	// verify that the peer public key exists.
++	//
++	// Scan for a match and report absence only after the whole list. The
++	// previous form returned on the first NON-match, so the check passed
++	// only when the interface had exactly one peer: a node with two
++	// neighbours failed on whichever peer was iterated first.
++	found := false
+ 	for _, peer := range peers.Peers {
+-		if peer.PublicKey.String() != r.PeerPublicKey {
+-			return fmt.Errorf("peer with public key %s not found on interface %s", r.PeerPublicKey, r.InterfaceName)
++		if peer.PublicKey.String() == r.PeerPublicKey {
++			found = true
++			break
+ 		}
+ 	}
++	if !found {
++		return fmt.Errorf("peer with public key %s not found on interface %s", r.PeerPublicKey, r.InterfaceName)
++	}
+ 	validPSK, err := wgtypes.ParseKey(psk)
+ 	if err != nil {
+ 		return err
