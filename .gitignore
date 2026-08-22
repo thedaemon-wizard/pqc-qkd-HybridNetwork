@@ -133,3 +133,16 @@ references/QuLore_*.pdf
 
 # Operator Caddy drop-ins (host-owned, see deploy/caddy.d/README)
 deploy/caddy.d/*.caddy
+
+# Operator-private working files.
+#
+# Deliberately a generic directory rather than a list of filenames: naming the
+# files here would disclose them in a public repository, which is the thing the
+# rule exists to prevent. Anything an operator must keep out of the repo --
+# planning notes, host access details, commercial material -- goes in here.
+#
+# This is a REPOSITORY-level rule and therefore travels to every clone.
+# `.git/info/exclude` does not: it is per-clone, so a fresh clone had no
+# protection at all and `git add -A` would have staged such files. Verified by
+# simulating a clean clone.
+/private/

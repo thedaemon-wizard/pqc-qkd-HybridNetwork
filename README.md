@@ -225,7 +225,7 @@ Open <http://localhost:5173>. Thirteen pages are available:
 3. **Paper Data Exchange** (`/paper-flow`) — **client-side** multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), layer-aware failure-cascade timeline, ChaCha20-Poly1305 payload
 4. **BB84 Live** (`/bb84`) — **client-side** Monte-Carlo photon simulation in a **Web Worker** (~70–100M pulses/s; optional WebGPU), real-time QBER chart, key-pool size, photon-frame table, **Eve toggle** + intercept-probability slider, live engine badge
 5. **Key Flow** (`/keyflow`) — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
-6. **Topology** (`/topology`) — D3-force graph of nodes (alice/bob/Charlie) and KMEs
+6. **Topology** (`/topology`) — D3-force graph of alice, bob and the two KMEs. Charlie is **not** shown: `/api/topology` returns a fixed four-node graph with no multihop branch.
 7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
 8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
 9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults (best-effort synced to the KMEs); a **client-side** live key-rate (closed-form Lo-Ma) + **client-side** μ/ν optimiser recompute in-browser as you edit, plus the backend selector (incl. `tno`)
