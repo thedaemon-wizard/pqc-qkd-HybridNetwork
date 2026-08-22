@@ -5,7 +5,7 @@ four had been verified by hand more than once. A property checked by hand is a
 property that gets re-checked by hand forever, and the answer is only as good as
 the last person's grep. These are the same checks, written down.
 
-  1. No Japanese text in a tracked file -- with one deliberate exception.
+  1. No Japanese text in a tracked file -- with two deliberate exceptions.
   2. No emoji in documentation files (research and industry material).
   3. No AI-tooling attribution anywhere in tracked content.
   4. No host names, addresses or credentials for the public demo.
@@ -21,6 +21,13 @@ The row cannot state the check without containing the characters it looks for.
 A naive "zero Japanese characters" rule fails on it, and the obvious fix --
 deleting the row -- removes the check. So the rule is "exactly one, and it is
 that line", which is precise and stays honest if the row ever moves.
+
+This file is the second exception, for the same reason: it defines the regex.
+It found that out the hard way -- the first CI run failed on line 41, its own
+`JAPANESE` pattern, while the local run had been green because `git ls-files`
+did not yet list an uncommitted file. Worth remembering when writing any guard
+that scans tracked content: verify it AFTER `git add`, or the subject is
+invisible to it.
 
 Formula rendering is deliberately NOT checked here: it needs GitHub's own
 Markdown renderer and lives in `services/webui-frontend/src/lib/docsLatex.test.ts`,
@@ -42,8 +49,15 @@ JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 EMOJI = re.compile(r"[\U0001F300-\U0001FAFF✀-➿⬀-⯿]")
 TOOLING = re.compile(r"\b(anthropic|copilot|chatgpt|openai)\b", re.I)
 
-# The single line allowed to contain Japanese: the row that documents the
-# browser check FOR Japanese, which must quote the ranges to specify it.
+# Files that must contain a forbidden pattern in order to detect it. There are
+# exactly two kinds and both are unavoidable: the checklist row that documents
+# the browser check FOR Japanese (it cannot state the check without quoting the
+# ranges), and this file, which defines the matching regexes.
+#
+# This test failed on itself the first time it ran in CI, and passed locally --
+# because `git ls-files` did not yet list the file. A green local run on an
+# uncommitted guard proves nothing about the guard.
+SELF = f"tests/{Path(__file__).name}"
 JAPANESE_EXEMPTION = ("VERIFICATION_CHECKLIST.md", "4.2.2")
 
 
@@ -74,6 +88,7 @@ def test_the_only_japanese_is_the_row_that_documents_the_japanese_check():
     offenders = [
         (f, n, line.strip()[:80])
         for f in TRACKED
+        if f != SELF
         for n, line in _lines(f)
         if JAPANESE.search(line)
     ]
@@ -108,8 +123,7 @@ def test_no_ai_tooling_attribution_in_tracked_content():
                 continue
             # The secret-scan job and the checklist row describing it must name
             # what they forbid; nothing else may.
-            if f in (".github/workflows/ci.yml", "VERIFICATION_CHECKLIST.md",
-                     f"tests/{Path(__file__).name}"):
+            if f in (".github/workflows/ci.yml", "VERIFICATION_CHECKLIST.md", SELF):
                 continue
             offenders.append((f, n, line.strip()[:80]))
     assert not offenders, f"AI-tooling references in tracked content: {offenders}"
