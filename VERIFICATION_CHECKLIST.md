@@ -9,12 +9,12 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-187 rows, of which **29 are machine-checked and 158 are not**. Worth knowing
+188 rows, of which **30 are machine-checked and 158 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
-| 1 | Build and unit gates | 15 | **15** | 0 |
+| 1 | Build and unit gates | 16 | **16** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **111** | 2 | **109** |
@@ -61,6 +61,7 @@ Everything CI can check, in one command:
 | 1.13 | Eve's intercept-resend drives QBER to 0.25 (mean over seeds, not one draw) | `pytest tests/test_bb84_simulator.py` | CI `python` |
 | 1.14 | Optimiser SKR agrees with the shared rate model | `pytest tests/test_backend_cross_qber.py` | CI `python` |
 | 1.15 | Backend QBER matches the analytical Lo-Ma value | `pytest tests/test_backend_cross_qber.py` | CI `python` |
+| 1.16 | **ETSI 014 roundtrip waits for the sync, it does not guess** | `tests/test_etsi014_contract.py` polls `dec_keys` to a 15 s deadline instead of `time.sleep(0.5)`. Propagation is asynchronous -- `KeyPool._sync_to_peer` POSTs to the neighbour and its HTTP client alone allows **2.0 s**, four times the old wait -- so a slow sync failed with `404 unknown key_ID` while nothing was wrong. Seen in CI on a branch touching only a script, a test exemption and a checklist row. The poll still fails on a genuinely unknown key: it returns 404 at the deadline rather than hanging or passing. | CI `live-stack` |
 
 ---
 
