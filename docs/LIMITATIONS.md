@@ -23,9 +23,10 @@ When citing or releasing the PoC, **please always disclose the limitations below
 - Device-specific non-idealities such as **temperature drift, bandpass filtering, and wavelength-dependent quantum efficiency** are still not modelled.
 
 ### 12.2 Hardware connectivity
-- Because we speak the **ETSI GS QKD 014 standard interface**, commercial QKD devices (ID Quantique Cerberis, Toshiba MUSE, Thinkquantum TQ-KME, etc.) can be plugged in by **changing a single `KMS_URL` line** — see the WebUI "Hardware-In-Loop" page for the HIL mode.
+- Because we speak the **ETSI GS QKD 014 standard interface**, a platform that publishes an ETSI 014 REST endpoint can be substituted by **changing a single `KMS_URL` line** — see the WebUI "Hardware-In-Loop" page. Vendors documenting such an endpoint include ID Quantique (via the **Clarion KX** key-management layer, not the QKD appliance itself), **Toshiba Q-KMS**, and **ThinkQuantum QUKY**. **No hardware has been tested against this PoC.**
+  - This list previously named "Toshiba MUSE" and "Thinkquantum TQ-KME". Neither product exists under those names; the vendors' own documentation says Q-KMS and QUKY (QUKY-TX / QUKY-RX) respectively. Checked against vendor product pages on 2026-08-22.
 - Vendor-specific drivers (USB / serial) and HSM-backed key-management APIs are out of scope.
-- **Xanadu's cloud CV-QKD service was decommissioned in 2026-01**, but local CV-QKD simulation remains available.
+- **Xanadu's photonic quantum cloud was decommissioned on 2026-01-16** and Strawberry Fields was archived the same day. It was a continuous-variable *quantum computing* service, not a QKD one — this entry previously called it "CV-QKD", which it never was. Local CV-QKD simulation (GG02) is unaffected.
 
 ### 12.3 Residual limitations
 - **Single-host PoC**: all containers run on a single physical host, so a real QKD network's latency, loss and physical isolation are not reproduced.

@@ -34,9 +34,33 @@ export default function Console() {
         subtitle="Live tail of container stdout (Docker logs)."
       />
       <div style={{ marginBottom: 12 }}>
+        {/* logProvider, not logService. This page already holds the exact text
+            it is displaying, and the `logService` route could not name it for
+            any of the four containers:
+
+              alice / bob      -> fell through to "webui-backend", a different
+                                  service entirely;
+              bb84-kme-a / -b  -> asked for bb84-kme-a.log, which does not
+                                  exist. The KME writes its rotating file under
+                                  the NODE name (alice.log, bob.log), so the
+                                  container names in NAMES and the log-file
+                                  names occupy different namespaces and the
+                                  ternary mapped them backwards.
+
+            Verified against the deployed demo: /api/logs/download/bb84-kme-a
+            returned "# log file bb84-kme-a.log not found" with HTTP 200. */}
         <ExportToolbar
           name={`console-${active}`}
-          logService={active.includes("kme") ? active : "webui-backend"}
+          logProvider={() => {
+            // Refuse rather than hand over an empty file. `ExportToolbar.wrap`
+            // surfaces a throw in the toolbar, but an empty string throws
+            // nothing -- which is the same silent-empty-output shape as the
+            // backend stub this page's export was just fixed for. The window
+            // is short (the poll below fills `log` within 1.5 s) but "saved a
+            // 0-byte log" and "the service was quiet" must not look alike.
+            if (!log) throw new Error("no log yet: the first poll has not returned");
+            return log;
+          }}
           jsonProvider={() => ({ container: active, log })}
         />
       </div>

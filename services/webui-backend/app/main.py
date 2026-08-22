@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 try:
     import docker
@@ -192,12 +192,27 @@ async def list_log_files() -> dict[str, list]:
 
 @app.get("/api/logs/download/{service}")
 async def download_log(service: str, lines: int = 1000):
-    """Return the last `lines` lines of <service>.log as a text/plain download."""
+    """Return the last `lines` lines of <service>.log as a text/plain download.
+
+    404 when the file is absent, rather than 200 with a comment standing in for
+    it. The previous form returned
+
+        # log file <service>.log not found
+
+    under a Content-Disposition header, so asking for a log that does not exist
+    produced a *successful* download of a one-line file that looked like a log.
+    `/console` did exactly that for both KME containers, and no caller could
+    distinguish "no such log" from "the service has been quiet".
+    """
     safe = service.replace("/", "_").replace("..", "_")
-    text = logging_setup.read_tail(safe, lines=int(lines))
-    from fastapi.responses import PlainTextResponse
+    known = {f["name"] for f in logging_setup.list_log_files()}
+    if f"{safe}.log" not in known:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no log file {safe}.log; available: {sorted(known)}",
+        )
     return PlainTextResponse(
-        text or f"# log file {safe}.log not found\n",
+        logging_setup.read_tail(safe, lines=int(lines)),
         headers={"Content-Disposition": f'attachment; filename="{safe}.log"'},
     )
 
@@ -512,7 +527,7 @@ async def verify_keyrate():
 
 @app.get("/api/verify/paper-budgets")
 async def verify_paper_budgets():
-    """Paper packet-budget match (arXiv:2604.05599 Table III).
+    """Paper packet-budget match (arXiv:2604.05599 Table 1).
 
     Reads the literature values directly from `paper_budgets`. It used to reach
     into a running paper-flow orchestrator for the same static dict, which meant
@@ -535,7 +550,7 @@ async def verify_paper_budgets():
         "paper_total_bytes": budgets["paper_total_bytes"],
         "packets_match": total_pkts == budgets["paper_total_packets"],
         "bytes_match": total_bytes == budgets["paper_total_bytes"],
-        "reference": "Spooren et al. arXiv:2604.05599 §IV-B Table III",
+        "reference": "Spooren et al. arXiv:2604.05599 Evaluation Test 1, Table 1",
     }
 
 

@@ -14,7 +14,7 @@ export interface PacketFlowTableProps {
 
 export default function PacketFlowTable({ budgets, currentPhase }: PacketFlowTableProps) {
   return (
-    <Panel title="Packet Flow Inspector (paper budgets, arXiv:2604.05599 §IV-B)">
+    <Panel title="Packet Flow Inspector (paper budgets, arXiv:2604.05599 Evaluation Test 1)">
       <table style={{ width: "100%", fontSize: 12, color: colors.textPri,
                        borderCollapse: "collapse" }}>
         <thead>

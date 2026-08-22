@@ -1,8 +1,14 @@
 /**
  * Failure cascade timeline (Phase 14).
  *
- * Renders the 7-stage 0-720s cascade described in arXiv:2604.05599 §IV-B
- * (Table III) when a layer failure has been injected. The current wall-clock
+ * Renders the 7-stage 0-720s cascade described in arXiv:2604.05599, in the
+ * "Fail-Safe Mechanism" subsection of Implementation: a component stops no
+ * earlier than 60s after the previous layer fails and no later than 180s, so
+ * loss of the QKD plane reaches the data path in 240-720s. Test 5 (Simulated
+ * QKD malfunction) is the paper's empirical check of it. NOT Table 1, which
+ * gives packet and byte budgets and says nothing about timing.
+ *
+ * Shown when a layer failure has been injected. The current wall-clock
  * head moves along the timeline; events flip from "pending" to "fired" as the
  * head crosses them.
  */

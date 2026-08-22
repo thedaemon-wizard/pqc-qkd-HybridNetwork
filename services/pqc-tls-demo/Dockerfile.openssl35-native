@@ -7,7 +7,13 @@
 # (HQC, Falcon, SLH-DSA, Classic McEliece for research).
 #
 # Usage:
-#   PQC_PROVIDER=native make pqc-tls-demo-both
+#   make pqc-tls-demo-both
+#
+# That line used to read `PQC_PROVIDER=native make pqc-tls-demo-both`. No such
+# switch exists: `pqc-tls-demo-both` builds both the native and the
+# oqs-provider image unconditionally and reads no such variable. The rest of
+# the tree withdrew the `PQC_PROVIDER` claim; this was the last place still
+# presenting it as something an operator could set.
 #
 # Inside the container:
 #   openssl s_server -tls1_3 -groups X25519MLKEM768 -accept 4433

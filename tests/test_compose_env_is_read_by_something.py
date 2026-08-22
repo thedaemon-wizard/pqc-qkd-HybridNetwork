@@ -55,8 +55,14 @@ def _service_env(service: dict) -> list[str]:
 EXTERNALLY_CONSUMED = {
     "OMP_NUM_THREADS": "OpenMP runtime, via numpy/qutip in bb84-kme",
     "OPENBLAS_CORETYPE": "OpenBLAS runtime, via numpy",
-    "WG_QUICK_USERSPACE_IMPLEMENTATION": "wg-quick (confirmed in the node image)",
 }
+# WG_QUICK_USERSPACE_IMPLEMENTATION used to be exempted here as "wg-quick
+# (confirmed in the node image)". Nothing in this repository ever invoked
+# wg-quick -- `nodes/alice/entrypoint.sh` created the interface with a bare
+# `ip link add ... type wireguard` -- so the variable was read by nothing and
+# the exemption was the excuse that kept a dead variable alive. The entrypoint
+# now reads it when the kernel module is missing, which makes it an ordinary
+# in-tree consumer and needs no exemption at all.
 
 # Where a reader could legitimately live. Entrypoints and third-party binaries
 # count: ARNIKA_* is read by arnika itself, not by anything in this repo's

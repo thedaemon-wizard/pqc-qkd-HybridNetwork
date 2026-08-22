@@ -1,7 +1,7 @@
 """The paper's setup times live in two files; they must not drift apart.
 
 `services/webui-backend/app/paper_budgets.py` owns MEAN_10_HOP_SETUP_S and
-MEAN_100_HOP_SETUP_S, pinned against arXiv:2604.05599 section VI by
+MEAN_100_HOP_SETUP_S, pinned against arXiv:2604.05599 Evaluation, Test 2 - Long Distance by
 `tests/test_paper_budgets.py`. `services/webui-frontend/src/lib/sim/paperSim.ts`
 restated the same two numbers as bare literals, with nothing comparing them.
 
@@ -60,7 +60,7 @@ def test_typescript_matches_python(name):
     py = getattr(paper_budgets, name)
     assert ts == py, (
         f"{name}: paperSim.ts has {ts}, paper_budgets.py has {py}. "
-        "These are literature values from arXiv:2604.05599 section VI -- change "
+        "These are literature values from arXiv:2604.05599 Evaluation, Test 2 - Long Distance -- change "
         "both to match the paper, never one to match the other."
     )
 

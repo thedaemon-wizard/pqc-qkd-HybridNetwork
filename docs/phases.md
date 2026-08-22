@@ -117,9 +117,13 @@ comparison, and end-to-end browser verification.
 Bring up either lane (or both):
 
 ```bash
-make up                                   # WireGuard (default profile)
-make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.strongswan.yml" \
-   --profile ipsec                        # IPsec/IKEv2 (RFC 9370) lane
+make up        # WireGuard (default profile)
+make up-ipsec  # IPsec/IKEv2 (RFC 9370) lane
+
+# NOT `make up COMPOSE_FILES=... --profile ipsec`, which this file used to
+# give: `--profile` is a docker compose flag, not a make flag, so make exits
+# with "unrecognized option '--profile'" before running any recipe. `up-ipsec`
+# passes it to compose in the right place.
 ```
 
 Verify RFC 9370 hybrid handshake:
@@ -405,7 +409,7 @@ existing "Quantum-Secure E2E "). The page is intentionally distinct from
 | Source figure | `arnika-project/arnika` single-tunnel diagram | **Multi-hop trusted-node diagram** (End Node Alice \| Trusted Node × N \| End Node Bob) |
 | Focus | key fusion in one Site A ↔ Site B tunnel | **5-phase daisy chain** with paper-quoted packet budgets |
 | Failure model | Eve attack on BB84 | **240-720 s layer cascade** per §VI |
-| Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper §IV-B Table III |
+| Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper, Evaluation Test 1, Table 1 |
 
 Backend orchestrator (deleted; now `services/webui-frontend/src/lib/sim/paperSim.ts`):
 - 5-phase state machine: **Quantum Plane → Arnika QKD key_ID → WG hop handshake → Rosenpass PQC handshake → Final data tunnel**
