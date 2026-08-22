@@ -91,7 +91,26 @@ async def roundtrip(req: RoundtripRequest) -> dict[str, Any]:
 # Default crypto-agility matrix: NIST-standard ML-KEM (encap/decap) + ML-DSA
 # (sign/verify) across all security levels. Swapping algorithms = one list edit.
 DEFAULT_KEM_ALGOS = ["ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"]
-DEFAULT_SIG_ALGOS = ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"]
+
+# Signatures span TWO mathematical families on purpose.
+#
+# The matrix was ML-DSA only. Every entry in it -- and every KEM above -- rests
+# on module lattices, so a structural break in that assumption takes out the
+# whole table at once. A matrix like that demonstrates parameter agility, not
+# algorithm agility, and RFC 7696 is about having somewhere to move TO.
+#
+# SLH-DSA (FIPS 205) is hash-based and is that somewhere. The pinned liboqs
+# exposes 156 SLH-DSA mechanisms; three suffice to cover NIST categories 1, 3
+# and 5.
+#
+# Note the naming: liboqs uses SLH_DSA_PURE_SHA2_128S while the browser side
+# (@noble, src/lib/sim/pqc.ts) uses SLH-DSA-SHA2-128s. Same algorithm, two
+# spellings, and passing the browser's spelling here silently disables the row
+# rather than erroring -- `enabled` would simply read false.
+DEFAULT_SIG_ALGOS = [
+    "ML-DSA-44", "ML-DSA-65", "ML-DSA-87",
+    "SLH_DSA_PURE_SHA2_128S", "SLH_DSA_PURE_SHA2_192S", "SLH_DSA_PURE_SHA2_256S",
+]
 
 
 class AgilityRequest(BaseModel):
@@ -103,8 +122,13 @@ class AgilityRequest(BaseModel):
 
 @app.post("/api/agility")
 async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
-    """Crypto-agility evidence: exercise a matrix of liboqs algorithms (ML-KEM
-    encap/decap + ML-DSA sign/verify) and report pass/fail per algorithm.
+    """Crypto-agility evidence: exercise a matrix of liboqs algorithms and
+    report pass/fail per algorithm.
+
+    Covers ML-KEM encap/decap plus ML-DSA and SLH-DSA sign/verify -- two
+    signature families, so the table survives a structural break in either.
+    Reporting only module-lattice schemes would have shown parameter agility
+    while calling it algorithm agility.
 
     No PQClean field is returned; the response never carried one, and this
     docstring used to say it did."""
