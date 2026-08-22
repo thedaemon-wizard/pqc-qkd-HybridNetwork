@@ -316,11 +316,18 @@ they are not something to close silently:
   the interval during which the bootstrap credential and the first QKD-derived
   key can both answer `PPK_ID`.
 
-  That is a hypothesis, not a finding. It could not be confirmed because the
-  job printed only the count and never the matching lines, so a failure left
-  nothing to diagnose. The job now dumps the `AUTH_FAILED`, bootstrap-unload,
-  orphan-unload and rotation lines when the assertion trips; the next
-  occurrence should settle it.
+  Attempted locally on 2026-08-22 and **could not be reproduced**: the lane
+  brings up an SA with `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`
+  and two full 240 s windows gave 7 rotations and **0 failures** each, with no
+  clustering at startup when sampled at 15/30/45/60/90/120/180/240 s. So the
+  condition is specific to the CI environment, not to the code path.
+
+  The job originally printed only the count, so a failure left nothing to
+  diagnose. It now dumps the `AUTH_FAILED`, bootstrap-unload, orphan-unload and
+  rotation lines with timestamps whenever there is **any** failure, not only
+  when the ceiling trips -- a passing run with one or two failures is precisely
+  the data point that separates a startup window from a per-rotation race, and
+  dumping only on failure threw those away.
 
   The threshold was deliberately NOT loosened. If these are genuinely
   post-bootstrap failures then the peers are resolving different PPKs and the
