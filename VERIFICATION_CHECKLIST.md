@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-190 rows, of which **32 are machine-checked and 158 are not**. Worth knowing
+191 rows, of which **33 are machine-checked and 158 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 18 | **18** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **111** | 2 | **109** |
+| 4 | Browser, every page | **112** | 3 | **109** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
 | 7 | Documentation | 11 | 1 | 10 |
@@ -257,6 +257,7 @@ question about it could not be answered from this checklist.
 | 4.6.18 | **Full-route control inventory** | All 13 routes, via the app's own navigation with 2.8 s settle: **zero unlabelled inputs and zero Japanese text on every route**. `Animation duration (seconds)` present with 7 options defaulting to 10 on every page carrying a toolbar. `/pqc` signature picker offers 7 algorithms across two families. `/physics` exposes 14 numeric inputs plus 1 checkbox, all labelled. |
 | 4.6.19 | **`/physics` exports the parameters AND the rate they imply** | Export toolbar present; the JSON carries `parameters` (all editable paths, config default vs effective, which are overridden) and `derived` (`eta_total`, `Y0`, `qber`, `skr_per_pulse`, `skr_bps`). Inputs alone would be half the evidence -- the page's claim is that a given channel yields a given rate, and both sides are needed to reproduce it. Derived values are computed client-side from the same closed form the page displays, so export and screen cannot disagree. |
 | 4.6.20 | **One bundled parameter set; engines derive, never restate** | `BUNDLED_PARAMS` in `lib/sim/keyrate.ts` is the only literal, checked against `config/qkd_params.yaml` by `tests/test_frontend_defaults_match_config.py`. `bb84Sim.ts` and `bb84.worker.ts` must call `bundledChannel()`, not carry their own eta/Y0. They previously held `{etaTotal: 0.02, Y0: 1e-5}` -- a channel 6.3x more lossy with 100x the dark-count yield than the configured one, and the worker starts before `/api/sim/params` arrives, so those were the values the first rounds were drawn from. eta_total and Y0 are DERIVED quantities; writing them as literals is what let them drift. |
+| 4.6.21 | **`/benchmarks` plots rounds, not polls** | `npx vitest run src/lib/sim/benchmarksHistory.test.ts` -> 6 pass. The page polls `/api/stats` every second and used to append `last_qber ?? 0` on every tick. With the pool full, rounds are infrequent -- measured on the demo, **4 rounds** against a 1 s poll -- so charts titled "round latency" and "QBER history" were histories of POLLS: mostly one round resampled, drawing a flat line that reads as a stuck sensor. "Avg QBER" averaged the duplicates, making it time-weighted while presenting as per-round. And `?? 0` recorded a MISSING reading as zero, which is indistinguishable from a real one -- simqn legitimately returns 0.0 sometimes (measured [0.0, 0.029412, 0.009804] over three rounds). Do not re-add `?? 0`. |
 
 ### 4.7 Numbers match the model
 
