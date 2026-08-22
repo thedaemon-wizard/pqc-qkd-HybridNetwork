@@ -11,7 +11,9 @@ construction does *not* give you.
 An IKEv2 preshared key is consumed in exactly one place: computing the `AUTH`
 payload of `IKE_AUTH` (RFC 7296 §2.15).
 
-$$\mathrm{AUTH} \;=\; \mathrm{prf}\Big(\mathrm{prf}\big(\text{PSK},\ \texttt{"Key Pad for IKEv2"}\big),\ \text{SignedOctets}\Big)$$
+```math
+\mathrm{AUTH} \;=\; \mathrm{prf}\Big(\mathrm{prf}\big(\text{PSK},\ \texttt{"Key Pad for IKEv2"}\big),\ \text{SignedOctets}\Big)
+```
 
 It **authenticates** the peers. It never enters `SKEYSEED`, so it contributes
 nothing to the session keys. Those come entirely from the (EC)DH exchange in
@@ -31,11 +33,17 @@ This project's IPsec lane used to do exactly that.
 
 RFC 8784 mixes a Post-quantum Preshared Key into the key schedule itself:
 
-$$\mathrm{SK\_d} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_d}')$$
+```math
+\mathrm{SK\_d} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_d}')
+```
 
-$$\mathrm{SK\_pi} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pi}')$$
+```math
+\mathrm{SK\_pi} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pi}')
+```
 
-$$\mathrm{SK\_pr} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pr}')$$
+```math
+\mathrm{SK\_pr} = \mathrm{prf}^{+}(\text{PPK},\ \mathrm{SK\_pr}')
+```
 
 `SK_d` is the root of every Child SA's `KEYMAT` and of all subsequent rekeys, so
 an attacker now needs **both** the DH secret **and** the QKD key. That is the
@@ -90,7 +98,9 @@ The connection proposes `ecp256-ke1_mlkem768`: classical ECP-256 in
 `IKE_SA_INIT`, then ML-KEM-768 as Additional Key Exchange 1 carried in an
 `IKE_INTERMEDIATE` exchange (RFC 9242). Round $n$ chains forward:
 
-$$\mathrm{SKEYSEED}(n) \;=\; \mathrm{prf}\big(\mathrm{SK\_d}(n-1),\ \mathrm{SK}(n)\ |\ N_i\ |\ N_r\big)$$
+```math
+\mathrm{SKEYSEED}(n) \;=\; \mathrm{prf}\big(\mathrm{SK\_d}(n-1),\ \mathrm{SK}(n)\ |\ N_i\ |\ N_r\big)
+```
 
 so the result is secure if **any single** round is secure.
 
