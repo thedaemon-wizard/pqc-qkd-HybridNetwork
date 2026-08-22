@@ -14,6 +14,7 @@
  */
 import { Bb84Gpu, type Bb84Cfg } from "./bb84Gpu";
 import { Bb84Gl } from "./bb84Gl";
+import { bundledChannel } from "./keyrate";
 
 export interface Bb84Frame {
   i: number; alice_bit: number; alice_basis: number;
@@ -24,8 +25,10 @@ export interface Bb84Update {
   engine: string; pulsesPerSec: number;
 }
 
+// Derived from the one bundled parameter set, not restated. These used to be
+// literals describing a channel 6.3x more lossy than the configured one.
 const DEFAULT_CFG: Bb84Cfg = {
-  etaTotal: 0.02, eD: 0.015, Y0: 1e-5,
+  ...bundledChannel(),
   eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
 };
 const UPGRADE_MARGIN = 1.15;       // a GPU tier must beat the CPU by ≥15% to be used

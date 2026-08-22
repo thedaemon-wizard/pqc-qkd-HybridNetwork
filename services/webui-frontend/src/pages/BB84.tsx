@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import { Bb84Engine, type Bb84Frame } from "../lib/sim/bb84Sim";
-import { channelFromParams } from "../lib/sim/keyrate";
+import { BUNDLED_PARAMS, channelFromParams } from "../lib/sim/keyrate";
 import ExportToolbar from "../components/ExportToolbar";
 
 /**
@@ -25,14 +25,7 @@ import ExportToolbar from "../components/ExportToolbar";
  * and fails on any divergence, because keeping two copies in step by hand is
  * what produced the drift.
  */
-const DEFAULT_PARAMS = {
-  detectorEfficiency: 0.2, fiberAttenuationDbPerKm: 0.2, linkLengthKm: 10,
-  darkCountRateHz: 100, pulseRateHz: 1e9, misalignmentErrorEd: 0.015,
-  // config/qkd_params.yaml protocol.qber_threshold_abort. The chart drew this
-  // line at a literal 0.11, so editing the abort threshold moved the protocol's
-  // behaviour without moving the line a viewer judges it against.
-  qberThresholdAbort: 0.11,
-};
+const DEFAULT_PARAMS = BUNDLED_PARAMS;
 
 export default function BB84() {
   const [qberHistory, setQberHistory] = useState<number[]>([]);
