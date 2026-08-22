@@ -200,16 +200,19 @@ All variables in `.env` (copy from `.env.example`):
 | Variable | Default | Purpose | Source of truth |
 |---|---|---|---|
 | `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 4 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired` | `submodules/arnika/config/config.go:34` |
+> **Numeric BB84 tunables are not environment variables.** They come from
+> `config/qkd_params.yaml`, which `services/bb84-kme/app/config_loader.py`
+> declares the single source of truth, and which
+> `tests/test_no_hardcoded_params.py` and
+> `tests/test_frontend_defaults_match_config.py` enforce. This table used to
+> list seven `BB84_*` variables and an `ETSI_MTLS_ENABLED`, each with a
+> "source of truth" column naming a Python file. No Python file read any of
+> them; they were set in compose and consumed by nothing.
+
 | `ARNIKA_INTERVAL` | `30s` | PSK rotation period (paper uses 120s) | `submodules/arnika/config/config.go` |
 | `KMS_HTTP_TIMEOUT` | `10s` | ETSI 014 HTTP timeout | arnika config |
-| `BB84_BATCH` | `2048` | Photons per BB84 round | `services/bb84-kme/app/keypool.py` |
-| `BB84_CHANNEL_NOISE` | `0.01` | Bit-flip probability (channel) | `services/bb84-kme/app/bb84/simulator.py` |
-| `BB84_QBER_THRESHOLD` | `0.11` | Reconciliation abort threshold | `services/bb84-kme/app/bb84/reconciliation.py` |
-| `BB84_POOL_LOW` / `BB84_POOL_MAX` | `8` / `64` | Key pool watermarks | `services/bb84-kme/app/keypool.py` |
-| `BB84_EVE_ENABLED` / `BB84_EVE_PROB` | `false` / `0.0` | Initial Eve attack (also runtime-controllable from WebUI) | `services/bb84-kme/app/bb84/eve.py` |
 | `WEBUI_BACKEND_PORT` | `8000` | Backend port (host) | docker-compose |
 | `WEBUI_FRONTEND_PORT` | `5173` | Frontend nginx port (host) | docker-compose |
-| `ETSI_MTLS_ENABLED` | `false` | Enable mTLS between arnika ↔ KME | Phase 7 |
 
 ---
 
@@ -304,8 +307,9 @@ Tested on:
 - **Docker**: 24+ with Compose v2
 - **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
   `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
-  required. If `modprobe wireguard` fails on your host, see the userspace
-  `boringtun` fallback in section 5.3.
+  required. If `modprobe wireguard` fails on your host there is **no working
+  fallback today** -- the `boringtun` overlay points at a binary the image does
+  not contain. See [`docs/BUILD.md`](docs/BUILD.md) section 5.3.
 
 Host-side Python venv (for running `pytest` and Manim outside Docker):
 
