@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import PageHeader from "../components/PageHeader";
+import ExportToolbar from "../components/ExportToolbar";
 import Panel from "../components/Panel";
 import KPI from "../components/KPI";
 import Button from "../components/Button";
@@ -55,6 +56,52 @@ export default function Verification() {
 
   return (
     <div>
+      {/* This page is headed "Implementation Verification" and had no way to
+          export the verification. Whoever needs the evidence -- a reviewer, a
+          paper appendix -- had to screenshot a table. The whole point of the
+          page is producing something citable. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="verification"
+          logProvider={() => {
+            const lines = [
+              "# Implementation verification evidence",
+              `# generated: ${new Date().toISOString()}`,
+              "#",
+              "# Crypto-agility matrix (liboqs)",
+            ];
+            const rows = agility?.matrix ?? [];
+            for (const r of rows) {
+              lines.push(`${r.algo}\t${r.family}\t${r.enabled ? "enabled" : "disabled"}`
+                + `\t${r.ok ? "PASS" : "FAIL"}`
+                + (r.pk_len ? `\tpk=${r.pk_len}` : "")
+                + (r.ct_len ? ` ct=${r.ct_len}` : "")
+                + (r.ss_len ? ` ss=${r.ss_len}` : "")
+                + (r.sig_len ? ` sig=${r.sig_len}` : ""));
+            }
+            if (keyrate) {
+              lines.push("#", "# Key-rate cross-check");
+              lines.push(`distance_km\t${keyrate.distance_km}`);
+              lines.push(`ours_bps\t${keyrate.ours_closed_form?.skr_bps}`);
+              lines.push(`tno_bps\t${keyrate.tno?.skr_bps}`);
+              lines.push(`same_order_of_magnitude\t${keyrate.same_order_of_magnitude}`);
+            }
+            if (budgets) {
+              lines.push("#", "# Paper budgets (arXiv:2604.05599 Table III)");
+              lines.push(`total_packets\t${budgets.total_handshake_packets}`);
+              lines.push(`total_bytes\t${budgets.total_handshake_bytes}`);
+            }
+            return lines.join("\n") + "\n";
+          }}
+          jsonProvider={() => ({ agility, keyrate, budgets })}
+          csvProvider={() => (agility?.matrix ?? []).map((r: any) => ({
+            algo: r.algo, family: r.family, enabled: r.enabled, ok: r.ok,
+            pk_len: r.pk_len ?? null, ct_len: r.ct_len ?? null,
+            ss_len: r.ss_len ?? null, sig_len: r.sig_len ?? null,
+          }))}
+        />
+      </div>
+
       <PageHeader
         title="Implementation Verification"
         subtitle={
