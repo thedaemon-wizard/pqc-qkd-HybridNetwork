@@ -31,9 +31,17 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "qkd_params.yaml"
+# The literal moved out of BB84.tsx into lib/sim/keyrate.ts as BUNDLED_PARAMS,
+# because two engines carried their own conflicting copies. This test follows
+# the definition rather than the page: it is the single source that has to
+# agree with the YAML, and the engines derive from it.
+BUNDLED = ROOT / "services" / "webui-frontend" / "src" / "lib" / "sim" / "keyrate.ts"
+# The page is a separate concern: keyrate.ts owns the fallback VALUES, BB84.tsx
+# owns actually asking the backend first. Checking both against the same file
+# would let either half rot silently.
 BB84_PAGE = ROOT / "services" / "webui-frontend" / "src" / "pages" / "BB84.tsx"
 
-# BB84.tsx camelCase name -> dotted path in qkd_params.yaml
+# camelCase name in BUNDLED_PARAMS -> dotted path in qkd_params.yaml
 MAPPING = {
     "detectorEfficiency": "physical.detector_efficiency",
     "fiberAttenuationDbPerKm": "physical.fiber_attenuation_db_per_km",
@@ -53,9 +61,9 @@ def _config_value(dotted: str):
 
 
 def _frontend_defaults() -> dict[str, float]:
-    """Parse the `DEFAULT_PARAMS` object literal out of BB84.tsx."""
-    src = BB84_PAGE.read_text(encoding="utf-8")
-    m = re.search(r"const DEFAULT_PARAMS\s*=\s*\{(.*?)\n\};", src, re.S)
+    """Parse the `BUNDLED_PARAMS` object literal out of keyrate.ts."""
+    src = BUNDLED.read_text(encoding="utf-8")
+    m = re.search(r"export const BUNDLED_PARAMS\s*=\s*\{(.*?)\n\}\s*as const;", src, re.S)
     assert m, "DEFAULT_PARAMS literal not found in BB84.tsx -- has it been renamed?"
 
     body = re.sub(r"//[^\n]*", "", m.group(1))          # strip trailing comments
@@ -94,7 +102,7 @@ def test_the_page_reads_the_backend_before_falling_back():
     the same defect one step later.
     """
     src = BB84_PAGE.read_text(encoding="utf-8")
-    assert "/api/sim/params" in src
+    assert "/api/sim/params" in src, "BB84.tsx no longer asks the backend at all"
     for dotted in MAPPING.values():
         leaf = dotted.split(".")[-1]
         assert leaf in src, f"BB84.tsx never reads {leaf} from the API response"
@@ -105,7 +113,7 @@ def test_config_declares_itself_the_single_source_of_truth():
     head = CONFIG.read_text(encoding="utf-8")[:600].upper()
     assert "SINGLE SOURCE OF TRUTH" in head, (
         "qkd_params.yaml no longer claims to be the single source of truth; "
-        f"if that changed deliberately, this test and {BB84_PAGE.name} need revisiting"
+        f"if that changed deliberately, this test and {BUNDLED.name} need revisiting"
     )
 
 
