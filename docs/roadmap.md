@@ -185,15 +185,19 @@ Closed this round, with the evidence rather than the intention:
 
 - **VICI lane** verified in CI on `main`: both peers negotiate
   `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`, hold exactly
-  one IKE_SA, and rotate. One authentication failure per ~9 rotations remains
-  and is the documented sub-millisecond race in [`vici-ppk.md`](vici-ppk.md),
-  not a regression.
+  one IKE_SA, and rotate. The residual sub-millisecond race is **1 failure in
+  45 rotations** ([`vici-ppk.md`](vici-ppk.md)). This entry previously said
+  "one per ~9 rotations" -- that is the rate measured while the un-retired
+  bootstrap credential made two keys answer one `PPK_ID`, a defect that was
+  fixed, not the race that remains. Note also that the CI job observes only
+  ~6 rotations in its 240 s window, so its 20 % ceiling tolerates one failure
+  per run, not nine.
 - **Dead backend removed.** `e2e_orchestrator.py` and `paper_flow.py` are gone
-  along with ~200 lines of unreachable routes; `main.py` 842 -> 653. The paper
+  along with ~200 lines of unreachable routes; `main.py` 842 -> 684. The paper
   budgets moved to `paper_budgets.py` and are now pinned by a test.
 - **rosenpass** 2024 pin -> v0.2.3, which forced `rust:1.83` -> `rust:1.90`
   because a transitive dependency declares edition 2024.
-- **README** 490 -> 376 lines; build detail and limitations split out.
+- **README** 490 -> 380 lines; build detail and limitations split out.
 - **Formulas** all render on GitHub -- `\boxed{}` and `aligned` are not in its
   MathJax subset and were showing as raw source.
 - **Two shell scripts were unrunnable** (CRLF), including the repository's own
@@ -241,6 +245,76 @@ Closed this round, with the evidence rather than the intention:
   now transcribed independently.
 
 ### Implementation gaps still open
+
+Re-verified 2026-08-22 against the deployed demo and the code. Entries are
+grouped by what is required to close them, because that is the useful axis: a
+wrong sentence and a missing dependency are not the same kind of work.
+
+**Blocked on a dependency decision** -- these need a new vendored submodule, so
+they are not something to close silently:
+
+- **No userspace WireGuard fallback exists.** `docs/BUILD.md` 5.3 offers the
+  `boringtun` overlay to anyone whose `modprobe wireguard` fails.
+  `command -v boringtun` in the node image finds nothing, and neither boringtun
+  nor wireguard-go is packaged for `debian:bookworm`. wg-quick exits when the
+  kernel module is absent AND the binary is missing -- exactly that case. The
+  documented recovery path cannot work for the people who need it. Closing it
+  means vendoring boringtun plus a cargo stage; the image already builds Rust
+  for rosenpass, so it is feasible.
+- **Multi-hop cannot relay.** `charlie` now builds, starts and exchanges
+  WireGuard and Rosenpass public keys with alice, which it could not do before
+  (it was missing `ARNIKA_ID`, `ARNIKA_PSK`, a usable build context and every
+  volume). The chain still does not carry traffic: `rosenpass-sidecar.sh` takes
+  a single `RP_PEER_HOST`, so alice runs one Rosenpass instance peered with bob
+  and charlie's handshake to `alice:9997` is never accepted. Alice needs a
+  second instance on its own port, or multi-peer support.
+
+**Open, unexplained** -- do not close by re-running:
+
+- **The `strongswan-lane` auth-failure count has now fired twice**, both on
+  branches touching no lane file: **4 failures in 6 rotations**, then 0 in 6 on
+  an immediate re-run, then **4 in 8**. Both nodes, both times, and both times
+  exactly four.
+
+  Five observations, per node, all identical across the two nodes in a run:
+
+  | failures | rotations | result |
+  |---|---|---|
+  | 4 | 6 | fail |
+  | 0 | 6 | pass (re-run of the same commit) |
+  | 4 | 8 | fail |
+  | 0 | 9 | pass |
+  | 0 | 5 | pass |
+
+  The count is **bimodal -- 4 or 0, never 1 to 3**. That is the useful clue,
+  and it rules out the obvious readings. A per-rotation race would scatter
+  (0, 1, 2 ...) and scale with the denominator; it does neither. A fixed
+  startup cost would appear in every run; it does not. Something either happens
+  once per run and costs exactly four failures, or does not happen at all --
+  which points at a startup condition that is itself intermittent, most likely
+  the interval during which the bootstrap credential and the first QKD-derived
+  key can both answer `PPK_ID`.
+
+  That is a hypothesis, not a finding. It could not be confirmed because the
+  job printed only the count and never the matching lines, so a failure left
+  nothing to diagnose. The job now dumps the `AUTH_FAILED`, bootstrap-unload,
+  orphan-unload and rotation lines when the assertion trips; the next
+  occurrence should settle it.
+
+  The threshold was deliberately NOT loosened. If these are genuinely
+  post-bootstrap failures then the peers are resolving different PPKs and the
+  guard is doing its job, and loosening it is exactly how that gets waved
+  through.
+
+**Manual step remaining** -- the mechanism is in place, the action is the
+operator's:
+
+- Private working files now have a tracked `/private/` rule that travels to
+  every clone. Protection was previously `.git/info/exclude`, which is
+  per-clone; a simulated fresh clone staged those files. Moving them into
+  `/private/` is a local action this repository cannot verify without naming
+  them, which is the thing the rule exists to avoid.
+
 
 Four entries previously listed here have been closed and are recorded above
 instead; leaving them would have kept the roadmap arguing for work that exists.
