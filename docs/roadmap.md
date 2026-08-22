@@ -404,14 +404,46 @@ product name, so these survive every green CI run.
 
 ### Still open
 
-- **The VICI auth-failure count is bimodal.** Nine observations, always 4 or 0,
-  never 1-3, identical on both nodes. That rules out a per-rotation race (which
-  would scatter) and a fixed startup cost (which would always appear). Not
-  reproducible locally across two full 240 s windows. Instrumented to dump a
-  timestamped timeline on *any* failure, so the next occurrence yields evidence
-  rather than another bare count. The threshold is deliberately unchanged: a
-  systematic mismatch would show as 3-of-6, which is what the guard exists to
-  catch.
+- **The VICI lane intermittently reauthenticates with mismatched PPKs.**
+  Characterised properly on 2026-08-22 after the CI dump was made
+  unconditional; two earlier readings of it were wrong and are recorded here so
+  they are not re-derived.
+
+  A **failing** run (8 of 8 rotations, both nodes) rejects every
+  reauthentication with
+
+  ```
+  tried 1 shared key for 'bob@pqcqkd.local' - 'alice@pqcqkd.local', but MAC mismatched
+  ```
+
+  Exactly one credential, correct generation, and the MAC still fails -- so the
+  two peers hold **different 32 bytes**. That eliminates ordering, id
+  namespacing and a missing credential by observation rather than by argument,
+  and it is not the documented sub-millisecond race, which is 1-in-45 and
+  self-correcting. The IKE_SA stays at `pqcqkd-vpn[1]` for the whole window.
+
+  A **passing** run, by contrast, retires the bootstrap credential and then
+  establishes a *new* SA on every rotation -- `[2]`, `[3]`, `[4]`, `[5]` ... --
+  with 0 failures over 9 rotations. So the QKD-derived PPK does enter the key
+  schedule when the lane is healthy.
+
+  **Two hypotheses tested and refuted**, both of which looked convincing:
+
+  1. *"The lane has always run on the static bootstrap PPK."* False. The
+     bootstrap is retired on passing runs too; retirement is not the
+     discriminator. This one came from reading an ABSENCE as evidence -- the
+     timeline used to dump only when `authfail > 0`, so a passing run printed
+     nothing and appeared to show the bootstrap surviving.
+  2. *"The PQC half diverges"* (crossing Rosenpass initiations leaving each
+     peer holding the other's OSK). False: the two `pqc.psk` files are
+     byte-identical, measured both on the live deployment and in the green CI
+     run (`e5f54ee7a7309ddd77132fc7` on both nodes), and the QKD `key_id`s are
+     shared across the pair.
+
+  So the defect is real and proven, and **which half diverges is still open**.
+  CI now measures it every run -- a truncated hash of each node's PQC half and
+  the `key_id`s each used -- so the next failing run localises it instead of
+  producing another bare count. The 20 % threshold is deliberately unchanged.
 - **`arXiv:2511.21253` is cited for a formula it does not contain.** The finite-
   size penalty implemented in `_skr.py` and
   `tools/precompute_keyrate_table_fallback.py` is a generic first-order term,
