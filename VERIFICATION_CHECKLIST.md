@@ -260,20 +260,19 @@ question about it could not be answered from this checklist.
 
 ## 6. Release
 
-| # | Check |
-|---|---|
-| 6.1 | README pre-release checklist reconciled |
-| 6.2 | Only redistributable material under `references/` (see [`docs/references.md`](docs/references.md)) |
-| 6.3 | No third-party vendor binaries tracked |
-| 6.4 | Private files untracked and unreferenced from any tracked file |
-| 6.5 | Submodules pinned to explicit commits |
-| 6.6 | `docs/THIRD_PARTY_NOTICES.md` matches the pinned versions |
-| 6.7 | Screenshots in `docs/images/screenshots/` refreshed |
-| 6.8 | No AI-tooling references in any tracked file or commit trailer |
-| 6.9 | No hosting-provider names, hostnames, IPs or credentials in tracked files |
-| 6.10 | Pinned upstream facts re-verified against primary sources, with the date recorded |
-
----
+| # | Check | How |
+|---|---|---|
+| 6.1 | README pre-release checklist reconciled | Every unchecked box in the README's pre-release list either done or deleted. A checklist that carries permanently-unticked items stops being read. |
+| 6.2 | Only redistributable material under `references/` | `git ls-files references/` -> exactly one PDF, arXiv:2604.05599, CC BY 4.0 per its arXiv abstract page. `.gitignore:132` excludes the CC BY-NC-ND QuLore paper. Check the licence on the abstract page, not inside the PDF -- this one carries an IEEE line for the conference version while the arXiv posting is CC BY. |
+| 6.3 | No third-party vendor binaries tracked | `git ls-files \| grep -iE '\\.(so\|dll\|dylib\|a\|jar\|whl)$'` -> empty. |
+| 6.4 | Private files untracked and unreferenced | `git ls-files \| grep -cE 'MONETIZATION\|ssh_info'` -> 0, and `grep -rl MONETIZATION` over tracked files -> empty. Untracked is not enough; a reference from a tracked file discloses the name. |
+| 6.5 | Submodules pinned to explicit commits | `git submodule status` -> every line carries a 40-char SHA. A `-` prefix means merely NOT CHECKED OUT here and is normal (12 of 15 in a typical working copy); it is `+` that matters, meaning the checkout has drifted from the recorded commit. Run `git submodule update --init --recursive` before reading this as a fresh-clone check. |
+| 6.6 | `docs/THIRD_PARTY_NOTICES.md` matches the pinned versions | Human read of the licence and activity columns. The VERSION claims are machine-checked by 6.6b; everything else here -- licence names, "active", push dates -- is not, and saying so is more useful than implying it is. |
+| 6.6b | **A claimed version is the pinned commit** | `.venv/bin/python -m pytest tests/test_notices_match_the_pins.py` -> passes. 6.6 was prose, and prose is what let this file state openQKDsecurity was "3 commits **ahead** of v2.2.0, so it already includes that release" when the pin was 3 commits BEHIND. The test resolves each bolded `vX.Y.Z` against `git rev-list` in that submodule and requires it to equal HEAD; an unresolvable tag fails rather than skips. |
+| 6.7 | Screenshots in `docs/images/screenshots/` refreshed | Guarded by `test_verification_checklist_is_citable.py::test_every_screenshot_a_document_names_actually_exists`, which fails on any `docs/images/screenshots/*.png` named in prose but absent. |
+| 6.8 | No AI-tooling references in any tracked file or commit trailer | CI job `secrets`, plus `git log --format='%an%n%b' \| grep -ciE 'claude\|anthropic\|co-authored'` -> 0. |
+| 6.9 | No hosting-provider names, hostnames, IPs or credentials in tracked files | `git ls-files \| xargs grep -lniE 'ssh_info\|<demo-host>'` -> empty; gitleaks runs in CI. |
+| 6.10 | Pinned upstream facts re-verified against primary sources, with the date recorded | Each claim in `docs/references.md` carries the date it was checked. Undated claims age silently -- the NCSC citation pointed at a URL that had begun redirecting. |
 
 ## 7. Documentation
 
