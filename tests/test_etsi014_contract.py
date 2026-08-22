@@ -72,6 +72,35 @@ def test_enc_keys_schema():
         assert len(decoded) == 32, f"key must be 32 bytes (256 bit), got {len(decoded)}"
 
 
+
+def _dec_keys_when_synced(client: httpx.Client, url: str, timeout: float = 15.0,
+                          **kwargs) -> httpx.Response:
+    """GET/POST dec_keys, retrying until the peer KME has the key.
+
+    Propagation to the peer is asynchronous -- `KeyPool._sync_to_peer` POSTs to
+    the neighbour, and its HTTP client alone allows 2.0 s. These tests used to
+    wait a fixed `time.sleep(0.5)` and assert once, so a sync slower than half a
+    second failed with `404 unknown key_ID` and nothing about the product was
+    wrong. Observed in CI on a branch that changed only a shell script, a test
+    exemption and a checklist row.
+
+    Polling to a deadline is the same wait the file already uses for the key
+    pool (`_wait_for_pool`); these two call sites just had not adopted it. The
+    deadline is well above the 2.0 s sync timeout so a genuine failure to
+    propagate still fails the test rather than hanging.
+    """
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        last = client.request(url=url, **kwargs)
+        if last.status_code == 200:
+            return last
+        if last.status_code != 404:
+            return last          # a real error, not "not yet"
+        time.sleep(0.25)
+    return last
+
+
 def test_dec_keys_roundtrip():
     """A key fetched via enc_keys must be retrievable from the PEER KME via dec_keys."""
     peer_url = os.environ.get("PEER_KME_URL", "http://localhost:8081")
@@ -85,12 +114,11 @@ def test_dec_keys_roundtrip():
         assert r.status_code == 200
         k = r.json()["keys"][0]
 
-        # 2) Allow a moment for the internal sync to propagate
-        time.sleep(0.5)
-
-        # 3) Retrieve the same key from the peer KME using its ID
-        r2 = client.get(f"{peer_url}/api/v1/keys/{peer_sae}/dec_keys",
-                        params={"key_ID": k["key_ID"]})
+        # 2+3) Retrieve the same key from the peer KME, waiting for the
+        # asynchronous sync rather than guessing how long it takes.
+        r2 = _dec_keys_when_synced(
+            client, f"{peer_url}/api/v1/keys/{peer_sae}/dec_keys",
+            method="GET", params={"key_ID": k["key_ID"]})
         assert r2.status_code == 200, r2.text
         assert r2.json()["keys"][0]["key"] == k["key"]
 
@@ -145,12 +173,10 @@ def test_dec_keys_post_form_takes_array_of_objects():
         )
         assert r.status_code == 200
         k = r.json()["keys"][0]
-        time.sleep(0.5)
 
-        r2 = client.post(
-            f"{peer_url}/api/v1/keys/{SAE_ID}/dec_keys",
-            json={"key_IDs": [{"key_ID": k["key_ID"]}]},
-        )
+        r2 = _dec_keys_when_synced(
+            client, f"{peer_url}/api/v1/keys/{SAE_ID}/dec_keys",
+            method="POST", json={"key_IDs": [{"key_ID": k["key_ID"]}]})
         assert r2.status_code == 200, r2.text
         assert r2.json()["keys"][0]["key"] == k["key"]
 
