@@ -26,7 +26,6 @@ from pydantic import BaseModel
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger("pqc-validator")
 
-PQCLEAN_DIR = os.environ.get("PQCLEAN_DIR", "/submodules/PQClean")
 
 try:
     import oqs  # liboqs-python
@@ -41,7 +40,7 @@ app = FastAPI(title="PQC Validator", version="0.1.0")
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "oqs": str(_OQS_AVAILABLE), "pqclean_dir": PQCLEAN_DIR}
+    return {"status": "ok", "oqs": str(_OQS_AVAILABLE)}
 
 
 @app.get("/api/algorithms")
@@ -50,10 +49,10 @@ async def algorithms() -> dict[str, Any]:
         raise HTTPException(503, "liboqs not available")
     kems = list(oqs.get_enabled_kem_mechanisms())
     sigs = list(oqs.get_enabled_sig_mechanisms())
-    pqclean_present = os.path.isdir(PQCLEAN_DIR)
     return {
         "liboqs": {"kems": kems[:32], "sigs": sigs[:32]},
-        "pqclean": {"available": pqclean_present, "path": PQCLEAN_DIR},
+        # No "pqclean" key: the directory's presence never implied a
+        # comparison, and reporting it invited the reading that one happened.
     }
 
 
@@ -97,9 +96,6 @@ class AgilityRequest(BaseModel):
     sigs: list[str] | None = None
 
 
-def _pqclean_present(algo: str) -> bool:
-    tb = f"{PQCLEAN_DIR}/test/test_{algo.lower().replace('-', '_')}"
-    return os.path.isfile(tb)
 
 
 @app.post("/api/agility")
@@ -129,7 +125,6 @@ async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
                 row.update({"ok": False, "error": str(e)})
         else:
             row["ok"] = False
-        row["pqclean_test_present"] = _pqclean_present(a)
         matrix.append(row)
 
     for a in sig_algos:
@@ -147,7 +142,6 @@ async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
                 row.update({"ok": False, "error": str(e)})
         else:
             row["ok"] = False
-        row["pqclean_test_present"] = _pqclean_present(a)
         matrix.append(row)
 
     passed = sum(1 for r in matrix if r.get("ok"))

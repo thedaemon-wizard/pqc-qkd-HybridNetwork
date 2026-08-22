@@ -1,13 +1,24 @@
 # =====================================================================
 # pqc-validator — exercises NIST PQC primitives through liboqs.
 #
-# NOTE ON SCOPE: this header used to say the service "runs the same NIST PQC
-# test vectors through both liboqs and PQClean and asserts byte-equality". It
-# does not. app/main.py only os.path.isfile()-checks for PQClean test binaries
-# under $PQCLEAN_DIR/test/, which are never built, so every response carries
-# `pqclean_test_present: false` and no comparison is performed. Building those
-# binaries and doing the comparison is tracked in docs/roadmap.md; until then
-# the liboqs results stand alone.
+# NOTE ON SCOPE: this header once said the service "runs the same NIST PQC test
+# vectors through both liboqs and PQClean and asserts byte-equality". It never
+# did -- app/main.py only os.path.isfile()-checked for PQClean test binaries
+# that are never built.
+#
+# That is now resolved, but not by building them. PQClean was archived on
+# 2026-08-04 and its retirement notice redirects to mlkem-native, mldsa-native
+# and slhdsa-c; taking a correctness claim from an archived project would be a
+# step backwards. What exists instead:
+#
+#   /api/interop/mlkem   liboqs encapsulates to a key the BROWSER generated
+#                        with @noble, and both must derive the same shared
+#                        secret -- an independent-implementation check rather
+#                        than a comparison of byte counts.
+#   NIST ACVP KAT        tests/test_mlkem_kat_matches_liboqs.py pins this
+#                        image against NIST's own published keyGen vector.
+#
+# Both run in CI inside this image, where liboqs exists by construction.
 #
 # liboqs is built HERE, from the vendored submodule, rather than being
 # downloaded by liboqs-python at first import.
