@@ -13,6 +13,8 @@ services:
   alice:
     environment:
       RP_EXTRA_PEERS: "charlie@charlie:9997"
+      # name@wg-endpoint/tunnel-ip. charlie listens on 51822 and holds 10.0.0.3.
+      WG_EXTRA_PEERS: "charlie@charlie:51822/10.0.0.3"
 
   charlie:
     image: pqcqkd/node-alice:local

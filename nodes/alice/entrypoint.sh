@@ -89,6 +89,45 @@ wg set "$WG_IFACE" peer "$PEER_PUB" \
     allowed-ips "${WG_PEER_IP}/32" \
     persistent-keepalive 25
 
+# Additional WireGuard peers, for a trusted-node chain where one node faces two
+# neighbours. Space-separated `name@endpoint:port/tunnel-ip` entries; the peer's
+# WireGuard public key is read from $SHARED_DIR/<name>.wg.pub.
+#
+# Without this the node configured exactly one peer, so in the multihop profile
+# alice knew bob and not charlie: charlie's wg0 showed traffic sent and none
+# received, with no handshake, because the far end had never heard of it. The
+# Rosenpass layer already supported multiple peers; this is the layer below it.
+for entry in ${WG_EXTRA_PEERS:-}; do
+  name="${entry%%@*}"
+  rest="${entry#*@}"
+  endpoint="${rest%%/*}"
+  tunnel_ip="${rest##*/}"
+  if [[ "$name" == "$entry" || -z "$endpoint" || -z "$tunnel_ip" || "$endpoint" == "$rest" ]]; then
+    echo "[entrypoint] ERROR: WG_EXTRA_PEERS entry '$entry' is not name@host:port/tunnel-ip" >&2
+    exit 1
+  fi
+
+  pub_file="$SHARED_DIR/$name.wg.pub"
+  echo "[entrypoint] waiting for extra peer ($name) WireGuard key ..."
+  for _ in $(seq 1 120); do
+    [[ -s "$pub_file" ]] && break
+    sleep 1
+  done
+  # Fatal, not skipped: a configured neighbour whose key never arrives means the
+  # chain is short a hop, and bringing the tunnel up anyway hides that.
+  if [[ ! -s "$pub_file" ]]; then
+    echo "[entrypoint] ERROR: extra peer '$name' public key not available ($pub_file)" >&2
+    exit 1
+  fi
+
+  extra_pub="$(tr -d '\n' < "$pub_file")"
+  echo "[entrypoint] extra peer $name: $extra_pub via $endpoint ($tunnel_ip)"
+  wg set "$WG_IFACE" peer "$extra_pub" \
+      endpoint "$endpoint" \
+      allowed-ips "${tunnel_ip}/32" \
+      persistent-keepalive 25
+done
+
 # ---- 5) Rosenpass sidecar (REAL PQ exchange) ---------------
 export ROSENPASS_SECRET_DIR
 export ROSENPASS_PEER_PK="$PEER_RP_PUB_FILE"

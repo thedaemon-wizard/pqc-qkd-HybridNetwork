@@ -9,14 +9,14 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-185 rows, of which **29 are machine-checked and 156 are not**. Worth knowing
+186 rows, of which **29 are machine-checked and 157 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
 | 1 | Build and unit gates | 15 | **15** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
-| 3 | WireGuard lane | 4 | 1 | 3 |
+| 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **111** | 2 | **109** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 18 | 5 | 13 |
@@ -106,6 +106,7 @@ failure.
 | 3.2 | arnika roles do not collide | `docker logs alice \| grep -i primary` | alice and bob take opposite roles (distinct `ARNIKA_ID`) |
 | 3.3 | Rosenpass produces a real OSK | `docker logs alice \| grep rosenpass` | genuine exchange, no stub |
 | 3.4 | PSK actually rotates | `docker exec alice wg show wg0` twice | preshared key changes |
+| 3.5 | **Multi-hop: count PSK installs, not ping replies** | `docker compose -f docker-compose.yml -f docker-compose.multihop.yml --profile multihop up -d alice bob charlie bb84-kme-a bb84-kme-b`, wait ~90 s, then per node `docker logs <n> \| grep -c 'PSK configured on WireGuard interface'` and `\| grep -c 'not found on interface'`. Expect alice **2 peers, >=1 install, 0 errors**. **Ping is not the check.** WireGuard works fine with no preshared key, so 0 %% loss in all three directions proves connectivity and says nothing about protection -- that is how a silent loss of the QKD PSK was nearly signed off. Known gap: only 1 of alice's 2 peers carries a PSK, because arnika takes a single `WIREGUARD_PEER_PUBLIC_KEY`; confirm with `docker exec alice wg show wg0 \| grep -c 'preshared key'`. |
 
 ---
 
