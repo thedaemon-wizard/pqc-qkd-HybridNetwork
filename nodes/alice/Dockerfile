@@ -43,7 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config libsodium-dev clang cmake git build-essential \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-# Vendored, pinned to tag v0.2.2 (MIT / Apache-2.0). Deterministic/offline.
+# Vendored, pinned to tag v0.2.3 = 512fe426 (MIT / Apache-2.0).
+# Deterministic/offline. Lines 13 and 36 already said v0.2.3; this one said
+# v0.2.2, so the file disagreed with itself about what it builds.
 COPY submodules/rosenpass /src/rosenpass
 WORKDIR /src/rosenpass
 # Real build — oqs-sys (Kyber) + libsodium. No fallback stub: if this fails

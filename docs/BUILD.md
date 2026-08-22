@@ -37,7 +37,24 @@ make pqc-list    # should show ML-KEM-768 etc.
 
 ### 5.3 WireGuard kernel module fallback
 
-If `modprobe wireguard` fails on your host, use the userspace `boringtun` build:
+**This fallback is not implemented.** No userspace WireGuard is installed in
+the node image, so if `modprobe wireguard` fails there is currently no working
+path -- the overlay below points `wg-quick` at a `boringtun` binary that is not
+present, and `wg-quick` exits rather than falling back:
+
+```
+# wg-quick, verbatim from the node image
+[[ -e /sys/module/wireguard ]] || ! command -v \
+  "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" >/dev/null && exit $ret
+```
+
+Neither `boringtun` nor `wireguard-go` is packaged for `debian:bookworm`, so
+enabling this means vendoring boringtun as a submodule and adding a cargo build
+stage. The image already builds Rust for rosenpass, so it is feasible; it has
+not been done.
+
+The overlay is kept because it is one build stage away from working, and it
+documents the intended mechanism:
 
 ```bash
 make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.boringtun.yml"

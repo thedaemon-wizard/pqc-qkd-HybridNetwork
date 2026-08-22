@@ -1,22 +1,31 @@
 # ===================================================================
-# Override file: use userspace WireGuard (boringtun) when the host
-# kernel module is unavailable. Apply with:
+# Override file: point wg-quick at a userspace WireGuard implementation when
+# the host kernel module is unavailable.
+#
+# WARNING -- THIS DOES NOT WORK AS SHIPPED. No userspace implementation is in
+# the node image: `command -v boringtun` finds nothing, and neither boringtun
+# nor wireguard-go is packaged for debian:bookworm. wg-quick's own source does:
+#
+#   [[ -e /sys/module/wireguard ]] || ! command -v \
+#     "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" >/dev/null && exit $ret
+#
+# so with no kernel module AND no binary it exits -- exactly the situation this
+# overlay exists for. Making it real means vendoring boringtun as a submodule
+# and adding a cargo stage; the image already builds Rust for rosenpass, so it
+# is feasible, but it is a new dependency and has not been taken.
+#
+# Two settings were removed rather than left looking load-bearing:
+# USE_BORINGTUN was a build arg the Dockerfile never declares, and WG_SUDO is
+# not among the variables this wg-quick reads.
+#
 #   docker compose -f docker-compose.yml -f docker-compose.boringtun.yml up -d
 # ===================================================================
 name: pqcqkd
 
 services:
   alice:
-    build:
-      args:
-        USE_BORINGTUN: "1"
     environment:
       WG_QUICK_USERSPACE_IMPLEMENTATION: boringtun
-      WG_SUDO: "1"
   bob:
-    build:
-      args:
-        USE_BORINGTUN: "1"
     environment:
       WG_QUICK_USERSPACE_IMPLEMENTATION: boringtun
-      WG_SUDO: "1"
