@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { asymptoticSkrPerPulse, channelFromParams, qberEmu } from "../lib/sim/keyrate";
 import { useDemoMode } from "../lib/useConfig";
+import ExportToolbar from "../components/ExportToolbar";
 
 /**
  * Physics parameter editor.
@@ -152,9 +153,79 @@ export default function PhysicsParams() {
     setBusy(false);
   }
 
+  /**
+   * The parameter set together with what it implies.
+   *
+   * Exporting the inputs alone would be half the evidence: the point of this
+   * page is that a given channel yields a given rate, and a reader reproducing
+   * the figure needs both sides. Every derived value here is computed
+   * client-side from the same closed form the page displays, so the export and
+   * the screen cannot disagree.
+   */
+  function snapshot() {
+    // `fields` is non-null by the guard above, but TS cannot carry that
+    // narrowing into a closure -- and asserting it with `!` would hide a real
+    // null if the guard ever moves. An explicit empty set is honest: an export
+    // taken before load simply has no parameters in it.
+    const loaded = fields ?? [];
+    const params: Record<string, number | boolean> = {};
+    for (const f of loaded) params[f.path] = edits[f.path] ?? f.value;
+    return {
+      generated_at: new Date().toISOString(),
+      backend,
+      overridden: Object.keys(edits),
+      parameters: params,
+      derived: {
+        eta_total: etaTotal,
+        Y0,
+        qber: qber,
+        skr_per_pulse: skrPerPulse,
+        skr_bps: skrBps,
+        model: "Lo-Ma two-decoy asymptotic, closed form (client-side)",
+      },
+      optimizer: opt ?? null,
+    };
+  }
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Physics Parameters</h2>
+
+      {/* logProvider, not logService: the rate on this page is computed in the
+          browser, so a server log would describe a different computation. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="physics-params"
+          logProvider={() => {
+            const s = snapshot();
+            const lines = [
+              "# Physics parameters and the rate they imply",
+              `# generated: ${s.generated_at}`,
+              `# backend:   ${s.backend || "(unknown)"}`,
+              `# overridden from config defaults: ${s.overridden.length ? s.overridden.join(", ") : "(none)"}`,
+              "#",
+              "# parameter\tvalue",
+            ];
+            for (const [k, v] of Object.entries(s.parameters)) lines.push(`${k}\t${v}`);
+            lines.push("#", "# derived (client-side, Lo-Ma two-decoy asymptotic)");
+            lines.push(`eta_total\t${s.derived.eta_total}`);
+            lines.push(`Y0\t${s.derived.Y0}`);
+            lines.push(`qber\t${s.derived.qber}`);
+            lines.push(`skr_per_pulse\t${s.derived.skr_per_pulse}`);
+            lines.push(`skr_bps\t${s.derived.skr_bps}`);
+            return lines.join("\n") + "\n";
+          }}
+          jsonProvider={snapshot}
+          csvProvider={() => (fields ?? []).map((f) => ({
+            path: f.path,
+            label: LABELS[f.path] ?? f.path,
+            type: f.type,
+            config_default: f.value,
+            effective: edits[f.path] ?? f.value,
+            overridden: f.path in edits,
+          }))}
+        />
+      </div>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
         Defaults come from <code>config/qkd_params.yaml</code> (grounded in the
         openQKDsecurity precomputed table and the closed-form formulae in
