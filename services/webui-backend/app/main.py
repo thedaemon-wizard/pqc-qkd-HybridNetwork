@@ -459,6 +459,24 @@ async def pqc_algos():
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
 
 
+@app.post("/api/pqc/interop")
+async def pqc_interop_proxy(req: dict[str, Any]):
+    """Proxy the liboqs-vs-browser ML-KEM interoperability check.
+
+    The browser cannot reach pqc-validator directly, and this is the one call
+    on the /pqc page that constitutes an actual cross-check rather than a
+    comparison of byte counts.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            r = await client.post(f"{PQC_VALIDATOR_URL}/api/interop/mlkem", json=req)
+        except httpx.HTTPError as e:
+            raise HTTPException(503, f"pqc-validator unavailable: {e}")
+    if r.status_code >= 400:
+        raise HTTPException(r.status_code, r.text)
+    return r.json()
+
+
 @app.post("/api/pqc/roundtrip")
 async def pqc_roundtrip(req: dict[str, Any]):
     try:

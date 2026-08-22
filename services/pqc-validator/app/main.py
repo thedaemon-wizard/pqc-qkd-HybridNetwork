@@ -14,6 +14,8 @@ Endpoints:
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import os
 from typing import Any
@@ -157,6 +159,68 @@ async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
     }
 
 
+class InteropRequest(BaseModel):
+    algo: str = "ML-KEM-768"
+    """Client's ML-KEM encapsulation key, base64. Produced by a DIFFERENT
+    implementation -- @noble/post-quantum in the browser."""
+    public_key_b64: str
+
+
+@app.post("/api/interop/mlkem")
+async def interop_mlkem(req: InteropRequest) -> dict[str, Any]:
+    """Encapsulate to a client-supplied ML-KEM key and commit to the secret.
+
+    This is what an independent cross-check has to do to be worth anything.
+    The page previously compared liboqs and @noble on `ss_len` and `ct_len`:
+    two implementations agreeing that ML-KEM-768 ciphertext is 1088 bytes shows
+    only that both read the same table in FIPS 203. A completely wrong
+    implementation produces 1088-byte ciphertexts too.
+
+    Here the two implementations must interoperate. The browser generates a
+    keypair with @noble, sends the encapsulation key, liboqs encapsulates to it
+    in C, and the browser decapsulates the returned ciphertext. If the derived
+    shared secrets match, two independently written implementations agree on
+    the actual arithmetic -- which is the claim the panel makes.
+
+    The shared secret is returned as a SHA-256 commitment rather than in the
+    clear. The comparison is equally conclusive and no shared secret goes on
+    the wire, which keeps this endpoint from being a key-disclosure oracle if
+    it is ever pointed at something real.
+    """
+    if not _OQS_AVAILABLE:
+        raise HTTPException(503, "liboqs not available")
+    if req.algo not in oqs.get_enabled_kem_mechanisms():
+        raise HTTPException(400, f"{req.algo} not enabled in this liboqs build")
+    try:
+        public_key = base64.b64decode(req.public_key_b64, validate=True)
+    except Exception as e:
+        raise HTTPException(400, f"public_key_b64 must be valid base64: {e}")
+
+    with oqs.KeyEncapsulation(req.algo) as kem:
+        expected = kem.details["length_public_key"]
+        if len(public_key) != expected:
+            # Rejected rather than passed to liboqs: a wrong-length key is a
+            # client bug, and saying so beats a C-level failure.
+            raise HTTPException(
+                400,
+                f"{req.algo} encapsulation key must be {expected} bytes, got {len(public_key)}",
+            )
+        ciphertext, shared_secret = kem.encap_secret(public_key)
+
+    return {
+        "algo": req.algo,
+        "ciphertext_b64": base64.b64encode(ciphertext).decode(),
+        "shared_secret_sha256": hashlib.sha256(shared_secret).hexdigest(),
+        "ciphertext_len": len(ciphertext),
+        "shared_secret_len": len(shared_secret),
+        "server_impl": "liboqs",
+        "note": (
+            "Decapsulate ciphertext_b64 with your own secret key and compare "
+            "SHA-256 of your shared secret to shared_secret_sha256."
+        ),
+    }
+
+
 class KATRequest(BaseModel):
     algo: str = "ML-KEM-768"
     seed_hex: str
@@ -164,8 +228,23 @@ class KATRequest(BaseModel):
 
 @app.post("/api/kat")
 async def kat(req: KATRequest) -> dict[str, Any]:
-    """Cross-check: encapsulate with liboqs, then verify decapsulation matches
-    via PQClean reference (if its binaries are present)."""
+    """Report liboqs sizes for an algorithm.
+
+    Named `kat` and documented as a PQClean cross-check, but it was never
+    either. `seed_hex` is parsed and only its LENGTH is reported -- nothing is
+    seeded, so the result is not reproducible and not a known-answer test. The
+    "PQClean check" is `os.path.isfile` on binaries this image never builds, so
+    `pqclean_test_present` has always been false.
+
+    Building them is not the fix: PQClean was archived on 2026-08-04, and its
+    own retirement notice redirects to mlkem-native, mldsa-native and slhdsa-c.
+    Depending on an archived project for a correctness claim would be a step
+    backwards. The genuine cross-check is `/api/interop/mlkem`, which makes
+    liboqs and the browser's independent implementation agree on a shared
+    secret rather than on a length.
+
+    Kept, with honest field names, because the size report is still useful.
+    """
     if not _OQS_AVAILABLE:
         raise HTTPException(503, "liboqs not available")
     try:
@@ -175,16 +254,19 @@ async def kat(req: KATRequest) -> dict[str, Any]:
     with oqs.KeyEncapsulation(req.algo) as kem:
         pk = kem.generate_keypair()
         ct, ss = kem.encap_secret(pk)
-    # PQClean check: if test binary present, invoke
-    test_bin = f"{PQCLEAN_DIR}/test/test_{req.algo.lower().replace('-', '_')}"
-    pqclean_ok = os.path.isfile(test_bin)
     return {
         "algo": req.algo,
         "pk_len": len(pk),
         "ct_len": len(ct),
         "ss_len": len(ss),
-        "seed_bytes": len(seed),
+        "seed_bytes_ignored": len(seed),
         "liboqs_ok": True,
-        "pqclean_test_present": pqclean_ok,
-        "note": "Full PQClean roundtrip available when test binaries are built.",
+        "is_known_answer_test": False,
+        "cross_checked": False,
+        "note": (
+            "Sizes only. The seed is NOT used -- liboqs generates its own "
+            "randomness, so this is not reproducible and not a KAT. For a real "
+            "cross-check against an independent implementation use "
+            "/api/interop/mlkem."
+        ),
     }

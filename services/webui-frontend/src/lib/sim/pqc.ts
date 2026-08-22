@@ -215,3 +215,64 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
   return diff === 0;
 }
+
+/**
+ * ML-KEM interoperability against an independent implementation.
+ *
+ * The /pqc page called liboqs an "independent cross-check" while comparing
+ * only `ss_len` and `ct_len`. Two implementations agreeing that ML-KEM-768
+ * ciphertext is 1088 bytes shows that both read the same table in FIPS 203 --
+ * a completely wrong implementation produces 1088-byte ciphertexts too.
+ *
+ * This makes them actually interoperate. We generate a keypair here with
+ * @noble, the server encapsulates to it with liboqs in C, and we decapsulate
+ * what comes back. If the shared secrets agree, two independently written
+ * implementations agree on the arithmetic, which is the claim being made.
+ *
+ * The server returns SHA-256 of its shared secret rather than the secret, so
+ * the comparison is equally conclusive with nothing sensitive on the wire.
+ */
+export interface InteropResult {
+  algo: string;
+  /** The property under test: both sides derived the same shared secret. */
+  agrees: boolean;
+  ourSha256: string;
+  theirSha256: string;
+  ciphertextLen: number;
+  serverImpl: string;
+}
+
+const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
+const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", data as BufferSource);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function kemInterop(name: KemName): Promise<InteropResult> {
+  const { impl } = KEMS[name];
+  const { publicKey, secretKey } = impl.keygen();
+
+  const r = await fetch("/api/pqc/interop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ algo: name, public_key_b64: b64(publicKey) }),
+  });
+  if (!r.ok) throw new Error(`interop check failed: HTTP ${r.status}`);
+  const body = await r.json();
+
+  // Decapsulate THEIR ciphertext with OUR secret key. This is the step that
+  // cannot succeed unless both implementations are correct.
+  const ourSecret = impl.decapsulate(unb64(body.ciphertext_b64), secretKey);
+  const ourSha256 = await sha256Hex(ourSecret);
+
+  return {
+    algo: name,
+    agrees: ourSha256 === body.shared_secret_sha256,
+    ourSha256,
+    theirSha256: body.shared_secret_sha256,
+    ciphertextLen: body.ciphertext_len,
+    serverImpl: body.server_impl,
+  };
+}
