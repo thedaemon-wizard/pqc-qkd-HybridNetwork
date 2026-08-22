@@ -55,7 +55,26 @@ RUN cargo build --release --bin rosenpass
 # ---- Stage 3: runtime (Debian / glibc) --------------------
 FROM debian:bookworm-slim
 
+# wireguard-go is the USERSPACE data plane, for hosts whose kernel has no
+# wireguard module. It is what `wg-quick` falls back to by default:
+#
+#   cmd "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" "$INTERFACE"
+#
+# so installing it at /usr/bin/wireguard-go makes the fallback work with no
+# environment variable at all. Previously nothing provided a userspace
+# implementation, and wg-quick exits when the module is absent AND the binary
+# is missing -- precisely the case the fallback exists for.
+#
+# It is packaged in bookworm main: 2.5 MB installed, depends only on libc6.
+# An earlier check concluded it was not packaged; that misread the
+# `Installed: (none)` line of `apt-cache policy` as absence while the
+# `Candidate:` line beneath it said otherwise. Vendoring boringtun was
+# considered and is strictly worse here -- not in Debian at all, its own README
+# says not to pin to master (which submodules do), its binary is named
+# `boringtun-cli` so the wg-quick default breaks, and dropping privileges
+# forces WG_SUDO=1 plus CAP_NET_ADMIN.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        wireguard-go \
         wireguard-tools iproute2 iptables iputils-ping \
         bash curl jq ca-certificates tini libsodium23 \
     && rm -rf /var/lib/apt/lists/*

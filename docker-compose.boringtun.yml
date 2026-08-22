@@ -2,21 +2,23 @@
 # Override file: point wg-quick at a userspace WireGuard implementation when
 # the host kernel module is unavailable.
 #
-# WARNING -- THIS DOES NOT WORK AS SHIPPED. No userspace implementation is in
-# the node image: `command -v boringtun` finds nothing, and neither boringtun
-# nor wireguard-go is packaged for debian:bookworm. wg-quick's own source does:
+# THIS OVERLAY IS NOW REDUNDANT, and kept only to make the mechanism explicit.
 #
-#   [[ -e /sys/module/wireguard ]] || ! command -v \
-#     "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" >/dev/null && exit $ret
+# nodes/alice/Dockerfile installs `wireguard-go`, which is what wg-quick falls
+# back to by DEFAULT:
 #
-# so with no kernel module AND no binary it exits -- exactly the situation this
-# overlay exists for. Making it real means vendoring boringtun as a submodule
-# and adding a cargo stage; the image already builds Rust for rosenpass, so it
-# is feasible, but it is a new dependency and has not been taken.
+#   cmd "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" "$INTERFACE"
 #
-# Two settings were removed rather than left looking load-bearing:
-# USE_BORINGTUN was a build arg the Dockerfile never declares, and WG_SUDO is
-# not among the variables this wg-quick reads.
+# so a host without the kernel module now works with no override at all. Bring
+# the stack up normally; this file changes nothing.
+#
+# History, because the previous state was worse than a missing feature: the
+# overlay named `boringtun`, which was not in the image, and wg-quick exits
+# when the module is absent AND the binary is missing -- exactly the case the
+# fallback exists for. An earlier note here claimed wireguard-go was not
+# packaged for bookworm; it is, in main, 2.5 MB, depending only on libc6. That
+# note misread `apt-cache policy`, whose `Installed: (none)` line refers to the
+# local system and not to availability.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.boringtun.yml up -d
 # ===================================================================

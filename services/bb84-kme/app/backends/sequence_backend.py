@@ -48,25 +48,32 @@ def _ensure_sequence() -> bool:
 
 def _run_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     """Use SeQUeNCe primitives to estimate physical-layer (gain, error) → key."""
-    from sequence.components.optical_channel import QuantumChannel  # noqa: F401
-    from sequence.components.photon import Photon  # noqa: F401
-
-    # SeQUeNCe gives us per-photon detector physics; we still use closed-form
-    # Lo-Ma SKR to be consistent with the table. The novelty here is that
-    # detector dark count + measurement error draws from SeQUeNCe's Noise class
-    # rather than a Python literal.
-    try:
-        from sequence.utils.noise import Noise  # 2026-05 addition
-        noise_rate = Noise().depolarizing_rate if hasattr(Noise, "depolarizing_rate") else cfg.misalignment_error_ed
-    except Exception:
-        noise_rate = cfg.misalignment_error_ed
+    # This backend uses the project's closed-form Lo-Ma model, with measurement
+    # error SAMPLED through SeQUeNCe rather than assumed.
+    #
+    # It previously read `Noise().depolarizing_rate`, guarded by
+    # `hasattr(Noise, "depolarizing_rate")` with a fallback to
+    # `cfg.misalignment_error_ed`. That attribute has never existed -- `Noise`
+    # is a stateless helper whose methods TAKE an error rate as a parameter and
+    # do not publish one -- so the hasattr was always False, the fallback always
+    # fired, and the line below added e_d to itself. The backend reported
+    # `e_d_eff = 2 * e_d` and called the result SeQUeNCe's noise model, on both
+    # the v0.8.5-era pin and v1.0.0. The two imports above it were marked
+    # `# noqa: F401` because nothing used them either.
+    #
+    # No fallback now. If the API this depends on is missing, that is a real
+    # incompatibility and it should stop the round, not silently substitute a
+    # number that looks like physics.
+    from sequence.components.circuit import Circuit
+    from sequence.utils.noise import Noise
 
     Y0 = cfg.dark_count_rate_hz / max(cfg.pulse_rate_hz, 1.0)
     eta_total = total_transmittance(
         cfg.detector_efficiency, cfg.fiber_attenuation_db_per_km, cfg.link_length_km,
     )
-    # Effective misalignment combines drift + SeQUeNCe noise contribution
-    e_d_eff = float(np.clip(cfg.misalignment_error_ed + noise_rate, 0.0, 0.5))
+    # The configured misalignment is the measurement-error rate handed TO
+    # SeQUeNCe, which is what its API actually accepts. It is not doubled.
+    e_d_eff = float(np.clip(cfg.misalignment_error_ed, 0.0, 0.5))
 
     Q_mu = 1.0 - drop_rate_for_simulator(Y0=Y0, eta_total=eta_total,
                                           mu=cfg.intensity_signal_mu)
@@ -77,7 +84,18 @@ def _run_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
     rng = np.random.default_rng(cfg.rng_seed)
     detected = rng.binomial(n_photons, Q_mu)
     sifted = int(detected // 2)
-    errors = rng.binomial(sifted, E_mu) if sifted > 0 else 0
+    # Sample each sifted bit through SeQUeNCe's own measurement-noise model
+    # instead of drawing one binomial. `apply_measurement_noise` appends an X
+    # gate with probability `meas_error_rate`, so the flip count IS SeQUeNCe's
+    # decision rather than ours -- which is what this backend is for. Counting
+    # gates afterwards is the only way to observe it: the helper mutates the
+    # circuit in place and returns None.
+    errors = 0
+    for _ in range(sifted):
+        c = Circuit(1)
+        Noise.apply_measurement_noise(c, E_mu, 0)
+        if c.gates:
+            errors += 1
     qber_obs = errors / sifted if sifted > 0 else 1.0
 
     if sifted < 64 or qber_obs >= cfg.qber_threshold_abort:

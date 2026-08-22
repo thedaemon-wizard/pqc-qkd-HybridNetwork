@@ -7,6 +7,13 @@
 name: pqcqkd
 
 services:
+  # alice faces two neighbours in the chain: bob (its primary, set in the base
+  # compose) and charlie. rosenpass has always accepted both; the sidecar can
+  # now express it.
+  alice:
+    environment:
+      RP_EXTRA_PEERS: "charlie@charlie:9997"
+
   charlie:
     image: pqcqkd/node-alice:local
     build:

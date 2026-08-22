@@ -261,13 +261,23 @@ they are not something to close silently:
   documented recovery path cannot work for the people who need it. Closing it
   means vendoring boringtun plus a cargo stage; the image already builds Rust
   for rosenpass, so it is feasible.
-- **Multi-hop cannot relay.** `charlie` now builds, starts and exchanges
-  WireGuard and Rosenpass public keys with alice, which it could not do before
-  (it was missing `ARNIKA_ID`, `ARNIKA_PSK`, a usable build context and every
-  volume). The chain still does not carry traffic: `rosenpass-sidecar.sh` takes
-  a single `RP_PEER_HOST`, so alice runs one Rosenpass instance peered with bob
-  and charlie's handshake to `alice:9997` is never accepted. Alice needs a
-  second instance on its own port, or multi-peer support.
+- **Multi-hop: the Rosenpass layer now works; the WireGuard layer does not.**
+  This was previously recorded here as blocked on a new dependency. That was
+  wrong, and worth stating plainly: `rosenpass exchange <OWN> [PEERS]...` has
+  always been variadic -- its own help says "the `peer` token always separates
+  multiple peers" -- so the vendored v0.2.3 could do this all along. The
+  limitation was `nodes/alice/rosenpass-sidecar.sh`, which accepted exactly one
+  `RP_PEER_HOST`.
+
+  With `RP_EXTRA_PEERS` added, alice peers with bob and charlie simultaneously
+  and holds two OSKs (`pqc.psk`, `pqc.charlie.psk`); charlie completes its own
+  path end to end -- QKD key from the KME, HKDF, PSK installed on `wg0`.
+
+  What remains is one layer down and also needs no new dependency:
+  `nodes/alice/entrypoint.sh` issues a single `wg set peer`, so alice has bob
+  as a WireGuard peer and not charlie. Measured: charlie's `wg0` shows
+  `0 B received, 2.46 KiB sent` and no handshake, because alice does not know
+  it. Adding the second peer and its `allowed-ips` is the remaining work.
 
 **Open, unexplained** -- do not close by re-running:
 

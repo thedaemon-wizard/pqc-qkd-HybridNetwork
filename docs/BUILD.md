@@ -37,28 +37,28 @@ make pqc-list    # should show ML-KEM-768 etc.
 
 ### 5.3 WireGuard kernel module fallback
 
-**This fallback is not implemented.** No userspace WireGuard is installed in
-the node image, so if `modprobe wireguard` fails there is currently no working
-path -- the overlay below points `wg-quick` at a `boringtun` binary that is not
-present, and `wg-quick` exits rather than falling back:
+If `modprobe wireguard` fails on your host, **the stack still works and you
+need to do nothing.** The node image installs `wireguard-go`, and `wg-quick`
+falls back to it automatically:
 
 ```
 # wg-quick, verbatim from the node image
 [[ -e /sys/module/wireguard ]] || ! command -v \
   "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" >/dev/null && exit $ret
+cmd "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" "$INTERFACE"
 ```
 
-Neither `boringtun` nor `wireguard-go` is packaged for `debian:bookworm`, so
-enabling this means vendoring boringtun as a submodule and adding a cargo build
-stage. The image already builds Rust for rosenpass, so it is feasible; it has
-not been done.
-
-The overlay is kept because it is one build stage away from working, and it
-documents the intended mechanism:
+Confirm it is present with:
 
 ```bash
-make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.boringtun.yml"
+docker run --rm --entrypoint wireguard-go pqcqkd/node-alice:local --version
 ```
+
+`docker-compose.boringtun.yml` is therefore redundant and kept only to document
+the override mechanism. Until 2026-08 no userspace implementation was installed
+at all, and that overlay pointed `wg-quick` at a `boringtun` binary the image
+did not contain -- so the documented recovery path could not work for the
+people who needed it.
 
 ### 5.4 Multi-hop (Alice—Charlie—Bob)
 
