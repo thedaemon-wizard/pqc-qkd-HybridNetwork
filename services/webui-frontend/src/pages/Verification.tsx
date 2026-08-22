@@ -16,7 +16,7 @@ import { colors } from "../lib/commonStyles";
  *     are never built, so it advertised a comparison that never ran.
  *  2. Key-rate cross-check — our closed-form Lo-Ma rate vs the independent
  *     TNO-Quantum qkd_key_rate engine (Apache-2.0) at the current config.
- *  3. Paper packet-budget match — arXiv:2604.05599 Table III handshake budgets.
+ *  3. Paper packet-budget match — arXiv:2604.05599 Table 1 handshake budgets.
  */
 
 interface AgilityRow {
@@ -87,7 +87,7 @@ export default function Verification() {
               lines.push(`same_order_of_magnitude\t${keyrate.same_order_of_magnitude}`);
             }
             if (budgets) {
-              lines.push("#", "# Paper budgets (arXiv:2604.05599 Table III)");
+              lines.push("#", "# Paper budgets (arXiv:2604.05599 Table 1)");
               lines.push(`total_packets\t${budgets.total_handshake_packets}`);
               lines.push(`total_bytes\t${budgets.total_handshake_bytes}`);
             }
@@ -206,7 +206,7 @@ export default function Verification() {
       </Panel>
 
       {/* 3. Paper packet-budget match */}
-      <Panel title="3 · Paper Packet-Budget Match (arXiv:2604.05599 Table III)">
+      <Panel title="3 · Paper Packet-Budget Match (arXiv:2604.05599 Table 1)">
         {!budgets ? <Loading /> : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",

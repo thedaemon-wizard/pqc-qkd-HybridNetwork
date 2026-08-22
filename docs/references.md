@@ -16,7 +16,7 @@ Verified 2026-08-20.
 | P. Spooren, A. Neuhold, S. Ramacher, T. Hühn, *PQC-Enhanced QKD Networks: A Layered Approach* | [arXiv:2604.05599](https://arxiv.org/abs/2604.05599) | **CC BY 4.0** — redistribution permitted with attribution | [`references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf`](../references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf) |
 
 This is the paper the PoC reproduces: the layered model in
-[`ARCHITECTURE.md`](../ARCHITECTURE.md), the `/paper-flow` page's Table III
+[`ARCHITECTURE.md`](../ARCHITECTURE.md), the `/paper-flow` page's Table 1
 packet budgets, and the multi-hop trusted-node figure all come from it.
 
 Page 1 of the redistributed file reads "This is the full version of a paper

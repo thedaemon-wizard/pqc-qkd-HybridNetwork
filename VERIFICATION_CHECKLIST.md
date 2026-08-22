@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-196 rows, of which **34 are machine-checked and 162 are not**. Worth knowing
+197 rows, of which **35 are machine-checked and 162 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -20,7 +20,7 @@ before planning a release, because the manual share is not evenly spread:
 | 4 | Browser, every page | **116** | 4 | **112** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
-| 7 | Documentation | 12 | 1 | 11 |
+| 7 | Documentation | 13 | 2 | 11 |
 
 Section 4 is 61 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -206,7 +206,7 @@ question about it could not be answered from this checklist.
 | 4.4b.6 | `clear` | removes the banner and empties the cascade timeline |
 | 4.4b.7 | Hop slider | `aria-label="Trusted node hop count"`, range 1-8, topology redraws |
 | 4.4b.8 | **Logs exports this run** | tooltip reads "Download this run's log (client-side)"; file contains the phase history, **not** backend HTTP request lines |
-| 4.4b.9 | **Run log reproduces Table III per phase** | Run, then export Logs and read the per-phase lines: phase 1 `pkts=0 bytes=0`, 2 `pkts=2 bytes=78`, 3 `pkts=3 bytes=398`, 4 `pkts=4 bytes=4772`. Handshake total **9 / 5248**, which is the paper figure. Phase 5 is application data and is deliberately not part of that total. Verified on the demo 2026-08-21. |
+| 4.4b.9 | **Run log reproduces Table 1 per phase** | Run, then export Logs and read the per-phase lines: phase 1 `pkts=0 bytes=0`, 2 `pkts=2 bytes=78`, 3 `pkts=3 bytes=398`, 4 `pkts=4 bytes=4772`. Handshake total **9 / 5248**, which is the paper figure. Phase 5 is application data and is deliberately not part of that total. Verified on the demo 2026-08-21. |
 | 4.4b.10 | **Step advances exactly one phase** | From `status: paused · phase: idle`, one Step gives `phase: 1` and marks Quantum Plane `active`, and the status stays `paused`. Diff the page text rather than trusting a status regex -- the badge is combined (`status: X · phase: Y`) and a naive match reads the wrong field. |
 
 ### 4.5 Export and animation
@@ -273,7 +273,7 @@ question about it could not be answered from this checklist.
 | 4.7.4 | `/verify` TNO cross-check agrees | `same_order_of_magnitude: true`. Measured 2026-08-21: closed form 12,333,658 bps against TNO 45,726,822 bps at 10 km -- same order, and the two use independent implementations. |
 | 4.7.5 | `/paper-flow` budgets match the paper | Per phase 0/0, 2/78, 3/398, 4/4772; handshake total 9 packets / 5248 bytes. |
 | 4.7.6 | `/vpn` shows the **negotiated** proposal | The string comes from `swanctl --list-sas`, not a constant: it names the KEM actually agreed. |
-| 4.7.7 | **The Table III match check can fail** | `GET /api/verify/paper-budgets` -> `packets_match` and `bytes_match` compare the phase-table sum against `PAPER_TOTAL_PACKETS`/`PAPER_TOTAL_BYTES`, which are literals transcribed from the paper. They previously compared the sum against a constant defined as that same sum, so they were true by construction. Edit one phase figure and the flag must go false. |
+| 4.7.7 | **The Table 1 match check can fail** | `GET /api/verify/paper-budgets` -> `packets_match` and `bytes_match` compare the phase-table sum against `PAPER_TOTAL_PACKETS`/`PAPER_TOTAL_BYTES`, which are literals transcribed from the paper. They previously compared the sum against a constant defined as that same sum, so they were true by construction. Edit one phase figure and the flag must go false. |
 | 4.7.8 | **`/bb84` offline defaults equal `qkd_params.yaml`** | Stop the backend, reload `/bb84`: the simulated link must be the configured one. They had drifted to 25 km and 1e7 against a configured 10 km and 1e9. Pinned by `tests/test_frontend_defaults_match_config.py`. |
 | 4.7.9 | **Reported key rate is a rate, not a sifting fraction** | `/verify` `ours_closed_form.skr_bps` must sit far below `pulse_rate_hz / 2`. All three backends once reported the sifting fraction: 500 Mbps against an actual 12.07 Mbps. |
 
@@ -347,3 +347,4 @@ question about it could not be answered from this checklist.
 | 7.10 | No claim that the system silently degrades when the code does not | Where a page needs the backend it must say so on screen rather than render an empty state. `docs/deployment-economics.md` records the per-route behaviour; `/pqc` is the model, stating that the server cross-check was skipped. |
 | 7.11 | **"PSK" is qualified wherever both lanes are visible** | `.venv/bin/python -m pytest tests/test_psk_is_qualified_where_it_is_ambiguous.py` -> passes. The word means opposite things here: the **IKEv2** PSK enters only the `AUTH` payload and carries no confidentiality (which is why the IPsec lane needs RFC 8784's PPK), while **WireGuard's** preshared key is mixed into the Noise_IKpsk2 chaining key and does contribute to the transport keys -- mechanically the PPK's analogue. `/e2e`, `/paper-flow` and `/vpn` model the WireGuard lane and must say so; unqualified, a reader arriving from `docs/vici-ppk.md` concludes those pages demonstrate the weaker construction. Reported by a reader, not caught by any check, which is why the wording is now pinned. |
 | 7.12 | **Third-party product names are checked against the vendor's own documentation** | `/hil` listed, under the heading "Reported interoperable devices": **ID Quantique XG / Cerberis series (native ETSI 014)**, **Toshiba MUSE Q-KMS**, **Thinkquantum TQ-KME (ETSI 014 + 020)**. Checked against vendor pages on 2026-08-22: "MUSE" and "TQ-KME" **do not exist** -- the products are **Toshiba Q-KMS** and **ThinkQuantum QUKY** (QUKY-TX / QUKY-RX). ThinkQuantum documents ETSI 014 + **004**, not 020; Toshiba's ETSI 014 REST API is the default, not a "compatibility mode"; and IDQ exposes ETSI 014/020 from the **Clarion KX** key-management layer rather than natively from the QKD appliance, whose Cerberis XG/XGR pages now read "no longer available for purchase". The heading also asserted interoperability nobody had tested. A fabricated product name is the specific failure mode to look for: it reads as authoritative and nothing in the build can contradict it. Re-check whenever the list changes. |
+| 7.13 | **A citation points somewhere a reader can actually go** | `.venv/bin/python -m pytest tests/test_paper_budgets.py` -> passes. Thirteen tracked files cited the reference paper as "arXiv:2604.05599 **§IV-B Table III**", and two cited "**section VI**" for the 10.27 s / 10.62 s setup times. The paper has **no Roman-numeral sections at all** and **exactly one table**. Correct anchors, read out of the redistributed PDF: **Table 1** ("Packets and Traffic per Handshake or Key Negotiation") in *Evaluation / Test 1 - Prototype Validation*; setup times in *Test 2 - Long Distance*; the 240-720 s cascade in the **Fail-Safe Mechanism** subsection of *Implementation* -- not Table 1, which says nothing about timing. The numbers were right throughout (3+2+4 packets, 398+78+4772 bytes); only the pointer was wrong, which is why nothing caught it. The guard now derives the table from the shipped PDF with `pdftotext` rather than trusting the transcription, and skips where poppler is absent. |

@@ -527,7 +527,7 @@ async def verify_keyrate():
 
 @app.get("/api/verify/paper-budgets")
 async def verify_paper_budgets():
-    """Paper packet-budget match (arXiv:2604.05599 Table III).
+    """Paper packet-budget match (arXiv:2604.05599 Table 1).
 
     Reads the literature values directly from `paper_budgets`. It used to reach
     into a running paper-flow orchestrator for the same static dict, which meant
@@ -550,7 +550,7 @@ async def verify_paper_budgets():
         "paper_total_bytes": budgets["paper_total_bytes"],
         "packets_match": total_pkts == budgets["paper_total_packets"],
         "bytes_match": total_bytes == budgets["paper_total_bytes"],
-        "reference": "Spooren et al. arXiv:2604.05599 §IV-B Table III",
+        "reference": "Spooren et al. arXiv:2604.05599 Evaluation Test 1, Table 1",
     }
 
 

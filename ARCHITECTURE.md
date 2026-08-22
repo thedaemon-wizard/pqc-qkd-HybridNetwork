@@ -297,7 +297,7 @@ Shared UI under `services/webui-frontend/src/components/`:
                                 │   paper_flow.py                      │
                                 │     - 5-phase state machine          │
                                 │     - PHASE_BUDGETS constant         │
-                                │       (paper §IV-B Table III)        │
+                                │       (paper, Evaluation Test 1, Table 1)        │
                                 │     - 7-stage cascade scheduler      │
                                 │     - WS pub/sub                     │
                                 └────────────┬──────────────────────────┘

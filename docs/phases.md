@@ -405,7 +405,7 @@ existing "Quantum-Secure E2E "). The page is intentionally distinct from
 | Source figure | `arnika-project/arnika` single-tunnel diagram | **Multi-hop trusted-node diagram** (End Node Alice \| Trusted Node × N \| End Node Bob) |
 | Focus | key fusion in one Site A ↔ Site B tunnel | **5-phase daisy chain** with paper-quoted packet budgets |
 | Failure model | Eve attack on BB84 | **240-720 s layer cascade** per §VI |
-| Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper §IV-B Table III |
+| Data Exchange | conceptual ChaCha20 over derived PSK | live `ChaCha20-Poly1305` payload per cycle, packet/byte counters track paper, Evaluation Test 1, Table 1 |
 
 Backend orchestrator (deleted; now `services/webui-frontend/src/lib/sim/paperSim.ts`):
 - 5-phase state machine: **Quantum Plane → Arnika QKD key_ID → WG hop handshake → Rosenpass PQC handshake → Final data tunnel**

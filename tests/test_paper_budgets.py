@@ -1,4 +1,4 @@
-"""Pin the packet budgets quoted from arXiv:2604.05599 Table III.
+"""Pin the packet budgets quoted from arXiv:2604.05599 Table 1.
 
 These numbers are the project's claim about what the paper says, and
 `/api/verify/paper-budgets` serves them as verification evidence. Nothing
@@ -25,7 +25,7 @@ paper_budgets = importlib.import_module("webui_backend_app.paper_budgets")
 
 
 def test_per_phase_values_match_table_iii():
-    """Phase-by-phase handshake cost, Table III."""
+    """Phase-by-phase handshake cost, Table 1."""
     expected = {
         1: (0, 0),        # quantum plane: no IP-layer traffic
         2: (2, 78),       # arnika key_ID exchange
@@ -125,3 +125,108 @@ def test_a_per_phase_edit_breaks_the_paper_match():
         assert recomputed != paper_budgets.PAPER_TOTAL_PACKETS
     finally:
         paper_budgets.PHASE_BUDGETS[3]["packets"] = original
+
+
+# ---------------------------------------------------------------------------
+# The citation itself, not just the numbers.
+#
+# Every file in this repository cited these budgets as "arXiv:2604.05599 §IV-B
+# Table III", and two files cited "section VI" for the setup times. The paper
+# has no Roman-numeral sections at all and exactly ONE table. The numbers were
+# right the whole time -- 3+2+4 packets and 398+78+4772 bytes -- but a reader
+# following the citation had nowhere to go.
+#
+# The paper is redistributed in this repository under CC BY 4.0, so the check
+# can read the actual source rather than trusting a transcription.
+# ---------------------------------------------------------------------------
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PAPER_PDF = ROOT / "references" / "PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf"
+
+# Section names as the arXiv (LNCS-style) full version actually prints them.
+REAL_SECTIONS = ["Introduction", "Related Work", "Implementation",
+                 "Evaluation", "Conclusion"]
+WRONG_CITATIONS = ["Table III", "§IV-B", "IV-B", "section VI"]
+
+
+def _paper_text() -> str:
+    if not PAPER_PDF.exists():
+        pytest.skip(f"{PAPER_PDF.name} not present")
+    if not shutil.which("pdftotext"):
+        pytest.skip("pdftotext (poppler-utils) not installed")
+    return subprocess.run(
+        ["pdftotext", str(PAPER_PDF), "-"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+
+
+def test_the_paper_has_one_table_and_it_is_table_1():
+    """Read the shipped PDF: no Roman numerals, one table, named sections."""
+    text = _paper_text()
+
+    captions = re.findall(r"^\s*Table\s+(\S+)\.", text, re.MULTILINE)
+    assert captions, "no table caption found; has the PDF been replaced?"
+    assert set(captions) == {"1"}, (
+        f"expected exactly one table numbered 1, found captions {captions}. "
+        "Citations across this repository say 'Table III'."
+    )
+    assert not re.search(r"^\s*(?:II|III|IV|V|VI)\.\s", text, re.MULTILINE), (
+        "the paper appears to use Roman-numeral sections after all; the "
+        "citations in this repository were changed on the basis that it does not"
+    )
+    for heading in REAL_SECTIONS:
+        assert re.search(rf"^{re.escape(heading)}$", text, re.MULTILINE), (
+            f"expected a section headed {heading!r}"
+        )
+
+
+def test_the_budgets_are_the_numbers_printed_in_table_1():
+    """Derive the totals from the paper instead of trusting the transcription.
+
+    Table 1 lists three components; this repository splits the same traffic
+    across phases, so the per-component rows are what can be compared.
+    """
+    text = _paper_text()
+    rows = {}
+    for comp in ("WireGuard", "Arnika", "Rosenpass"):
+        m = re.search(rf"^{comp}\s*\n\s*(\d+)\s*\n\s*(\d+)\s*$", text, re.MULTILINE)
+        assert m, f"could not read the {comp} row of Table 1"
+        rows[comp] = (int(m.group(1)), int(m.group(2)))
+
+    assert rows == {"WireGuard": (3, 398), "Arnika": (2, 78), "Rosenpass": (4, 4772)}
+    assert sum(p for p, _ in rows.values()) == paper_budgets.PAPER_TOTAL_PACKETS
+    assert sum(b for _, b in rows.values()) == paper_budgets.PAPER_TOTAL_BYTES
+
+
+def test_no_tracked_file_cites_a_section_the_paper_does_not_have():
+    """Text guard, so this holds even where pdftotext is unavailable."""
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout.split()
+
+    offenders = []
+    for rel in tracked:
+        p = ROOT / rel
+        if not p.is_file() or p.suffix in {".pdf", ".png", ".jpg", ".gif", ".webm"}:
+            continue
+        try:
+            body = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if rel == "tests/test_paper_budgets.py":
+            continue  # this file must name what it forbids
+        for bad in WRONG_CITATIONS:
+            if bad in body:
+                offenders.append(f"{rel}: {bad!r}")
+
+    assert not offenders, (
+        "arXiv:2604.05599 has no Roman-numeral sections and exactly one table "
+        "(Table 1, in Evaluation / Test 1 - Prototype Validation). The setup "
+        "times 10.27 s and 10.62 s are in Test 2 - Long Distance, and the "
+        "240-720 s cascade is in the Fail-Safe Mechanism subsection of "
+        "Implementation. Wrong citations:\n  " + "\n  ".join(offenders)
+    )
