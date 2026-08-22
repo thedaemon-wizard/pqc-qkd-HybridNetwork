@@ -276,7 +276,7 @@ they are not something to close silently:
   an immediate re-run, then **4 in 8**. Both nodes, both times, and both times
   exactly four.
 
-  Four observations, per node, all identical across the two nodes in a run:
+  Five observations, per node, all identical across the two nodes in a run:
 
   | failures | rotations | result |
   |---|---|---|
@@ -284,6 +284,7 @@ they are not something to close silently:
   | 0 | 6 | pass (re-run of the same commit) |
   | 4 | 8 | fail |
   | 0 | 9 | pass |
+  | 0 | 5 | pass |
 
   The count is **bimodal -- 4 or 0, never 1 to 3**. That is the useful clue,
   and it rules out the obvious readings. A per-rotation race would scatter
