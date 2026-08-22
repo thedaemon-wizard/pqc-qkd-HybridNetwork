@@ -40,6 +40,14 @@ export interface E2EState {
   last_psk_prefix_hex: string;
   last_error: string;
   rate_bps: number;
+  /**
+   * The cycle length the animation is paced to, in ms.
+   *
+   * Beside `rate_bps` so the reader can tell a throttled recording from a slow
+   * one: `rate_bps` divides by measured wall-clock, and a hidden tab inflates
+   * that denominator. See the comment at the assignment.
+   */
+  nominal_cycle_ms: number;
   history: PhaseRec[];
   engine?: string;
 }
@@ -120,7 +128,8 @@ export class E2ESim {
       failure_is_fatal: false,
       mode_label: MODE_LABEL[mode], completed_cycles: 0,
       total_bytes_encrypted: 0, total_packets: 0, last_qkd_key_id: "",
-      last_psk_prefix_hex: "", last_error: "", rate_bps: 0, history: [],
+      last_psk_prefix_hex: "", last_error: "", rate_bps: 0,
+      nominal_cycle_ms: 4 * NOMINAL_PHASE_DWELL_MS, history: [],
       engine: "client-side (JS + @noble)",
     };
   }
@@ -357,7 +366,21 @@ export class E2ESim {
         this.s.total_packets += N_PACKETS;
         this.s.completed_cycles += 1;
         this.s.last_qkd_key_id = this.keyId;
+        // Bits per second over WALL-CLOCK, which the browser throttles.
+        //
+        // The arithmetic and the units are right -- bytes x 8 / seconds -- but
+        // the denominator is measured, and Chrome clamps timers to about 1 Hz
+        // in a hidden tab. Measured on the demo: 4470 bytes reported at
+        // 8952 bps, implying 3.995 s for a cycle whose nominal length is
+        // 4 x 450 ms = 1.8 s. So a backgrounded run understates throughput by
+        // roughly the throttle ratio.
+        //
+        // `nominal_cycle_ms` is published beside it for the same reason
+        // `nominal_dwell_ms` is published beside `ui_dwell_ms`: a reader can
+        // compare the two and see whether the recording was throttled, instead
+        // of taking the rate for a property of the system.
         this.s.rate_bps = (bytes * 8.0) / elapsed;
+        this.s.nominal_cycle_ms = 4 * NOMINAL_PHASE_DWELL_MS;
         this.s.last_error = this.s.failed_layer
           ? `Degraded: ${this.s.failed_layer.toUpperCase()} layer failed; `
             + `mode ${mode} continued on the surviving leg`
