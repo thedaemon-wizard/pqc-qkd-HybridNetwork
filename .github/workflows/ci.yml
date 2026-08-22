@@ -236,7 +236,9 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" \
             --entrypoint sh pqcqkd/pqc-validator:ci -c '
               pip install --quiet --no-cache-dir pytest httpx || exit 1
-              cd /repo && python -m pytest tests/test_pqc_interop_is_a_real_crosscheck.py \
+              cd /repo && python -m pytest \
+                tests/test_pqc_interop_is_a_real_crosscheck.py \
+                tests/test_mlkem_kat_matches_liboqs.py \
                 -q -p no:cacheprovider -o cache_dir=/tmp/pytest-cache
             '
 
