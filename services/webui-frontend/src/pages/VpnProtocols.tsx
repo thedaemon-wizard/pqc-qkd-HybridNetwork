@@ -54,6 +54,10 @@ export default function VpnProtocols() {
         key-writer adapters:
       </p>
       <ul style={{ color: "#cbd6f5", lineHeight: 1.7, maxWidth: 760 }}>
+        <li><b>Note on the word &ldquo;PSK&rdquo;.</b> WireGuard&apos;s preshared key is
+            mixed into the Noise_IKpsk2 chaining key and so contributes to the
+            transport keys; the IKEv2 PSK below does not, which is why that lane
+            needs RFC 8784&apos;s PPK. Same word, opposite property.</li>
         <li><b>WireGuard</b> — arnika derives a 32 B PSK and writes it into
             <code> wg0</code> through <code>wgctrl</code> netlink.</li>
         <li><b>strongSwan IPsec/IKEv2</b> — a native VICI client installs the

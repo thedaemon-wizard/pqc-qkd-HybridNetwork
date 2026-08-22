@@ -25,11 +25,11 @@ const PHASE_BUDGETS: Record<number, Omit<PhaseBudget, "phase">> = {
   2: { name: "Arnika QKD key_ID exchange", packets: 2, bytes: 78, period_s: 120, grace_s: 180,
        description: "Arnika fetches QKD key from local ETSI 014 KME and negotiates the active key_ID with the neighbour Arnika." },
   3: { name: "WireGuard hop handshake", packets: 3, bytes: 398, period_s: 120, grace_s: 60,
-       description: "Curve25519 + ChaCha20 handshake establishes the QKD-secured hop tunnel; the QKD-derived PSK is mixed in." },
+       description: "Curve25519 + ChaCha20 handshake establishes the QKD-secured hop tunnel; the QKD-derived WireGuard preshared key is mixed into the Noise_IKpsk2 chaining key, so it contributes to the transport keys." },
   4: { name: "Rosenpass PQC handshake", packets: 4, bytes: 4772, period_s: 120, grace_s: 180,
        description: "Classic McEliece + Kyber end-to-end PQC handshake carried over the chain of QKD-secured WireGuard hops." },
   5: { name: "Final data tunnel + Data Exchange", packets: 0, bytes: 0, period_s: 120, grace_s: 60,
-       description: "Application data tunnel (WireGuard with ChaCha20-Poly1305) uses a PSK derived from the Rosenpass output." },
+       description: "Application data tunnel (WireGuard with ChaCha20-Poly1305) uses a WireGuard preshared key derived from the Rosenpass output. Not an IKEv2 PSK -- see docs/vici-ppk.md." },
 };
 /**
  * Mean end-to-end setup time, arXiv:2604.05599 section VI.

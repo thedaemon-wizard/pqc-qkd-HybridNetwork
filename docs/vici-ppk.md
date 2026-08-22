@@ -317,6 +317,40 @@ Full citations in [`references.md`](references.md). Primary: RFC 8784, RFC 9370,
 RFC 9242, RFC 9867, RFC 7296 §2.15, ETSI GS QKD 014 V1.1.1, and the strongSwan
 VICI protocol README.
 
+## "PSK" means two different things in this repository
+
+Everything above is about the **IKEv2** preshared key, and the conclusion --
+that it cannot carry post-quantum confidentiality -- applies only to that. It
+does not apply to WireGuard's preshared key, which is a different mechanism
+with the opposite property.
+
+| | enters the key schedule? | what it can provide |
+|---|---|---|
+| IKEv2 PSK (RFC 7296 §2.15) | **No.** Only the `AUTH` payload | authentication only |
+| RFC 8784 PPK | **Yes.** `SK_d = prf+(PPK, SK_d')` | post-quantum confidentiality |
+| WireGuard `PresharedKey` | **Yes.** Mixed into the Noise_IKpsk2 chaining key | post-quantum confidentiality |
+
+So WireGuard's PSK is mechanically the analogue of the **PPK**, not of the
+IKEv2 PSK. Rosenpass states the consequence directly in its own README, which
+is vendored at `submodules/rosenpass/readme.md`:
+
+> Since it supplies WireGuard with key through the PSK feature using
+> Rosenpass+WireGuard is cryptographically no less secure than using WireGuard
+> on its own ("hybrid security").
+
+This matters for reading the rest of the project. `/e2e` and `/paper-flow`
+model the **WireGuard** lane (`alice`/`bob` = WireGuard + arnika + rosenpass),
+so where they say a QKD-derived PSK is mixed in, that is the Noise chaining-key
+mixing above and it is doing real work. They are not modelling the construction
+this document argues against. This page is about the **IPsec/strongSwan** lane
+(`docker-compose.strongswan.yml`), where the move from PSK to PPK was necessary.
+
+Written down because the ambiguity is genuinely misleading: this document says
+"PSK does not contribute to the session keys, so we moved to PPK", and a reader
+who then sees `psk_prefix` on `/e2e` will reasonably conclude that page
+demonstrates the weaker construction. The implementation was always correct;
+the vocabulary was not.
+
 ## Known limitation: the sub-millisecond rotation race
 
 Rotating a PPK under a **stable** `PPK_ID` requires the two peers to switch

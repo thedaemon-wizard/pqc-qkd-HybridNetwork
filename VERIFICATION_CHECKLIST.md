@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-184 rows, of which **28 are machine-checked and 156 are not**. Worth knowing
+185 rows, of which **29 are machine-checked and 156 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -20,7 +20,7 @@ before planning a release, because the manual share is not evenly spread:
 | 4 | Browser, every page | **111** | 2 | **109** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 18 | 5 | 13 |
-| 7 | Documentation | 10 | 0 | 10 |
+| 7 | Documentation | 11 | 1 | 10 |
 
 Section 4 is 61 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -335,3 +335,4 @@ question about it could not be answered from this checklist.
 | 7.8 | Dependency tables match what is actually installed | Version tables in `README.md` and `docs/` against `pip list`, `npm ls --depth=0` and the pinned submodule tags in `.gitmodules`. `docs/THIRD_PARTY_NOTICES.md` must list every submodule that ships in an image, with its licence. |
 | 7.9 | Formulas are in MathJax, not ASCII art | `docs/keyrate.md` and `docs/vici-ppk.md` carry the derivations in `$$...$$`. ASCII box-drawing in `README.md` section 2 and `ARCHITECTURE.md` is topology, not mathematics, and stays as it is -- the rule is about equations, not diagrams. |
 | 7.10 | No claim that the system silently degrades when the code does not | Where a page needs the backend it must say so on screen rather than render an empty state. `docs/deployment-economics.md` records the per-route behaviour; `/pqc` is the model, stating that the server cross-check was skipped. |
+| 7.11 | **"PSK" is qualified wherever both lanes are visible** | `.venv/bin/python -m pytest tests/test_psk_is_qualified_where_it_is_ambiguous.py` -> passes. The word means opposite things here: the **IKEv2** PSK enters only the `AUTH` payload and carries no confidentiality (which is why the IPsec lane needs RFC 8784's PPK), while **WireGuard's** preshared key is mixed into the Noise_IKpsk2 chaining key and does contribute to the transport keys -- mechanically the PPK's analogue. `/e2e`, `/paper-flow` and `/vpn` model the WireGuard lane and must say so; unqualified, a reader arriving from `docs/vici-ppk.md` concludes those pages demonstrate the weaker construction. Reported by a reader, not caught by any check, which is why the wording is now pinned. |
