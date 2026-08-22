@@ -19,6 +19,17 @@ This is the paper the PoC reproduces: the layered model in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md), the `/paper-flow` page's Table III
 packet budgets, and the multi-hop trusted-node figure all come from it.
 
+Page 1 of the redistributed file reads "This is the full version of a paper
+which appears in the IEEE International Conference ... (C) IEEE, 2026", which
+looks at first glance to contradict the licence column. It does not: that line
+covers the *conference* version (DOI
+[10.1109/QCNC69040.2026.00060](https://doi.org/10.1109/QCNC69040.2026.00060)),
+while the arXiv full version this file came from is posted by the authors under
+CC BY 4.0 -- confirmed on the arXiv abstract page, which is what governs the
+copy shipped here. Recorded because the apparent conflict is on the first page
+a reviewer opens, and "why are you redistributing an IEEE PDF" is a reasonable
+question to be able to answer without re-deriving the checks.
+
 ### Directly comparable work on hybrid QKD/PQC for IPsec
 
 | Work | Identifier | Why it matters here |
