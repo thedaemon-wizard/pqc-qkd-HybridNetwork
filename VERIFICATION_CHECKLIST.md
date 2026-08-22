@@ -244,17 +244,17 @@ question about it could not be answered from this checklist.
 
 ## 5. Code quality
 
-| # | Check |
-|---|---|
-| 5.1 | No hardcoded physics constants outside `config/qkd_params.yaml` (`pytest tests/test_no_hardcoded_params.py`) |
-| 5.2 | No silent fallbacks — a failure must log and surface, never be replaced by plausible-looking data |
-| 5.3 | No `\|\| true` masking failures in Makefile, entrypoints or CI |
-| 5.4 | Cross-implementation constants are shared, not duplicated |
-| 5.5 | New behaviour has a test that fails without the change |
-| 5.6 | Randomness is injectable — no module builds its own unseeded generator, or a seeded run is not reproducible |
-| 5.7 | Statistical assertions use a mean over seeds, not a single draw against a threshold |
-| 5.8 | A quantity computed two ways is cross-checked, not just asserted non-zero |
-| 5.9 | Tests are fast enough to actually run — no single test dominates the suite |
+| # | Check | How |
+|---|---|---|
+| 5.1 | No hardcoded physics constants outside `config/qkd_params.yaml` | `pytest tests/test_no_hardcoded_params.py tests/test_frontend_defaults_match_config.py`. The second one exists because the first covered `backends/` only, and the frontend had drifted to 25 km against a configured 10. |
+| 5.2 | No silent fallbacks | A failure must log and surface, never be replaced by plausible-looking data. `grep -rnE 'catch\s*(\([^)]*\))?\s*\{\s*\}' services/webui-frontend/src` -> every hit must carry a comment saying why swallowing is right. Four exist, all offline-fallback paths on pages that must work without a backend. |
+| 5.3 | No `\|\| true` masking failures | `grep -rn '\|\| true' --include='*.sh' --include='*.yml' --include=Makefile .` -> every hit on a `grep -c` where no-match is a legitimate zero, or a backgrounded server start. Never on a build, lint or test step. |
+| 5.4 | Cross-implementation constants are shared, not duplicated | `pytest tests/test_paper_constants_agree_across_ports.py tests/test_keyrate_ports_agree.py`, plus `bundledDefaults.test.ts`. Three separate cases have been found and fixed: the key-pool model in three engines, the BB84 channel in three files, and the paper setup times in two ports. |
+| 5.5 | New behaviour has a test that fails without the change | Verified by mutation, not by inspection: revert the change and confirm the new test fails. Recorded in the PR body for each. A test written after the fact that passes on the old code is decoration. |
+| 5.6 | Randomness is injectable | No module builds a generator a caller cannot override. `grep -rn 'default_rng()' services/ \| grep -vE 'rng or \|rng is not None else '` -> empty. Note the filter: a bare `grep default_rng()` returns 13 hits and all are FINE -- `rng = rng or np.random.default_rng()` is the injectable pattern, and the backends seed from `cfg.rng_seed`. Writing the naive grep as the expectation here was wrong, and checking it is what caught that. |
+| 5.7 | Statistical assertions use a mean over seeds | A single draw against a threshold flakes or, worse, passes on a broken model that happens to land inside the band. See the intercept-resend QBER test, which asserts a range over 4000 sampled frames. |
+| 5.8 | A quantity computed two ways is cross-checked | Not just asserted non-zero. `/verify` compares the closed-form SKR against TNO; `/pqc` makes liboqs and `@noble` agree on a shared secret. Asserting non-zero is what let `skr_bps` report a sifting fraction for months. |
+| 5.9 | Tests are fast enough to actually run | `pytest tests/ --durations=5` and `npx vitest run`. Host suite ~3 s, frontend ~2 s. The SLH-DSA cases are the slowest at 1-2 s each and are computed once in a `beforeAll` rather than per assertion. |
 
 ---
 

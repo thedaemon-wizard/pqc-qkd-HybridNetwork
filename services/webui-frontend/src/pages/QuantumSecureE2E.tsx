@@ -149,8 +149,19 @@ export default function QuantumSecureE2E() {
                      alignItems: "center" }}>
         <span style={{ color: "#9aa9d8", fontSize: 13 }}>Mode:</span>
         {(["A", "B", "C"] as const).map((m) => (
+          // Locked while a run is in progress. Switching mid-cycle produced a
+          // half-A/half-C cycle: phase 2 could draw a QKD key under one mode
+          // and phase 3 derive under another, so the exported "mode" described
+          // neither. Every other control here was already status-gated; this
+          // one, which changes what the run MEANS, was not.
           <button key={m} onClick={() => setMode(m)}
-                  style={modeBtn(m === mode, MODE_COLOR[m])}>
+                  disabled={status === "running"}
+                  title={status === "running"
+                    ? "Pause or Reset before changing mode -- switching mid-cycle would mix two modes in one cycle"
+                    : undefined}
+                  style={{ ...modeBtn(m === mode, MODE_COLOR[m]),
+                           opacity: status === "running" ? 0.45 : 1,
+                           cursor: status === "running" ? "not-allowed" : "pointer" }}>
             {m === "A" && "A · QKD-only"}
             {m === "B" && "B · PQC-only"}
             {m === "C" && "C · Hybrid (QKD ‖ PQC)"}

@@ -5,9 +5,10 @@
  * html-to-image and modern-gif are lazy-loaded so pages that never export
  * keep the initial bundle small.
  *
- * Capture settings below are DEFAULTS, not fixed values -- every one of them
- * is overridable by the caller, and the export toolbar exposes duration, fps
- * and bitrate to the user.
+ * Capture settings below are DEFAULTS, not fixed values -- every one is
+ * overridable by the caller. The toolbar exposes three of them to the user:
+ * capture duration, WebM frame rate and GIF frame rate. It does NOT expose
+ * bitrate; this comment used to say it did.
  */
 
 /** Default animation capture length. */
