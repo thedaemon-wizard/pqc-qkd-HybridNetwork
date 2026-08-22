@@ -39,6 +39,13 @@ CASES = [
     (0.020, 1.0e-6, 0.015, 0.50, 0.10, 0.0, 1.16),   # repo defaults
     (0.002, 1.0e-5, 0.030, 0.60, 0.10, 0.0, 1.20),   # long link
     (0.200, 1.0e-7, 0.005, 0.40, 0.08, 0.0, 1.10),   # short, low-noise link
+    # Dark channel: no transmittance, no dark counts, so Q_mu = Y0 + 1 -
+    # exp(0) = 0 and the QBER is undefined. Both ports guard this with
+    # `if q <= 0: return 0.5` -- maximally uncertain rather than a division by
+    # zero -- and until this fixture existed neither guard was ever executed by
+    # the parity test. Every other case has Y0 > 0 and eta > 0, which makes
+    # Q_mu strictly positive.
+    (0.000, 0.0,    0.015, 0.50, 0.10, 0.0, 1.16),   # dark channel, q == 0
 ]
 
 
