@@ -12,7 +12,7 @@ Each retains its original copyright notice and license terms.
 | `SimQN` | GPLv3 | independent (Cui et al.) | 8 | 2026-05-25 (active) |
 | `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | v0.8.5, 2026-05-12 (active) |
 | `qkdnetsim` | GPL v2 | QKDNetSim project (Mehic et al.) | 8 | 2026-05-03 (active) |
-| `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | active; upstream last pushed 2026-06-17. The pin is 3 commits **ahead** of tag v2.2.0, so it already includes that release. |
+| `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | active; pinned submodule **v2.2.0** (2026-06-17). This row previously claimed the pin was "3 commits ahead of v2.2.0, so it already includes that release" -- the comparison was inverted. `git describe` read `v2.1.0-2-g6ffeed8`, i.e. 3 commits BEHIND, and v2.2.0 was not an ancestor. Bumped, and `tests/test_notices_match_the_pins.py` now compares this column against `git submodule status` so a version claim cannot outrun the pin again. |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | **ARCHIVED on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
 | `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned submodule **v2.0.4**, 2026-02 (active); `tno` backend + key-rate cross-check |
 | `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; blowfish/des/md4/md5 plugins differ) | strongSwan project | 9 | 2026-05-28 (active) |
