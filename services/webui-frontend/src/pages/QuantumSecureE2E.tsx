@@ -138,6 +138,7 @@ export default function QuantumSecureE2E() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="e2e-architecture"
+          hasRunControl
           logProvider={runLog}
           pngTargetSelector="#e2e-arch-svg"
           jsonProvider={() => state ?? { status: "loading" }}

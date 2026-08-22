@@ -116,6 +116,7 @@ export default function PaperDataExchange() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="paper-data-exchange"
+          hasRunControl
           logProvider={runLog}
           pngTargetSelector="#paper-flow-topology-svg"
           jsonProvider={() => state ?? { status: "loading" }}
