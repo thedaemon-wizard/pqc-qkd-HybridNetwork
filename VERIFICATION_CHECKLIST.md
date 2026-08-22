@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-193 rows, of which **33 are machine-checked and 160 are not**. Worth knowing
+196 rows, of which **34 are machine-checked and 162 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,10 +17,10 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 18 | **18** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **114** | 3 | **111** |
+| 4 | Browser, every page | **116** | 4 | **112** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
-| 7 | Documentation | 11 | 1 | 10 |
+| 7 | Documentation | 12 | 1 | 11 |
 
 Section 4 is 61 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -232,6 +232,8 @@ question about it could not be answered from this checklist.
 | 4.5.12 | **A local-only save says so** | With the backend unreachable the file still downloads and the toolbar shows `downloaded to this device only`. Silence here is what made a static-only deployment look like it had a working gallery. |
 | 4.5.13 | **No server compute during a client-side run** | On `/bb84`, wrap `window.fetch` and `XMLHttpRequest.prototype.open`, let the simulation run, then assert zero `/api/` or `/ws/` calls. Measured on the demo: **0 network calls in 6 s at 59.9M pulses/s**. |
 | 4.5.14 | **The compute engine is chosen by measurement, not assumed** | DevTools console on `/bb84` shows one line, e.g. `[bb84] WebGPU 34M/s <= Worker 62M/s -- keeping Worker`. The ladder benchmarks WebGPU then WebGL2 against the CPU Worker and adopts a tier only if it wins, so "Worker (CPU)" on a WebGPU-capable browser is a recorded decision rather than a silent fallback. A `console.warn` naming init/bench failure is the case to investigate. |
+| 4.5.15 | **`/console` exports the container it is showing** | `.venv/bin/python -m pytest tests/test_log_export_names_a_real_log.py` -> passes. Row 4.5.3 states this rule for `/e2e`; `/console` broke it for **all four** containers. The switcher lists CONTAINER names while the KME writes its file under the NODE name it acts as (`configure(SAE_ID.lower())`, and compose sets `SAE_ID=ALICE` on `bb84-kme-a`), so the two namespaces collide on "alice"/"bob" while meaning different processes. The ternary `active.includes("kme") ? active : "webui-backend"` then mapped them backwards: alice/bob fetched a different service's log, and both KME buttons asked for a file nothing writes. Now `logProvider={() => log}` -- the page already holds the bytes on screen. The guard is derived rather than a list: producible names come from the `logging_setup.configure` call sites and `SAE_ID` in the compose files. |
+| 4.5.16 | **A log that does not exist is a 404, not an empty file** | `GET /api/logs/download/bb84-kme-a` used to return **HTTP 200** with the body `# log file bb84-kme-a.log not found` under a `Content-Disposition` header, so the browser saved a one-line file that looked like a quiet log. That stub is why 4.5.15 went unnoticed for so long. Verify: `curl -s -o /dev/null -w '%{http_code}' https://<demo>/api/logs/download/nope` -> `404`, and a name that exists -> `200`. |
 
 ### 4.6 Client-side compute (the public demo must not load the server)
 
@@ -344,3 +346,4 @@ question about it could not be answered from this checklist.
 | 7.9 | Formulas are in MathJax, not ASCII art | `docs/keyrate.md` and `docs/vici-ppk.md` carry the derivations in `$$...$$`. ASCII box-drawing in `README.md` section 2 and `ARCHITECTURE.md` is topology, not mathematics, and stays as it is -- the rule is about equations, not diagrams. |
 | 7.10 | No claim that the system silently degrades when the code does not | Where a page needs the backend it must say so on screen rather than render an empty state. `docs/deployment-economics.md` records the per-route behaviour; `/pqc` is the model, stating that the server cross-check was skipped. |
 | 7.11 | **"PSK" is qualified wherever both lanes are visible** | `.venv/bin/python -m pytest tests/test_psk_is_qualified_where_it_is_ambiguous.py` -> passes. The word means opposite things here: the **IKEv2** PSK enters only the `AUTH` payload and carries no confidentiality (which is why the IPsec lane needs RFC 8784's PPK), while **WireGuard's** preshared key is mixed into the Noise_IKpsk2 chaining key and does contribute to the transport keys -- mechanically the PPK's analogue. `/e2e`, `/paper-flow` and `/vpn` model the WireGuard lane and must say so; unqualified, a reader arriving from `docs/vici-ppk.md` concludes those pages demonstrate the weaker construction. Reported by a reader, not caught by any check, which is why the wording is now pinned. |
+| 7.12 | **Third-party product names are checked against the vendor's own documentation** | `/hil` listed, under the heading "Reported interoperable devices": **ID Quantique XG / Cerberis series (native ETSI 014)**, **Toshiba MUSE Q-KMS**, **Thinkquantum TQ-KME (ETSI 014 + 020)**. Checked against vendor pages on 2026-08-22: "MUSE" and "TQ-KME" **do not exist** -- the products are **Toshiba Q-KMS** and **ThinkQuantum QUKY** (QUKY-TX / QUKY-RX). ThinkQuantum documents ETSI 014 + **004**, not 020; Toshiba's ETSI 014 REST API is the default, not a "compatibility mode"; and IDQ exposes ETSI 014/020 from the **Clarion KX** key-management layer rather than natively from the QKD appliance, whose Cerberis XG/XGR pages now read "no longer available for purchase". The heading also asserted interoperability nobody had tested. A fabricated product name is the specific failure mode to look for: it reads as authoritative and nothing in the build can contradict it. Re-check whenever the list changes. |
