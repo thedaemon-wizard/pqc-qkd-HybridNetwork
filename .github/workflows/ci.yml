@@ -374,6 +374,21 @@ jobs:
             # flip rather than a race. That measured 4 failures in 9 rotations
             # before the bootstrap credential was retired, so a 20% ceiling
             # separates the two cleanly.
+            # Print the timeline whenever there is ANY failure, not only when
+            # the ceiling trips. The count has been bimodal across CI runs --
+            # 4 or 0, never 1 to 3, identical on both nodes -- and a passing
+            # run with one or two failures is exactly the data point that would
+            # discriminate between a startup window and a per-rotation race.
+            # Dumping only on failure meant those runs told us nothing, and two
+            # local reproductions (7 rotations, 0 failures each) could not
+            # produce the condition at all.
+            if [ "$authfail" -gt 0 ]; then
+              echo "--- $node: $authfail auth failure(s) in $rot rotations, in context ---"
+              docker logs -t "$node" 2>&1 \
+                | grep -nE 'AUTH_FAILED|no PPK found|unloaded the bootstrap|unloaded orphaned|PPK rotated' \
+                | head -60
+            fi
+
             if [ $((authfail * 5)) -gt "$rot" ]; then
               echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
               # Print the evidence. This job used to report only the COUNT, so
