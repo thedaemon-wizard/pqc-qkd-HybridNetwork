@@ -659,7 +659,14 @@ def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
 # ----------------------- Topology -----------------------
 @app.get("/api/topology")
 async def topology():
-    """Static graph; in multihop mode include charlie."""
+    """Static four-node graph: alice, bob and the two KMEs.
+
+    The previous docstring said "in multihop mode include charlie", which no
+    code does -- there is no multihop branch and no signal here that would
+    indicate one. README described the page as showing Charlie on the strength
+    of this line. Adding the branch needs a way to know the profile is active;
+    until then the graph is honestly static.
+    """
     nodes = [
         {"id": "alice", "type": "node", "label": "Alice (WG + arnika + RP)"},
         {"id": "bob",   "type": "node", "label": "Bob (WG + arnika + RP)"},
