@@ -19,6 +19,16 @@ export interface E2EState {
   status: "idle" | "running" | "paused";
   /** Layer the operator has knocked out, or null. See `injectFailure`. */
   failed_layer: E2ELayer | null;
+  /**
+   * Whether that failure ends the run, decided by the simulator.
+   *
+   * Published rather than left for the view to work out. The page originally
+   * recomputed it in JSX as "mode C degrades, anything else is fatal", which
+   * is wrong for the two cells where a mode never used the failed layer --
+   * mode A with PQC down was labelled fatal on screen while the run carried
+   * on. One rule, one owner.
+   */
+  failure_is_fatal: boolean;
   current_phase: number;
   phase_name: string;
   mode: Mode;
@@ -93,6 +103,7 @@ export class E2ESim {
   private fresh(mode: Mode): E2EState {
     return {
       status: "idle", current_phase: 0, phase_name: "idle", mode, failed_layer: null,
+      failure_is_fatal: false,
       mode_label: MODE_LABEL[mode], completed_cycles: 0,
       total_bytes_encrypted: 0, total_packets: 0, last_qkd_key_id: "",
       last_psk_prefix_hex: "", last_error: "", rate_bps: 0, history: [],
@@ -162,7 +173,14 @@ export class E2ESim {
     this.advance(true);
     this.emit();
   }
-  setMode(m: Mode) { this.s.mode = m; this.s.mode_label = MODE_LABEL[m]; this.emit(); }
+  setMode(m: Mode) {
+    this.s.mode = m;
+    this.s.mode_label = MODE_LABEL[m];
+    // The same failed layer is fatal in one mode and harmless in another, so
+    // the verdict is re-derived here rather than only at injection time.
+    this.s.failure_is_fatal = this.failureIsFatal();
+    this.emit();
+  }
 
   dispose() { this.stopLoop(); this.clearKeyMaterial(); }
 
@@ -229,11 +247,13 @@ export class E2ESim {
    */
   injectFailure(layer: E2ELayer) {
     this.s.failed_layer = layer;
+    this.s.failure_is_fatal = this.failureIsFatal();
     this.emit();
   }
 
   clearFailure() {
     this.s.failed_layer = null;
+    this.s.failure_is_fatal = false;
     this.s.last_error = "";
     this.emit();
   }
