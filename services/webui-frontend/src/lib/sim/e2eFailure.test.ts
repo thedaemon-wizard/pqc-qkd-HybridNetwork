@@ -127,3 +127,45 @@ describe("a run with no injection is unaffected", () => {
     expect(state.completed_cycles).toBe(1);
   });
 });
+
+describe("the fatality verdict the page renders", () => {
+  /**
+   * The simulator's behaviour was right and the BANNER was wrong.
+   *
+   * The page recomputed the rule in JSX as "mode C degrades, anything else is
+   * fatal", which mislabelled the two cells where a mode never used the failed
+   * layer: mode A with PQC down read "fatal in mode A" on screen while the run
+   * carried on encrypting. Every test above drove the simulator, so none of
+   * them could see it -- it took clicking the button on the deployed demo.
+   *
+   * `failure_is_fatal` is now published by the simulator and the page reads it,
+   * so there is one rule with one owner. These assertions pin the flag against
+   * the behaviour, which is what makes the duplication impossible to reinstate
+   * silently.
+   */
+  const cases: Array<["A" | "B" | "C", "qkd" | "pqc" | "data", boolean]> = [
+    ["A", "qkd", true],   ["A", "pqc", false],  ["A", "data", true],
+    ["B", "qkd", false],  ["B", "pqc", true],   ["B", "data", true],
+    ["C", "qkd", false],  ["C", "pqc", false],  ["C", "data", true],
+  ];
+
+  it.each(cases)("mode %s + %s -> fatal=%s", (mode, layer, fatal) => {
+    const { state } = runCycles(mode, layer, PHASES_PER_CYCLE);
+    expect(state.failure_is_fatal).toBe(fatal);
+    // And the flag must agree with what actually happened.
+    expect(state.status === "paused").toBe(fatal);
+    expect(state.total_packets > 0).toBe(!fatal);
+  });
+
+  it("re-evaluates when the mode changes under a standing injection", () => {
+    // Switching A -> C with QKD already down must flip the verdict, or the
+    // banner keeps saying "fatal" over a run that is quietly succeeding.
+    let last: E2EState | null = null;
+    const sim = new E2ESim((s) => { last = s; });
+    sim.setMode("A");
+    sim.injectFailure("qkd");
+    expect((last as unknown as E2EState).failure_is_fatal).toBe(true);
+    sim.setMode("C");
+    expect((last as unknown as E2EState).failure_is_fatal).toBe(false);
+  });
+});
