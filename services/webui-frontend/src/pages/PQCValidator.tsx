@@ -68,7 +68,7 @@ export default function PQCValidator() {
     <div>
       <h2 style={{ marginTop: 0 }}>PQC Validator</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        Runs NIST FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) round-trips
+        Runs NIST FIPS 203 (ML-KEM), FIPS 204 (ML-DSA) and FIPS 205 (SLH-DSA) round-trips
         <b> in your browser</b>. Each KEM round-trip encapsulates and
         decapsulates a shared secret and checks the two agree; each signature
         round-trip verifies a signature <i>and</i> confirms a tampered message
@@ -102,7 +102,7 @@ export default function PQCValidator() {
       {error && <div style={errBox}>✗ {error}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Panel title={`KEM — ${kemName} (FIPS 203)`}>
+        <Panel title={`KEM — ${kemName}${kem ? ` (${kem.standard})` : ""}`}>
           {kem ? (
             <>
               <Row k="Shared secrets agree" v={<Verdict ok={kem.sharedSecretMatch} />} />
@@ -116,7 +116,11 @@ export default function PQCValidator() {
           ) : <Idle />}
         </Panel>
 
-        <Panel title={`Signature — ${sigName} (FIPS 204)`}>
+        {/* Standard comes from the result, not a literal. The heading said
+            "FIPS 204" for every scheme, so SLH-DSA rendered with correct
+            FIPS 205 sizes under a FIPS 204 title -- the same view-owns-a-
+            duplicate-rule defect as the /e2e failure banner. */}
+        <Panel title={`Signature — ${sigName}${sig ? ` (${sig.standard})` : ""}`}>
           {sig ? (
             <>
               <Row k="Signature verifies" v={<Verdict ok={sig.verified} />} />
