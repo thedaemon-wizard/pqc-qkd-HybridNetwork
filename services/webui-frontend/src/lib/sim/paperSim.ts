@@ -58,7 +58,19 @@ const CASCADE_STAGES: [number, Layer, string][] = [
 const TOTAL_PACKETS = Object.values(PHASE_BUDGETS).reduce((a, p) => a + p.packets, 0);
 const TOTAL_BYTES = Object.values(PHASE_BUDGETS).reduce((a, p) => a + p.bytes, 0);
 const PHASE_FAIL: Record<Layer, number> = { qkd: 1, arnika: 2, wireguard: 3, rosenpass: 4, data: 5 };
-const PHASE_MS = 350;
+/**
+ * Dwell per phase, chosen so the swimlane is watchable.
+ *
+ * Exported for the same reason as e2eSim's, and it is a DIFFERENT value (350
+ * here, 450 there) -- which is exactly why the CSV must carry the page's own
+ * nominal rather than a shared constant. The measured column is wall-clock and
+ * Chrome clamps timers to roughly 1 Hz in a hidden tab, so a background
+ * recording inflates it; publishing the nominal beside it makes that visible.
+ *
+ * Note this is UI dwell only. It has no relation to the paper's 240-720 s
+ * cascade offsets, which are simulated time and come from Table III.
+ */
+export const NOMINAL_PHASE_DWELL_MS = 350;
 
 interface CascadeSched { t_offset_s: number; layer: Layer; description: string; triggered_at: number; }
 
@@ -200,7 +212,7 @@ export class PaperSim {
 
   private tick() {
     if (this.status !== "running") return;
-    if (performance.now() - this.phaseStart >= PHASE_MS) this.runPhase();
+    if (performance.now() - this.phaseStart >= NOMINAL_PHASE_DWELL_MS) this.runPhase();
   }
 
   private enterPhase(phase: number) {

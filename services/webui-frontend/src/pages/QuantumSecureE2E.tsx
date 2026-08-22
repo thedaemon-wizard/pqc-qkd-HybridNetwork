@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
-import { E2ESim, type E2EState } from "../lib/sim/e2eSim";
+import { E2ESim, NOMINAL_PHASE_DWELL_MS, type E2EState } from "../lib/sim/e2eSim";
 
 /**
  * Quantum-Secure E2E Simulation.
@@ -67,8 +67,15 @@ export default function QuantumSecureE2E() {
       started_at: new Date(h.started_at * 1000).toISOString(),
       completed_at: h.completed_at
         ? new Date(h.completed_at * 1000).toISOString() : "",
-      duration_ms: h.completed_at
+      // Named for what it is. This is the wall-clock time the UI sat on the
+      // phase, not a protocol timing: the dwell is a fixed animation constant,
+      // and Chrome clamps timers to ~1 Hz in a hidden tab, so a run recorded in
+      // a background tab logs ~1000 ms against a 450 ms nominal -- observed on
+      // the deployed demo. Exporting the nominal beside it lets a reader detect
+      // that distortion instead of plotting it as a measurement.
+      ui_dwell_ms: h.completed_at
         ? Math.round((h.completed_at - h.started_at) * 1000) : "",
+      nominal_dwell_ms: NOMINAL_PHASE_DWELL_MS,
       // One column per detail key rather than a JSON blob, so the CSV is
       // usable in a spreadsheet without post-processing.
       ...h.detail,
