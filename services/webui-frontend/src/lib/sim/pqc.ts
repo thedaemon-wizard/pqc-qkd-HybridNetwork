@@ -1,13 +1,27 @@
 /**
  * Client-side post-quantum cryptography.
  *
- * Runs FIPS 203 (ML-KEM) and FIPS 204 (ML-DSA) primitives in the browser via
- * `@noble/post-quantum`. FIPS 205 (SLH-DSA) is NOT included -- this header used
- * to claim it, but only ml-kem.js and ml-dsa.js are imported below. Adding it
- * means importing slh-dsa.js and extending the SIGS map; it is not a
- * configuration option today.
- * so the public demo's crypto-agility matrix and KEM round-trips need no
- * backend at all. The liboqs-backed `pqc-validator` service remains the
+ * Runs FIPS 203 (ML-KEM), FIPS 204 (ML-DSA) and FIPS 205 (SLH-DSA) primitives
+ * in the browser via `@noble/post-quantum`, so the public demo's crypto-agility
+ * matrix and KEM round-trips need no backend at all.
+ *
+ * SLH-DSA is here for a specific reason rather than for completeness. ML-KEM
+ * and ML-DSA are both module-lattice schemes: a structural break in that family
+ * would take out every algorithm on this page at once. SLH-DSA is hash-based,
+ * resting only on the security of its hash function, so it is the one option
+ * whose failure would be uncorrelated with the others. That is what algorithm
+ * agility is for -- RFC 7696 is about being able to move, and having somewhere
+ * to move to.
+ *
+ * Only the `s` (small-signature) parameter sets and one `f` are exposed. The
+ * full FIPS 205 set is twelve; the rest differ by hash function and speed/size
+ * tradeoff without adding a distinct security argument, and each one costs
+ * bundle size and a slow signing path in the browser.
+ *
+ * Worth knowing before citing this as compliance: NSA CNSA 2.0 states that
+ * "while SLH-DSA is hash-based, it is not part of CNSA and is not approved for
+ * any use in NSS". BSI TR-02102-1 does recommend it. The algorithms differ in
+ * standing between agencies, not only in mathematics. The liboqs-backed `pqc-validator` service remains the
  * server-side cross-check for the full stack and for CI.
  *
  * HONEST LIMITATIONS -- surfaced in the UI, not buried here:
@@ -25,6 +39,10 @@
 
 import { ml_kem512, ml_kem768, ml_kem1024 } from "@noble/post-quantum/ml-kem.js";
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from "@noble/post-quantum/ml-dsa.js";
+import {
+  slh_dsa_sha2_128f, slh_dsa_sha2_128s,
+  slh_dsa_sha2_192s, slh_dsa_sha2_256s,
+} from "@noble/post-quantum/slh-dsa.js";
 
 /** Library provenance, shown in the UI so results are attributable. */
 export const PQC_PROVIDER = {
@@ -53,6 +71,14 @@ export interface KemResult {
 export interface SigResult {
   algo: string;
   standard: string;
+  /**
+   * Mathematical family the scheme rests on.
+   *
+   * Reported because it is the only thing on this page that tells a reader
+   * whether two algorithms would fail together. ML-KEM and ML-DSA are both
+   * module-lattice; SLH-DSA is hash-based.
+   */
+  family: string;
   category: number;
   publicKeyLen: number;
   secretKeyLen: number;
@@ -70,9 +96,17 @@ const KEMS = {
 } as const;
 
 const SIGS = {
-  "ML-DSA-44": { impl: ml_dsa44, category: 2 },
-  "ML-DSA-65": { impl: ml_dsa65, category: 3 },
-  "ML-DSA-87": { impl: ml_dsa87, category: 5 },
+  // FIPS 204 -- module-lattice (ML-DSA).
+  "ML-DSA-44": { impl: ml_dsa44, category: 2, standard: "FIPS 204", family: "module-lattice" },
+  "ML-DSA-65": { impl: ml_dsa65, category: 3, standard: "FIPS 204", family: "module-lattice" },
+  "ML-DSA-87": { impl: ml_dsa87, category: 5, standard: "FIPS 204", family: "module-lattice" },
+  // FIPS 205 -- stateless hash-based (SLH-DSA). Signing is orders of magnitude
+  // slower than ML-DSA, especially the `s` sets; that cost is the tradeoff for
+  // resting on a different mathematical assumption.
+  "SLH-DSA-SHA2-128s": { impl: slh_dsa_sha2_128s, category: 1, standard: "FIPS 205", family: "hash-based" },
+  "SLH-DSA-SHA2-128f": { impl: slh_dsa_sha2_128f, category: 1, standard: "FIPS 205", family: "hash-based" },
+  "SLH-DSA-SHA2-192s": { impl: slh_dsa_sha2_192s, category: 3, standard: "FIPS 205", family: "hash-based" },
+  "SLH-DSA-SHA2-256s": { impl: slh_dsa_sha2_256s, category: 5, standard: "FIPS 205", family: "hash-based" },
 } as const;
 
 export type KemName = keyof typeof KEMS;
@@ -80,6 +114,15 @@ export type SigName = keyof typeof SIGS;
 
 export const KEM_NAMES = Object.keys(KEMS) as KemName[];
 export const SIG_NAMES = Object.keys(SIGS) as SigName[];
+
+/**
+ * Mathematical family per scheme, for the UI to label the choice.
+ *
+ * Exported rather than inferred from the name, so a scheme added to SIGS
+ * cannot appear in the picker with no family beside it.
+ */
+export const SIG_FAMILY: Record<SigName, string> =
+  Object.fromEntries(SIG_NAMES.map((n) => [n, SIGS[n].family])) as Record<SigName, string>;
 
 /**
  * Full ML-KEM encapsulate/decapsulate round-trip (FIPS 203).
@@ -118,9 +161,13 @@ export function kemRoundtrip(name: KemName): KemResult {
  * also checked and must be rejected.
  */
 export function sigRoundtrip(name: SigName): SigResult {
-  const { impl, category } = SIGS[name];
+  // `standard` comes from the registry, not a literal. It was hardcoded to
+  // "FIPS 204", which was true while ML-DSA was the only family here and would
+  // have labelled every SLH-DSA result with the wrong standard the moment one
+  // was added.
+  const { impl, category, standard, family } = SIGS[name];
   const message = new TextEncoder().encode(
-    "PQC-QKD hybrid testbed — ML-DSA round-trip",
+    "PQC-QKD hybrid testbed — signature round-trip",
   );
 
   const t0 = performance.now();
@@ -135,7 +182,8 @@ export function sigRoundtrip(name: SigName): SigResult {
 
   return {
     algo: name,
-    standard: "FIPS 204",
+    standard,
+    family,
     category,
     publicKeyLen: publicKey.length,
     secretKeyLen: secretKey.length,

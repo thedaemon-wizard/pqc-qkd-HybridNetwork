@@ -185,6 +185,9 @@ question about it could not be answered from this checklist.
 | 4.6.6 | PQC round-trips run in-browser | `/pqc` works with the backend stopped |
 | 4.6.7 | PQC sizes are correct | ML-KEM-768: pk 1184 / sk 2400 / ct 1088 / ss 32 B; ML-DSA-65 sig 3309 B |
 | 4.6.8 | Tampered signature rejected | `/pqc` shows "Rejects tampered message: pass" |
+| 4.6.9 | **The agility matrix spans more than one hardness assumption** | `/pqc` signature picker offers FIPS 204 ML-DSA (module-lattice) AND FIPS 205 SLH-DSA (hash-based), each option labelled with its family. Offering only ML-KEM and ML-DSA is not agility: both are module-lattice, so one structural break takes out every option. |
+| 4.6.10 | **FIPS 205 sizes match the standard** | SLH-DSA-SHA2 128s pk 32 / sig 7856; 128f pk 32 / sig 17088; 192s pk 48 / sig 16224; 256s pk 64 / sig 29792. A wrong parameter set still signs and verifies, so a passing round-trip proves nothing about which algorithm you got. |
+| 4.6.11 | **The cost of leaving the lattice is visible** | Measured in-browser: ML-DSA-65 ~9 ms, SLH-DSA-SHA2-192s ~2.2 s. Selecting a hash-based scheme pauses the page for one to two seconds; the option label names the family so the pause reads as the tradeoff rather than a hang. |
 
 ### 4.7 Numbers match the model
 
