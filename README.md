@@ -251,7 +251,7 @@ Most pages provide per-page export buttons below the description — **high-DPI 
 | HKDF fusion log | `docker logs alice \| grep "HKDF derivation completed for QKD+PQC"` | Present in `QkdAndPqcRequired` mode |
 | Eve raises QBER | toggle Eve in WebUI → QBER chart spikes ≥ 25% within 2 rounds | observable in WebUI; client-side engine only, arnika is not involved |
 | Encrypted on the wire | `docker exec alice tcpdump -i eth1 -X udp port 51820 -c 5` | only opaque ciphertext, no ICMP plaintext |
-| Multi-hop ping (optional) | `make up-multihop && docker exec alice ping 10.0.0.2` | Replies via charlie |
+| Multi-hop ping (optional) | `make up-multihop && docker exec alice ping 10.0.0.2` | **Does not relay yet** -- see the multi-hop row in section 12 |
 
 `make smoke` runs the critical subset automatically.
 
@@ -286,7 +286,7 @@ Detailed claim-by-claim mapping is in [`docs/paper_mapping.md`](docs/paper_mappi
 | ETSI GS QKD 014 client/server contract | Implemented; contract tested in CI against two live KMEs |
 | arnika as key injector | Implemented, upstream unchanged. This project adds a strongSwan VICI key-writer adapter alongside the WireGuard one. |
 | Rosenpass PQC layer | Implemented with the real binary. There is **no** fallback: if the keypair or the peer public key is missing, the sidecar exits non-zero rather than substituting local randomness. |
-| Multi-hop trusted-node chain | Implemented (`docker-compose.multihop.yml`) |
+| Multi-hop trusted-node chain | **Partial.** `docker-compose.multihop.yml` now builds and starts `charlie`, which exchanges WireGuard and Rosenpass public keys with alice over the shared volume. The relay does **not** complete: `nodes/alice/rosenpass-sidecar.sh` takes a single `RP_PEER_HOST`, so alice runs one Rosenpass instance peered with bob only, and charlie's handshake to `alice:9997` is never accepted. Alice needs a second instance on its own port, or multi-peer support, before alice-charlie-bob carries traffic. |
 | Adaptive security levels (QuLore L1-L4) | Not implemented. See [`docs/roadmap.md`](docs/roadmap.md). |
 
 ---

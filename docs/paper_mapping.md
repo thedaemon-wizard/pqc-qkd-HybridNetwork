@@ -24,7 +24,7 @@ we record (a) where it is implemented and (b) how to reproduce it.
 | II.B | ETSI GS QKD 014 between QKD device and gateway | `services/bb84-kme/app/etsi014.py` (matches `submodules/arnika/repositories/kms.go:43-101`) | `pytest tests/test_etsi014_contract.py` |
 | II.C | Arnika as the QKD↔WireGuard PSK injector | unmodified `submodules/arnika/` (Go binary baked into node image) | `docker logs alice \| grep "PSK configured"` |
 | II.D | Rosenpass E2E PQC handshake (Classic McEliece + Kyber/ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
-| III   | Multi-hop trusted-node chain (Alice—Charlie—Bob) | `docker-compose.multihop.yml` (profile `multihop`) | `make up-multihop && docker exec alice ping 10.0.0.2` |
+| III   | Multi-hop trusted-node chain (Alice-Charlie-Bob) | `docker-compose.multihop.yml` (profile `multihop`) | **Partial, do not cite as verified.** `charlie` builds and starts and swaps public keys with alice; the relay does not form because alice's Rosenpass sidecar peers with bob only. See the multi-hop row in the README's status table. |
 | IV.A | Periodic PSK rotation, default 120s | `ARNIKA_INTERVAL` env, default 30s in PoC for demo speed | `wg show wg0` PSK changes within 30s |
 | IV.B | Setup time dominated by slowest QKD hop, not cumulative | `benchmarks/handshake_timer.py` | `make bench` |
 | V    | Composability — failure of one layer leaves the other intact | `MODE=AtLeastQkdRequired` falls back to QKD-only if PQC missing (see `main.go:140-196`) | Stop Rosenpass sidecar, observe arnika logs still rotate |
