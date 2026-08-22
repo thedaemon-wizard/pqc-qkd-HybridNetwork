@@ -342,6 +342,25 @@ It is self-correcting: charon retries and the lane returns to a single
 established SA. The cost is a brief reauthentication blip roughly every forty
 rotations, not a stuck tunnel.
 
+> **What this means for the CI ceiling, which is tighter than it reads.**
+> The 45-rotation figure above comes from a long two-node run (the trace
+> reaches generation 26). The `strongswan-lane` job does **not** run that long:
+> its window is `sleep 240`, and both nodes report **6 rotations**, measured
+> repeatedly on 2026-08-22. So `authfail * 5 <= rotations` tolerates
+> `floor(6/5) = 1` failure per run, not the nine that "20 %" suggests to a
+> reader who assumes the 45-rotation baseline is what CI measures.
+>
+> At the observed race rate of 1-in-45 that is still comfortable -- roughly
+> 0.13 expected failures per run -- so the ceiling is not the reason a run
+> fails. One run on 2026-08-22 nonetheless reported **4 failures in 6
+> rotations** on both nodes and passed cleanly with **0 in 6** on an immediate
+> re-run of the same commit, with no lane file touched between them. That is
+> well outside race territory and is unexplained.
+>
+> Treat a repeat as a real signal, not a flake to re-run: two failures in one
+> window already exceeds the ceiling, so the guard has almost no headroom at
+> this operating point, and a systematic mismatch would show as 3 of 6.
+
 Widening the overlap does **not** fix it. Keeping both generations loaded makes
 two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to
 exactly one key with no way to try the other -- so the ambiguity replaces the

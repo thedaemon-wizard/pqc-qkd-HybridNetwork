@@ -363,6 +363,8 @@ jobs:
             # across two hosts: the initiator reauthenticates microseconds after
             # its own load, and the responder's load of the same generation can
             # land a few hundred microseconds later. Measured at 1 failure in 45
+          # rotations on a LONG run -- note this job sees only ~6 rotations in
+          # its 240s window, so this ceiling tolerates 1 failure, not 9.
             # rotations, self-correcting. See the "sub-millisecond rotation
             # race" section in docs/vici-ppk.md.
             #
