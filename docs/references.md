@@ -71,13 +71,13 @@ simulator against reality rather than lab conditions:
 
 | Link | Length | Loss | Secret key rate | QBER |
 |---|---|---|---|---|
-| Sundhausen–Erfurt (mostly aerial) | 70 km | > 17 dB | $12.7 \pm 10.3$ bit/s | $13.3 \pm 9.6\,\%$ |
-| Jena–Erfurt (mostly buried) | 69 km | > 21 dB | $22.2 \pm 4.7$ bit/s | $6.1 \pm 0.8\,\%$ |
+| Sundhausen–Erfurt (mostly aerial) | 70 km | > 17 dB | $12.7 \pm 10.3$ bit/s | $`13.3 \pm 9.6\,\%`$ |
+| Jena–Erfurt (mostly buried) | 69 km | > 21 dB | $22.2 \pm 4.7$ bit/s | $`6.1 \pm 0.8\,\%`$ |
 
 Two things follow. The aerial link shows **twice the QBER of the buried link
 despite lower attenuation**, with variance tracking wind speed — so loss alone
 is a poor predictor and this project's static channel model is optimistic. And
-at $12$–$22$ bit/s a single 256-bit key takes **12–20 seconds** to accumulate,
+at 12–22 bit/s a single 256-bit key takes **12–20 seconds** to accumulate,
 which means a rotation interval is bounded by the link's secret key rate, not
 chosen by policy. This project's 30 s default sits just above that floor; the
 paper's 120 s is the safer figure.

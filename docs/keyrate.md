@@ -40,21 +40,29 @@ matches the backend. Both run in CI.
 
 Transmittance combines fibre loss with detector efficiency (Ma *et al.* 2005, Eq. 5):
 
-$$\eta \;=\; 10^{-\alpha L / 10}\,\eta_d$$
+```math
+\eta \;=\; 10^{-\alpha L / 10}\,\eta_d
+```
 
 The dark-count yield is the dark-count rate normalised by the pulse rate:
 
-$$Y_0 \;=\; \frac{R_{\mathrm{dark}}}{R_{\mathrm{pulse}}}$$
+```math
+Y_0 \;=\; \frac{R_{\mathrm{dark}}}{R_{\mathrm{pulse}}}
+```
 
 For a weak coherent source, the **gain** — the probability that a pulse of
 intensity $\mu$ produces a detection — is (Eq. 10):
 
-$$Q_\mu \;=\; Y_0 + 1 - e^{-\eta\mu}$$
+```math
+Q_\mu \;=\; Y_0 + 1 - e^{-\eta\mu}
+```
 
 and the **quantum bit error rate** is (Eq. 11):
 
-$$E_\mu \;=\; \frac{e_0 Y_0 + e_d\left(1 - e^{-\eta\mu}\right)}{Q_\mu}
-\qquad e_0 = \tfrac12$$
+```math
+E_\mu \;=\; \frac{e_0 Y_0 + e_d\left(1 - e^{-\eta\mu}\right)}{Q_\mu}
+\qquad e_0 = \tfrac12
+```
 
 Background counts are random, hence $e_0 = 1/2$: half of them land in the wrong
 detector.
@@ -72,11 +80,15 @@ detector.
 With the single-photon contribution separated out
 (Gottesman–Lo–Lütkenhaus–Preskill; Lo–Ma–Chen 2005):
 
-$$R \;\geq\; q\left\{-Q_\mu f_{\mathrm{EC}}\,h_2(E_\mu) \;+\; Q_1\left[1 - h_2(e_1)\right]\right\}$$
+```math
+R \;\geq\; q\left\{-Q_\mu f_{\mathrm{EC}}\,h_2(E_\mu) \;+\; Q_1\left[1 - h_2(e_1)\right]\right\}
+```
 
 where $h_2$ is the binary entropy
 
-$$h_2(x) \;=\; -x\log_2 x - (1-x)\log_2(1-x)$$
+```math
+h_2(x) \;=\; -x\log_2 x - (1-x)\log_2(1-x)
+```
 
 Reading the two terms: the first is what error correction *costs* — it leaks
 $f_{\mathrm{EC}}h_2(E_\mu)$ bits per sifted bit. The second is what the
@@ -94,17 +106,23 @@ resulting gains.
 
 With $\mu > \nu_1 + \nu_2$, the single-photon yield is bounded below by:
 
-$$Y_1^{L} \;=\; \frac{\mu}{\mu\nu_1 - \nu_1^{2}}
+```math
+Y_1^{L} \;=\; \frac{\mu}{\mu\nu_1 - \nu_1^{2}}
 \left(Q_{\nu_1}e^{\nu_1} - Q_{\nu_2}e^{\nu_2}
-- \frac{\nu_1^{2}-\nu_2^{2}}{\mu^{2}}\left(Q_\mu e^{\mu} - Y_0\right)\right)$$
+- \frac{\nu_1^{2}-\nu_2^{2}}{\mu^{2}}\left(Q_\mu e^{\mu} - Y_0\right)\right)
+```
 
 and the single-photon error rate above by:
 
-$$e_1^{U} \;=\; \frac{E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0}{Y_1^{L}\,\nu_1}$$
+```math
+e_1^{U} \;=\; \frac{E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0}{Y_1^{L}\,\nu_1}
+```
 
 giving the single-photon gain
 
-$$Q_1 \;=\; \mu e^{-\mu} Y_1^{L}$$
+```math
+Q_1 \;=\; \mu e^{-\mu} Y_1^{L}
+```
 
 Both bounds are clamped to physical ranges ($Y_1^L \geq 0$,
 $0 \leq e_1^U \leq \tfrac12$); the rate is clamped at $0$, since a negative
@@ -112,7 +130,9 @@ result means no secret key can be distilled.
 
 In the limit of infinitely many decoy states the bounds become exact:
 
-$$Y_1 = Y_0 + \eta, \qquad e_1 = \frac{e_0 Y_0 + e_d\eta}{Y_1}$$
+```math
+Y_1 = Y_0 + \eta, \qquad e_1 = \frac{e_0 Y_0 + e_d\eta}{Y_1}
+```
 
 This is what §6 uses, so the rate expression is tested independently of the
 estimator.
@@ -124,7 +144,9 @@ estimator.
 Real runs are finite, so the asymptotic rate is optimistic. A first-order
 correction is applied:
 
-$$R_{\text{finite}} \;=\; \max\left(0,\; R - \sqrt{\frac{2}{N}}\sqrt{\log_2\frac{2}{\varepsilon}}\right)$$
+```math
+R_{\text{finite}} \;=\; \max\left(0,\; R - \sqrt{\frac{2}{N}}\sqrt{\log_2\frac{2}{\varepsilon}}\right)
+```
 
 with block size $N$ (`protocol.block_size_N`) and security parameter
 $\varepsilon$ (`protocol.security_epsilon`).
