@@ -14,6 +14,7 @@
  * them via bb84Channel.ts, where it used to be a third verbatim copy.
  */
 import { advanceKeyPool } from "./bb84Channel";
+import { bundledChannel } from "./keyrate";
 
 interface Cfg {
   etaTotal: number; eD: number; Y0: number;
@@ -24,8 +25,11 @@ interface Frame {
   bob_basis: number; bob_bit: number; basis_match: boolean;
 }
 
+// The worker starts before /api/sim/params can arrive, so whatever is here is
+// what the first rounds are computed from. It was a hardcoded channel unrelated
+// to the configured one; it is now the same bundled set the page falls back to.
 let cfg: Cfg = {
-  etaTotal: 0.02, eD: 0.015, Y0: 1e-5,
+  ...bundledChannel(),
   eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
 };
 let running = false;

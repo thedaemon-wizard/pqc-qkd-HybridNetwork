@@ -81,3 +81,40 @@ export function channelFromParams(p: {
   const Y0 = p.darkCountRateHz / Math.max(p.pulseRateHz, 1.0);
   return { etaTotal, Y0 };
 }
+
+
+/**
+ * Bundled offline defaults, mirroring `config/qkd_params.yaml`.
+ *
+ * One definition, because there were three. `BB84.tsx` carried these values,
+ * while `bb84Sim.ts` and `bb84.worker.ts` each carried a hardcoded
+ * `{ etaTotal: 0.02, Y0: 1e-5 }` describing a DIFFERENT channel -- 6.3x more
+ * lossy with 100x the dark count than the configured one. The worker starts
+ * immediately to give the page instant data, so those wrong values were what
+ * the first rounds were computed from until `/api/sim/params` arrived.
+ *
+ * Note what is primitive and what is not: eta_total and Y0 are DERIVED from
+ * detector efficiency, attenuation, length, dark-count rate and pulse rate.
+ * Hardcoding them as if they were inputs is what let them drift out of step
+ * with the parameters they are supposed to follow. Nothing here is a derived
+ * quantity; call `channelFromParams` for those.
+ *
+ * `tests/test_frontend_defaults_match_config.py` compares these against
+ * config/qkd_params.yaml so the two cannot separate again.
+ */
+export const BUNDLED_PARAMS = {
+  detectorEfficiency: 0.2,
+  fiberAttenuationDbPerKm: 0.2,
+  linkLengthKm: 10,
+  darkCountRateHz: 100,
+  pulseRateHz: 1e9,
+  misalignmentErrorEd: 0.015,
+  /** protocol.qber_threshold_abort */
+  qberThresholdAbort: 0.11,
+} as const;
+
+/** Channel implied by `BUNDLED_PARAMS`, for engines that need one before config lands. */
+export function bundledChannel(): { etaTotal: number; Y0: number; eD: number } {
+  const { etaTotal, Y0 } = channelFromParams(BUNDLED_PARAMS);
+  return { etaTotal, Y0, eD: BUNDLED_PARAMS.misalignmentErrorEd };
+}
