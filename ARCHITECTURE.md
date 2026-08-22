@@ -269,7 +269,7 @@ Detailed image-to-code mapping: see `docs/IMAGE1_VPN_SCOPE.md`.
                             │ /var/log/pqcqkd (shared volume)
    ┌────────────────────────┼────────────────────────────────────────┐
    │  pqcqkd-logs volume    │                                        │
-   │   alice.log / bob.log / webui-backend.log / pqc-validator.log   │
+   │   alice.log / bob.log / webui-backend.log                       │
    │   (10 MB × 5 backups each, .log.1 / .log.2 / ... on rotation)   │
    └─────────────────────────────────────────────────────────────────┘
 ```
