@@ -68,3 +68,31 @@ describe("what a throttled recording looks like", () => {
     expect(throttledRatio(470, E2E_DWELL)).toBeLessThan(1.2);
   });
 });
+
+describe("rate_bps has the same wall-clock dependence", () => {
+  /**
+   * Found while fact-checking /e2e's exported numbers. The arithmetic is
+   * right -- bytes x 8 / seconds, correct units -- but the denominator is
+   * measured, so a hidden tab understates throughput.
+   *
+   * Measured on the demo: 4470 bytes reported at 8952 bps, implying 3.995 s
+   * for a cycle whose nominal length is 4 x 450 ms = 1.8 s. The dwell column
+   * had already been fixed this way and rate_bps had been left behind.
+   */
+  const NOMINAL_CYCLE_MS = 4 * E2E_DWELL;
+
+  it("publishes a nominal cycle to compare the rate against", () => {
+    expect(NOMINAL_CYCLE_MS).toBe(1800);
+  });
+
+  it("detects the throttled recording actually observed", () => {
+    const impliedElapsedS = (4470 * 8) / 8952.08531538921;
+    const ratio = (impliedElapsedS * 1000) / NOMINAL_CYCLE_MS;
+    expect(ratio).toBeGreaterThan(2);   // ~2.2x, the throttle
+  });
+
+  it("does not flag a foreground run", () => {
+    const foreground = (4470 * 8) / 19866;   // ~1.8 s
+    expect((foreground * 1000) / NOMINAL_CYCLE_MS).toBeLessThan(1.2);
+  });
+});
