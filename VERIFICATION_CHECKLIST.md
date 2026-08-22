@@ -31,9 +31,20 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ---
 
-## 2. IPsec lane (manual — needs privileged containers)
+## 2. IPsec lane (needs privileged containers)
 
 `make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.strongswan.yml" --profile ipsec`
+
+Most of this section is **not** manual: the CI job `strongswan-lane` brings both
+nodes up on every pull request and asserts 2.6, 2.7, 2.8, 2.8b, 2.11, 2.12 and
+2.13 automatically. Treat a green run as those rows having been executed, not
+merely intended.
+
+The rows are still written as commands because the public demo does **not** run
+this lane -- it needs `NET_ADMIN`, and the cloud profile brings up the WireGuard
+nodes (`alice`, `bob`) with the WebUI instead. Running these against the demo
+host will find no `alice-ipsec` container, which is expected rather than a
+failure.
 
 | # | Check | Command | Expected |
 |---|---|---|---|
@@ -48,7 +59,9 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 | 2.8b | **Exactly one IKE_SA** | `docker exec alice-ipsec swanctl --list-sas \| grep -c ESTABLISHED` after 4+ rotations | `1` (transiently `2` during a make-before-break reauth). Two owners for one SA previously grew this by one per rotation, reaching 140. |
 | 2.9 | **KME failure is loud, not silent** | stop `bb84-kme-a`, watch `docker logs alice-ipsec` | explicit error; **no** fallback to random key material |
 | 2.10 | No credential leak across rotations | `swanctl --list-conns` / VICI `get-shared` over several rotations | one current id, previous unloaded, never an id-less entry |
-| 2.11 | Tunnel carries traffic | `docker exec alice-ipsec ping -c3 10.30.0.21` | replies |
+| 2.11 | **Traffic actually traverses ESP** | `docker exec alice-ipsec ping -c3 10.30.0.21`, then `docker exec alice-ipsec swanctl --list-sas \| grep -m1 'out '` | a non-zero byte count, e.g. `out c0ffee42, 252 bytes`. Ping replies alone are NOT sufficient: a tunnel that is up but installs no ESP counters is passing traffic in the clear past the policy, and it answers pings exactly the same way. CI asserts the byte count, and this row previously did not. |
+| 2.12 | **Rotation actually happens, more than once** | Over a 240 s window: `docker logs alice-ipsec \| grep -c 'PPK rotated'` -> at least 2. A lane that establishes once and never rotates satisfies every row above while the QKD material is never consumed, which is the entire point of the integration. |
+| 2.13 | **Auth failures stay in race territory, not systematic** | `authfail * 5 <= rotations`. Rotating a PPK under a stable `PPK_ID` cannot be atomic across two hosts, so zero is the wrong assertion and would make the guard flake -- measured 1 failure in 45 rotations, self-correcting. What must fail is SYSTEMATIC mismatch, two credentials answering one `PPK_ID`: that measured 4 in 9 before the bootstrap credential was retired. The 20% ceiling separates a race from a coin flip. See `docs/vici-ppk.md`. |
 
 ---
 
