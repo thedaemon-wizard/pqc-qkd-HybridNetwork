@@ -230,7 +230,7 @@ Open <http://localhost:5173>. Thirteen pages are available:
 8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
 9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults (best-effort synced to the KMEs); a **client-side** live key-rate (closed-form Lo-Ma) + **client-side** μ/ν optimiser recompute in-browser as you edit, plus the backend selector (incl. `tno`)
 10. **PQC Validator** (`/pqc`) — client-side ML-KEM / ML-DSA / SLH-DSA via @noble, cross-checked against liboqs by `POST /api/interop/mlkem`
-11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix (ML-KEM 512/768/1024 + ML-DSA 44/65/87), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
+11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix across **two mathematical families** (ML-KEM 512/768/1024 and ML-DSA 44/65/87 on module lattices, SLH-DSA SHA2-128s/192s/256s hash-based), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
 13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
 

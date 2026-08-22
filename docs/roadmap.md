@@ -13,7 +13,7 @@ here so the roadmap does not keep proposing work that already exists.
 
 | Item | Where |
 |---|---|
-| Crypto-agility matrix across ML-KEM, ML-DSA **and SLH-DSA** parameter sets -- two mathematical families, so a break in module lattices does not take out every option | `/pqc`, running entirely client-side via `@noble/post-quantum`. `/verify` is **not** client-side: it calls `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`, and shows "Backend services unavailable" without them. |
+| Crypto-agility matrix across ML-KEM, ML-DSA **and SLH-DSA** parameter sets -- two mathematical families, so a break in module lattices does not take out every option. Rendered on `/verify` from `POST /api/pqc/agility`; the browser side of the same claim is `src/lib/sim/pqc.ts`. Until 2026-08 the SERVER matrix was ML-KEM + ML-DSA only -- six algorithms, all module-lattice -- so the page called it agility while showing none. |
 | Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
 | CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
 | A written key-rate derivation | [`keyrate.md`](keyrate.md) |
