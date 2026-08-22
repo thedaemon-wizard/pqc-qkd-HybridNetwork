@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Button from "../components/Button";
 import {
   KEM_NAMES, SIG_NAMES, PQC_PROVIDER,
-  kemRoundtrip, sigRoundtrip,
+  kemRoundtrip, sigRoundtrip, SIG_FAMILY,
   type KemName, type SigName, type KemResult, type SigResult,
 } from "../lib/sim/pqc";
 
@@ -85,7 +85,13 @@ export default function PQCValidator() {
         <label style={lbl}>Signature</label>
         <select value={sigName} onChange={(e) => setSigName(e.target.value as SigName)}
                 disabled={busy} style={sel} aria-label="Signature algorithm">
-          {SIG_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
+          {/* Family is shown in the option itself. Choosing a hash-based
+              scheme is the whole point of the picker, and it also costs 1-2 s
+              of main-thread work against ML-DSA's ~10 ms -- labelling it means
+              the pause reads as the tradeoff it is, not as a hang. */}
+          {SIG_NAMES.map((s) => (
+            <option key={s} value={s}>{s} — {SIG_FAMILY[s]}</option>
+          ))}
         </select>
 
         <Button onClick={run} disabled={busy} variant="primary">
