@@ -30,12 +30,44 @@ COPY submodules/tno-qkd-key-rate /opt/tno-qkd-key-rate
 # uvicorn / pydantic). Without this, a transitive dep of SeQUeNCe / Strawberry
 # Fields pulls a newer Starlette that breaks fastapi 0.115.6 and the KME crashes
 # on startup ("Router.__init__() got an unexpected keyword argument 'on_startup'").
+# Each install must SUCCEED. These were previously chained as
+# `pip install ... || echo "...failed; will use volume mount" && \`, which
+# cannot fail the build: `A || B && C` runs C either way, so a broken backend
+# produced a green image whose simulator was simply absent at runtime, where
+# it degrades to a logged warning. The comment above already claimed they
+# "fail fast at build time"; now they do.
 RUN pip install -c constraints.txt pandas 'Cython<3.0' && \
-    pip install -c constraints.txt -e /opt/SimQN || echo "SimQN editable install failed; will use volume mount" && \
-    pip install -c constraints.txt -e /opt/SeQUeNCe || echo "SeQUeNCe editable install failed; will use volume mount" && \
-    pip install -c constraints.txt -e /opt/strawberryfields || echo "strawberryfields editable install failed; will use volume mount" && \
-    pip install -c constraints.txt -e /opt/tno-qkd-key-rate || echo "TNO qkd_key_rate install failed; tno backend disabled" && \
+    pip install -c constraints.txt -e /opt/SimQN && \
+    pip install -c constraints.txt -e /opt/SeQUeNCe && \
+    pip install -c constraints.txt -e /opt/strawberryfields && \
+    pip install -c constraints.txt -e /opt/tno-qkd-key-rate && \
     python -c "import fastapi, starlette; from fastapi import APIRouter; APIRouter(on_startup=[]); print('web stack OK: starlette', starlette.__version__)"
+
+# Prove the four backends are importable, in the image, at build time.
+#
+# Installing without importing is not the same check: a package can install and
+# still fail to import on a transitive-dependency clash, which is precisely the
+# class the `-c constraints.txt` pins exist to prevent.
+#
+# IMPORT the modules rather than probing names. The distribution name and the
+# module name differ for two of these -- SimQN provides `qns`, and the TNO
+# package provides the namespace module `tno.quantum.communication.qkd_key_rate`
+# -- and guessing either reports a confident false absence. These are the exact
+# imports the backends use.
+RUN python - <<'PYCHECK'
+import importlib
+mods = ["qns", "sequence", "strawberryfields",
+        "tno.quantum.communication.qkd_key_rate"]
+bad = []
+for m in mods:
+    try:
+        importlib.import_module(m)
+    except Exception as e:
+        bad.append(f"{m}: {type(e).__name__}: {e}")
+print("backend modules importable:", [m for m in mods if not any(b.startswith(m) for b in bad)])
+if bad:
+    raise SystemExit("BACKEND IMPORT FAILURES:\n  " + "\n  ".join(bad))
+PYCHECK
 
 COPY services/bb84-kme/app/ ./app/
 
