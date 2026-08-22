@@ -271,12 +271,28 @@ they are not something to close silently:
 
 **Open, unexplained** -- do not close by re-running:
 
-- **One `strongswan-lane` run reported 4 authentication failures in 6
-  rotations** on both nodes, then 0 in 6 on an immediate re-run of the same
-  commit with no lane file touched. That is far outside the 1-in-45 race rate
-  and has no explanation. The threshold was deliberately NOT loosened: a
-  systematic mismatch would show as 3 of 6, and loosening is how that gets
-  waved through.
+- **The `strongswan-lane` auth-failure count has now fired twice**, both on
+  branches touching no lane file: **4 failures in 6 rotations**, then 0 in 6 on
+  an immediate re-run, then **4 in 8**. Both nodes, both times, and both times
+  exactly four.
+
+  A count that stays at 4 while the denominator moves from 6 to 8 does not look
+  like a per-rotation race. The likely explanation is an accounting mismatch in
+  the guard itself: `authfail` greps the WHOLE container lifetime, including
+  bootstrap, while `rot` counts only rotations inside the 240 s window. A fixed
+  startup cost would then divide by a varying denominator and cross the 20 %
+  ceiling whenever the window happens to be short.
+
+  That is a hypothesis, not a finding. It could not be confirmed because the
+  job printed only the count and never the matching lines, so a failure left
+  nothing to diagnose. The job now dumps the `AUTH_FAILED`, bootstrap-unload,
+  orphan-unload and rotation lines when the assertion trips; the next
+  occurrence should settle it.
+
+  The threshold was deliberately NOT loosened. If these are genuinely
+  post-bootstrap failures then the peers are resolving different PPKs and the
+  guard is doing its job, and loosening it is exactly how that gets waved
+  through.
 
 **Manual step remaining** -- the mechanism is in place, the action is the
 operator's:
