@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-183 rows, of which **28 are machine-checked and 155 are not**. Worth knowing
+184 rows, of which **28 are machine-checked and 156 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -18,7 +18,7 @@ before planning a release, because the manual share is not evenly spread:
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 4 | 1 | 3 |
 | 4 | Browser, every page | **111** | 2 | **109** |
-| 5 | Code quality | 11 | 4 | 7 |
+| 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 18 | 5 | 13 |
 | 7 | Documentation | 10 | 0 | 10 |
 
@@ -294,6 +294,7 @@ question about it could not be answered from this checklist.
 | 5.9 | Tests are fast enough to actually run | `pytest tests/ --durations=5` and `npx vitest run`. Host suite ~3 s, frontend ~2 s. The SLH-DSA cases are the slowest at 1-2 s each and are computed once in a `beforeAll` rather than per assertion. |
 | 5.10 | **Every compose env var is read by something** | `.venv/bin/python -m pytest tests/test_compose_env_is_read_by_something.py` -> passes. Seven `BB84_*` vars and `ETSI_MTLS_ENABLED` were set in compose, listed in `.env.example` and documented in the README with a "source of truth" column naming a Python file -- and read by no Python file at all. `config_loader.py` declares `config/qkd_params.yaml` the single source, so they were a second config surface wired on the outside and connected to nothing. Parse the YAML, do NOT regex the lines: a draft matched `build.args` too and reported `USE_BORINGTUN` as an env var. Skips must name an external consumer (OpenMP, OpenBLAS, wg-quick); an undocumented skip is the hole. |
 | 5.11 | **The userspace WireGuard fallback is honestly described** | `docker run --rm --entrypoint sh pqcqkd/node-alice:local -c 'command -v boringtun \|\| echo MISSING'` -> `MISSING`. `docs/BUILD.md` 5.3 offered the `boringtun` overlay to anyone whose `modprobe wireguard` fails; no userspace implementation is in the image and neither `boringtun` nor `wireguard-go` is packaged for `debian:bookworm`. wg-quick exits when the module is absent AND the binary is missing, which is exactly that case, so the documented recovery path could not work for the people needing it. Any wording that presents it as working is wrong until a build stage exists. |
+| 5.12 | **A backend that fails to install fails the build** | `docker build -f services/bb84-kme/Dockerfile .` -> the step prints `backend modules importable: ['qns', 'sequence', 'strawberryfields', 'tno.quantum.communication.qkd_key_rate']`. The four editable installs were chained `pip install ... \|\| echo "...failed; will use volume mount" && \\`, which cannot fail a build -- `A \|\| B && C` runs C either way -- so a broken simulator produced a green image that degraded to a logged warning at runtime. Verify the guard bites by pointing one install at a non-existent path; the build must exit non-zero. IMPORT the modules, do not probe names: SimQN provides `qns` and TNO provides `tno.quantum.communication.qkd_key_rate`, and guessing either reports a confident false absence (both mistakes were made while writing this row). |
 
 ---
 
