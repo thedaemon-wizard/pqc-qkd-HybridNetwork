@@ -31,6 +31,21 @@ const PHASE_BUDGETS: Record<number, Omit<PhaseBudget, "phase">> = {
   5: { name: "Final data tunnel + Data Exchange", packets: 0, bytes: 0, period_s: 120, grace_s: 60,
        description: "Application data tunnel (WireGuard with ChaCha20-Poly1305) uses a PSK derived from the Rosenpass output." },
 };
+/**
+ * Mean end-to-end setup time, arXiv:2604.05599 section VI.
+ *
+ * These are LITERATURE values and they already have an owner:
+ * `services/webui-backend/app/paper_budgets.py`, pinned by
+ * `tests/test_paper_budgets.py`. They were restated here as bare literals with
+ * nothing comparing the two, which is the drift shape this project has spent a
+ * lot of effort removing elsewhere -- one number, two homes, no test.
+ *
+ * `tests/test_paper_constants_agree_across_ports.py` now fails if these and the
+ * Python module disagree. Change both, or neither.
+ */
+export const MEAN_10_HOP_SETUP_S = 10.27;
+export const MEAN_100_HOP_SETUP_S = 10.62;
+
 const CASCADE_STAGES: [number, Layer, string][] = [
   [0, "qkd", "QKD plane outage injected"],
   [180, "arnika", "Arnika fails over to random key"],
@@ -113,8 +128,9 @@ export class PaperSim {
       history: this.history.slice(-30),
       paper_budgets: {
         phases: this.budgets(), total_handshake_packets: TOTAL_PACKETS,
-        total_handshake_bytes: TOTAL_BYTES, mean_10_hop_setup_s: 10.27,
-        mean_100_hop_setup_s: 10.62,
+        total_handshake_bytes: TOTAL_BYTES,
+        mean_10_hop_setup_s: MEAN_10_HOP_SETUP_S,
+        mean_100_hop_setup_s: MEAN_100_HOP_SETUP_S,
       },
       engine: "client-side (JS)",
     };
