@@ -37,7 +37,16 @@ WORKDIR /src/ns-3-dev
 # Configure with examples + the qkdnetsim module
 RUN ./ns3 configure --enable-examples --enable-modules='core;network;internet;applications;point-to-point;mobility;qkdnetsim' 2>&1 | tail -n 5 || true
 
-# Build — the qkdnetsim ETSI 014 example produces a binary we can invoke
+# Build — the qkdnetsim ETSI 014 example produces a binary we can invoke.
+#
+# `pipefail` is required for the `||` below to mean anything. Without it this
+# stage runs under `/bin/sh -c` and takes the PIPELINE's status, which is
+# `tail`'s and therefore always 0 -- so the fallback was unreachable dead code
+# AND a failed compile produced a green image, whose runtime stage then copied
+# a build directory with no NS-3 libraries. The healthcheck probes a Flask
+# `/health` that never touches NS-3, so nothing downstream noticed. Same
+# pattern that was removed from services/bb84-kme/Dockerfile.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN ./ns3 build qkdnetsim 2>&1 | tail -n 20 || \
     ./ns3 build 2>&1 | tail -n 30
 

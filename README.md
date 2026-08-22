@@ -308,8 +308,11 @@ Tested on:
 - **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
   `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
   required. If `modprobe wireguard` fails on your host, the image ships
-  `wireguard-go` and `wg-quick` falls back to it automatically -- no override
-  needed. See [`docs/BUILD.md`](docs/BUILD.md) section 5.3.
+  `wireguard-go` and `nodes/alice/entrypoint.sh` uses it automatically -- no
+  override needed. This previously said `wg-quick` arranges the fallback;
+  nothing in this repository invokes `wg-quick`, so until the entrypoint was
+  taught to fall back, a host without the module simply failed to start. See
+  [`docs/BUILD.md`](docs/BUILD.md) section 5.3.
 
 Host-side Python venv (for running `pytest` and Manim outside Docker):
 

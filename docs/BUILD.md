@@ -38,15 +38,24 @@ make pqc-list    # should show ML-KEM-768 etc.
 ### 5.3 WireGuard kernel module fallback
 
 If `modprobe wireguard` fails on your host, **the stack still works and you
-need to do nothing.** The node image installs `wireguard-go`, and `wg-quick`
-falls back to it automatically:
+need to do nothing.** The node image installs `wireguard-go`, and
+`nodes/alice/entrypoint.sh` uses it when the kernel interface cannot be
+created:
 
+```sh
+if ! ip link add dev "$WG_IFACE" type wireguard 2>/dev/null; then
+    userspace="${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}"
+    "$userspace" "$WG_IFACE"
+fi
 ```
-# wg-quick, verbatim from the node image
-[[ -e /sys/module/wireguard ]] || ! command -v \
-  "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" >/dev/null && exit $ret
-cmd "${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}" "$INTERFACE"
-```
+
+This section used to quote `wg-quick`'s own fallback logic and present that as
+the mechanism. **Nothing in this repository invokes `wg-quick`.** The
+entrypoint created the interface with a bare `ip link add ... type wireguard`
+under `set -euo pipefail`, so on a host without the module the container exited
+at that line, the installed `wireguard-go` was never called, and
+`WG_QUICK_USERSPACE_IMPLEMENTATION` was read by nothing at all -- which is also
+why the env-var guard carried an exemption for it.
 
 Confirm it is present with:
 
