@@ -110,3 +110,35 @@ describe("the agility argument the page is making", () => {
     expect(slhdsa.publicKeyLen).toBeLessThan(mldsa.publicKeyLen);
   });
 });
+
+describe("the standard is carried by the result, not written in the view", () => {
+  /**
+   * Twice now a view has kept its own copy of something the model owns.
+   *
+   * The /e2e banner recomputed the failure-fatality rule and got two cells
+   * wrong. Here the panel heading was the literal "FIPS 204", so SLH-DSA
+   * rendered with correct FIPS 205 sizes -- public key 48 B, signature
+   * 16224 B -- under a heading that said FIPS 204. Both were caught by looking
+   * at the deployed page, not by any test, because in each case the DATA was
+   * right and only the label was wrong.
+   *
+   * This asserts the data side so the view has something correct to render.
+   * The view now interpolates `result.standard`; there is no second copy left
+   * to drift.
+   */
+  it("gives each scheme the standard that actually defines it", () => {
+    for (const n of SIG_NAMES) {
+      const expected = n.startsWith("SLH-DSA") ? "FIPS 205" : "FIPS 204";
+      expect(got(n).standard).toBe(expected);
+    }
+  });
+
+  it("never reports a FIPS 204 size for a FIPS 205 scheme", () => {
+    // The cross-check that would have caught the heading if the heading had
+    // been driven by data: no ML-DSA signature is as large as the smallest
+    // SLH-DSA one, so a mislabelled scheme is detectable from its size alone.
+    const mldsaMax = Math.max(...SIG_NAMES.filter((n) => n.startsWith("ML-DSA")).map((n) => got(n).signatureLen));
+    const slhMin = Math.min(...SIG_NAMES.filter((n) => n.startsWith("SLH-DSA")).map((n) => got(n).signatureLen));
+    expect(slhMin).toBeGreaterThan(mldsaMax);
+  });
+});
