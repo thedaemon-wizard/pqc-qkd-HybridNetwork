@@ -121,9 +121,12 @@ def test_no_ai_tooling_attribution_in_tracked_content():
         for n, line in _lines(f):
             if not TOOLING.search(line):
                 continue
-            # The secret-scan job and the checklist row describing it must name
-            # what they forbid; nothing else may.
-            if f in (".github/workflows/ci.yml", "VERIFICATION_CHECKLIST.md", SELF):
+            # A scanner must name what it forbids. Exactly four files may:
+            # the CI job, the two audit scripts, and the checklist row that
+            # documents them -- plus this test, via SELF.
+            if f in (".github/workflows/ci.yml", "VERIFICATION_CHECKLIST.md",
+                     "scripts/secret_scan.sh", "scripts/audit_github_surface.sh",
+                     SELF):
                 continue
             offenders.append((f, n, line.strip()[:80]))
     assert not offenders, f"AI-tooling references in tracked content: {offenders}"
