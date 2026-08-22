@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
+import { colors } from "../lib/commonStyles";
 import { E2ESim, NOMINAL_PHASE_DWELL_MS, type E2EState } from "../lib/sim/e2eSim";
 
 /**
@@ -291,8 +292,16 @@ export default function QuantumSecureE2E() {
         <Panel title="Latest QKD key (ETSI 014)">
           <Row k="key_ID" v={state?.last_qkd_key_id || "—"} />
         </Panel>
-        <Panel title="Latest derived PSK (HKDF-SHA3-256)">
+        <Panel title="Latest derived WireGuard PSK (HKDF-SHA3-256)">
           <Row k="hex prefix (16 of 64)" v={state?.last_psk_prefix_hex || "—"} />
+          <p style={{ color: colors.textSec, fontSize: 12, marginTop: 8 }}>
+            This is a <b>WireGuard</b> preshared key, mixed into the
+            Noise_IKpsk2 chaining key, so it contributes to the transport keys.
+            That makes it the analogue of RFC 8784&apos;s PPK — the &ldquo;a PSK
+            cannot carry confidentiality&rdquo; argument in{" "}
+            <code>docs/vici-ppk.md</code> is about the <i>IKEv2</i> PSK and does
+            not apply to this lane.
+          </p>
         </Panel>
       </div>
 
