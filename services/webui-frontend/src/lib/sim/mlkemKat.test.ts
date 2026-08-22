@@ -36,6 +36,38 @@ import { ml_kem1024, ml_kem512, ml_kem768 } from "@noble/post-quantum/ml-kem.js"
 /** The all-0x01 seed. Arbitrary, fixed, and used identically on both sides. */
 const SEED = new Uint8Array(64).fill(0x01);
 
+const unhex = (h: string) => Uint8Array.from(h.match(/../g)!.map((b) => parseInt(b, 16)));
+
+/**
+ * NIST ACVP test case, ML-KEM-768 key generation.
+ *
+ * This is the authoritative vector: it comes from NIST's own validation suite,
+ * not from any implementation in this repository.
+ *
+ *   usnistgov/ACVP-Server, gen-val/json-files/ML-KEM-keyGen-FIPS203/
+ *   internalProjection.json @ 15c0f3deeefbfa8cb6cd32a99e1ca3b738c66bf0
+ *   testGroups[1].tests[0]  -- parameterSet ML-KEM-768, tgId 2, tcId 26
+ *
+ * ACVP supplies `d` and `z` as separate 32-byte fields. FIPS 203 Algorithm 16
+ * takes them as an ordered pair KeyGen_internal(d, z); the 64-byte `d || z`
+ * packing is an implementation convention, and @noble uses it -- seed[0..31]
+ * is d, seed[32..63] is z. Reversing the order fails, which was checked rather
+ * than assumed.
+ *
+ * A warning worth carrying: the C2SP/CCTV "intermediate" vectors look ideal
+ * because they chain d, z, ek, dk, m, K and c in one file, but they target
+ * FIPS 203 *ipd* rather than the final August 2024 standard and every value
+ * mismatches. They were tested and discarded.
+ */
+const ACVP_ML_KEM_768_KEYGEN = {
+  d: "e582b7d75e6c80b05ae392a1fc9f7153b12390fd99930368cc67a768baebc8a0",
+  z: "1cdacb8740c0b87c4a379575f187b367cbfa3b300bf591b109f79816e9cbe8f0",
+  ekLen: 1184,
+  dkLen: 2400,
+  ekSha256: "4158f6afb5e516c99f1da07da8c651348422b17c1f4e9a08ad73fb1f91249b3e",
+  dkSha256: "7aab35839207f72b310abe36e2daa1cc7ff6f7fa8941e439967cd47d9b437079",
+} as const;
+
 async function sha256Hex(data: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", data as BufferSource);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -62,6 +94,26 @@ const CROSS_DERIVED = [
     sha256: "05227acb49aefea81141d2bbc32ed84178283517d724ebc04d570ce84725f656",
   },
 ] as const;
+
+describe("ML-KEM-768 matches the NIST ACVP vector", () => {
+  const { d, z, ekLen, dkLen, ekSha256, dkSha256 } = ACVP_ML_KEM_768_KEYGEN;
+
+  it("derives the published encapsulation and decapsulation keys", async () => {
+    const { publicKey, secretKey } = ml_kem768.keygen(unhex(d + z));
+    expect(publicKey.length).toBe(ekLen);
+    expect(secretKey.length).toBe(dkLen);
+    expect(await sha256Hex(publicKey)).toBe(ekSha256);
+    expect(await sha256Hex(secretKey)).toBe(dkSha256);
+  });
+
+  it("fails if d and z are swapped", async () => {
+    // The 64-byte packing is convention, not spec, so the ordering is the one
+    // thing about this vector that could be wrong while everything still looks
+    // plausible. Asserting the wrong order FAILS is what pins it.
+    const { publicKey } = ml_kem768.keygen(unhex(z + d));
+    expect(await sha256Hex(publicKey)).not.toBe(ekSha256);
+  });
+});
 
 describe("ML-KEM key generation matches an independently derived vector", () => {
   it.each(CROSS_DERIVED)("$name", async ({ impl, publicKeyLen, sha256 }) => {

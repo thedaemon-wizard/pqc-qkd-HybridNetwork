@@ -1,4 +1,11 @@
-"""The liboqs half of the cross-implementation ML-KEM known-answer test.
+"""ML-KEM known-answer tests: NIST's vector, plus cross-implementation agreement.
+
+Two kinds of check, and the difference matters.
+
+The NIST ACVP vector is authoritative -- it is NIST's own published expected
+output, so it catches an implementation that is wrong. Everything else here
+compares liboqs against @noble, which catches disagreement but could not catch
+both being wrong in the same way.
 
 The browser half lives in
 `services/webui-frontend/src/lib/sim/mlkemKat.test.ts` and pins the SAME
@@ -37,6 +44,20 @@ pytestmark = pytest.mark.skipif(
 
 SEED_BYTE = 0x01
 
+# NIST ACVP, ML-KEM-768 key generation -- the authoritative vector, from NIST's
+# own validation suite rather than from any implementation here.
+#
+#   usnistgov/ACVP-Server, gen-val/json-files/ML-KEM-keyGen-FIPS203/
+#   internalProjection.json @ 15c0f3deeefbfa8cb6cd32a99e1ca3b738c66bf0
+#   testGroups[1].tests[0]  -- parameterSet ML-KEM-768, tgId 2, tcId 26
+#
+# ACVP gives d and z separately; FIPS 203 Algorithm 16 takes them as the
+# ordered pair KeyGen_internal(d, z), and the 64-byte d || z packing is an
+# implementation convention that both liboqs and @noble follow.
+ACVP_D = "e582b7d75e6c80b05ae392a1fc9f7153b12390fd99930368cc67a768baebc8a0"
+ACVP_Z = "1cdacb8740c0b87c4a379575f187b367cbfa3b300bf591b109f79816e9cbe8f0"
+ACVP_EK_SHA256 = "4158f6afb5e516c99f1da07da8c651348422b17c1f4e9a08ad73fb1f91249b3e"
+
 # Cross-derived 2026-08-22 by liboqs (this file) and @noble/post-quantum 0.7.0
 # (the browser test). Public-key lengths are FIPS 203 Table 2.
 CROSS_DERIVED = [
@@ -57,6 +78,39 @@ def _seeded_public_key(algo: str) -> bytes:
         return kem.generate_keypair_seed(seed)
     finally:
         kem.free()
+
+
+def test_matches_the_nist_acvp_vector():
+    """The authoritative check: NIST's own published expected output.
+
+    Everything else in this file compares two implementations to each other,
+    which catches disagreement but could not catch both being wrong in the same
+    way. This compares against NIST.
+    """
+    import oqs
+    kem = oqs.KeyEncapsulation("ML-KEM-768")
+    try:
+        pk = kem.generate_keypair_seed(bytes.fromhex(ACVP_D + ACVP_Z))
+    finally:
+        kem.free()
+    assert len(pk) == 1184
+    assert hashlib.sha256(pk).hexdigest() == ACVP_EK_SHA256
+
+
+def test_the_acvp_seed_ordering_is_d_then_z():
+    """d || z, not z || d.
+
+    The packing is convention rather than spec, so this is the one detail that
+    could be wrong while every length and format still looked right. Asserting
+    the reversed order FAILS is what pins it.
+    """
+    import oqs
+    kem = oqs.KeyEncapsulation("ML-KEM-768")
+    try:
+        reversed_pk = kem.generate_keypair_seed(bytes.fromhex(ACVP_Z + ACVP_D))
+    finally:
+        kem.free()
+    assert hashlib.sha256(reversed_pk).hexdigest() != ACVP_EK_SHA256
 
 
 @pytest.mark.parametrize(("algo", "pk_len", "sha256"), CROSS_DERIVED)
