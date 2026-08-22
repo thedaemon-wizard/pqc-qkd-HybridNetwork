@@ -13,7 +13,7 @@ here so the roadmap does not keep proposing work that already exists.
 
 | Item | Where |
 |---|---|
-| Crypto-agility matrix across ML-KEM and ML-DSA parameter sets | `/pqc`, running entirely client-side via `@noble/post-quantum`. `/verify` is **not** client-side: it calls `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`, and shows "Backend services unavailable" without them. |
+| Crypto-agility matrix across ML-KEM, ML-DSA **and SLH-DSA** parameter sets -- two mathematical families, so a break in module lattices does not take out every option | `/pqc`, running entirely client-side via `@noble/post-quantum`. `/verify` is **not** client-side: it calls `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`, and shows "Backend services unavailable" without them. |
 | Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
 | CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
 | A written key-rate derivation | [`keyrate.md`](keyrate.md) |
@@ -32,7 +32,7 @@ Implementation gaps are tracked separately, under "Status" below.
 | First-order finite-key term only | Not a composable security proof. See [`keyrate.md`](keyrate.md) section 5. |
 | Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
 | Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
-| RFC 9867 unavailable | strongSwan 6.0.7 does not implement it, so consuming fresh QKD material needs a full reauthentication per rotation. |
+| RFC 9867 unavailable | **No open-source IKEv2 implementation has it** -- strongSwan marks it unsupported in its own features table, and Libreswan HEAD has no reference either, despite Libreswan 5.4 shipping ML-KEM in `IKE_SA_INIT` and `IKE_INTERMEDIATE`. Consuming fresh QKD material therefore needs a full reauthentication per rotation. Not a matter of waiting for one vendor. |
 | ETSI `key_ID` not bound to the ciphertext | arXiv:2607.06602 binds it into the AEAD AAD; neither arnika nor this project does. |
 
 ## A. Shor's Algorithm Attack Simulator
@@ -190,6 +190,25 @@ Closed this round, with the evidence rather than the intention:
   thermal photon number, modulation at twice the intended variance,
   `Coherent(r, phi)` used as if Cartesian, and a BB84 QBER threshold gating a
   continuous-variable protocol. The Holevo bound is now the symplectic form.
+- **The liboqs "independent cross-check" compared byte counts.** It asserted
+  `ss_len` and `ct_len` against the browser's values -- two implementations
+  agreeing that ML-KEM-768 ciphertext is 1088 bytes shows only that both read
+  the same table in FIPS 203. `/api/interop/mlkem` now has liboqs encapsulate
+  to a key the browser generated, and the two must derive the same shared
+  secret. `/api/kat`, which accepted a seed and used it only for `len(seed)`,
+  no longer describes itself as a known-answer test or reports a PQClean check
+  it never performed. Building PQClean was rejected as the remedy: archived
+  2026-08-04, its notice redirects to mlkem-native / mldsa-native / slhdsa-c.
+- **ML-KEM now has a known-answer test.** Pinned to NIST ACVP
+  (`ML-KEM-keyGen-FIPS203` tgId 2 tcId 26, commit `15c0f3de`) in both liboqs
+  and `@noble`, plus a cross-derived vector covering all three parameter sets.
+  The C2SP/CCTV intermediate vectors were tested and discarded -- they target
+  FIPS 203 ipd, not the final standard, and every value mismatches.
+- **Two view-layer defects that no test could see.** The `/e2e` failure banner
+  recomputed the fatality rule in JSX and mislabelled the two cells where a
+  mode never used the failed layer; the `/pqc` panel heading was a hardcoded
+  "FIPS 204" over correct FIPS 205 sizes. In both the data was right and only
+  the label was wrong, so the suites passed. Both now read the model.
 - **GIF playback ran faster than the recording.** Frame delays are timed as
   captured rather than assumed from the nominal interval.
 - **`/bb84`'s photon table is now the run** on the GPU tiers: the round is
@@ -214,10 +233,7 @@ instead; leaving them would have kept the roadmap arguing for work that exists.
   over. It no longer fails silently -- a local-only save is now reported in the
   toolbar -- but a static-only deployment still cannot populate the
   saved-exports gallery. See [`deployment-economics.md`](deployment-economics.md).
-- **PQClean cross-check is not performed.** The `test/test_<algo>` binaries are
-  never built, so every response carries `pqclean_test_present: false`.
-  Conformance rests on liboqs alone. Stated in
-  `services/pqc-validator/Dockerfile` and in [`LIMITATIONS.md`](LIMITATIONS.md).
+
 - **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
   rather than faked; wiring the two TLS lanes into compose behind a real switch
   is the remaining work for that RFC 7696 claim. Neither lane appears in any

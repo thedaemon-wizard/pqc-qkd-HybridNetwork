@@ -10,7 +10,9 @@ import { colors } from "../lib/commonStyles";
  *
  * Aggregates three independent "research-implementation verification" checks:
  *  1. Crypto-agility matrix — ML-KEM (encap/decap) + ML-DSA (sign/verify) across
- *     all NIST security levels via liboqs (+ PQClean test-binary presence).
+ *     all NIST security levels via liboqs. A PQClean column used to sit here
+ *     reporting test-binary presence; it was always "—" because the binaries
+ *     are never built, so it advertised a comparison that never ran.
  *  2. Key-rate cross-check — our closed-form Lo-Ma rate vs the independent
  *     TNO-Quantum qkd_key_rate engine (Apache-2.0) at the current config.
  *  3. Paper packet-budget match — arXiv:2604.05599 Table III handshake budgets.
@@ -19,7 +21,7 @@ import { colors } from "../lib/commonStyles";
 interface AgilityRow {
   algo: string; family: string; enabled: boolean; ok: boolean;
   pk_len?: number; ct_len?: number; ss_len?: number; sig_len?: number;
-  pqclean_test_present?: boolean; error?: string;
+  error?: string;
 }
 
 export default function Verification() {
@@ -87,7 +89,6 @@ export default function Verification() {
                 <tr style={{ color: colors.textMute, textAlign: "left" }}>
                   <th style={th}>Algorithm</th><th style={th}>Family</th>
                   <th style={th}>liboqs</th><th style={th}>sizes (B)</th>
-                  <th style={th}>PQClean ref</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,7 +105,6 @@ export default function Verification() {
                         ? `pk ${r.pk_len ?? "–"} · ct ${r.ct_len ?? "–"} · ss ${r.ss_len ?? "–"}`
                         : `pk ${r.pk_len ?? "–"} · sig ${r.sig_len ?? "–"}`}
                     </td>
-                    <td style={td}>{r.pqclean_test_present ? "present" : "—"}</td>
                   </tr>
                 ))}
               </tbody>
