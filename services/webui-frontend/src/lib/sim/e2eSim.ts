@@ -65,7 +65,21 @@ const MODE_LABEL: Record<Mode, string> = {
   A: "QKD-only", B: "PQC-only", C: "Hybrid (QKD ‖ PQC)",
 };
 const N_PACKETS = 64;
-const PHASE_MS = 450;          // dwell per phase so the animation is watchable
+
+/**
+ * Dwell per phase, chosen so the animation is watchable.
+ *
+ * Exported because the CSV carries the MEASURED wall-clock time each phase
+ * occupied, and without the nominal value beside it that column reads as a
+ * protocol measurement. It is not one: it is this constant, and the browser
+ * distorts it. Chrome clamps `setInterval` to roughly 1 Hz in a hidden tab, so
+ * a run recorded with the tab in the background reports ~1000 ms per phase
+ * against a 450 ms nominal -- observed on the deployed demo, where phases that
+ * should take 450 ms logged 999 ms.
+ *
+ * Publishing both lets a reader see the distortion instead of plotting it.
+ */
+export const NOMINAL_PHASE_DWELL_MS = 450;
 
 export class E2ESim {
   /** Pool ceiling, so a long run reports a bounded depth rather than a ramp. */
@@ -207,7 +221,7 @@ export class E2ESim {
 
   private tick() {
     if (this.s.status !== "running") return;
-    if (performance.now() - this.phaseStart >= PHASE_MS) {
+    if (performance.now() - this.phaseStart >= NOMINAL_PHASE_DWELL_MS) {
       this.runPhaseWork();
       this.advance(false);
       this.emit();
