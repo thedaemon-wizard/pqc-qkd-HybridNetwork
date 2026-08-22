@@ -12,7 +12,14 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": ["@webgpu/types"]
+    // "node" is for the test files under src/ that read repo documents
+    // (docsLatex.test.ts). A `/// <reference types="node" />` inside that one
+    // file was tried first and is NOT equivalent: triple-slash references
+    // apply to the whole program, so it resolved `process` across all of src/
+    // exactly as this does while reading as though it were scoped. Stated
+    // plainly instead: Node globals typecheck everywhere in src/, including in
+    // browser code that cannot use them at runtime.
+    "types": ["@webgpu/types", "node"]
   },
   "include": ["src"]
 }
