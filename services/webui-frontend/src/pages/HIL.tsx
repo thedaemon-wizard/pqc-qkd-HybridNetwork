@@ -21,8 +21,11 @@ export default function HIL() {
             management network reachable from the <code>alice</code> node.</li>
         <li>Set <code>KMS_URL=https://&lt;device&gt;/api/v1/keys/&lt;SAE_ID&gt;</code>
             in <code>.env</code>.</li>
-        <li>Drop the device-issued mTLS certificates into <code>./pki/</code>
-            and toggle <code>ETSI_MTLS_ENABLED=true</code>.</li>
+        <li>Drop the device-issued mTLS certificates into <code>./pki/</code>.
+            <b>mTLS is not implemented.</b> This step used to say to set
+            <code>ETSI_MTLS_ENABLED=true</code>; no code has ever read that
+            variable, so setting it changed nothing. Attaching real hardware
+            needs the TLS client-certificate path built first.</li>
         <li>Run <code>docker compose restart alice bob</code> so
             <code>arnika</code> picks up the new endpoint.</li>
         <li>Confirm success with <code>docker logs alice | grep "PSK configured"</code> —

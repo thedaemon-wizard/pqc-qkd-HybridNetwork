@@ -187,12 +187,3 @@ def start_watchdog(poll_interval_s: float = 1.0) -> threading.Thread:
 
 # convenience accessors (kept narrow on purpose — the rest use get(path))
 
-def env_override(path: str, env_name: str, cast=str, default=None):
-    """Allow an env var to override the YAML value (for legacy compatibility)."""
-    v = os.environ.get(env_name)
-    if v is not None and v != "":
-        try:
-            return cast(v)
-        except ValueError:
-            return default if default is not None else get(path, default)
-    return get(path, default)

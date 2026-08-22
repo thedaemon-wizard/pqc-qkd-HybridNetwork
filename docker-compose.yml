@@ -73,13 +73,6 @@ services:
       SIMQN_PATH: /submodules/SimQN
       SEQUENCE_PATH: /submodules/SeQUeNCe
       STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
-      BB84_BATCH: ${BB84_BATCH:-2048}
-      BB84_CHANNEL_NOISE: ${BB84_CHANNEL_NOISE:-0.01}
-      BB84_QBER_THRESHOLD: ${BB84_QBER_THRESHOLD:-0.11}
-      BB84_POOL_LOW: ${BB84_POOL_LOW:-8}
-      BB84_POOL_MAX: ${BB84_POOL_MAX:-64}
-      BB84_EVE_ENABLED: ${BB84_EVE_ENABLED:-false}
-      BB84_EVE_PROB: ${BB84_EVE_PROB:-0.0}
       LOG_LEVEL: INFO
     volumes:
       - bb84-keypool-a:/var/lib/bb84
@@ -116,11 +109,6 @@ services:
       SIMQN_PATH: /submodules/SimQN
       SEQUENCE_PATH: /submodules/SeQUeNCe
       STRAWBERRYFIELDS_PATH: /submodules/strawberryfields
-      BB84_BATCH: ${BB84_BATCH:-2048}
-      BB84_CHANNEL_NOISE: ${BB84_CHANNEL_NOISE:-0.01}
-      BB84_QBER_THRESHOLD: ${BB84_QBER_THRESHOLD:-0.11}
-      BB84_POOL_LOW: ${BB84_POOL_LOW:-8}
-      BB84_POOL_MAX: ${BB84_POOL_MAX:-64}
       LOG_LEVEL: INFO
     volumes:
       - bb84-keypool-b:/var/lib/bb84
