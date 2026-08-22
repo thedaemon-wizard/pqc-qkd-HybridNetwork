@@ -10,8 +10,11 @@ services:
   charlie:
     image: pqcqkd/node-alice:local
     build:
-      context: ./nodes/alice
-      dockerfile: Dockerfile
+      # Repo root, matching alice and bob. nodes/alice/Dockerfile does
+      # `COPY submodules/arnika` and `COPY nodes/alice/entrypoint.sh`, which are
+      # root-relative, so a ./nodes/alice context cannot resolve them.
+      context: .
+      dockerfile: nodes/alice/Dockerfile
     container_name: charlie
     profiles: ["multihop"]
     cap_add: [NET_ADMIN, SYS_MODULE]
@@ -28,11 +31,34 @@ services:
       WG_PEER_ENDPOINT: alice:51820
       ARNIKA_MODE: AtLeastQkdRequired
       ARNIKA_INTERVAL: 30s
+      # Both are required-or-exit in nodes/alice/entrypoint.sh, so charlie exited
+      # before arnika started without them. ARNIKA_ID must DIFFER per peer --
+      # it is XORed into the primary/secondary election, and two nodes sharing
+      # an ID both elect the same role. ARNIKA_PSK must be IDENTICAL, since it
+      # keys the AES-256-GCM and HMAC between peers.
+      ARNIKA_ID: ${ARNIKA_ID_CHARLIE:-3}
+      ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
       KMS_URL: http://bb84-kme-a:8080/api/v1/keys/CHARLIE
       LISTEN_ADDRESS: 0.0.0.0:9999
       SERVER_ADDRESS: alice:9999
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+    volumes:
+      # charlie had NO volumes at all, which is why it sat forever on
+      # "waiting for peer (alice) public keys in /shared": its /shared was
+      # container-local, so it wrote charlie.wg.pub where nobody could read it
+      # and never saw alice.wg.pub. `node-pubkeys` is the shared one and is the
+      # whole mechanism; the other three only persist charlie's own keys across
+      # recreates, matching alice and bob.
+      - pqc-psk-charlie:/var/lib/rosenpass
+      - rosenpass-keys-charlie:/etc/rosenpass-secret
+      - wg-keys-charlie:/etc/wireguard
+      - node-pubkeys:/shared
     networks:
       qkd-net: {}
       wan-net:
         ipv4_address: 10.30.0.12
+
+volumes:
+  pqc-psk-charlie:
+  rosenpass-keys-charlie:
+  wg-keys-charlie:

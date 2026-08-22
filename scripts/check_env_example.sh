@@ -73,9 +73,13 @@ check deploy/.env.example \
       deploy/docker-compose.demo.yml
 
 # A local checkout copies the root .env.example, which additionally has to
-# satisfy the strongSwan overlay used by `make up-ipsec`.
+# satisfy the strongSwan overlay used by `make up-ipsec` and the multihop
+# overlay used by `make up-multihop`. The multihop file was previously checked
+# by nothing, which is why `charlie` could ship without the ARNIKA_ID and
+# ARNIKA_PSK its own entrypoint refuses to start without.
 check .env.example \
       docker-compose.yml \
-      docker-compose.strongswan.yml
+      docker-compose.strongswan.yml \
+      docker-compose.multihop.yml
 
 exit "$fail"
