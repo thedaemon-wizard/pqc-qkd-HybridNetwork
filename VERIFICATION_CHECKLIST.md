@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-197 rows, of which **35 are machine-checked and 162 are not**. Worth knowing
+199 rows, of which **36 are machine-checked and 163 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,10 +17,10 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 18 | **18** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **116** | 4 | **112** |
+| 4 | Browser, every page | **117** | 4 | **113** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
-| 7 | Documentation | 13 | 2 | 11 |
+| 7 | Documentation | 14 | 3 | 11 |
 
 Section 4 is 61 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -285,6 +285,7 @@ question about it could not be answered from this checklist.
 | 4.8.2 | Rate limit | `429` past the window |
 | 4.8.3 | Container controls hidden | no restart buttons on `/` |
 | 4.8.4 | Demo matches local | same behaviour on every page |
+| 4.8.5 | **The deployment's posture is checked from outside it** | `sh scripts/verify-demo-hardening.sh https://<demo>` -> `ok: ... is hardened`. Asserts `/api/config` reports `container_control: false`, that `POST /api/stack/restart` does not answer 200 (belt and braces: config could report one thing while the route does another, so it probes with a service name that does not exist), and that an absent log is a 404. External rather than a unit test because the risk is a *deployment* that forgot a variable: `ENABLE_CONTAINER_CONTROL` gates an endpoint that reaches a mounted docker.sock, and nothing inside the image can see how the running instance was launched. `main.py` had pointed at this script for several rounds while it did not exist -- see 7.14. Measured 2026-08-22: checks 1-3 pass on the demo, check 4 correctly fails until this branch is deployed. |
 
 ---
 
@@ -348,3 +349,4 @@ question about it could not be answered from this checklist.
 | 7.11 | **"PSK" is qualified wherever both lanes are visible** | `.venv/bin/python -m pytest tests/test_psk_is_qualified_where_it_is_ambiguous.py` -> passes. The word means opposite things here: the **IKEv2** PSK enters only the `AUTH` payload and carries no confidentiality (which is why the IPsec lane needs RFC 8784's PPK), while **WireGuard's** preshared key is mixed into the Noise_IKpsk2 chaining key and does contribute to the transport keys -- mechanically the PPK's analogue. `/e2e`, `/paper-flow` and `/vpn` model the WireGuard lane and must say so; unqualified, a reader arriving from `docs/vici-ppk.md` concludes those pages demonstrate the weaker construction. Reported by a reader, not caught by any check, which is why the wording is now pinned. |
 | 7.12 | **Third-party product names are checked against the vendor's own documentation** | `/hil` listed, under the heading "Reported interoperable devices": **ID Quantique XG / Cerberis series (native ETSI 014)**, **Toshiba MUSE Q-KMS**, **Thinkquantum TQ-KME (ETSI 014 + 020)**. Checked against vendor pages on 2026-08-22: "MUSE" and "TQ-KME" **do not exist** -- the products are **Toshiba Q-KMS** and **ThinkQuantum QUKY** (QUKY-TX / QUKY-RX). ThinkQuantum documents ETSI 014 + **004**, not 020; Toshiba's ETSI 014 REST API is the default, not a "compatibility mode"; and IDQ exposes ETSI 014/020 from the **Clarion KX** key-management layer rather than natively from the QKD appliance, whose Cerberis XG/XGR pages now read "no longer available for purchase". The heading also asserted interoperability nobody had tested. A fabricated product name is the specific failure mode to look for: it reads as authoritative and nothing in the build can contradict it. Re-check whenever the list changes. |
 | 7.13 | **A citation points somewhere a reader can actually go** | `.venv/bin/python -m pytest tests/test_paper_budgets.py` -> passes. Thirteen tracked files cited the reference paper as "arXiv:2604.05599 **§IV-B Table III**", and two cited "**section VI**" for the 10.27 s / 10.62 s setup times. The paper has **no Roman-numeral sections at all** and **exactly one table**. Correct anchors, read out of the redistributed PDF: **Table 1** ("Packets and Traffic per Handshake or Key Negotiation") in *Evaluation / Test 1 - Prototype Validation*; setup times in *Test 2 - Long Distance*; the 240-720 s cascade in the **Fail-Safe Mechanism** subsection of *Implementation* -- not Table 1, which says nothing about timing. The numbers were right throughout (3+2+4 packets, 398+78+4772 bytes); only the pointer was wrong, which is why nothing caught it. The guard now derives the table from the shipped PDF with `pdftotext` rather than trusting the transcription, and skips where poppler is absent. |
+| 7.14 | **A file the repository tells you to run exists** | `.venv/bin/python -m pytest tests/test_referenced_paths_exist.py` -> passes. `main.py:136` instructed readers to verify the deployment with `scripts/verify-demo-hardening.sh`, which was not in the tree. A reference inside a docstring costs nothing at import time and never shows up in a traceback, so nothing could contradict it. The guard covers `scripts/` and `tools/` -- the two directories whose purpose is "run this". Note the trap it documents: `git ls-files` lists submodule gitlinks as paths, so `git ls-files \| xargs grep -r` recurses into them and reports 27 upstream script names against the one real finding. Read each tracked path as a file and skip directories. |
