@@ -49,11 +49,11 @@ $$Y_0 \;=\; \frac{R_{\mathrm{dark}}}{R_{\mathrm{pulse}}}$$
 For a weak coherent source, the **gain** — the probability that a pulse of
 intensity $\mu$ produces a detection — is (Eq. 10):
 
-$$\;Q_\mu \;=\; Y_0 + 1 - e^{-\eta\mu\;}$$
+$$Q_\mu \;=\; Y_0 + 1 - e^{-\eta\mu}$$
 
 and the **quantum bit error rate** is (Eq. 11):
 
-$$\;E_\mu \;=\; \frac{e_0 Y_0 + e_d\left(1 - e^{-\eta\mu\right)}{Q_\mu}\;}
+$$E_\mu \;=\; \frac{e_0 Y_0 + e_d\left(1 - e^{-\eta\mu}\right)}{Q_\mu}
 \qquad e_0 = \tfrac12$$
 
 Background counts are random, hence $e_0 = 1/2$: half of them land in the wrong
@@ -72,7 +72,7 @@ detector.
 With the single-photon contribution separated out
 (Gottesman–Lo–Lütkenhaus–Preskill; Lo–Ma–Chen 2005):
 
-$$\;R \;\geq\; q\left\{-Q_\mu f_{\mathrm{EC}\,h_2(E_\mu) \;+\; Q_1\left[1 - h_2(e_1)\right]\right\}\;}$$
+$$R \;\geq\; q\left\{-Q_\mu f_{\mathrm{EC}}\,h_2(E_\mu) \;+\; Q_1\left[1 - h_2(e_1)\right]\right\}$$
 
 where $h_2$ is the binary entropy
 
