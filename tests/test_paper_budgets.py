@@ -152,6 +152,22 @@ REAL_SECTIONS = ["Introduction", "Related Work", "Implementation",
                  "Evaluation", "Conclusion"]
 WRONG_CITATIONS = ["Table III", "§IV-B", "IV-B", "section VI"]
 
+# Files that RECORD the correction, and so have to quote the wrong citation in
+# order to say what was wrong. Every one of them must also name the right
+# anchor, checked below -- otherwise the exemption becomes the place a bad
+# citation hides. Keep this small; a source file has no business being here.
+#
+# This list exists because the first version of this guard failed on the very
+# commit that introduced it: the checklist row describing the fix quotes the
+# string the row forbids. The same trap caught the SeQUeNCe backend guard
+# (`depolarizing_rate`) and the log-export guard (`logService`).
+DOCUMENTS_THE_CORRECTION = {
+    "tests/test_paper_budgets.py",
+    "VERIFICATION_CHECKLIST.md",
+    "docs/roadmap.md",
+}
+RIGHT_ANCHOR = "Table 1"
+
 
 def _paper_text() -> str:
     if not PAPER_PDF.exists():
@@ -217,8 +233,15 @@ def test_no_tracked_file_cites_a_section_the_paper_does_not_have():
             body = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if rel == "tests/test_paper_budgets.py":
-            continue  # this file must name what it forbids
+        if rel in DOCUMENTS_THE_CORRECTION:
+            if any(bad in body for bad in WRONG_CITATIONS):
+                assert RIGHT_ANCHOR in body, (
+                    f"{rel} is exempt because it documents the correction, but "
+                    f"it quotes a wrong citation without naming {RIGHT_ANCHOR!r}. "
+                    "The exemption is for explaining the fix, not for carrying "
+                    "the defect."
+                )
+            continue
         for bad in WRONG_CITATIONS:
             if bad in body:
                 offenders.append(f"{rel}: {bad!r}")

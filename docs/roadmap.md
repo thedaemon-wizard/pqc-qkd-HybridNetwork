@@ -374,3 +374,51 @@ instead; leaving them would have kept the roadmap arguing for work that exists.
 - ~~**`/e2e` has no failure-injection control.**~~ **Done.** `/e2e` injects on
   `qkd`, `pqc` and `data` with a `clear`, and decides fatality from the mode
   rather than the layer -- see `e2eSim.injectFailure` and `e2eFailure.test.ts`.
+
+## Status as of 2026-08-22 — external claims
+
+The two pages that had never been systematically fact-checked, `/hil` and
+`/console`, were both checked. All thirteen routes have now had their computed
+numbers or their factual claims verified against a source outside the codebase.
+
+Everything found this round was one class, and it is a different class from the
+earlier rounds: not *a plausible number nobody executed* but **a plausible
+reference nobody followed**. Nothing in a build can contradict a citation or a
+product name, so these survive every green CI run.
+
+- ~~**`/hil` listed hardware that does not exist.**~~ **Fixed.** Under the
+  heading "Reported interoperable devices": "Toshiba MUSE Q-KMS" and
+  "Thinkquantum TQ-KME" are not real products (they are Toshiba **Q-KMS** and
+  ThinkQuantum **QUKY**), ThinkQuantum documents ETSI 014 + **004** rather than
+  020, Toshiba's ETSI 014 API is the default rather than a "compatibility
+  mode", and ID Quantique exposes the ETSI interface from **Clarion KX** rather
+  than natively. The heading also asserted interoperability nobody had tested.
+  Now checklist row 7.12.
+- ~~**Every citation of the reference paper pointed nowhere.**~~ **Fixed.**
+  Thirteen files said "§IV-B Table III"; the paper has no Roman-numeral
+  sections and one table. See row 7.13 — the guard now derives Table 1 from the
+  redistributed PDF instead of trusting the transcription.
+- ~~**`/console` never exported the container it displayed.**~~ **Fixed.** All
+  four selections were wrong, and two returned HTTP 200 with a comment in place
+  of a log. Rows 4.5.15 and 4.5.16.
+
+### Still open
+
+- **The VICI auth-failure count is bimodal.** Nine observations, always 4 or 0,
+  never 1-3, identical on both nodes. That rules out a per-rotation race (which
+  would scatter) and a fixed startup cost (which would always appear). Not
+  reproducible locally across two full 240 s windows. Instrumented to dump a
+  timestamped timeline on *any* failure, so the next occurrence yields evidence
+  rather than another bare count. The threshold is deliberately unchanged: a
+  systematic mismatch would show as 3-of-6, which is what the guard exists to
+  catch.
+- **`arXiv:2511.21253` is cited for a formula it does not contain.** The finite-
+  size penalty implemented in `_skr.py` and
+  `tools/precompute_keyrate_table_fallback.py` is a generic first-order term,
+  `R_N ~ R_inf - sqrt(2/N) * sqrt(log2(2/eps))`. The paper is real, is about
+  closed-form finite-key rates, and does contain such a result — but its Eq. (32)
+  is a key *length* with the deviation terms inside the single-photon bounds,
+  for a receiver with passive biased basis choice, which is not this channel
+  model. Either implement Eq. (32) or downgrade the comment to "generic
+  first-order finite-size penalty; cf. arXiv:2511.21253 for a rigorous
+  treatment". Not done here because it changes a published number.
