@@ -23,6 +23,17 @@ recurses INTO the submodules and reports every `scripts/*.sh` that liboqs and
 oqs-provider mention in their own documentation -- 27 false positives against
 one real finding. Read each tracked path as a file, and skip anything that is
 a directory.
+
+A second trap, which this file walked straight into. Any guard that iterates
+`git ls-files` is invisible to itself until it is STAGED. Run it from an
+unstaged working copy and it passes; commit, and it starts scanning its own
+source. This file's first version illustrated the pattern with a made-up path,
+passed locally, and failed in CI on that illustration. The same thing happened
+to `test_repo_is_publication_ready.py` earlier in this project, for the same
+reason.
+
+So: when adding a guard of this shape, `git add` it before believing a green
+run.
 """
 from __future__ import annotations
 
@@ -32,8 +43,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# `scripts/foo.sh`, `tools/bar.py` -- the runnable surface.
+# Matches a path under scripts/ or tools/ ending in .sh or .py -- the runnable
+# surface. The pattern is described rather than illustrated: an example here
+# would be a path this file "references", and the guard would flag it.
 REFERENCE = re.compile(r"\b((?:scripts|tools)/[A-Za-z0-9_.\-]+\.(?:sh|py))")
+
+# This file has to name paths in order to explain itself, so it is exempt --
+# see `test_the_guard_can_see_the_defect_it_was_written_for`, which keeps the
+# exemption from making the whole check vacuous.
+SELF = "tests/test_referenced_paths_exist.py"
 
 # Text that is quoting some OTHER project's layout rather than ours.
 FOREIGN_CONTEXT = ("liboqs", "oqs-provider", "PQClean", "strongswan/scripts")
@@ -62,6 +80,8 @@ def test_every_referenced_script_exists():
         except (UnicodeDecodeError, OSError):
             continue
         rel = path.relative_to(ROOT).as_posix()
+        if rel == SELF:
+            continue
         for line_no, line in enumerate(body.splitlines(), 1):
             if any(token in line for token in FOREIGN_CONTEXT):
                 continue
