@@ -32,7 +32,7 @@ const PHASE_BUDGETS: Record<number, Omit<PhaseBudget, "phase">> = {
        description: "Application data tunnel (WireGuard with ChaCha20-Poly1305) uses a WireGuard preshared key derived from the Rosenpass output. Not an IKEv2 PSK -- see docs/vici-ppk.md." },
 };
 /**
- * Mean end-to-end setup time, arXiv:2604.05599 section VI.
+ * Mean end-to-end setup time, arXiv:2604.05599 Evaluation, Test 2 - Long Distance.
  *
  * These are LITERATURE values and they already have an owner:
  * `services/webui-backend/app/paper_budgets.py`, pinned by
@@ -68,7 +68,9 @@ const PHASE_FAIL: Record<Layer, number> = { qkd: 1, arnika: 2, wireguard: 3, ros
  * recording inflates it; publishing the nominal beside it makes that visible.
  *
  * Note this is UI dwell only. It has no relation to the paper's 240-720 s
- * cascade offsets, which are simulated time and come from Table III.
+ * cascade offsets, which are simulated time and come from the "Fail-Safe
+ * Mechanism" subsection of Implementation -- not from Table 1, which gives
+ * packet and byte budgets.
  */
 export const NOMINAL_PHASE_DWELL_MS = 350;
 

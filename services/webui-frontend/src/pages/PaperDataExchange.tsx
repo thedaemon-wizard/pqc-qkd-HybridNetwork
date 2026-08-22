@@ -104,7 +104,7 @@ export default function PaperDataExchange() {
         subtitle={
           <>
             Multi-hop trusted-node Data Exchange faithful to the
-            arnika multi-hop diagram and the paper's Table III packet budgets
+            arnika multi-hop diagram and the paper's Table 1 packet budgets
             (9 packets / 5248 bytes per handshake). Differs from
             <code> /e2e </code> (single-tunnel concept) by showing a daisy
             chain, the 5-phase swimlane and the 240-720 s failure cascade.
@@ -221,7 +221,7 @@ export default function PaperDataExchange() {
       </div>
 
       {/* Sequence diagram */}
-      <Panel title="5-Phase Sequence Diagram (paper §IV-B Table III)">
+      <Panel title="5-Phase Sequence Diagram (paper, Evaluation Test 1, Table 1)">
         <PhaseSequenceSvg budgets={budgets} currentPhase={phase} />
       </Panel>
 

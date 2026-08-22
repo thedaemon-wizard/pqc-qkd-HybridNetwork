@@ -73,18 +73,33 @@ tail-logs: ## (Phase 12-A) Tail rotating log files inside pqcqkd-logs volume
 # Verification / Smoke
 # -------------------------------------------------------------------
 .PHONY: smoke
+# Three of these four steps used to end in a pipe or a `sleep`, so the recipe
+# took THAT command's exit status: `... | head -c 400; echo` is always 0, and so
+# is a `for` loop whose body ends in `sleep 1`. Only the ping could fail. A
+# stack with the KME down, a 404 on /enc_keys and zero PSK rotations still
+# printed "Smoke OK" and exited 0 -- and this is the documented merge gate.
+#
+# Each step now asserts on CONTENT. Deliberately not a global
+# `.SHELLFLAGS := -eu -o pipefail -c`: that would change every recipe in this
+# file, including ones that rely on a non-zero exit being tolerated, and none
+# of those can be exercised here.
 smoke: ## Quick end-to-end smoke test
 	@echo "==> Wait for KME health..."
-	@for i in $$(seq 1 30); do \
-	  $(DC) exec -T bb84-kme-a curl -sf http://localhost:8080/health >/dev/null 2>&1 && break; \
+	@ok=0; for i in $$(seq 1 30); do \
+	  if $(DC) exec -T bb84-kme-a curl -sf http://localhost:8080/health >/dev/null 2>&1; then ok=1; break; fi; \
 	  sleep 1; \
-	done
+	done; \
+	if [ "$$ok" -ne 1 ]; then echo "FAIL: bb84-kme-a never became healthy"; exit 1; fi
 	@echo "==> Verify ETSI-014 contract..."
-	$(DC) exec -T bb84-kme-a curl -sf "http://localhost:8080/api/v1/keys/ALICE/enc_keys?number=1&size=256" | head -c 400; echo
+	@out=$$($(DC) exec -T bb84-kme-a curl -sf "http://localhost:8080/api/v1/keys/ALICE/enc_keys?number=1&size=256"); \
+	echo "$$out" | head -c 400; echo; \
+	echo "$$out" | grep -q '"key_ID"' || { echo "FAIL: /enc_keys returned no key_ID"; exit 1; }
 	@echo "==> Verify wg0 ping alice->bob..."
 	$(DC) exec -T alice ping -c 3 -W 2 10.0.0.2 || (echo "FAIL: ping over wg0"; exit 1)
 	@echo "==> Check PSK rotation logs..."
-	$(DC) logs alice --since=2m | grep -E "PSK configured|HKDF derivation completed" | head -n 5
+	@n=$$($(DC) logs alice --since=2m 2>&1 | grep -cE "PSK configured|HKDF derivation completed"); \
+	$(DC) logs alice --since=2m 2>&1 | grep -E "PSK configured|HKDF derivation completed" | head -n 5; \
+	if [ "$$n" -eq 0 ]; then echo "FAIL: no PSK rotation in the last 2 minutes"; exit 1; fi
 	@echo "==> Smoke OK"
 
 .PHONY: test

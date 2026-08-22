@@ -1,8 +1,9 @@
 """Packet and byte budgets quoted from the reference paper.
 
 Source: P. Spooren, A. Neuhold, S. Ramacher, T. Huehn, "PQC-Enhanced QKD
-Networks: A Layered Approach", arXiv:2604.05599 (CC BY 4.0), Table III and
-sections IV-B / VI.
+Networks: A Layered Approach", arXiv:2604.05599 (CC BY 4.0), Table 1 (Evaluation,
+Test 1 - Prototype Validation) and the Fail-Safe Mechanism subsection of
+Implementation.
 
 These are LITERATURE VALUES, not measurements. `/api/verify/paper-budgets`
 serves them so the WebUI can compare a live run against the published figures,
@@ -24,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# Table III: per-phase handshake cost of one multi-hop cycle.
+# Table 1: per-phase handshake cost of one multi-hop cycle.
 PHASE_BUDGETS: dict[int, dict[str, Any]] = {
     1: {"name": "Quantum Plane",
         "packets": 0, "bytes": 0,

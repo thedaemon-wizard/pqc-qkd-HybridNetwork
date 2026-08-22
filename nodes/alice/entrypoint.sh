@@ -79,7 +79,31 @@ echo "[entrypoint] peer WireGuard public key: $PEER_PUB"
 
 # ---- 4) Bring up wg0 ---------------------------------------
 ip link del "$WG_IFACE" 2>/dev/null || true
-ip link add dev "$WG_IFACE" type wireguard
+
+# Kernel WireGuard first; userspace only when the module is absent.
+#
+# This was an unconditional `ip link add ... type wireguard` under
+# `set -euo pipefail`, so on a host without the module the container died right
+# here -- while README.md and docs/BUILD.md both promised "the stack still
+# works and you need to do nothing", and `wireguard-go` sat installed in the
+# image (nodes/alice/Dockerfile) and was never invoked once. Nothing in the
+# tree calls `wg-quick`, which is what those documents assumed would arrange
+# the fallback, so WG_QUICK_USERSPACE_IMPLEMENTATION was read by nothing --
+# and tests/test_compose_env_is_read_by_something.py exempted it on the
+# strength of that same assumption.
+#
+# Selecting the implementation by variable keeps docker-compose.boringtun.yml
+# working, which sets it to `boringtun`.
+if ! ip link add dev "$WG_IFACE" type wireguard 2>/dev/null; then
+    userspace="${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}"
+    command -v "$userspace" >/dev/null 2>&1 || {
+        echo "[entrypoint] ERROR: kernel WireGuard is unavailable and the userspace" >&2
+        echo "[entrypoint]        implementation '$userspace' is not installed" >&2
+        exit 1
+    }
+    echo "[entrypoint] kernel WireGuard unavailable; using userspace $userspace"
+    "$userspace" "$WG_IFACE"
+fi
 wg set "$WG_IFACE" listen-port "$WG_LISTEN_PORT" private-key "$WG_DIR/private.key"
 ip addr add "${WG_LOCAL_IP}/24" dev "$WG_IFACE"
 ip link set up dev "$WG_IFACE"
