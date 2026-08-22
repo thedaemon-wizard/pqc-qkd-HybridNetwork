@@ -214,3 +214,66 @@ def test_no_markdown_table_anywhere_drops_cells():
     assert not dropped, (
         "these table cells render nowhere:\n  " + "\n  ".join(dropped)
     )
+
+
+def test_the_header_table_matches_the_actual_row_counts():
+    """The "Where the work is" table states counts that are easy to invalidate.
+
+    Adding a row anywhere silently falsifies it, and a stale count in a document
+    whose purpose is accuracy is worse than no count. So it is recomputed here
+    rather than trusted.
+
+    The automation heuristic is the same one used to write the table: a row is
+    machine-checked if it names pytest, vitest, make, or a CI job.
+    """
+    import re
+
+    text = CHECKLIST.read_text(encoding="utf-8")
+    auto_pat = re.compile(r"pytest|npx vitest|CI `|CI job|`make ")
+
+    actual: dict[str, dict[str, int]] = {}
+    section = None
+    for line in text.splitlines():
+        m = re.match(r"^## (\d+)\.", line)
+        if m:
+            section = m.group(1)
+            actual[section] = {"rows": 0, "auto": 0}
+        if section and re.match(r"^\| \d", line):
+            actual[section]["rows"] += 1
+            if auto_pat.search(line):
+                actual[section]["auto"] += 1
+
+    # `| 4 | Browser, every page | 111 | 2 | 109 |`
+    claimed = {
+        m.group(1): {"rows": int(m.group(2)), "auto": int(m.group(3)), "manual": int(m.group(4))}
+        for m in re.finditer(
+            r"^\| (\d) \| [^|]+ \| \*{0,2}(\d+)\*{0,2} \| \*{0,2}(\d+)\*{0,2} \| \*{0,2}(\d+)\*{0,2} \|$",
+            text, re.M)
+    }
+    assert claimed, "the 'Where the work is' table is no longer parseable"
+    assert set(claimed) == set(actual), (
+        f"header table covers sections {sorted(claimed)} but the document has "
+        f"{sorted(actual)}"
+    )
+
+    wrong = []
+    for sec, c in claimed.items():
+        a = actual[sec]
+        if (c["rows"], c["auto"], c["manual"]) != (a["rows"], a["auto"], a["rows"] - a["auto"]):
+            wrong.append(
+                f"section {sec}: table says {c['rows']}/{c['auto']}/{c['manual']} "
+                f"(rows/auto/manual), actual is "
+                f"{a['rows']}/{a['auto']}/{a['rows'] - a['auto']}"
+            )
+    assert not wrong, "the header table has drifted from the rows:\n  " + "\n  ".join(wrong)
+
+    total_rows = sum(a["rows"] for a in actual.values())
+    total_auto = sum(a["auto"] for a in actual.values())
+    prose = re.search(r"(\d+) rows, of which \*\*(\d+) are machine-checked and (\d+) are not\*\*", text)
+    assert prose, "the totals sentence above the table is gone or reworded"
+    assert (int(prose.group(1)), int(prose.group(2)), int(prose.group(3))) == (
+        total_rows, total_auto, total_rows - total_auto
+    ), (
+        f"totals sentence says {prose.group(1)}/{prose.group(2)}/{prose.group(3)}, "
+        f"actual is {total_rows}/{total_auto}/{total_rows - total_auto}"
+    )

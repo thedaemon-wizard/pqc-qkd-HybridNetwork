@@ -7,6 +7,39 @@ does what its label says.
 
 Order: **local build → local browser → PR + CI → demo redeploy → demo browser**.
 
+## Where the work is
+
+183 rows, of which **28 are machine-checked and 155 are not**. Worth knowing
+before planning a release, because the manual share is not evenly spread:
+
+| § | Section | Rows | Automated | Manual |
+|---|---|---|---|---|
+| 1 | Build and unit gates | 15 | **15** | 0 |
+| 2 | IPsec lane | 14 | 1 | 13 |
+| 3 | WireGuard lane | 4 | 1 | 3 |
+| 4 | Browser, every page | **111** | 2 | **109** |
+| 5 | Code quality | 11 | 4 | 7 |
+| 6 | Release | 18 | 5 | 13 |
+| 7 | Documentation | 10 | 0 | 10 |
+
+Section 4 is 61 % of the checklist and almost entirely manual. That is partly
+irreducible -- layout, legibility and whether a control does what its label
+says are not headless assertions -- but it is also where the least automation
+has been attempted, so it is the first place to look for rows worth converting.
+
+Section 2 reads as manual and is not: the `ipsec` CI job asserts 2.6, 2.7, 2.8,
+2.8b, 2.11, 2.12 and 2.13 on every pull request. Treat a green run as those
+rows executed rather than merely intended.
+
+Everything CI can check, in one command:
+
+```bash
+.venv/bin/python -m pytest tests/ -q --ignore=tests/test_etsi014_contract.py \
+  && .venv/bin/ruff check services/ tests/ tools/ benchmarks/ \
+  && bash scripts/check_env_example.sh \
+  && (cd services/webui-frontend && npm run typecheck && npx vitest run && npx vite build)
+```
+
 ---
 
 ## 1. Build and unit gates (automated)
