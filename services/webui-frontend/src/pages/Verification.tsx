@@ -175,8 +175,12 @@ export default function Verification() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
                            gap: 12, marginBottom: 12 }}>
               <KPI label="Distance (km)" value={keyrate.distance_km ?? "—"} />
+              {/* `?? 0` ahead of `.toFixed` made the trailing `?? "—"` dead
+                  code: the value was always a number, so a MISSING attenuation
+                  rendered as a confident "0.0" dB instead of as no reading.
+                  The sibling KPI above already does this correctly. */}
               <KPI label="Attenuation (dB)"
-                   value={(keyrate.attenuation_db ?? 0).toFixed?.(1) ?? "—"} />
+                   value={keyrate.attenuation_db?.toFixed(1) ?? "—"} />
               <KPI label="Ours (bits/pulse)"
                    value={fmt(keyrate.ours_closed_form?.rate_per_pulse)} />
               <KPI label="TNO (bits/pulse)"
