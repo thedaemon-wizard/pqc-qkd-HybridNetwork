@@ -276,12 +276,23 @@ they are not something to close silently:
   an immediate re-run, then **4 in 8**. Both nodes, both times, and both times
   exactly four.
 
-  A count that stays at 4 while the denominator moves from 6 to 8 does not look
-  like a per-rotation race. The likely explanation is an accounting mismatch in
-  the guard itself: `authfail` greps the WHOLE container lifetime, including
-  bootstrap, while `rot` counts only rotations inside the 240 s window. A fixed
-  startup cost would then divide by a varying denominator and cross the 20 %
-  ceiling whenever the window happens to be short.
+  Four observations, per node, all identical across the two nodes in a run:
+
+  | failures | rotations | result |
+  |---|---|---|
+  | 4 | 6 | fail |
+  | 0 | 6 | pass (re-run of the same commit) |
+  | 4 | 8 | fail |
+  | 0 | 9 | pass |
+
+  The count is **bimodal -- 4 or 0, never 1 to 3**. That is the useful clue,
+  and it rules out the obvious readings. A per-rotation race would scatter
+  (0, 1, 2 ...) and scale with the denominator; it does neither. A fixed
+  startup cost would appear in every run; it does not. Something either happens
+  once per run and costs exactly four failures, or does not happen at all --
+  which points at a startup condition that is itself intermittent, most likely
+  the interval during which the bootstrap credential and the first QKD-derived
+  key can both answer `PPK_ID`.
 
   That is a hypothesis, not a finding. It could not be confirmed because the
   job printed only the count and never the matching lines, so a failure left
