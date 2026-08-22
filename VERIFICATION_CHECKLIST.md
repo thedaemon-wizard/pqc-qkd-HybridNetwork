@@ -9,17 +9,17 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-186 rows, of which **29 are machine-checked and 157 are not**. Worth knowing
+188 rows, of which **30 are machine-checked and 158 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
-| 1 | Build and unit gates | 15 | **15** | 0 |
+| 1 | Build and unit gates | 16 | **16** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **111** | 2 | **109** |
 | 5 | Code quality | 12 | 4 | 8 |
-| 6 | Release | 18 | 5 | 13 |
+| 6 | Release | 19 | 5 | 14 |
 | 7 | Documentation | 11 | 1 | 10 |
 
 Section 4 is 61 % of the checklist and almost entirely manual. That is partly
@@ -61,6 +61,7 @@ Everything CI can check, in one command:
 | 1.13 | Eve's intercept-resend drives QBER to 0.25 (mean over seeds, not one draw) | `pytest tests/test_bb84_simulator.py` | CI `python` |
 | 1.14 | Optimiser SKR agrees with the shared rate model | `pytest tests/test_backend_cross_qber.py` | CI `python` |
 | 1.15 | Backend QBER matches the analytical Lo-Ma value | `pytest tests/test_backend_cross_qber.py` | CI `python` |
+| 1.16 | **ETSI 014 roundtrip waits for the sync, it does not guess** | `tests/test_etsi014_contract.py` polls `dec_keys` to a 15 s deadline instead of `time.sleep(0.5)`. Propagation is asynchronous -- `KeyPool._sync_to_peer` POSTs to the neighbour and its HTTP client alone allows **2.0 s**, four times the old wait -- so a slow sync failed with `404 unknown key_ID` while nothing was wrong. Seen in CI on a branch touching only a script, a test exemption and a checklist row. The poll still fails on a genuinely unknown key: it returns 404 at the deadline rather than hanging or passing. | CI `live-stack` |
 
 ---
 
@@ -321,6 +322,7 @@ question about it could not be answered from this checklist.
 | 6.9c | **Display maths uses a fenced ```` ```math ```` block, inline maths needing escapes uses ``$`...`$``** | Same test; the "GitHub delivers the formula unchanged" block. GitHub applies CommonMark backslash-escape removal to `$...$` and `$$...$$` content **before** MathJax sees it: `\;`->`;`, `\,`->`,`, `\{`->`{` (so `\left\{` becomes the parse error `\left{`), `\_`->`_` (a literal underscore silently becomes a subscript), `\%`->`%` (starts a comment and eats the rest of the line). 17 expressions across three files were affected, and correct LaTeX alone did not fix them. Verify against GitHub itself, not by inspection: `gh api -X POST /markdown -f mode=gfm -f text='$$a \|; b$$'` and check what comes back inside `<math-renderer>`. The fenced and code-span forms come back verbatim. |
 | 6.10 | Pinned upstream facts re-verified against primary sources, with the date recorded | Each claim in `docs/references.md` carries the date it was checked. Undated claims age silently -- the NCSC citation pointed at a URL that had begun redirecting. |
 | 6.11 | **Publication constraints are executed, not swept by hand** | `.venv/bin/python -m pytest tests/test_repo_is_publication_ready.py` -> passes. Four properties that had been re-verified manually more than once are now guards: no Japanese in tracked files, no emoji in documentation, no AI-tooling attribution, no non-private IP address. The Japanese rule is **exactly one** occurrence and it must be row 4.2.2 -- that row has to quote the Unicode ranges to specify the browser check, so a plain zero-tolerance rule fails on it and deleting the row would remove the check. All four verified to fail when violated. Formula rendering is NOT here: it needs GitHub's renderer and lives in the frontend suite where KaTeX already is. |
+| 6.12 | **The GitHub-side surface is audited, not just the tree** | `bash scripts/audit_github_surface.sh` -> `ok: GitHub surface is clean`. CI's `secrets` job and `scripts/secret_scan.sh` see tracked files and commit messages. Neither can see **pull-request titles and bodies, the contributor list, or the collaborator list** -- that is GitHub state, not repository state, and it is where an attribution appears with no commit recording it. The script also checks commit AUTHORSHIP, which a message-only scan passes even when the author is a tool. Measured 2026-08-22: 50 PRs / 0 matches, one contributor, one collaborator, 170 commits / 0 matches, 0 `Co-authored-by` trailers. |
 
 ## 7. Documentation
 
