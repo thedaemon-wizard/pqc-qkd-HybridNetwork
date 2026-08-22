@@ -196,7 +196,7 @@ mean handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes.
 | 7 | `/benchmarks` | KPI cards + latency/QBER charts |
 | 8 | `/console` | Container log tail |
 | 9 | `/physics` | PhysicsParams — editable params + **client-side** key-rate & μ/ν optimiser (closed-form Lo-Ma) |
-| 10 | `/pqc` | PQC Validator (liboqs vs PQClean) |
+| 10 | `/pqc` | PQC Validator (@noble in-browser, liboqs interop cross-check) |
 | 11 | `/verify` | Implementation Verification (crypto-agility matrix + TNO key-rate cross-check + paper budgets) |
 | 12 | `/hil` | Hardware-In-The-Loop bridge instructions |
 | 13 | `/vpn` | VPN Protocols (WireGuard ⟷ strongSwan) |

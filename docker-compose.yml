@@ -300,7 +300,9 @@ services:
       mgmt-net: {}
 
   # -------------------------------------------------------------
-  # PQC Validator (Phase 8): liboqs vs PQClean cross-check
+  # PQC Validator (Phase 8): liboqs, plus the @noble-vs-liboqs ML-KEM interop
+  # endpoint. There is no PQClean comparison -- see services/pqc-validator/
+  # app/main.py for why building one would not be an improvement.
   # -------------------------------------------------------------
   pqc-validator:
     build:
@@ -309,10 +311,8 @@ services:
     image: pqcqkd/pqc-validator:local
     container_name: pqc-validator
     environment:
-      PQCLEAN_DIR: /submodules/PQClean
       LOG_LEVEL: INFO
     volumes:
-      - ./submodules/PQClean:/submodules/PQClean:ro
       - pqcqkd-logs:/var/log/pqcqkd
     networks:
       mgmt-net: {}

@@ -45,9 +45,9 @@ Networks:
 T+0 bb84-kme-a runs a BB84 round (QuTiP photon simulation)
 T+0.1 reconciliation produces a 256-bit secret key, base64-encoded
 T+0.1 KME-a stores key by UUID and POSTs /internal/sync to KME-b
-T+0.2 arnika@alice polls /api/v1/keys/ALICE/enc_keys?number=1&size=256
+T+0.2 arnika@alice polls /api/v1/keys/BOB/enc_keys?number=1&size=256
 T+0.2 arnika receives {keys: [{key_ID, key}]}, opens TCP to bob:9999, sends key_ID
-T+0.3 arnika@bob receives key_ID, calls /api/v1/keys/BOB/dec_keys?key_ID=...
+T+0.3 arnika@bob receives key_ID, calls /api/v1/keys/ALICE/dec_keys?key_ID=...
 T+0.3 Both sides now hold the SAME 256-bit QKD key
 T+0.3 Both read /var/lib/rosenpass/pqc.psk (independently produced by Rosenpass)
 T+0.3 Both compute HKDF-SHA3-256(qkd || pqc) -> 32B PSK
