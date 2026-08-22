@@ -9,12 +9,12 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-188 rows, of which **30 are machine-checked and 158 are not**. Worth knowing
+189 rows, of which **31 are machine-checked and 158 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
-| 1 | Build and unit gates | 16 | **16** | 0 |
+| 1 | Build and unit gates | 17 | **17** | 0 |
 | 2 | IPsec lane | 14 | 1 | 13 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **111** | 2 | **109** |
@@ -62,6 +62,7 @@ Everything CI can check, in one command:
 | 1.14 | Optimiser SKR agrees with the shared rate model | `pytest tests/test_backend_cross_qber.py` | CI `python` |
 | 1.15 | Backend QBER matches the analytical Lo-Ma value | `pytest tests/test_backend_cross_qber.py` | CI `python` |
 | 1.16 | **ETSI 014 roundtrip waits for the sync, it does not guess** | `tests/test_etsi014_contract.py` polls `dec_keys` to a 15 s deadline instead of `time.sleep(0.5)`. Propagation is asynchronous -- `KeyPool._sync_to_peer` POSTs to the neighbour and its HTTP client alone allows **2.0 s**, four times the old wait -- so a slow sync failed with `404 unknown key_ID` while nothing was wrong. Seen in CI on a branch touching only a script, a test exemption and a checklist row. The poll still fails on a genuinely unknown key: it returns 404 at the deadline rather than hanging or passing. | CI `live-stack` |
+| 1.17 | **What the demo displays equals the published formulas** | `.venv/bin/python -m pytest tests/test_shipped_defaults_match_first_principles.py` -> passes. Recomputes eta, Y0, QBER and the GLLP rate for `config/qkd_params.yaml` from Ma et al. Eqs. 5/10/11/34/37 **without importing `_skr`**, so it derives its expectation rather than storing one. Cross-checked against the deployed demo: exporting `/physics` as JSON gave all five values identical to every digit. Why it is not redundant with 1.9/1.10 -- changing e0 from 1/2 to 0.48 in BOTH ports leaves `test_keyrate_ports_agree` **passing**, since parity compares two implementations that changed together. |
 
 ---
 
