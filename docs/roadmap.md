@@ -261,44 +261,34 @@ they are not something to close silently:
   documented recovery path cannot work for the people who need it. Closing it
   means vendoring boringtun plus a cargo stage; the image already builds Rust
   for rosenpass, so it is feasible.
-- **Multi-hop: three of four layers now work. The fourth is an arnika
-  limitation, not a wrapper one.**
+- ~~**Multi-hop cannot relay.**~~ **Done.** Every layer now carries a
+  QKD-derived key, and each fix was smaller than the entry that preceded it
+  claimed:
 
-  Recorded here twice as "blocked on a new dependency". Both times that was
-  wrong, and the corrections are worth keeping:
+  | layer | what was actually wrong |
+  |---|---|
+  | Rosenpass | `exchange` was always variadic; only our sidecar was single-peer |
+  | WireGuard | one more `wg set peer` was needed |
+  | arnika lookup | upstream returned "not found" on the first NON-match, so it worked only with exactly one peer |
+  | arnika instances | it manages one `WIREGUARD_PEER_PUBLIC_KEY`, so a node facing two neighbours needs two instances |
 
-  * **Rosenpass** was always variadic -- `exchange <OWN> [PEERS]...`, and its
-    help says so. Only `rosenpass-sidecar.sh` was single-peer. Fixed with
-    `RP_EXTRA_PEERS`; alice now holds `pqc.psk` and `pqc.charlie.psk`.
-  * **WireGuard** needed one more `wg set peer`. Fixed with `WG_EXTRA_PEERS`;
-    alice carries two peers, both handshaking, ping 0 % loss all three ways.
-  * **arnika contained a genuine upstream bug**, found only because the two
-    fixes above exposed it. `SetPSK` verified its peer with
+  Measured with `charlie` up: alice runs both instances (bob on :9999, charlie
+  on :9998), **2 of 2 peers carry a preshared key**, 7 PSK installs and 0
+  lookup errors, HKDF over QKD+PQC on both legs, and the KME issues keys for
+  the `BOB` and `CHARLIE` SAE paths. Ping is 0 % loss over both.
 
-        for _, peer := range peers.Peers {
-            if peer.PublicKey.String() != r.PeerPublicKey { return ...not found }
-        }
+  Two traps worth keeping, because both produced a confident wrong reading:
 
-    which returns on the first NON-match, so it succeeded only when the
-    interface had exactly one peer. With two, alice installed **no** QKD PSK
-    while the tunnel came up and passed traffic regardless -- the loss of
-    post-quantum protection was completely silent, and `InvalidateTunnel` fails
-    the same way, so it could not even fail closed. Patched in
-    `nodes/alice/0001-arnika-find-the-peer-among-several.patch`; alice went from
-    0 installs and 2 lookup errors to 4 installs and 0 errors.
+  * **Ping is not the check.** After the WireGuard fix it was 0 % loss in all
+    directions while alice had installed no PSK at all -- WireGuard runs
+    perfectly well unprotected. Count PSK installs. Checklist rows 2.11 and 3.5.
+  * **`docker compose up` does not rebuild.** One round of "the second instance
+    never started" was the old entrypoint still in the image; the running
+    container had no trace of the variable it was supposed to read.
 
-  What remains: **alice-charlie carries no QKD-derived PSK.** arnika takes one
-  `WIREGUARD_PEER_PUBLIC_KEY`, so it manages the bob leg only; measured, 1 of
-  alice's 2 peers has a preshared key. A true chain needs a second arnika
-  instance per extra neighbour, or multi-peer support upstream. That is an
-  arnika feature gap, and it is the first genuinely upstream-shaped item of the
-  three.
-
-  A note on how this was nearly missed: after the WireGuard fix, ping succeeded
-  0 % loss in all directions and that looked like success. It was not --
-  WireGuard works perfectly well with no PSK, so the pings proved connectivity
-  and said nothing about protection. Checklist row 2.11 makes exactly this point
-  for the IPsec lane. Count PSK installs, not replies.
+  Also corrected here: charlie's `KMS_URL` named `CHARLIE`. ETSI 014 names the
+  **peer**, never yourself -- the same inversion previously found in
+  `ARCHITECTURE.md`'s trace.
 
 **Open, unexplained** -- do not close by re-running:
 

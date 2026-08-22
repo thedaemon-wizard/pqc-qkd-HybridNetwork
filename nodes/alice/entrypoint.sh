@@ -184,5 +184,43 @@ export ARNIKA_ID="${ARNIKA_ID:?ARNIKA_ID must be set, and must differ between th
 # An empty value leaves that channel unauthenticated, so require it explicitly.
 export ARNIKA_PSK="${ARNIKA_PSK:?ARNIKA_PSK must be set, and must be identical on both peers}"
 
+# A second arnika per extra neighbour.
+#
+# arnika manages exactly ONE WIREGUARD_PEER_PUBLIC_KEY, so a node facing two
+# neighbours needs one instance per leg. Without this, alice installed a
+# QKD-derived PSK on the bob peer and left the charlie peer with none -- the
+# tunnel was up and unprotected, which `wg show` reports as
+# `1 of 2 peers have a preshared key` and no log line admits.
+#
+# Entries are `name@peer-host:port` in ARNIKA_EXTRA_PEERS. Each instance gets:
+#   * its own UDP port, so the two do not contend for :9999
+#   * its own KMS SAE path, since ETSI 014 names the PEER
+#   * the neighbour's WireGuard public key, read from $SHARED_DIR
+#   * its own PQC PSK file, written by the matching rosenpass peer clause
+for entry in ${ARNIKA_EXTRA_PEERS:-}; do
+  name="${entry%%@*}"
+  hostport="${entry#*@}"
+  if [[ "$name" == "$entry" || -z "$hostport" ]]; then
+    echo "[entrypoint] ERROR: ARNIKA_EXTRA_PEERS entry '$entry' is not name@host:port" >&2
+    exit 1
+  fi
+  port="${hostport##*:}"
+  pub_file="$SHARED_DIR/$name.wg.pub"
+  if [[ ! -s "$pub_file" ]]; then
+    echo "[entrypoint] ERROR: arnika extra peer '$name' has no WireGuard key ($pub_file)" >&2
+    exit 1
+  fi
+
+  upper_name="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+  echo "[entrypoint] starting arnika for $name (listen :$port peer $hostport SAE=$upper_name)"
+  env LISTEN_ADDRESS="0.0.0.0:$port" \
+      SERVER_ADDRESS="$hostport" \
+      KMS_URL="${KMS_URL%/*}/$upper_name" \
+      WIREGUARD_PEER_PUBLIC_KEY="$(tr -d '\n' < "$pub_file")" \
+      PQC_PSK_FILE="${PQC_PSK_FILE%.psk}.$name.psk" \
+      ARNIKA_ID="$ARNIKA_ID" \
+      /usr/local/bin/arnika &
+done
+
 echo "[entrypoint] starting arnika (MODE=$MODE INTERVAL=$INTERVAL ID=$ARNIKA_ID KMS=$KMS_URL)"
 exec /usr/local/bin/arnika

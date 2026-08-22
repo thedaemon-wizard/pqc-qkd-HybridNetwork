@@ -15,6 +15,8 @@ services:
       RP_EXTRA_PEERS: "charlie@charlie:9997"
       # name@wg-endpoint/tunnel-ip. charlie listens on 51822 and holds 10.0.0.3.
       WG_EXTRA_PEERS: "charlie@charlie:51822/10.0.0.3"
+      # One arnika per neighbour: this one drives the charlie leg on :9998.
+      ARNIKA_EXTRA_PEERS: "charlie@charlie:9998"
 
   charlie:
     image: pqcqkd/node-alice:local
@@ -47,9 +49,13 @@ services:
       # keys the AES-256-GCM and HMAC between peers.
       ARNIKA_ID: ${ARNIKA_ID_CHARLIE:-3}
       ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
-      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/CHARLIE
-      LISTEN_ADDRESS: 0.0.0.0:9999
-      SERVER_ADDRESS: alice:9999
+      # ETSI 014 names the PEER, never yourself: from charlie the other SAE
+      # is alice. This read CHARLIE, the same inversion that was in
+      # ARCHITECTURE.md's trace -- see services/bb84-kme/app/etsi014.py.
+      KMS_URL: http://bb84-kme-a:8080/api/v1/keys/ALICE
+      # Pairs with alice's SECOND arnika instance, not the bob-facing one.
+      LISTEN_ADDRESS: 0.0.0.0:9998
+      SERVER_ADDRESS: alice:9998
       PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
     volumes:
       # charlie had NO volumes at all, which is why it sat forever on
