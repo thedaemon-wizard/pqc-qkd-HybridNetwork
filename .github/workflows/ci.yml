@@ -225,6 +225,21 @@ jobs:
       - name: PQC validator
         run: docker build -f services/pqc-validator/Dockerfile -t pqcqkd/pqc-validator:ci .
 
+      # The interop cross-check needs liboqs, which the host job does not have,
+      # so those tests skip there and would give false assurance. Run them where
+      # liboqs exists by construction -- inside the image that ships it.
+      # The whole repo is mounted, not just tests/: conftest.load_service_app
+      # resolves `services/<name>/app` relative to the repo root, and mounting
+      # tests/ alone made that path absent inside the image.
+      - name: ML-KEM interoperability cross-check (inside the image)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            --entrypoint sh pqcqkd/pqc-validator:ci -c '
+              pip install --quiet --no-cache-dir pytest httpx || exit 1
+              cd /repo && python -m pytest tests/test_pqc_interop_is_a_real_crosscheck.py \
+                -q -p no:cacheprovider -o cache_dir=/tmp/pytest-cache
+            '
+
   live-stack:
     name: ETSI GS QKD 014 contract tests (live KMEs)
     runs-on: ubuntu-latest

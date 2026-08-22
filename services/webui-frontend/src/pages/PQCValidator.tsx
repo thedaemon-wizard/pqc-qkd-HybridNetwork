@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Button from "../components/Button";
 import {
   KEM_NAMES, SIG_NAMES, PQC_PROVIDER,
-  kemRoundtrip, sigRoundtrip, SIG_FAMILY,
+  kemRoundtrip, sigRoundtrip, SIG_FAMILY, kemInterop, type InteropResult,
   type KemName, type SigName, type KemResult, type SigResult,
 } from "../lib/sim/pqc";
 
@@ -21,6 +21,7 @@ export default function PQCValidator() {
   const [kem, setKem] = useState<KemResult | null>(null);
   const [sig, setSig] = useState<SigResult | null>(null);
   const [server, setServer] = useState<any>(null);
+  const [interop, setInterop] = useState<InteropResult | null>(null);
   const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,13 @@ export default function PQCValidator() {
           body: JSON.stringify({ algo: kemName }),
         });
         setServer(r.ok ? await r.json() : null);
+
+        // The real cross-check: liboqs encapsulates to a key this browser
+        // generated, and we decapsulate what comes back. Agreement here cannot
+        // happen unless both implementations are correct.
+        setInterop(await kemInterop(kemName));
+      } else {
+        setInterop(null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -59,7 +67,11 @@ export default function PQCValidator() {
     }
   }
 
-  const crossCheck =
+  // Length agreement is kept only as a weak sanity line. It was previously the
+  // WHOLE of the "independent cross-check": two implementations agreeing that
+  // ML-KEM-768 ciphertext is 1088 bytes shows they read the same table in
+  // FIPS 203, not that either computes ML-KEM correctly.
+  const lengthsAgree =
     kem && server && typeof server.ss_len === "number"
       ? server.ss_len === kem.sharedSecretLen && server.ct_len === kem.cipherTextLen
       : null;
@@ -140,8 +152,16 @@ export default function PQCValidator() {
           {serverAvailable === null ? <Idle /> : serverAvailable ? (
             server ? (
               <>
-                <Row k="Ciphertext / shared-secret lengths agree"
-                     v={crossCheck === null ? "—" : <Verdict ok={crossCheck} />} />
+                <Row k="Shared secrets agree (liboqs encapsulated to this browser's key)"
+                     v={interop === null ? "—" : <Verdict ok={interop.agrees} />} />
+                {interop && (
+                  <>
+                    <Row k="Our SHA-256 (@noble)" v={<code>{interop.ourSha256.slice(0, 32)}…</code>} />
+                    <Row k="Their SHA-256 (liboqs)" v={<code>{interop.theirSha256.slice(0, 32)}…</code>} />
+                  </>
+                )}
+                <Row k="Lengths agree (weak: both read the same FIPS 203 table)"
+                     v={lengthsAgree === null ? "—" : <Verdict ok={lengthsAgree} />} />
                 <pre style={preBox}>{JSON.stringify(server, null, 2)}</pre>
               </>
             ) : <Idle />
