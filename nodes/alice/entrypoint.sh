@@ -94,6 +94,10 @@ export ROSENPASS_SECRET_DIR
 export ROSENPASS_PEER_PK="$PEER_RP_PUB_FILE"
 export RP_LISTEN_PORT RP_PEER_PORT
 export RP_PEER_HOST="$PEER_HOST"
+# Extra neighbours for a trusted-node chain, e.g. RP_EXTRA_PEERS="charlie@charlie:9997".
+# rosenpass takes any number of peers; the sidecar builds one clause per entry.
+export RP_EXTRA_PEERS="${RP_EXTRA_PEERS:-}"
+export SHARED_DIR
 export PQC_PSK_FILE
 
 /usr/local/bin/rosenpass-sidecar.sh &
