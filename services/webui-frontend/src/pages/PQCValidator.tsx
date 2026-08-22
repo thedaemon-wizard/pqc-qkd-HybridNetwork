@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Button from "../components/Button";
+import ExportToolbar from "../components/ExportToolbar";
 import {
   KEM_NAMES, SIG_NAMES, PQC_PROVIDER,
   kemRoundtrip, sigRoundtrip, SIG_FAMILY, kemInterop, type InteropResult,
@@ -79,6 +80,39 @@ export default function PQCValidator() {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>PQC Validator</h2>
+
+      {/* Client-side results, so logProvider rather than logService: the
+          server log describes nothing about a round-trip run in the browser. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="pqc-validator"
+          logProvider={() => [
+            "# PQC validator run",
+            `# generated: ${new Date().toISOString()}`,
+            `# library:   ${PQC_PROVIDER.name} ${PQC_PROVIDER.version} (${PQC_PROVIDER.license})`,
+            `# audited:   ${PQC_PROVIDER.audited}   constant-time: ${PQC_PROVIDER.constantTime}`,
+            "#",
+            kem ? `KEM ${kem.algo} (${kem.standard}) cat=${kem.category} pk=${kem.publicKeyLen} `
+                + `sk=${kem.secretKeyLen} ct=${kem.cipherTextLen} ss=${kem.sharedSecretLen} `
+                + `match=${kem.sharedSecretMatch} ${kem.elapsedMs.toFixed(1)}ms` : "KEM (not run)",
+            sig ? `SIG ${sig.algo} (${sig.standard}, ${sig.family}) cat=${sig.category} `
+                + `pk=${sig.publicKeyLen} sk=${sig.secretKeyLen} sig=${sig.signatureLen} `
+                + `verified=${sig.verified} rejects_tampered=${sig.rejectsTamperedMessage} `
+                + `${sig.elapsedMs.toFixed(1)}ms` : "SIG (not run)",
+            interop ? `INTEROP ${interop.algo} agrees=${interop.agrees} `
+                + `ours=${interop.ourSha256} theirs=${interop.theirSha256} `
+                + `via=${interop.serverImpl}` : "INTEROP (not run; needs the backend)",
+          ].join("\n") + "\n"}
+          jsonProvider={() => ({ provider: PQC_PROVIDER, kem, sig, interop, server })}
+          csvProvider={() => [kem, sig].filter(Boolean).map((r: any) => ({
+            algo: r.algo, standard: r.standard, family: r.family ?? "KEM",
+            category: r.category, public_key_len: r.publicKeyLen,
+            secret_key_len: r.secretKeyLen,
+            ciphertext_or_signature_len: r.cipherTextLen ?? r.signatureLen,
+            elapsed_ms: Number(r.elapsedMs.toFixed(2)),
+          }))}
+        />
+      </div>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
         Runs NIST FIPS 203 (ML-KEM), FIPS 204 (ML-DSA) and FIPS 205 (SLH-DSA) round-trips
         <b> in your browser</b>. Each KEM round-trip encapsulates and
