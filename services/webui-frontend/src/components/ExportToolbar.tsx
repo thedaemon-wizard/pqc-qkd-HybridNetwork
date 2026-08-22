@@ -33,6 +33,20 @@ export interface ExportToolbarProps {
   csvProvider?: () => Record<string, any>[];
   /** Filename stem (default: "export"). */
   name?: string;
+  /**
+   * Whether this page has a Run control that must be started before an
+   * animation capture shows anything.
+   *
+   * The WebM and GIF tooltips ended with "Press Run first." unconditionally.
+   * Nine pages mount this toolbar and only two -- `/e2e` and `/paper-flow` --
+   * have a Run button, so on the other seven the hint told the reader to press
+   * a control that does not exist. Pages such as `/bb84` animate continuously
+   * and need no start.
+   *
+   * Default false, so a page opts in rather than inheriting an instruction
+   * that happens to be wrong for it.
+   */
+  hasRunControl?: boolean;
 }
 
 export default function ExportToolbar(props: ExportToolbarProps) {
@@ -44,6 +58,8 @@ export default function ExportToolbar(props: ExportToolbarProps) {
   // Distinct from `error`: the export succeeded, but not everywhere the user
   // might expect it to have gone.
   const [notice, setNotice] = useState<string>("");
+  // Empty on pages with no Run button. See `hasRunControl`.
+  const runHint = props.hasRunControl ? " Press Run first." : "";
   // User-selectable animation capture settings (WebM/GIF).
   const [durationSec, setDurationSec] = useState(DEFAULT_CAPTURE_MS / 1000);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
@@ -115,7 +131,7 @@ export default function ExportToolbar(props: ExportToolbarProps) {
         </Button>
       )}
       <Button variant="ghost" size="sm" disabled={busy !== null}
-              title={`High-quality animation — records ${durationSec}s as a WebM video (VP9). Press Run first.`}
+              title={`High-quality animation — records ${durationSec}s as a WebM video (VP9).${runHint}`}
               onClick={() => wrap("webm", async () => {
                 const t = target();
                 if (!t) throw new Error("no target");
@@ -124,7 +140,7 @@ export default function ExportToolbar(props: ExportToolbarProps) {
         🎬 WebM (HQ)
       </Button>
       <Button variant="ghost" size="sm" disabled={busy !== null}
-              title={`Animated GIF (universally compatible, full-resolution), ${durationSec}s. Press Run first.`}
+              title={`Animated GIF (universally compatible, full-resolution), ${durationSec}s.${runHint}`}
               onClick={() => wrap("gif", async () => {
                 const t = target();
                 if (!t) throw new Error("no target");
