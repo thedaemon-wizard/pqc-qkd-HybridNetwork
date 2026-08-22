@@ -261,23 +261,44 @@ they are not something to close silently:
   documented recovery path cannot work for the people who need it. Closing it
   means vendoring boringtun plus a cargo stage; the image already builds Rust
   for rosenpass, so it is feasible.
-- **Multi-hop: the Rosenpass layer now works; the WireGuard layer does not.**
-  This was previously recorded here as blocked on a new dependency. That was
-  wrong, and worth stating plainly: `rosenpass exchange <OWN> [PEERS]...` has
-  always been variadic -- its own help says "the `peer` token always separates
-  multiple peers" -- so the vendored v0.2.3 could do this all along. The
-  limitation was `nodes/alice/rosenpass-sidecar.sh`, which accepted exactly one
-  `RP_PEER_HOST`.
+- **Multi-hop: three of four layers now work. The fourth is an arnika
+  limitation, not a wrapper one.**
 
-  With `RP_EXTRA_PEERS` added, alice peers with bob and charlie simultaneously
-  and holds two OSKs (`pqc.psk`, `pqc.charlie.psk`); charlie completes its own
-  path end to end -- QKD key from the KME, HKDF, PSK installed on `wg0`.
+  Recorded here twice as "blocked on a new dependency". Both times that was
+  wrong, and the corrections are worth keeping:
 
-  What remains is one layer down and also needs no new dependency:
-  `nodes/alice/entrypoint.sh` issues a single `wg set peer`, so alice has bob
-  as a WireGuard peer and not charlie. Measured: charlie's `wg0` shows
-  `0 B received, 2.46 KiB sent` and no handshake, because alice does not know
-  it. Adding the second peer and its `allowed-ips` is the remaining work.
+  * **Rosenpass** was always variadic -- `exchange <OWN> [PEERS]...`, and its
+    help says so. Only `rosenpass-sidecar.sh` was single-peer. Fixed with
+    `RP_EXTRA_PEERS`; alice now holds `pqc.psk` and `pqc.charlie.psk`.
+  * **WireGuard** needed one more `wg set peer`. Fixed with `WG_EXTRA_PEERS`;
+    alice carries two peers, both handshaking, ping 0 % loss all three ways.
+  * **arnika contained a genuine upstream bug**, found only because the two
+    fixes above exposed it. `SetPSK` verified its peer with
+
+        for _, peer := range peers.Peers {
+            if peer.PublicKey.String() != r.PeerPublicKey { return ...not found }
+        }
+
+    which returns on the first NON-match, so it succeeded only when the
+    interface had exactly one peer. With two, alice installed **no** QKD PSK
+    while the tunnel came up and passed traffic regardless -- the loss of
+    post-quantum protection was completely silent, and `InvalidateTunnel` fails
+    the same way, so it could not even fail closed. Patched in
+    `nodes/alice/0001-arnika-find-the-peer-among-several.patch`; alice went from
+    0 installs and 2 lookup errors to 4 installs and 0 errors.
+
+  What remains: **alice-charlie carries no QKD-derived PSK.** arnika takes one
+  `WIREGUARD_PEER_PUBLIC_KEY`, so it manages the bob leg only; measured, 1 of
+  alice's 2 peers has a preshared key. A true chain needs a second arnika
+  instance per extra neighbour, or multi-peer support upstream. That is an
+  arnika feature gap, and it is the first genuinely upstream-shaped item of the
+  three.
+
+  A note on how this was nearly missed: after the WireGuard fix, ping succeeded
+  0 % loss in all directions and that looked like success. It was not --
+  WireGuard works perfectly well with no PSK, so the pings proved connectivity
+  and said nothing about protection. Checklist row 2.11 makes exactly this point
+  for the IPsec lane. Count PSK installs, not replies.
 
 **Open, unexplained** -- do not close by re-running:
 

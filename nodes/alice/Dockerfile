@@ -28,7 +28,24 @@ FROM golang:1.26-bookworm AS arnika-build
 WORKDIR /src
 # Vendored, license-vetted upstream (arnika-project/arnika, Apache-2.0).
 COPY submodules/arnika /src/arnika
+# Upstream's peer lookup in SetPSK returns "not found" on the first
+# NON-matching peer, so it only works when the interface has exactly one peer.
+# A node with two neighbours then installs no QKD-derived PSK -- and because
+# WireGuard is unaffected, the tunnel still comes up and passes traffic, so the
+# loss of post-quantum protection is silent. Applied with --check first so an
+# upstream fix makes this fail loudly instead of being silently skipped.
+COPY nodes/alice/0001-arnika-find-the-peer-among-several.patch /tmp/arnika-peer.patch
 WORKDIR /src/arnika
+# patch(1), not `git apply`: the copied submodule carries a `.git` FILE
+# pointing at ../../.git/modules/..., which does not exist in the image, so git
+# refuses with "not a git repository" before it ever reads the diff.
+# --dry-run first, so an upstream fix makes this fail loudly rather than being
+# silently skipped; the grep then proves the edit actually landed.
+RUN apt-get update && apt-get install -y --no-install-recommends patch \
+ && rm -rf /var/lib/apt/lists/* \
+ && patch -p1 --dry-run < /tmp/arnika-peer.patch \
+ && patch -p1 < /tmp/arnika-peer.patch \
+ && grep -q "found := false" repositories/wireguard-netlink.go
 RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
     go build -trimpath -ldflags "-w -s" -o /out/arnika .
 
