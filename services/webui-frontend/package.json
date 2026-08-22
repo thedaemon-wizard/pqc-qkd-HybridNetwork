@@ -18,7 +18,6 @@
     "html-to-image": "^1.11.13",
     "modern-gif": "^2.1.0",
     "plotly.js-dist-min": "^2.35.3",
-    "pure-rand": "^8.4.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-plotly.js": "^2.6.0",

@@ -1,10 +1,13 @@
 """PQC implementation cross-validator.
 
-For a given NIST algorithm and KAT (Known Answer Test) seed, run the test
-vector through both liboqs (production library used by oqs-provider/arnika)
-and PQClean (NIST reference implementations) and verify byte-equality.
+Cross-implementation evidence for ML-KEM: the browser generates a keypair
+with @noble, liboqs encapsulates to it here in C, and the browser decapsulates.
+Agreement on the shared secret is only possible if two independently written
+implementations both follow FIPS 203. See `/api/interop/mlkem`.
 
-This catches regressions whenever either side updates an algorithm.
+This module once claimed to compare liboqs against PQClean and verify
+byte-equality. It never did -- the "check" was `os.path.isfile` on binaries the
+image does not build -- and PQClean was archived on 2026-08-04.
 
 Endpoints:
     GET  /health
@@ -101,8 +104,10 @@ class AgilityRequest(BaseModel):
 @app.post("/api/agility")
 async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
     """Crypto-agility evidence: exercise a matrix of liboqs algorithms (ML-KEM
-    encap/decap + ML-DSA sign/verify) and report pass/fail per algorithm, plus
-    whether a PQClean reference test binary is present for cross-checking."""
+    encap/decap + ML-DSA sign/verify) and report pass/fail per algorithm.
+
+    No PQClean field is returned; the response never carried one, and this
+    docstring used to say it did."""
     if not _OQS_AVAILABLE:
         raise HTTPException(503, "liboqs not available")
     kem_algos = (req.kems if req and req.kems else DEFAULT_KEM_ALGOS)

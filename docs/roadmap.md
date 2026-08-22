@@ -133,8 +133,25 @@ rather than an oversight.
 
 **What is used.** Pure-TypeScript `@noble/*` for the cryptography, and a
 Web Worker for the BB84 Monte-Carlo with an optional WebGL2/WebGPU compute path
-for the pulse loop. The ladder degrades in that order, and every rung produces
-identical results because the physics is seeded through `pure-rand`.
+for the pulse loop.
+
+The tier is chosen by measurement rather than preference: each GPU rung is
+benchmarked against the Worker for one round and adopted only if it wins. On
+the public demo that currently keeps the Worker, and the console records why --
+`[bb84] WebGPU 34M/s <= Worker 62M/s -- keeping Worker`.
+
+> **Correction.** This paragraph previously said "every rung produces identical
+> results because the physics is seeded through `pure-rand`". No part of that
+> held. `pure-rand` was declared in `package.json`, imported nowhere, and has
+> been removed. The Worker seeds a **mulberry32** (`bb84.worker.ts`) while both
+> shaders run **xorshift32**, and every rung reseeds from `Math.random()` each
+> round -- so the rungs are statistically equivalent, not identical, and no run
+> is reproducible.
+>
+> What IS bit-exact is narrower and worth keeping straight: `Xorshift32` in
+> `bb84Channel.ts` reproduces the shader PRNG exactly, so the photon-frame
+> replay shows the pulses the shader actually computed rather than an unrelated
+> sample. That is the only place identical output is claimed, or needed.
 
 **WebAssembly.** Rejected for the cryptography. `@noble` is already constant
 time by construction and small enough that the bundle cost of a WASM build
@@ -244,7 +261,10 @@ instead; leaving them would have kept the roadmap arguing for work that exists.
 - **`/physics` renders nothing without the backend.** The editable field list
   comes from `/api/sim/params/editable`; the key-rate mathematics beside it is
   already client-side.
-- **Export toolbars are on 5 of 13 pages** (Overview, Benchmarks, Console,
-  `/e2e`, `/paper-flow`). `/bb84` in particular produces QBER, key-pool and
-  photon-frame data with no way to export any of it.
-- **`/e2e` has no failure-injection control**, though `/paper-flow` does.
+- ~~**Export toolbars are on 5 of 13 pages.**~~ **Done.** Nine of thirteen
+  pages carry one; the four without (`/topology`, `/vpn`, `/keyflow`, `/hil`)
+  are display-only prose. `/bb84` exports its QBER history, key-pool history
+  and photon frames (`BB84.tsx`), which this entry said it could not.
+- ~~**`/e2e` has no failure-injection control.**~~ **Done.** `/e2e` injects on
+  `qkd`, `pqc` and `data` with a `clear`, and decides fatality from the mode
+  rather than the layer -- see `e2eSim.injectFailure` and `e2eFailure.test.ts`.

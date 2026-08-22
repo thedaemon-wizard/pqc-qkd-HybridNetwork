@@ -141,7 +141,7 @@ pqc-qkd-hybrid/
 │   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
 │   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
-│   ├── pqc-validator/                 # (Phase 8) liboqs vs PQClean cross-check
+│   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
 │   └── qkdnetsim-kme/                 # (Phase 8) NS-3 ETSI 014 reference KME (separate container)
 ├── tools/                             # (Phase 8) Precompute scripts (MATLAB + Python fallback)
 ├── nodes/{alice,bob,charlie}/         # Per-node Docker context
@@ -226,7 +226,7 @@ Open <http://localhost:5173>. Thirteen pages are available:
 7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
 8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
 9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults (best-effort synced to the KMEs); a **client-side** live key-rate (closed-form Lo-Ma) + **client-side** μ/ν optimiser recompute in-browser as you edit, plus the backend selector (incl. `tno`)
-10. **PQC Validator** (`/pqc`) — liboqs (production) vs PQClean (NIST reference) roundtrip
+10. **PQC Validator** (`/pqc`) — client-side ML-KEM / ML-DSA / SLH-DSA via @noble, cross-checked against liboqs by `POST /api/interop/mlkem`
 11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix (ML-KEM 512/768/1024 + ML-DSA 44/65/87), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
 13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
