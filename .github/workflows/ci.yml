@@ -363,10 +363,10 @@ jobs:
             # across two hosts: the initiator reauthenticates microseconds after
             # its own load, and the responder's load of the same generation can
             # land a few hundred microseconds later. Measured at 1 failure in 45
-          # rotations on a LONG run -- note this job sees only ~6 rotations in
-          # its 240s window, so this ceiling tolerates 1 failure, not 9.
-            # rotations, self-correcting. See the "sub-millisecond rotation
-            # race" section in docs/vici-ppk.md.
+            # rotations on a LONG run, self-correcting. Note this job sees only
+            # 6-8 rotations in its 240s window, so the ceiling below tolerates
+            # ONE failure, not nine. See the "sub-millisecond rotation race"
+            # section in docs/vici-ppk.md.
             #
             # Asserting zero would make this job flake, and a flaky guard is one
             # that gets ignored. What must still fail the build is SYSTEMATIC
@@ -374,7 +374,22 @@ jobs:
             # flip rather than a race. That measured 4 failures in 9 rotations
             # before the bootstrap credential was retired, so a 20% ceiling
             # separates the two cleanly.
-            [ $((authfail * 5)) -le "$rot" ] || { echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"; fail=1; }
+            if [ $((authfail * 5)) -gt "$rot" ]; then
+              echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
+              # Print the evidence. This job used to report only the COUNT, so
+              # when it fired there was nothing to diagnose from: two runs on
+              # 2026-08-22 reported exactly 4 failures against 6 and then 8
+              # rotations, and neither could be placed in time. A constant
+              # count across different rotation counts suggests a fixed
+              # STARTUP cost rather than a per-rotation race -- the denominator
+              # only counts rotations inside the 240s window, while the
+              # numerator greps the whole container lifetime including
+              # bootstrap. That is a hypothesis, and these lines are what will
+              # confirm or kill it.
+              echo "--- $node: auth failures in context ---"
+              docker logs "$node" 2>&1 | grep -nE 'AUTH_FAILED|no PPK found|unloaded the bootstrap|unloaded orphaned|PPK rotated' | head -40
+              fail=1
+            fi
             # Two owners for one SA made this climb by one per rotation, and
             # reached 140 before it was found. Allow 2 for a make-before-break
             # reauth caught mid-flight; anything above that is the runaway.
