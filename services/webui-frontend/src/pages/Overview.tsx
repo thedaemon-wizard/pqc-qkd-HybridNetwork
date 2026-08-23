@@ -27,7 +27,14 @@ export default function Overview() {
         title="Architecture & Live Status"
         subtitle={<>Three-layer model: (1) <code>bb84-kme</code> delivers QKD keys over ETSI 014.
           (2) A Rosenpass sidecar at each node produces PQC keys.
-          (3) <code>arnika</code> fuses both via HKDF-SHA3-256 and rotates the WireGuard PSK every 30 s.</>}
+          (3) <code>arnika</code> fuses both via HKDF-SHA3-256 and installs the result.
+          {" "}<b>Two VPN lanes consume that key.</b> The <b>WireGuard</b> lane takes it as a
+          preshared key, which enters the Noise_IKpsk2 chaining key. The <b>IPsec/IKEv2</b> lane
+          (<code>alice-ipsec</code>/<code>bob-ipsec</code>) takes it as an
+          {" "}<b>RFC 8784 PPK</b> over strongSwan&rsquo;s VICI socket, alongside RFC 9370 ML-KEM-768;
+          see <a href="/vpn">VPN Protocols</a>. Rotation is configured at 30 s, but the interval
+          is when arnika <i>attempts</i> a rotation, not a guarantee: measured gaps on the public
+          host ran 30&ndash;241 s, so count rotations over a window rather than dividing by 30.</>}
       />
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
@@ -89,11 +96,12 @@ function ArchPanel() {
         {/* Transport Layer */}
         <rect x="20" y="100" width="380" height="60" rx="6" fill="#3a2a18" stroke="#ff9442" />
         <text x="210" y="128" fill="#ffd9b8" textAnchor="middle" fontSize="14">Transport: Arnika (HKDF-SHA3-256 fuses QKD‖PQC)</text>
-        <text x="210" y="146" fill="#c8a47e" textAnchor="middle" fontSize="11">ETSI GS QKD 014 client + WireGuard netlink</text>
+        <text x="210" y="146" fill="#c8a47e" textAnchor="middle" fontSize="11">ETSI 014 client + key writers: WireGuard netlink / strongSwan VICI</text>
         {/* Hop Layer */}
         <rect x="20" y="180" width="380" height="60" rx="6" fill="#1f3322" stroke="#3ddc84" />
-        <text x="210" y="208" fill="#c4f5d8" textAnchor="middle" fontSize="14">Hop: WireGuard tunnel (PSK rotation every 30s)</text>
-        <text x="210" y="226" fill="#84c89c" textAnchor="middle" fontSize="11">ChaCha20-Poly1305 + Noise + PSK</text>
+        <text x="210" y="204" fill="#c4f5d8" textAnchor="middle" fontSize="14">Hop: WireGuard tunnel, or IPsec/IKEv2 (RFC 8784 PPK)</text>
+        <text x="210" y="220" fill="#84c89c" textAnchor="middle" fontSize="11">ChaCha20-Poly1305 + Noise_IKpsk2 + PSK</text>
+        <text x="210" y="234" fill="#84c89c" textAnchor="middle" fontSize="11">AES-GCM-256 + ML-KEM-768 (RFC 9370) + PPK</text>
         {/* arrows */}
         <line x1="210" y1="80" x2="210" y2="100" stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />
         <line x1="210" y1="160" x2="210" y2="180" stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />

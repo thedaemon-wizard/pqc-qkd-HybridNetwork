@@ -4,7 +4,15 @@ import PageHeader from "../components/PageHeader";
 import Button from "../components/Button";
 import ExportToolbar from "../components/ExportToolbar";
 
-const NAMES = ["alice", "bob", "bb84-kme-a", "bb84-kme-b"];
+// Both lanes. The IPsec pair was missing while the public host ran only the
+// WireGuard profile; the host added `docker-compose.strongswan.yml` on
+// 2026-08-23, so `alice-ipsec`/`bob-ipsec` are real containers whose logs
+// carry the charon and VICI traffic (`PPK rotated`, `using PPK for PPK_ID`).
+// A name with no container simply yields an error line in the pane, which is
+// the honest outcome -- the page tails whatever Docker reports.
+const NAMES = [
+  "alice", "bob", "bb84-kme-a", "bb84-kme-b", "alice-ipsec", "bob-ipsec",
+];
 
 export default function Console() {
   const [active, setActive] = useState("alice");

@@ -126,8 +126,22 @@ Known limits, stated plainly:
   - The PPK is NOT mixed into SKEYSEED, so SK_ei/SK_er of the initial IKE SA are
     not PPK-protected -- only SK_d (hence all Child SA KEYMAT) and the auth keys.
   - RFC 8784 covers the initial IKE SA only, so consuming fresh QKD material
-    requires a reauthentication, not a rekey. RFC 9867 (Nov 2025) lifts this,
-    but strongSwan 6.0.7 does not implement it yet.`}
+    requires a reauthentication, not a rekey. RFC 9867 (Nov 2025) lifts this;
+    it names QKD explicitly as the motivating case.
+  - Two observations about RFC 9867 here, rather than a claim that it is
+    unimplemented -- a build option we do not know about would make a flat
+    claim wrong, and both of these are reproducible in a minute:
+      1. notify_payload.h in strongSwan 6.0.7 defines USE_PPK (16435),
+         PPK_IDENTITY (16436), NO_PPK_AUTH (16437) and
+         INTERMEDIATE_EXCHANGE_SUPPORTED (16438). RFC 9867 needs
+         USE_PPK_INT (16445) and PPK_IDENTITY_KEY (16446); neither appears
+         anywhere under src/, so they can be neither sent nor parsed.
+      2. The IKE_SA_INIT response on this lane carries N(USE_PPK). RFC 9867
+         s3.1 has a responder return either USE_PPK_INT or USE_PPK and never
+         both, so that single notify settles which specification is running.
+    Note that N(IKE_INT_SUP) also appears on this lane; it is RFC 9242's
+    intermediate exchange, present for RFC 9370's ML-KEM key exchange, and is
+    NOT an RFC 9867 indicator.`}
         </pre>
       </div>
     </div>
