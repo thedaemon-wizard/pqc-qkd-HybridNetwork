@@ -94,7 +94,7 @@ secrets into the WireGuard PSK channel. The closest live alternative is
 | Language | Go | Go |
 | License | Apache-2.0 | GPL-3.0 |
 | Last commit | 2026-04-07 | 2026-05-08 |
-| Key sources | QKD (ETSI 014) ‖ PQC (Rosenpass file) | PQC handshake (Classic McEliece, ML-KEM-1024, Kyber1024) |
+| Key sources | QKD (ETSI 014) ‖ PQC (Rosenpass file) | PQC handshake (Classic McEliece 460896 + Kyber512 -- the pinned Rosenpass suite; neither ML-KEM-1024 nor Kyber1024 is used) |
 | KDF | HKDF-SHA3-256 (`submodules/arnika/kdf/kdf.go:17-28`) | embedded in `mullvad-upgrade-tunnel` |
 | WireGuard hook | `wgctrl` netlink, write `preshared-key` | `PostUp = mullvad-upgrade-tunnel -wg-interface %i` |
 | QKD support | Yes (ETSI 014 native) | No (PQC-only) |

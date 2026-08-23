@@ -23,7 +23,7 @@ we record (a) where it is implemented and (b) how to reproduce it.
 | II.A | KMS-free layered overlay (no centralised KMS) | docker-compose 3-network split; per-node `bb84-kme-*` instead of central KMS | `make ps` shows no central KMS container; `qkd-net` is `internal: true` |
 | II.B | ETSI GS QKD 014 between QKD device and gateway | `services/bb84-kme/app/etsi014.py` (matches `submodules/arnika/repositories/kms.go:43-101`) | `pytest tests/test_etsi014_contract.py` |
 | II.C | Arnika as the QKD↔WireGuard PSK injector | unmodified `submodules/arnika/` (Go binary baked into node image) | `docker logs alice \| grep "PSK configured"` |
-| II.D | Rosenpass E2E PQC handshake (Classic McEliece + Kyber/ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
+| II.D | Rosenpass E2E PQC handshake (Classic McEliece 460896 + Kyber512; NOT ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
 | III   | Multi-hop trusted-node chain (Alice-Charlie-Bob) | `docker-compose.multihop.yml` (profile `multihop`) | **Implemented.** The relay forms and every hop carries a QKD-derived preshared key; verify with checklist row 3.5, which counts PSK installs rather than ping replies. This entry previously read "Partial, do not cite as verified ... the relay does not form because alice's Rosenpass sidecar peers with bob only", which stopped being true once the sidecar gained `RP_EXTRA_PEERS`. |
 | IV.A | Periodic PSK rotation, default 120s | `ARNIKA_INTERVAL` env, default 30s in PoC for demo speed | `wg show wg0` PSK changes within 30s |
 | IV.B | Setup time dominated by slowest QKD hop, not cumulative | `benchmarks/handshake_timer.py` | `make bench` |
@@ -36,4 +36,4 @@ we record (a) where it is implemented and (b) how to reproduce it.
 | III.A | vKMS per-node + central QuSec controller | **Future work** (`docs/roadmap.md` §F). Current PoC uses per-node KME only. |
 | III.B | 4 security levels (L1-L4) chosen adaptively | Not implemented in PoC-A. Hybrid is fixed at L3 (HKDF-fused QKD+PQC). |
 | IV   | HKDF-SHA256 explicit recipe | We use SHA3-256 (matches arnika); SHA256 variant is a future toggle. |
-| V    | ML-KEM-768 + dual-KEM combinations | ML-KEM-768 via Rosenpass; dual-KEM (e.g. ML-KEM + Classic McEliece) is roadmap. |
+| V    | ML-KEM-768 + dual-KEM combinations | **Partly.** The IPsec lane negotiates real FIPS 203 ML-KEM-768 (RFC 9370 `KE1_ML_KEM_768`), but that is the IKE key exchange. Rosenpass, which supplies the PQC half of `HKDF(QKD \|\| PQC)`, is **Classic McEliece 460896 + Kyber512** -- a dual-KEM already, but Kyber512 is pre-standardisation Kyber, not ML-KEM. This row previously read "ML-KEM-768 via Rosenpass", which conflated the two. |

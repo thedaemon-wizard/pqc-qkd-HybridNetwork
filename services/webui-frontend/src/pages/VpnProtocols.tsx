@@ -131,11 +131,15 @@ Known limits, stated plainly:
   - Two observations about RFC 9867 here, rather than a claim that it is
     unimplemented -- a build option we do not know about would make a flat
     claim wrong, and both of these are reproducible in a minute:
-      1. notify_payload.h in strongSwan 6.0.7 defines USE_PPK (16435),
-         PPK_IDENTITY (16436), NO_PPK_AUTH (16437) and
-         INTERMEDIATE_EXCHANGE_SUPPORTED (16438). RFC 9867 needs
-         USE_PPK_INT (16445) and PPK_IDENTITY_KEY (16446); neither appears
-         anywhere under src/, so they can be neither sent nor parsed.
+      1. RFC 9867 needs USE_PPK_INT (16445) and PPK_IDENTITY_KEY (16446).
+         Neither appears anywhere under strongSwan 6.0.7's src/, so neither
+         can be sent or parsed. Note where they would sit: notify_payload.h
+         carries USE_PPK (16435), PPK_IDENTITY (16436), NO_PPK_AUTH (16437),
+         INTERMEDIATE_EXCHANGE_SUPPORTED (16438), ADDITIONAL_KEY_EXCHANGE
+         (16441), USE_AGGFRAG (16442) and SA_RESOURCE_INFO (16444) -- 16444
+         is the highest Status Type in the enum, and the next entry is
+         INITIAL_CONTACT_IKEV1 (24578). So 16445 and 16446 are the two values
+         immediately above the top of the range, not a gap in the middle.
       2. The IKE_SA_INIT response on this lane carries N(USE_PPK). RFC 9867
          s3.1 has a responder return either USE_PPK_INT or USE_PPK and never
          both, so that single notify settles which specification is running.
