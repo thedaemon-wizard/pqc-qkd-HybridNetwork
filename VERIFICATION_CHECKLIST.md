@@ -9,13 +9,13 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-199 rows, of which **36 are machine-checked and 163 are not**. Worth knowing
+200 rows, of which **36 are machine-checked and 164 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
 | 1 | Build and unit gates | 18 | **18** | 0 |
-| 2 | IPsec lane | 14 | 1 | 13 |
+| 2 | IPsec lane | 15 | 1 | 14 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **117** | 4 | **113** |
 | 5 | Code quality | 12 | 4 | 8 |
@@ -85,17 +85,25 @@ nodes up on every pull request and asserts 2.6, 2.7, 2.8, 2.8b, 2.11, 2.12 and
 2.13 automatically. Treat a green run as those rows having been executed, not
 merely intended.
 
-The rows are still written as commands because the public demo does **not** run
-this lane -- it needs `NET_ADMIN`, and the cloud profile brings up the WireGuard
-nodes (`alice`, `bob`) with the WebUI instead. Running these against the demo
-host will find no `alice-ipsec` container, which is expected rather than a
-failure.
+**As of 2026-08-23 the public host runs this lane too.** It was brought up with
+`docker-compose.strongswan.yml` added to the cloud profile, and
+`docker compose ls` lists all three files under project `pqcqkd`. Rows 2.1,
+2.3, 2.11 and 2.14 have been executed against it and are annotated with the
+measured values.
+
+> This paragraph previously read: *"the public demo does not run this lane ...
+> Running these against the demo host will find no `alice-ipsec` container,
+> which is expected rather than a failure."* Left in place after the lane was
+> started, it would have turned a genuinely absent container into an expected
+> one -- the same shape as the guard that dumped nothing on a passing run and
+> made an absence look like evidence. Check `docker ps` before trusting either
+> reading.
 
 | # | Check | Command | Expected |
 |---|---|---|---|
 | 2.1 | ML-KEM is available to charon | `docker exec alice-ipsec swanctl --list-algs \| grep ML_KEM` | `ML_KEM_768[openssl]` or `[ml]` |
 | 2.2 | Connection loads (proposal parses) | `docker exec alice-ipsec swanctl --list-conns` | `loaded connection 'pqcqkd-vpn'` |
-| 2.3 | PPK is configured and required | same output | `ppk: ppk-qkd@pqcqkd.local, required` |
+| 2.3 | **PPK is required on BOTH ends** | `for n in alice-ipsec bob-ipsec; do docker exec $n swanctl --list-conns \| grep -i ppk; done` | `ppk: ppk-qkd@pqcqkd.local, required` **twice**. `ppk_required` is a LOCAL setting, so one node proves only that node: a peer configured `optional` would still offer `NO_PPK_AUTH` and could fall back to authenticating without the PPK, and the strict side's `--list-conns` cannot show it. This row previously read "same output" and checked one end. Measured on the public host 2026-08-23: `required` on both. |
 | 2.4 | Reauth, not rekey | same output | initiator: `reauthentication every 300s, no rekeying`; responder: no reauthentication |
 | 2.5 | Traffic selectors are the real hosts | same output | `10.30.0.20/32` ↔ `10.30.0.21/32` |
 | 2.6 | SA establishes with ML-KEM | `docker exec alice-ipsec swanctl --list-sas` | `ESTABLISHED`, proposal contains `ML_KEM_768` |
@@ -104,9 +112,10 @@ failure.
 | 2.8b | **Exactly one IKE_SA** | `docker exec alice-ipsec swanctl --list-sas \| grep -c ESTABLISHED` after 4+ rotations | `1` (transiently `2` during a make-before-break reauth). Two owners for one SA previously grew this by one per rotation, reaching 140. |
 | 2.9 | **KME failure is loud, not silent** | stop `bb84-kme-a`, watch `docker logs alice-ipsec` | explicit error; **no** fallback to random key material |
 | 2.10 | No credential leak across rotations | `swanctl --list-conns` / VICI `get-shared` over several rotations | one current id, previous unloaded, never an id-less entry |
-| 2.11 | **Traffic actually traverses ESP** | `docker exec alice-ipsec ping -c3 10.30.0.21`, then `docker exec alice-ipsec swanctl --list-sas \| grep -m1 'out '` | a non-zero byte count, e.g. `out c0ffee42, 252 bytes`. Ping replies alone are NOT sufficient: a tunnel that is up but installs no ESP counters is passing traffic in the clear past the policy, and it answers pings exactly the same way. CI asserts the byte count, and this row previously did not. |
+| 2.11 | **Traffic actually traverses ESP** | `docker exec alice-ipsec ping -c3 10.30.0.21`, then `docker exec alice-ipsec swanctl --list-sas \| grep -m1 'out '` | a non-zero byte count, e.g. `out c0ffee42, 252 bytes`. Ping replies alone are NOT sufficient: a tunnel that is up but installs no ESP counters is passing traffic in the clear past the policy, and it answers pings exactly the same way. CI asserts the byte count, and this row previously did not. **Two things make the reading exact.** Check the arithmetic, not just non-zero: 20 ICMP echoes is `20 x 84 = 1680` bytes (20 B IP + 8 B ICMP + 56 B payload), and the SPI on one node's `out` must equal the other's `in`. And read it IMMEDIATELY -- the counter is per CHILD_SA, so a key rotation installs a new SPI and resets it to zero; a later zero means "nothing on this SPI", not "nothing ever". Measured on the public host 2026-08-23: `0 bytes/0 packets` before, then **1680 bytes / 20 packets in and out on both nodes** with SPIs paired (`c885641c` alice-out = bob-in). |
 | 2.12 | **Rotation actually happens, more than once** | Over a 240 s window: `docker logs alice-ipsec \| grep -c 'PPK rotated'` -> at least 2. A lane that establishes once and never rotates satisfies every row above while the QKD material is never consumed, which is the entire point of the integration. |
-| 2.13 | **Auth failures stay in race territory, not systematic** | `authfail * 5 <= rotations`. Rotating a PPK under a stable `PPK_ID` cannot be atomic across two hosts, so zero is the wrong assertion and would make the guard flake -- measured 1 failure in 45 rotations, self-correcting. What must fail is SYSTEMATIC mismatch, two credentials answering one `PPK_ID`: that measured 4 in 9 before the bootstrap credential was retired. The 20% ceiling separates a race from a coin flip. **Know the operating point before reading that as generous:** the job's window is `sleep 240` and both nodes report **6** rotations, so the ceiling is `floor(6/5) = 1` failure per run, not nine. A run on 2026-08-22 reported 4 failures in 6 rotations on both nodes and then 0 in 6 on an immediate re-run of the same commit with no lane file changed -- outside race territory and unexplained, so treat a repeat as signal rather than re-running until green. See `docs/vici-ppk.md`. |
+| 2.13 | **Auth failures stay in race territory, not systematic** | `authfail * 5 <= rotations`. Rotating a PPK under a stable `PPK_ID` cannot be atomic across two hosts, so zero is the wrong assertion and would make the guard flake -- measured 1 failure in 45 rotations, self-correcting. What must fail is SYSTEMATIC mismatch, two credentials answering one `PPK_ID`: that measured 4 in 9 before the bootstrap credential was retired. The 20% ceiling separates a race from a coin flip. **Know the operating point before reading that as generous:** the job's window is `sleep 240` and both nodes report **6** rotations, so the ceiling is `floor(6/5) = 1` failure per run, not nine. A run on 2026-08-22 reported 4 failures in 6 rotations on both nodes and then 0 in 6 on an immediate re-run of the same commit with no lane file changed -- outside race territory and unexplained, so treat a repeat as signal rather than re-running until green. **The "4 or 0, never 1 to 3" reading is withdrawn.** Once the timeline dump was made unconditional the observed counts were **0, 0, 1, 4 and 8** (`43059f5` 0/9, `16cbf1f` 0/9, `985e32a` 1/6, `acdf2f8` 4/8, `05e15db` 8/8) -- 1 and 8 both fall outside it, so there is no bimodality to explain. The apparent pattern came from a small sample plus a guard that printed nothing on the runs that would have contradicted it. Note too that a green job is not a clean one: `985e32a` passed *with* a failure, under the ceiling. See `docs/vici-ppk.md` and `docs/roadmap.md`. |
+| 2.14 | **Count rotations over a window; do not infer them from a snapshot** | Sample `swanctl --list-sas` every 30 s for 10 min, then `docker logs <node> --since=11m \| grep -c 'PPK rotated'` and the same for `using PPK for`. Expect the two counts EQUAL, `AUTH_FAILED`/`MAC mismatched` at 0, and **concurrent `ESTABLISHED` SAs pinned at 1** (rising numbers are normal -- each reauthentication makes a new `ike_sa_t`; what matters is how many exist at once, since two owners once reached 140). Do NOT read `#N` as a rotation count: it is a charon-global `unique_id` that also counts half-open and failed SAs, so its matching a credential suffix is coincidence. Measured on the public host 2026-08-23: **6 rotations, 6 adoptions, 0 failures on both nodes, concurrency 1 across all 20 samples**. Note the cadence is NOT the configured interval -- `ARNIKA_INTERVAL=30s`, but the seven observed gaps were 30, 90, 90, 60, 241, 120, 120 s. Only one matched. Report the counted number and the window; never multiply the interval. |
 
 ---
 
