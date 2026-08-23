@@ -14,7 +14,13 @@ export default function KeyFlow() {
         "Sifted (basis-match)",   // 1
         "Reconciled (QBER ok)",   // 2
         "QKD key (256b)",         // 3
-        "Rosenpass ML-KEM-768",   // 4
+        // NOT ML-KEM. The pinned Rosenpass (v0.2.3) names its own suite in the
+        // domain-separation label at rosenpass/src/labeled_prf.rs:
+        //   "Rosenpass v1 mceliece460896 Kyber512 ChaChaPoly1305 BLAKE2s"
+        // Kyber512 is pre-standardisation Kyber, not FIPS 203 ML-KEM; liboqs
+        // ships them as separate algorithms. The ML-KEM-768 on the IPsec lane
+        // is real FIPS 203, but that is the IKE key exchange, not this input.
+        "Rosenpass McEliece+Kyber512",   // 4
         "PQC key (256b)",         // 5
         "HKDF-SHA3-256",          // 6
         "WireGuard PSK",          // 7

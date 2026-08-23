@@ -60,7 +60,7 @@ The goal of this PoC is to reproduce the three-layer model from
 
 | Layer | Role | Implementation |
 |---|---|---|
-| End-to-End (PQC) | Post-quantum key exchange between nodes | Rosenpass (ML-KEM-768) |
+| End-to-End (PQC) | Post-quantum key exchange between nodes | Rosenpass v0.2.3 (Classic McEliece 460896 + Kyber512) |
 | Transport | Fetches QKD/PQC keys, fuses them via HKDF and injects the derived key | **arnika (Go, upstream unchanged; this project adds a strongSwan VICI key-writer adapter)** |
 | Hop (WireGuard) | Real encryption with ChaCha20-Poly1305 + Noise + PSK | WireGuard kernel module |
 
