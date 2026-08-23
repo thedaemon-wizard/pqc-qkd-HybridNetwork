@@ -435,15 +435,31 @@ product name, so these survive every green CI run.
      timeline used to dump only when `authfail > 0`, so a passing run printed
      nothing and appeared to show the bootstrap surviving.
   2. *"The PQC half diverges"* (crossing Rosenpass initiations leaving each
-     peer holding the other's OSK). False: the two `pqc.psk` files are
-     byte-identical, measured both on the live deployment and in the green CI
-     run (`e5f54ee7a7309ddd77132fc7` on both nodes), and the QKD `key_id`s are
-     shared across the pair.
+     peer holding the other's OSK). **False, and now on the evidence that
+     counts.** The first measurement of this was the green CI run
+     (`e5f54ee7a7309ddd77132fc7` on both nodes) plus the live deployment --
+     which refutes nothing, because a run that works is expected to have
+     matching halves. It reads as circular the moment anyone checks.
 
-  So the defect is real and proven, and **which half diverges is still open**.
-  CI now measures it every run -- a truncated hash of each node's PQC half and
-  the `key_id`s each used -- so the next failing run localises it instead of
-  producing another bare count. The 20 % threshold is deliberately unchanged.
+     A **failing** run settles it: 4 failures in 10 rotations on 2026-08-23,
+     and the two nodes' PQC halves were byte-identical at
+     `630b22dc...` **on that run**. So the Rosenpass half is excluded on the
+     only kind of run where exclusion means anything.
+
+  So the defect is real and proven, and the localisation is **half done**: the
+  PQC half is ruled out, and what remains is the QKD half -- specifically the
+  `key_id` exchange, since arnika elects a PRIMARY per interval which fetches
+  `enc_keys`, sends the id, and leaves the BACKUP to resolve it via `dec_keys`.
+  An id sent on one node with no matching receipt on the other puts the two
+  ends on different QKD keys, which with the PQC halves identical is the whole
+  defect.
+
+  **That is not yet demonstrated.** The 2026-08-23 run showed two ids on alice
+  absent from bob's list, which looks conclusive and is not: `tail` truncates,
+  so "bob never received it" and "the tail cut it off" produce the same output.
+  Only one id carried role context and that one was healthy. CI now captures
+  `SND`/`RCV`/`REQ` with the interval and role, so the next failing run
+  distinguishes the two. The 20 % threshold is deliberately unchanged.
 - **`arXiv:2511.21253` is cited for a formula it does not contain.** The finite-
   size penalty implemented in `_skr.py` and
   `tools/precompute_keyrate_table_fallback.py` is a generic first-order term,
