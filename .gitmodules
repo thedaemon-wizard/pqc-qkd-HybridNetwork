@@ -56,3 +56,10 @@
 [submodule "submodules/tno-qkd-key-rate"]
 	path = submodules/tno-qkd-key-rate
 	url = https://github.com/TNO-Quantum/communication.qkd_key_rate
+	# `pip install -e` on this submodule leaves an egg-info directory and several
+	# __pycache__ trees in its working copy, so the PARENT reported
+	# ` M submodules/tno-qkd-key-rate` permanently. No tracked file is modified
+	# and the pin is unaffected -- it is build output. Ignoring untracked files
+	# keeps `git status` meaningful; a status that is always dirty is one nobody
+	# reads. Tracked-file modifications and pin changes still show.
+	ignore = untracked
