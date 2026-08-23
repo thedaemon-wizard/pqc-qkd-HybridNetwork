@@ -447,11 +447,28 @@ jobs:
                   'sha256sum /var/lib/rosenpass/pqc.psk 2>/dev/null | cut -c1-24' 2>/dev/null || true)
             printf '  %-12s %s\n' "$node" "${h:-<absent or unreadable>}"
           done
-          echo "=== QKD half: key_ids each node used, most recent last ==="
+          echo "=== QKD half: the key_id exchange, WITH roles ==="
+          # Bare ids are not enough. Measured on 2026-08-23: a failing run showed
+          # two ids on alice that were absent from bob's list, which looks like
+          # the answer -- but the ids alone cannot distinguish "bob never
+          # received it" from "the tail cut it off". Only one id carried role
+          # context, and that one was healthy:
+          #   PRIMARY[11] [SND] send key_id c7f2a948
+          #   BACKUP[12]  [RCV] received key_id c7f2a948
+          #   BACKUP[12]  [REQ] request QKD key for key_id c7f2a948
+          # arnika elects a PRIMARY per interval; it fetches enc_keys, sends the
+          # id, and the BACKUP resolves that id via dec_keys. If an id is SND on
+          # one node with no matching RCV on the other, the two ends derive from
+          # different QKD keys -- which, with the PQC halves byte-identical, is
+          # the whole defect. Capture SND/RCV/REQ so the next failure settles it.
           for node in alice-ipsec bob-ipsec; do
             echo "  --- $node"
             docker logs "$node" 2>&1 \
-              | grep -aoE 'key_id [0-9a-f-]{36}' | tail -6 | sed 's/^/      /' || true
+              | grep -aoE '(PRIMARY|BACKUP)\[[0-9]+\].{0,14}\[(SND|RCV|REQ|OK)\].{0,60}key_id [0-9a-f-]{36}' \
+              | tail -14 | sed 's/^/      /' || true
+            echo "      -- bare ids (fallback if the pattern above misses):"
+            docker logs "$node" 2>&1 \
+              | grep -aoE 'key_id [0-9a-f-]{36}' | sort -u | tail -10 | sed 's/^/        /' || true
           done
           echo
           echo "Reading it: identical PQC hashes + a shared key_id means both"
