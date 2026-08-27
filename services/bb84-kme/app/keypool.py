@@ -57,7 +57,49 @@ class PoolStats:
     rounds_aborted: int = 0
     last_qber: float = 0.0
     last_round_ms: float = 0.0
-    last_skr_bps: float = 0.0
+    # `modelled_skr_bps`, not `last_skr_bps`.
+    #
+    # Every backend fills RoundOutcome.skr_bps from `skr_bps_from_config(cfg)`,
+    # whose signature is `(cfg) -> float` -- it takes no round. So this is a
+    # closed-form prediction from config/qkd_params.yaml, and no round can move
+    # it. It sat in the `last_*` group carrying a per-round prefix, between
+    # `last_qber` and `intercepted_total`, both of which really are measured.
+    #
+    # What that looked like on the public demo, 2026-08-27:
+    #
+    #   alice  rounds=6      last_skr_bps=12072051.175288066
+    #   bob    rounds=12126  last_skr_bps=12072051.175288066
+    #
+    # Identical to the last mantissa bit across a 2000x difference in rounds,
+    # and equal to what the config alone predicts with no simulator running --
+    # while `last_qber` (0.0098 vs 0.0) and `last_round_ms` (220.8 vs 300.3)
+    # differed, because those are measurements.
+    #
+    # Renamed rather than aliased: keeping `last_skr_bps` as a synonym would
+    # preserve the claim under the old name, and a shape change fails loudly
+    # where a meaning change fails silently.
+    modelled_skr_bps: float = 0.0
+    # Stated in the payload rather than left to the field name alone, so a
+    # consumer reading JSON does not have to know this convention.
+    skr_provenance: str = "closed-form from config; not measured per round"
+    # Whether the LAST round's physics was measured or generated.
+    #
+    # The simqn backend has computed `backend_meta["synthetic"]` for a long
+    # time, and tests/test_skr_is_not_a_sifting_ratio.py asserts it is present
+    # and a bool -- under a docstring saying "presenting generated bits as a
+    # simulation result without saying so is how a demo starts reporting
+    # numbers nobody can reproduce". It was then dropped here: `backend_meta`
+    # is read by nothing outside backends/, and /sim/stats exposed no such key.
+    # Computed, unit-tested, and discarded before any caller could see it, so
+    # the marker protected nothing.
+    #
+    # None means the backend said nothing either way -- distinct from False,
+    # which is a backend affirming the round was measured.
+    last_round_synthetic: bool | None = None
+    # Which per-round quantities the backend could not measure, by name. The
+    # qkdnetsim_proxy reports qber=0.0 for a peer that serves key material and
+    # no physics at all; 0.0 is not optimistic there, it is impossible.
+    last_round_unmeasured: list[str] = field(default_factory=list)
     intercepted_total: int = 0
     keys_emitted: int = 0
     pool_size: int = 0
@@ -139,7 +181,14 @@ class KeyPool:
             self._stats.rounds_total += 1
             self._stats.last_qber = r.qber
             self._stats.last_round_ms = r.elapsed_ms
-            self._stats.last_skr_bps = r.skr_bps
+            self._stats.modelled_skr_bps = r.skr_bps
+            meta = r.backend_meta or {}
+            syn = meta.get("synthetic")
+            self._stats.last_round_synthetic = syn if isinstance(syn, bool) else None
+            unmeasured = meta.get("unmeasured")
+            self._stats.last_round_unmeasured = (
+                list(unmeasured) if isinstance(unmeasured, (list, tuple)) else []
+            )
             self._stats.intercepted_total += r.intercepted
             self._stats.last_frames = r.sample_frames
             if r.accepted:
@@ -242,7 +291,10 @@ class KeyPool:
             rounds_aborted=self._stats.rounds_aborted,
             last_qber=self._stats.last_qber,
             last_round_ms=self._stats.last_round_ms,
-            last_skr_bps=self._stats.last_skr_bps,
+            modelled_skr_bps=self._stats.modelled_skr_bps,
+            skr_provenance=self._stats.skr_provenance,
+            last_round_synthetic=self._stats.last_round_synthetic,
+            last_round_unmeasured=list(self._stats.last_round_unmeasured),
             intercepted_total=self._stats.intercepted_total,
             keys_emitted=self._stats.keys_emitted,
             pool_size=len(self._buf),

@@ -202,8 +202,15 @@ Closed this round, with the evidence rather than the intention:
   MathJax subset and were showing as raw source.
 - **Two shell scripts were unrunnable** (CRLF), including the repository's own
   secret scanner. Fixed by normalisation; `.gitattributes` prevents recurrence.
+> **On the 12.07 Mbps figure.** It is the closed-form rate the SHIPPED
+> configuration implies, not something any run measured. `skr_bps_from_config`
+> takes only `cfg`; two demo nodes at 6 and 12126 rounds report it
+> bit-identically. It is the right number to compare a backend against -- that
+> is the whole point of the comparison below -- but it is a prediction, and
+> "an actual 12.07 Mbps" said otherwise. See `modelled_skr_bps` on /sim/stats.
+
 - **`skr_bps` reported a sifting fraction, not a secret-key rate**, in all
-  three backends -- 500 Mbps against an actual 12.07 Mbps, a factor of 41. All
+  three backends -- 500 Mbps against a closed-form 12.07 Mbps, a factor of 41. All
   now route through the golden-vector-tested GLLP/Lo-Ma model. SimQN also
   flags synthesised rounds, which the default configuration produces.
 - **The CV-QKD backend emitted zero keys** (165 rounds, 165 aborts on the live

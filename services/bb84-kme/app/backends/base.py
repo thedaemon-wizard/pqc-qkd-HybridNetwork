@@ -59,7 +59,15 @@ class RoundOutcome:
     n_sifted: int
     intercepted: int
     elapsed_ms: float
-    skr_bps: float = 0.0          # estimated secret-key rate
+    # Closed-form secret-key rate for THIS CONFIG, not a measurement of this
+    # round. Every backend fills it from `skr_bps_from_config(cfg)`, whose
+    # signature is `(cfg) -> float` -- there is no round argument, so two nodes
+    # differing by thousands of rounds report bit-identical values. Surfaced as
+    # `modelled_skr_bps` on /sim/stats for that reason; see keypool.PoolStats.
+    #
+    # The comment here previously read "estimated secret-key rate", which reads
+    # as "measured, with error bars" rather than "predicted, from parameters".
+    skr_bps: float = 0.0
     sample_frames: list[dict] = field(default_factory=list)
     backend_meta: dict[str, Any] = field(default_factory=dict)
 

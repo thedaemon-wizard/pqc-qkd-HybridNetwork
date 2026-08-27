@@ -1,42 +1,33 @@
 import Plot from "react-plotly.js";
+import { KEY_FLOW_EDGES, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
+/**
+ * Hybrid key derivation flow.
+ *
+ * The graph is defined in keyFlowGraph.ts as a named edge list and checked by
+ * keyFlowGraph.test.ts. It used to be three parallel arrays inline here, and in
+ * that form the "WireGuard PSK" node was referenced by no edge at all -- the one
+ * arrow the paragraph below promises was the only one the figure did not draw.
+ * See that file for the full reading.
+ */
 export default function KeyFlow() {
-  // Static Sankey representing the HKDF combination flow.
-  // Animation: in a follow-up we'll subscribe to PSK rotation events and recolor.
+  const links = toSankeyLinks();
+  const nodeColor = ["#3ddc84", "#3ddc84", "#3ddc84", "#3ddc84",
+                     "#7c5cff", "#7c5cff", "#ff9442", "#5b8def"];
+  // Colour each link by its SOURCE, so the lane a flow belongs to is derived
+  // rather than maintained as a fourth parallel array that can fall out of step.
+  const linkColor = links.source.map((i) => `${nodeColor[i]}70`);
+
   const data: any = [{
     type: "sankey",
     orientation: "h",
     node: {
       pad: 24,
       thickness: 22,
-      label: [
-        "BB84 raw bits",          // 0
-        "Sifted (basis-match)",   // 1
-        "Reconciled (QBER ok)",   // 2
-        "QKD key (256b)",         // 3
-        // NOT ML-KEM. The pinned Rosenpass (v0.2.3) names its own suite in the
-        // domain-separation label at rosenpass/src/labeled_prf.rs:
-        //   "Rosenpass v1 mceliece460896 Kyber512 ChaChaPoly1305 BLAKE2s"
-        // Kyber512 is pre-standardisation Kyber, not FIPS 203 ML-KEM; liboqs
-        // ships them as separate algorithms. The ML-KEM-768 on the IPsec lane
-        // is real FIPS 203, but that is the IKE key exchange, not this input.
-        "Rosenpass McEliece+Kyber512",   // 4
-        "PQC key (256b)",         // 5
-        "HKDF-SHA3-256",          // 6
-        "WireGuard PSK",          // 7
-      ],
-      color: ["#3ddc84", "#3ddc84", "#3ddc84", "#3ddc84",
-              "#7c5cff", "#7c5cff",
-              "#ff9442",
-              "#5b8def"],
+      label: [...KEY_FLOW_NODES],
+      color: nodeColor,
     },
-    link: {
-      source: [0, 1, 2, 3, 4, 5, 3, 5],
-      target: [1, 2, 3, 6, 5, 6, 6, 6],
-      value:  [200, 120, 100, 32, 256, 32, 32, 32],
-      color:  ["#3ddc8430","#3ddc8430","#3ddc8430","#3ddc8470",
-               "#7c5cff30","#7c5cff70","#3ddc8470","#7c5cff70"],
-    },
+    link: { ...links, color: linkColor },
   }];
 
   return (
@@ -44,8 +35,18 @@ export default function KeyFlow() {
       <h2 style={{ marginTop: 0 }}>Hybrid Key Derivation Flow</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
         The QKD lane (green) and the PQC lane (purple) are fused by HKDF-SHA3-256
-        (orange) into the 32-byte WireGuard PSK. Reference:
-        <code>submodules/arnika/kdf/kdf.go:12-27</code>
+        (orange) into the 256-bit WireGuard PSK. <b>Widths are bits</b> — the two
+        256-bit inputs give 512 bits of keying material, and HKDF emits 256; that
+        narrowing at the orange node is the derivation, not a drawing error.
+      </p>
+      <p style={{ color: "#6b7796", maxWidth: 720, fontSize: 12 }}>
+        The first three widths ({KEY_FLOW_EDGES.filter((e) => e.illustrative).length} of{" "}
+        {KEY_FLOW_EDGES.length} links, marked <code>illustrative</code> in
+        <code> keyFlowGraph.ts</code>) show the <i>shape</i> of sifting and
+        reconciliation at a readable scale. They are not the block sizes{" "}
+        <a href="/bb84">/bb84</a> runs, and they are not measurements — read that
+        page for real per-round counts. Everything from “QKD key” rightwards is
+        the actual 256-bit key material.
       </p>
       <Plot
         data={data}
@@ -57,14 +58,36 @@ export default function KeyFlow() {
         config={{ displaylogo: false }}
         style={{ width: "100%" }}
       />
+      <p style={{ color: "#9aa9d8", maxWidth: 760, fontSize: 12, marginBottom: 4 }}>
+        The derivation, from <code>submodules/arnika/kdf/kdf.go</code>. This block
+        previously showed{" "}
+        <code>hkdf.New(sha3.New256, append(qkdKey, pqcKey...), nil, nil)</code>{" "}
+        under the same citation. That is not what the file does, and the
+        difference is the point:{" "}
+        <code>append(qkdKey, pqcKey...)</code> can write into the caller’s{" "}
+        <code>qkdKey</code> backing array when it has spare capacity, which is
+        the aliasing the real code builds a separate slice to avoid — and the
+        snippet also dropped the <code>secret.Do</code> block that zeroes the
+        combined keying material.
+      </p>
       <pre style={{
         background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8,
-        padding: 14, color: "#cbd6f5", fontSize: 12, lineHeight: 1.55, marginTop: 12,
+        padding: 14, color: "#cbd6f5", fontSize: 12, lineHeight: 1.55, marginTop: 4,
+        overflowX: "auto",
       }}>
-{`hkdf := hkdf.New(sha3.New256, append(qkdKey, pqcKey...), nil, nil)
-derived := make([]byte, 32)
-io.ReadFull(hkdf, derived)
-// derived[] becomes the WireGuard PSK for this rotation interval`}
+{`secret.Do(func() {
+    // Build a combined input without mutating the caller's slices.
+    combined := make([]byte, 0, len(qkdKey)+len(pqcKey))
+    combined = append(combined, qkdKey...)
+    combined = append(combined, pqcKey...)
+    defer clear(combined)
+
+    hkdf := hkdf.New(sha3.New256, combined, nil, nil)
+
+    derivedKey := make([]byte, 32) // Output key length
+    if _, err := io.ReadFull(hkdf, derivedKey); err != nil { ... }
+    // derivedKey becomes the WireGuard PSK for this rotation interval
+})`}
       </pre>
     </div>
   );
