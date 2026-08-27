@@ -18,16 +18,43 @@ we record (a) where it is implemented and (b) how to reproduce it.
 
 ## PQC-Enhanced QKD Networks (Spooren et al.)
 
-| § | Claim / Component | Implementation | Verification |
+> **These rows used to carry Roman-numeral section numbers. The paper has
+> none.** Its headings are Arabic and named -- 1 Introduction,
+> 2 System and Threat Model, 3 Design (3.1 Layering Principle, 3.2 Routing and
+> Composition), 4 Implementation (4.1 Component Overview, 4.2 Integration
+> Workflow, 4.3 Fail-Safe Mechanism), 5 Evaluation (Tests 1-5), 6 Security
+> Evaluation, 7 Discussion, 8 Conclusion. `pdftotext -layout` over the
+> redistributed PDF returns **zero** matches for a Roman-numeral heading.
+>
+> So every citation here pointed at a numbering scheme that does not exist, and
+> a reader following one would find nothing. Each has been retargeted by
+> locating the cited CLAIM in the PDF by line number and reading which section
+> contains it. A straight Roman-to-Arabic transliteration would have been
+> wrong in at least two places:
+>
+> * the 240-720 s failure cascade sits at PDF lines 442-443, between 4.3
+>   Fail-Safe Mechanism (line 429) and 5 Evaluation (line 493). It was cited
+>   as the sixth section; section 6 is Security Evaluation and contains no
+>   timing at all.
+> * the default 120 s rotation interval sits at line 412, inside 4.1 Component
+>   Overview -- not 4.3, which transliterating its old number would give.
+>
+> Names are cited beside the numbers because the arXiv and IEEE QCNC versions
+> may number differently; the names are what a reader can search for. The
+> QuLore table below keeps its Roman numerals deliberately: that paper is
+> CC BY-NC-ND and is NOT redistributed here, so its numbering cannot be checked
+> against a local copy and must not be "corrected" on a guess.
+
+| Paper section | Claim / Component | Implementation | Verification |
 |---|---|---|---|
-| II.A | KMS-free layered overlay (no centralised KMS) | docker-compose 3-network split; per-node `bb84-kme-*` instead of central KMS | `make ps` shows no central KMS container; `qkd-net` is `internal: true` |
-| II.B | ETSI GS QKD 014 between QKD device and gateway | `services/bb84-kme/app/etsi014.py` (matches `submodules/arnika/repositories/kms.go:43-101`) | `pytest tests/test_etsi014_contract.py` |
-| II.C | Arnika as the QKD↔WireGuard PSK injector | unmodified `submodules/arnika/` (Go binary baked into node image) | `docker logs alice \| grep "PSK configured"` |
-| II.D | Rosenpass E2E PQC handshake (Classic McEliece 460896 + Kyber512; NOT ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
-| III   | Multi-hop trusted-node chain (Alice-Charlie-Bob) | `docker-compose.multihop.yml` (profile `multihop`) | **Implemented.** The relay forms and every hop carries a QKD-derived preshared key; verify with checklist row 3.5, which counts PSK installs rather than ping replies. This entry previously read "Partial, do not cite as verified ... the relay does not form because alice's Rosenpass sidecar peers with bob only", which stopped being true once the sidecar gained `RP_EXTRA_PEERS`. |
-| IV.A | Periodic PSK rotation, default 120s | `ARNIKA_INTERVAL` env, default 30s in PoC for demo speed | `wg show wg0` PSK changes within 30s |
-| IV.B | Setup time dominated by slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples one container's handshake AGE over time; its only knobs are `--container` and `--duration`, and it emits `epoch,handshake_age_s`. There is no hop or chain-length dimension in the script or its output, so it cannot separate the two hypotheses in the claim. | Nothing to run yet. `benchmarks/results/handshake_age.csv` is absent and `paper_comparison.json` shows `"ours": {"n": 0}`, so `make bench` has never produced a row to compare. Measuring this needs a multi-hop chain and a varying hop count -- see `docker-compose.multihop.yml`. |
-| V    | Composability — failure of one layer leaves the other intact | `MODE=AtLeastQkdRequired` falls back to QKD-only if PQC missing (see `main.go:140-196`) | Stop Rosenpass sidecar, observe arnika logs still rotate |
+| 3.1 Layering Principle (also 1.2 Contributions) | KMS-free layered overlay (no centralised KMS) | docker-compose 3-network split; per-node `bb84-kme-*` instead of central KMS | `make ps` shows no central KMS container; `qkd-net` is `internal: true` |
+| 4.1 Component Overview | ETSI GS QKD 014 between QKD device and gateway | `services/bb84-kme/app/etsi014.py` (matches `submodules/arnika/repositories/kms.go:43-101`) | `pytest tests/test_etsi014_contract.py` |
+| 4.1 Component Overview | Arnika as the QKD↔WireGuard PSK injector | unmodified `submodules/arnika/` (Go binary baked into node image) | `docker logs alice \| grep "PSK configured"` |
+| 4.1 Component Overview | Rosenpass E2E PQC handshake (Classic McEliece 460896 + Kyber512; NOT ML-KEM) | `nodes/alice/rosenpass-sidecar.sh` (Rust binary; exits if the keypair is missing, with no fallback) | `docker exec alice ls -l /var/lib/rosenpass/pqc.psk` |
+| 3.2 Routing and Composition | Multi-hop trusted-node chain (Alice-Charlie-Bob) | `docker-compose.multihop.yml` (profile `multihop`) | **Implemented.** The relay forms and every hop carries a QKD-derived preshared key; verify with checklist row 3.5, which counts PSK installs rather than ping replies. This entry previously read "Partial, do not cite as verified ... the relay does not form because alice's Rosenpass sidecar peers with bob only", which stopped being true once the sidecar gained `RP_EXTRA_PEERS`. |
+| 4.1 Component Overview | Periodic PSK rotation, default 120s | `ARNIKA_INTERVAL` env, default 30s in PoC for demo speed | `wg show wg0` PSK changes within 30s |
+| 5 Evaluation, Test 2 -- Long Distance | Setup time dominated by slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples one container's handshake AGE over time; its only knobs are `--container` and `--duration`, and it emits `epoch,handshake_age_s`. There is no hop or chain-length dimension in the script or its output, so it cannot separate the two hypotheses in the claim. | Nothing to run yet. `benchmarks/results/handshake_age.csv` is absent and `paper_comparison.json` shows `"ours": {"n": 0}`, so `make bench` has never produced a row to compare. Measuring this needs a multi-hop chain and a varying hop count -- see `docker-compose.multihop.yml`. |
+| 4.3 Fail-Safe Mechanism (empirical: Test 5 -- Simulated QKD malfunction) | Composability — failure of one layer leaves the other intact | `MODE=AtLeastQkdRequired` falls back to QKD-only if PQC missing (see `main.go:140-196`) | Stop Rosenpass sidecar, observe arnika logs still rotate |
 
 ## QuLore (Sanz et al.)
 

@@ -100,7 +100,7 @@ export default function PaperDataExchange() {
   return (
     <div>
       <PageHeader
-        title="Paper Data Exchange (Spooren et al. arXiv:2604.05599 §III)"
+        title="Paper Data Exchange (Spooren et al. arXiv:2604.05599, 3.2 Routing and Composition)"
         subtitle={
           <>
             Multi-hop trusted-node Data Exchange faithful to the
