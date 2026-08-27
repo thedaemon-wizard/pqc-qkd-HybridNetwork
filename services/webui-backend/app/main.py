@@ -8,7 +8,10 @@ Endpoints:
     GET  /api/wg/{node}      : redacted `wg show wg0` for the node. NOT `dump`:
                                that form emits the interface private key and the
                                preshared key in plaintext. See WG_SHOW_CMD.
-    POST /api/stack/{action} : start|stop|restart a service
+    POST /api/stack/{action}/{name} : start|stop|restart a service
+                             ^^^^^^^ the {name} segment is not optional. Omitting
+                             it here is what made scripts/verify-demo-hardening.sh
+                             probe a route that does not exist and pass on the 404.
     POST /api/bench/ping     : run ping benchmark
     GET  /api/topology       : graph nodes/edges for D3
 """
@@ -603,25 +606,72 @@ async def verify_paper_budgets():
 
 
 # ----------------------- VPN Protocols (Phase 9-A) -----------------------
+# Both lanes answer with the SAME key set in every state -- success, error and
+# absent -- so a consumer never has to branch on which shape it received. The
+# templates below are the single definition of those key sets; every return
+# path starts from one of them rather than restating the keys, which is what
+# let the WireGuard branch drift to a two-key dict on its default path while a
+# comment on the IPsec branch claimed the invariant held for both.
+def _wg_unknown(status: str) -> dict[str, Any]:
+    """The WireGuard lane's key set, with nothing measured.
+
+    `proposal` is None and stays None. WireGuard negotiates no cipher suite --
+    ChaCha20-Poly1305 and Noise_IKpsk2 are fixed by the protocol, and `wg show`
+    reports neither -- so any string here would be a constant this file made up.
+    It used to hold "ChaCha20-Poly1305 + Noise + PSK". Moving that constant
+    server-side would only have changed which file states it as though measured.
+    `peers_with_psk` replaces it with something actually observable.
+    """
+    return {
+        "name": "wireguard",
+        "status": status,
+        "active_sa": None,
+        "proposal": None,
+        "last_handshake": None,
+        "last_handshake_s": None,
+        "peers": None,
+        "peers_with_psk": None,
+    }
+
+
+def _ipsec_unknown(status: str) -> dict[str, Any]:
+    """The IPsec lane's key set, with nothing measured."""
+    return {
+        "name": "ipsec",
+        "status": status,
+        "active_sa": None,
+        "proposal": None,
+        "last_handshake": None,
+        "pq_key_exchange": None,
+        "ppk_id": None,
+        "ppk_required": None,
+    }
+
+
 @app.get("/api/vpn/protocols")
 async def vpn_protocols():
     """Return live status of both VPN lanes (WireGuard + IPsec/IKEv2)."""
     cli = app.state.docker
-    wg_status: dict[str, Any] = {"name": "wireguard", "status": "absent"}
-    ipsec_status: dict[str, Any] = {"name": "ipsec", "status": "absent"}
+    wg_status: dict[str, Any] = _wg_unknown("absent")
+    ipsec_status: dict[str, Any] = _ipsec_unknown("absent")
 
     if cli is not None:
         try:
             c = cli.containers.get("alice")
             rc, out = c.exec_run("wg show wg0")
             wg_text = out.decode("utf-8", errors="replace")
-            wg_status = {
-                "name": "wireguard",
-                "status": "established" if rc == 0 and "latest handshake" in wg_text else "running",
-                "active_sa": 1 if "latest handshake" in wg_text else 0,
-                "proposal": "ChaCha20-Poly1305 + Noise + PSK",
-                "last_handshake": "via wg show",
-            }
+            if rc != 0:
+                # Previously a non-zero rc degraded to status "running", which
+                # VpnProtocols.tsx renders GREEN -- so a lane whose `wg show`
+                # failed outright looked healthy. The IPsec branch below has
+                # said "error" for this case since it was written; this one now
+                # matches it.
+                log.warning(
+                    "wg show failed in alice (rc=%s): %s", rc, wg_text.strip()[:200],
+                )
+                wg_status = _wg_unknown("error")
+            else:
+                wg_status = _parse_wg(wg_text)
         except Exception as e:
             # The IPsec branch below logs; this one used to swallow silently, so
             # a WireGuard lane that was never reachable looked identical to one
@@ -643,18 +693,15 @@ async def vpn_protocols():
                     "swanctl failed in alice-ipsec (list-sas rc=%s, list-conns rc=%s): %s",
                     rc_sas, rc_conns, detail.strip()[:200],
                 )
-                ipsec_status = {
-                    "name": "ipsec",
-                    "status": "error",
-                    "active_sa": 0,
-                    "proposal": None,
-                    "last_handshake": None,
-                    "pq_key_exchange": None,
-                    # Same keys as the success path, so a consumer never has to
-                    # branch on which shape it received.
-                    "ppk_id": None,
-                    "ppk_required": None,
-                }
+                # Same keys as the success path, so a consumer never has to
+                # branch on which shape it received. Seeded from the template
+                # rather than restated, so the two cannot drift apart -- which
+                # is how the WireGuard branch ended up with a two-key default
+                # while this comment claimed the invariant.
+                #
+                # active_sa is None, not 0: swanctl did not answer, so "we
+                # looked and there are none" is not something we know.
+                ipsec_status = _ipsec_unknown("error")
             else:
                 ipsec_status = _parse_ipsec_sas(
                     sas.decode("utf-8", errors="replace"),
@@ -663,6 +710,107 @@ async def vpn_protocols():
         except Exception as e:
             log.warning("ipsec status unavailable: %s", e)
     return {"wireguard": wg_status, "ipsec": ipsec_status}
+
+
+# `wg show wg0` renders one block per peer, e.g.
+#   interface: wg0
+#     public key: <base64>
+#     private key: (hidden)
+#     listening port: 51820
+#
+#   peer: <base64>
+#     preshared key: (hidden)
+#     endpoint: 10.30.0.11:51821
+#     allowed ips: 10.0.0.2/32
+#     latest handshake: 1 minute, 32 seconds ago
+#     transfer: 726.21 KiB received, 980.89 KiB sent
+#
+# Two of those lines are CONDITIONAL, which is what makes them worth reading.
+# From wireguard-tools src/show.c:
+#   * `preshared key:` prints only when `peer->flags & WGPEER_HAS_PRESHARED_KEY`,
+#     so its presence is direct evidence that arnika installed the QKD-derived
+#     key on that peer. It is the one observable security fact this lane has,
+#     and it is what replaces the invented `proposal` constant.
+#   * `latest handshake:` prints only when the handshake time is non-zero.
+_WG_PEER_RE = re.compile(r"^peer:\s*\S+", re.M)
+_WG_PSK_RE = re.compile(r"^\s+preshared key:", re.M)
+_WG_HANDSHAKE_RE = re.compile(r"^\s+latest handshake:\s*(.+?)\s*$", re.M)
+
+# The handshake value comes from show.c's ago(), which has exactly three shapes:
+#   "Now"
+#   "(System clock wound backward; connection problems may ensue.)"
+#   "<pretty_time> ago"
+# and pretty_time() OMITS zero components:
+#
+#   if (years)  ... if (days) ... if (hours) ... if (minutes) ... if (seconds)
+#
+# so "2 days, 5 seconds ago" is a legal rendering and a positional parse would
+# read the 5 as minutes. Match unit names, never positions. Units are singular
+# at 1 and plural otherwise, hence the optional s.
+_WG_AGO_COMPONENT_RE = re.compile(r"(\d+)\s+(year|day|hour|minute|second)s?\b")
+# Same arithmetic show.c uses: a year is 365 * 24 * 60 * 60, not a calendar year.
+_WG_UNIT_SECONDS = {
+    "second": 1, "minute": 60, "hour": 3600, "day": 86400, "year": 365 * 86400,
+}
+
+
+def _wg_handshake_seconds(raw: str) -> int | None:
+    """Age in seconds from one `latest handshake:` value, or None if unreadable.
+
+    None means "we could not read it", never "0 seconds". show.c renders a
+    zero-second age as the literal "Now", so 0 is a real measurement and has to
+    stay distinguishable from a parse failure -- including for the
+    clock-wound-backward case, where the age is genuinely unknown rather than
+    small.
+    """
+    value = raw.strip()
+    if value == "Now":
+        return 0
+    if "wound backward" in value:
+        return None
+    components = _WG_AGO_COMPONENT_RE.findall(value)
+    if not components:
+        return None
+    return sum(int(n) * _WG_UNIT_SECONDS[unit] for n, unit in components)
+
+
+def _parse_wg(text: str) -> dict[str, Any]:
+    """Derive WireGuard lane status from real `wg show` output.
+
+    Every field is measured or None. The version this replaced reported
+    `proposal` as the literal "ChaCha20-Poly1305 + Noise + PSK" and
+    `last_handshake` as the literal "via wg show" -- a description of where a
+    value would come from, shipped as the value -- and both went out over the
+    public API. See `_wg_unknown` for why `proposal` is None permanently.
+
+    `active_sa` counts peers that have completed a handshake, matching what the
+    field means on the IPsec side (established SAs) rather than the previous
+    `1 if "latest handshake" in text else 0`, which could not exceed 1 and
+    ignored the exit code entirely.
+    """
+    peers = len(_WG_PEER_RE.findall(text))
+    if peers == 0:
+        # `wg show` succeeded but the interface has no peers -- the tunnel
+        # cannot be established, and saying "running" would overstate it.
+        return {**_wg_unknown("running"), "peers": 0, "peers_with_psk": 0,
+                "active_sa": 0}
+
+    handshakes = [_wg_handshake_seconds(m) for m in _WG_HANDSHAKE_RE.findall(text)]
+    readable = [s for s in handshakes if s is not None]
+    # Freshest peer, which is what a single "last handshake" figure can honestly
+    # mean when there is more than one peer.
+    age = min(readable) if readable else None
+
+    return {
+        "name": "wireguard",
+        "status": "established" if handshakes else "running",
+        "active_sa": len(handshakes),
+        "proposal": None,
+        "last_handshake": f"{age}s ago" if age is not None else None,
+        "last_handshake_s": age,
+        "peers": peers,
+        "peers_with_psk": len(_WG_PSK_RE.findall(text)),
+    }
 
 
 # `swanctl --list-sas` renders an established IKE_SA as e.g.
@@ -701,9 +849,10 @@ def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
     age = _SA_ESTABLISHED_RE.search(sas)
     ppk = _CONN_PPK_RE.search(conns)
 
+    # Seeded from the shared template so the success and error paths cannot
+    # drift to different key sets; see _ipsec_unknown.
     return {
-        "name": "ipsec",
-        "status": status,
+        **_ipsec_unknown(status),
         "active_sa": established,
         # None rather than a plausible-looking constant, so the UI can tell
         # "not negotiated yet" apart from "negotiated X".

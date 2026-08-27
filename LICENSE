@@ -51,11 +51,36 @@ Per-file or unstated:
                        vendored into a derived work without the authors'
                        permission.
 
-None of the copyleft components is linked into this repository's own binaries;
-they run as separate processes or containers. That separation is what keeps the
-combination distributable, so it is a constraint on how this project may be
-integrated rather than a footnote. See docs/THIRD_PARTY_NOTICES.md for
-per-dependency detail, including the npm packages.
+Copyleft components run as separate processes or containers, with ONE exception
+that a redistributor has to know about:
+
+  * SimQN (GPL-3.0) is imported into the bb84-kme service's own Python process.
+      - services/bb84-kme/Dockerfile line 40 runs
+        `pip install -c constraints.txt -e /opt/SimQN`, so it is baked into the
+        image;
+      - services/bb84-kme/app/backends/simqn_backend.py imports `qns` and
+        `qns.entity.QNode` and runs them in-process, not over a socket;
+      - config/qkd_params.yaml sets `backend: "simqn"` as the DEFAULT, so the
+        default build exercises it.
+    Treat services/bb84-kme as a GPL-3.0 sub-component and be prepared to make
+    the corresponding source offer if you hand that image to a third party.
+    Selecting SIMULATOR_BACKEND=cvqkd or qutip stops SimQN being INVOKED; it
+    does not remove it from an image already built.
+
+Until 2026-08-27 this paragraph read "None of the copyleft components is linked
+into this repository's own binaries; they run as separate processes or
+containers." That was false for SimQN in the default configuration, and
+docs/THIRD_PARTY_NOTICES.md already said the opposite ("used as a
+Python-importable library inside services/bb84-kme"). The two licence documents
+disagreed and this was the wrong one; a downstream redistributor relying on the
+mere-aggregation argument would have shipped the default image carrying an
+unrecognised source-offer obligation.
+
+Everything else -- qkdnetsim (GPL-2.0) and the strongSwan lane -- does run out
+of process. That separation is what keeps the rest of the combination
+distributable, so it is a constraint on how this project may be integrated
+rather than a footnote. See docs/THIRD_PARTY_NOTICES.md for per-dependency
+detail, including the npm packages.
 
 This repository re-distributes cryptographic implementations. Users must
 verify their jurisdiction's export-control regulations (e.g. US ECCN 5D002)

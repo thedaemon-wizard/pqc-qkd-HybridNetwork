@@ -101,7 +101,12 @@ GPL/LGPL duties attach only when you *distribute* the binaries or container
 images to a third party. For client/PoC *delivery* (where images change hands),
 prefer the fully-permissive physics backend profile
 (`SIMULATOR_BACKEND=cvqkd`, Strawberry Fields, Apache-2.0; QuTiP/BSD-3 is also
-fine), which avoids shipping the GPL-3.0 SimQN and the custom-Argonne SeQUeNCe.
+fine), which avoids **invoking** the GPL-3.0 SimQN and the custom-Argonne
+SeQUeNCe. Note the word: this reads "avoids shipping" no longer, because
+`SIMULATOR_BACKEND` is a runtime variable and cannot un-ship a baked layer.
+`services/bb84-kme/Dockerfile` line 40 `pip install -e /opt/SimQN` regardless of
+backend, so the image you hand over contains GPL-3.0 code whichever backend it
+is configured to run. To actually avoid shipping it, build without that line.
 The privileged WireGuard nodes link strongSwan only when the optional IPsec
 profile is enabled; the default WireGuard+arnika+rosenpass path does not.
 
