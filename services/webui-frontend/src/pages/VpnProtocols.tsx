@@ -342,10 +342,27 @@ function Panel({ title, color, children }: { title: string; color: string; child
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
+    // `gap` and the shrink rules are load-bearing, not tidying.
+    //
+    // This was a bare `space-between` with two auto-width spans. Nothing
+    // overflowed the panel -- the value wrapped -- but with no minimum gap the
+    // label and the value ABUT, and at a 700px content width the IPsec row
+    // rendered as `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...`, one
+    // unreadable token. Measured in the browser against the deployed demo on
+    // 2026-08-27: first collision at ~900px, three rows by 600px.
+    //
+    // Same failure mode as the Overview label that spilled its box: fine at
+    // the width it was written at, wrong at a common one, and invisible to
+    // every headless assertion because it is a rendering property.
+    //
+    // flexShrink 0 on the key keeps the label whole; minWidth 0 lets the value
+    // wrap inside its own column instead of pushing into the label; textAlign
+    // right keeps a wrapped value visually attached to its own side.
     <div style={{ display: "flex", justifyContent: "space-between",
-                   padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8" }}>{k}</span>
-      <span style={{ fontFamily: "monospace" }}>{v}</span>
+                   gap: 12, padding: "3px 0", fontSize: 13 }}>
+      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+      <span style={{ fontFamily: "monospace", minWidth: 0, textAlign: "right",
+                     overflowWrap: "anywhere" }}>{v}</span>
     </div>
   );
 }
