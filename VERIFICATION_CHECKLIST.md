@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-203 rows, of which **37 are machine-checked and 166 are not**. Worth knowing
+204 rows, of which **37 are machine-checked and 167 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 18 | **18** | 0 |
 | 2 | IPsec lane | 15 | 1 | 14 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **120** | 5 | **115** |
+| 4 | Browser, every page | **121** | 5 | **116** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
 | 7 | Documentation | 14 | 3 | 11 |
@@ -313,6 +313,7 @@ question about it could not be answered from this checklist.
 | 4.8.6 | **No API response carries key material -- including routes no page calls** | `.venv/bin/python -m pytest tests/test_wg_endpoint_redacts_secrets.py` -> 6 pass. Then, against the deployment: `curl -s https://<demo>/api/wg/alice` must show `private key: (hidden)` and `preshared key: (hidden)`, and must contain no tab characters. **This row exists because the whole of section 4 could not have found the defect it guards.** `GET /api/wg/{node}` ran `wg show wg0 dump`, whose format is positional -- field 1 of line 1 is the interface private key, field 2 of each peer line is the preshared key, which on this stack is the arnika HKDF(QKD \|\| PQC) output. Both were served unauthenticated, HTTP 200, with no `DEMO_MODE` gate; confirmed live on 2026-08-27. No page called the route, so no rendering looked wrong and no control misbehaved: a page-by-page browser audit is structurally blind to it. Enumerate the routes from `main.py`'s decorators, not from what the UI fetches, and read every response body -- not just its status. |
 | 4.8.7 | **No API field is a constant, and no absence reads as a measurement** | `curl -s https://<demo>/api/vpn/protocols \| jq` -> the WireGuard lane's `proposal` is `null` and stays null (WireGuard negotiates no suite; any string there is invented), `last_handshake` is an age in seconds, and `peers_with_psk` is present. Existing row 4.7.6 covers only the IPsec proposal. Then check the tri-states: `pq_key_exchange` and `ppk_used` must be able to read `false`, not only `true`/`null` -- `"X" in y or None` yields True or None and NEVER False, so "we looked and it is absent" was indistinguishable from "we did not look", and both render as an em dash. Reproduce the negative by stopping `bob-ipsec` and confirming `ppk_used_both_ends` becomes `null` rather than `false`. |
 | 4.8.8 | **The poll cost is bounded** | `/api/vpn/protocols` costs five `docker exec`s per sample (`wg show`, plus `--list-sas` and `--list-conns` on each IPsec node), up from three. A module-level TTL (`VPN_SAMPLE_TTL_S`, default 2.0 s, env-overridable) collapses concurrent viewers onto one sample; failure shapes are cached too, so a broken lane is not the expensive case. Check `observed_at` and `cache_ttl_s` in the response. The handler is a plain `def`, not `async def`: five blocking `exec_run`s under `async def` would run ON the event loop and stall every other request for their duration. Verify with `curl -s .../api/vpn/protocols \| jq .observed_at` twice inside 2 s -> identical value. |
+| 4.8.9 | **A key/value row never abuts its own label** | In the browser, narrow the content column and re-measure: for every `display:flex; justify-content:space-between` pair, the value's left edge must stay clear of the key's right edge. Reproduce with the snippet below at 1000, 900, 800, 700, 600 and 380 px of `<main>` width. **This is not an overflow check and an overflow check would not have found it.** Nothing escaped its panel -- the value wrapped -- but with no minimum `gap` the two spans ABUT, and at 700 px `/vpn` rendered `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...` as one unreadable token. Measured on the deployed demo 2026-08-27: first collision at ~900 px, three rows by 600 px. Same failure mode as the Overview label that spilled its box (row 4.2.5) -- correct at the width it was written at, wrong at a common one, invisible to every headless assertion because it is a rendering property. Four near-identical `Row` components carried it; `components/Row.tsx` is a fourth that **nothing imports**, so check any new page against this row rather than assuming it inherited a fix. <br><br>`const main=document.querySelector('main');for(const w of [1000,900,800,700,600,380]){main.style.width=w+'px';main.getBoundingClientRect();const rows=[...document.querySelectorAll('div')].filter(d=>{const s=getComputedStyle(d);return s.display==='flex'&&s.justifyContent==='space-between'&&d.children.length===2});console.log(w,rows.filter(r=>{const[k,v]=r.children;return v.getBoundingClientRect().left<k.getBoundingClientRect().right+2}).length)}` -> every count must be 0. |
 
 ---
 
