@@ -45,8 +45,27 @@ import (
 	"github.com/strongswan/govici/vici"
 )
 
-// minPPKBytes is the RFC 8784 entropy floor: "The PPK MUST be at least 256 bits
-// of entropy; this will provide 128 bits of post-quantum security."
+// minPPKBytes is this adapter's PPK floor. It is our rule, not the RFC's.
+//
+// RFC 8784 sets no length requirement. Its Sec. 6 says only:
+//
+//	"The strongest practice is to ensure that any post-quantum preshared key
+//	contains at least 256 bits of entropy; this will provide 128 bits of
+//	post-quantum security, while providing security against conventional
+//	dictionary attacks."
+//
+// Descriptive, not normative -- the RFC uses no MUST, SHOULD or RECOMMENDED for
+// PPK length anywhere. This comment previously read: the RFC 8784 entropy
+// floor: "The PPK MUST be at least 256 bits of entropy; this will provide 128
+// bits of post-quantum security." The second clause is real; the MUST was
+// invented, and an invented MUST in a security citation is what a reviewer
+// checks first.
+//
+// 32 bytes is nevertheless the right floor here, for a reason specific to this
+// deployment rather than to the RFC: every PPK reaching SetPSK is a 32-byte
+// HKDF-SHA3-256 output from arnika. A shorter one means the key path is broken
+// upstream, not that an operator chose weaker material, so rejecting it is a
+// liveness check rather than a policy knob.
 const minPPKBytes = 32
 
 // unloadTimeout bounds a single unload-shared. See unloadPPK for why it does not
@@ -298,8 +317,11 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 		return fmt.Errorf("vici: PSK is not valid base64: %w", err)
 	}
 	if len(raw) < minPPKBytes {
+		// "this adapter requires", not "RFC 8784 requires": the RFC requires no
+		// length at all. See minPPKBytes for what its Sec. 6 actually says.
 		return fmt.Errorf(
-			"vici: PPK is %d bytes, RFC 8784 requires at least %d bytes of entropy",
+			"vici: PPK is %d bytes, this adapter requires at least %d -- the 256 bits "+
+				"of entropy RFC 8784 Sec. 6 calls the strongest practice",
 			len(raw), minPPKBytes)
 	}
 
