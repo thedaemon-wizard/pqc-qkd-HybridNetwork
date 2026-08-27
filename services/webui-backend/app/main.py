@@ -5,7 +5,9 @@ Endpoints:
     GET  /api/stack          : container status (alice/bob/bb84-kme-*)
     GET  /api/stats          : aggregated KME + arnika stats
     GET  /api/logs/{name}    : last N log lines from a container
-    GET  /api/wg/{node}      : `wg show wg0 dump` for the node
+    GET  /api/wg/{node}      : redacted `wg show wg0` for the node. NOT `dump`:
+                               that form emits the interface private key and the
+                               preshared key in plaintext. See WG_SHOW_CMD.
     POST /api/stack/{action} : start|stop|restart a service
     POST /api/bench/ping     : run ping benchmark
     GET  /api/topology       : graph nodes/edges for D3
@@ -350,6 +352,51 @@ async def logs(name: str, tail: int = 200) -> dict[str, str]:
 
 
 # ----------------------- WireGuard show -----------------------
+# `wg show <if> dump` PRINTS SECRETS. From wg(8): the first line is
+# "private-key, public-key, listen-port, fwmark" tab-separated, and each peer
+# line is "public-key, preshared-key, endpoint, allowed-ips, latest-handshake,
+# rx, tx, keepalive". Fields 1 and 2 respectively are the interface private key
+# and the preshared key, both in plaintext base64.
+#
+# This route served that verbatim, unauthenticated, with no DEMO_MODE gate. A
+# 2026-08-27 GET of the public demo's /api/wg/alice returned alice's wg0 private
+# key and the live preshared key -- and on this stack the preshared key is the
+# arnika HKDF(QKD || PQC) output, i.e. the entire product of the key path the
+# project exists to demonstrate. Nothing in the frontend has ever called this
+# route, so the exposure carried no compensating benefit.
+#
+# The non-dump form is what wireguard-tools redacts for you: it prints
+# "private key: (hidden)" and "preshared key: (hidden)". Use it. Then redact
+# again on the way out, so that editing one word of the command back is not by
+# itself sufficient to leak. See tests/test_wg_endpoint_redacts_secrets.py.
+WG_SHOW_CMD = "wg show wg0"
+
+_WG_SECRET_LINE = re.compile(r"^(\s*(?:private key|preshared key)\s*:).*$", re.M | re.I)
+
+
+def _redact_wg(text: str) -> str:
+    """Remove key material from `wg show` output, failing closed.
+
+    Two layers, because what is being guarded is a one-word edit:
+
+      1. any `private key:` / `preshared key:` value becomes `(hidden)`, which
+         is what the non-dump form prints anyway -- so this is a no-op on
+         correct input and a rescue on incorrect input;
+      2. if the text looks like `dump` output at all, the whole body is
+         withheld rather than field-edited. The dump format is positional, and
+         a redactor that miscounts columns leaks instead of over-redacting;
+         refusing is the only safe response to a shape we did not ask for.
+    """
+    if "\t" in text and "interface:" not in text:
+        return (
+            "[withheld] this looks like `wg show ... dump`, whose first field is "
+            "the interface private key and whose second per-peer field is the "
+            "preshared key. This endpoint serves only the redacted `wg show` "
+            f"form; see WG_SHOW_CMD ({WG_SHOW_CMD!r})."
+        )
+    return _WG_SECRET_LINE.sub(r"\1 (hidden)", text)
+
+
 @app.get("/api/wg/{node}")
 async def wg_show(node: str):
     cli = app.state.docker
@@ -357,10 +404,11 @@ async def wg_show(node: str):
         raise HTTPException(503, "docker not available")
     try:
         c = cli.containers.get(node)
-        rc, out = c.exec_run("wg show wg0 dump")
-        return {"node": node, "rc": rc, "output": out.decode("utf-8", errors="replace")}
+        rc, out = c.exec_run(WG_SHOW_CMD)
+        text = out.decode("utf-8", errors="replace")
     except Exception as e:
         raise HTTPException(404, str(e))
+    return {"node": node, "rc": rc, "output": _redact_wg(text)}
 
 
 # The Eve-control, E2E-orchestrator, Paper-Data-Exchange and WebSocket fan-out
