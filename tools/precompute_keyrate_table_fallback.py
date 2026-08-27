@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-"""Precompute scientifically-grounded SKR lookup table without MATLAB.
+"""Produce the SKR lookup table shipped as config/qkd_keyrate_table.json.
 
-This is the FOSS fallback for `tools/precompute_keyrate_table.m` (which
-requires MATLAB + CVX + QETLAB).  The output JSON is the SAME shape so the
-runtime never knows the provenance.
+This script is that file's PRODUCER, not a fallback for one. The header here
+used to read "This is the FOSS fallback for `tools/precompute_keyrate_table.m`
+(which requires MATLAB + CVX + QETLAB). The output JSON is the SAME shape so
+the runtime never knows the provenance." Seven documents took that framing
+literally and credited the shipped table to an openQKDsecurity Winick SDP.
+
+No `.m` file of that name has ever existed in this repository -- checked
+against the whole history, not just HEAD -- nothing anywhere invokes
+openQKDsecurity, and the table's own `provenance` field names this script. The
+"fallback" framing is what made the misattribution look plausible, so it is
+gone. "The runtime never knows the provenance" is also exactly the property
+that let the error survive: nothing downstream could contradict it.
+
+The `_fallback` suffix stays for now because docs/keyrate.md, docs/phases.md
+and the committed JSON all reference this path; renaming is its own change.
 
 Implements the closed-form finite-key secret-key rate for decoy-state BB84
 WCP per the formulas in:

@@ -125,7 +125,7 @@ pqc-qkd-hybrid/
 │   ├── SimQN/                         # (Phase 8) Python BB84 + Cascade + TPA (2026-05-25)
 │   ├── SeQUeNCe/                      # (Phase 8) Argonne photonic-realism DES (2026-05-12)
 │   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
-│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — used offline only
+│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — vendored, not yet used
 │   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
 │   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
 │   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
@@ -143,7 +143,7 @@ pqc-qkd-hybrid/
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
 │   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
 │   └── qkdnetsim-kme/                 # (Phase 8) NS-3 ETSI 014 reference KME (separate container)
-├── tools/                             # (Phase 8) Precompute scripts (MATLAB + Python fallback)
+├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
 ├── nodes/{alice,bob,charlie}/         # Per-node Docker context
 ├── pki/                               # mTLS cert generation
 ├── animations/                        # Manim scenes (.py)

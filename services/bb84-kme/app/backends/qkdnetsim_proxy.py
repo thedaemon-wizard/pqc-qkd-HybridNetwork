@@ -1,11 +1,29 @@
-"""qkdnetsim proxy backend — fetches keys from the NS-3 reference KME container.
+"""qkdnetsim proxy backend — fetches keys from the qkdnetsim-kme container.
 
-Used for ETSI 014 cross-validation: when SIMULATOR_BACKEND=qkdnetsim_proxy,
-this backend pulls /enc_keys from the qkdnetsim-kme service (running its
-C++ ETSI 014 implementation) instead of producing keys itself.
+With SIMULATOR_BACKEND=qkdnetsim_proxy this backend pulls /enc_keys from the
+`qkdnetsim-kme` service instead of producing keys itself, exercising the ETSI
+GS QKD 014 REST contract against a second, independently written server: same
+routes, same field names, same key_ID round-trip. `tests/test_etsi014_contract.py`
+is what runs it.
 
-This lets the same arnika integration test prove the Python KME matches the
-NS-3 reference implementation byte-for-byte.
+What this docstring used to claim, and why it was wrong
+
+    It said the peer was "running its C++ ETSI 014 implementation", and that
+    this "lets the same arnika integration test prove the Python KME matches
+    the NS-3 reference implementation byte-for-byte".
+
+    `services/qkdnetsim-kme/kme_facade.py` is a Flask app that mints keys with
+    `secrets.token_bytes`. No NS-3 binary is invoked in that service. The
+    consumer named as the proof, `tests/test_etsi014_crossvalidate.py`, has
+    never existed.
+
+    The claim could not have been true even in principle: byte-for-byte
+    equality between two independent CSPRNG draws is not an unverified
+    property, it is an impossible one. Two KMEs agreeing on key MATERIAL would
+    mean one of them was not generating any.
+
+    The facade's own docstring is honest about being a facade. Only this file,
+    pointing at it, overstated what it pointed at.
 """
 from __future__ import annotations
 
