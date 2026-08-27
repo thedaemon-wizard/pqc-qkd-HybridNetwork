@@ -1,5 +1,5 @@
 import Plot from "react-plotly.js";
-import { KEY_FLOW_EDGES, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
+import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
 /**
  * Hybrid key derivation flow.
@@ -24,7 +24,9 @@ export default function KeyFlow() {
     node: {
       pad: 24,
       thickness: 22,
-      label: [...KEY_FLOW_NODES],
+      // Display labels, not ids -- see KEY_FLOW_LABELS for the measured
+      // reason the two rightmost differ from their ids.
+      label: KEY_FLOW_NODES.map((n) => KEY_FLOW_LABELS[n]),
       color: nodeColor,
     },
     link: { ...links, color: linkColor },
