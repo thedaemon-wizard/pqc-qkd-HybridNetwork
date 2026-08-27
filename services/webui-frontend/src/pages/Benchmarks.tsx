@@ -9,8 +9,12 @@ import ExportToolbar from "../components/ExportToolbar";
 export default function Benchmarks() {
   const [roundMsHist, setRoundMsHist] = useState<number[]>([]);
   const [qberHist, setQberHist] = useState<number[]>([]);
-  const [accepted, setAccepted] = useState(0);
-  const [aborted, setAborted] = useState(0);
+  // `null` until a poll actually reports the counters. `useState(0)` made an
+  // unreachable KME render "Rounds accepted 0", which is also what a reachable
+  // KME that has run zero rounds renders -- and that difference is the whole
+  // question this page answers.
+  const [accepted, setAccepted] = useState<number | null>(null);
+  const [aborted, setAborted] = useState<number | null>(null);
 
   // Round counter of the sample already plotted, so a poll that brings no new
   // round adds no point.
@@ -19,9 +23,14 @@ export default function Benchmarks() {
   useEffect(() => {
     const t = setInterval(async () => {
       const s = await getStats();
+      // `/api/stats` answers `{"alice": {"error": "..."}}` when the KME is
+      // unreachable (see stats() in services/webui-backend/app/main.py), so
+      // `rounds_accepted` is simply absent. `?? 0` reported that absence as a
+      // measurement of zero -- the very substitution the comment below rejects
+      // for QBER. Same rule, same helper.
       const a = s?.alice ?? {};
-      setAccepted(a.rounds_accepted ?? 0);
-      setAborted(a.rounds_aborted ?? 0);
+      setAccepted(reading(a.rounds_accepted));
+      setAborted(reading(a.rounds_aborted));
 
       // Append per ROUND, not per poll.
       //
@@ -71,8 +80,8 @@ export default function Benchmarks() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
-        <KPI label="Rounds accepted" value={accepted} />
-        <KPI label="Rounds aborted" value={aborted} />
+        <KPI label="Rounds accepted" value={accepted ?? "—"} />
+        <KPI label="Rounds aborted" value={aborted ?? "—"} />
         <KPI label="Avg round ms" value={roundMsHist.length ? (roundMsHist.reduce((a,b)=>a+b,0) / roundMsHist.length).toFixed(0) : "—"} />
         <KPI label="Avg QBER" value={qberHist.length ? (qberHist.reduce((a,b)=>a+b,0) / qberHist.length).toFixed(3) : "—"} />
       </div>
