@@ -463,15 +463,73 @@ async def sim_params_proxy():
         return r.json()
 
 
+# ----------------------- Simulator control fan-out -----------------------
+# These three endpoints POST to BOTH KMEs. Each used to wrap the call in
+# `try/except Exception` that logged and continued, then `return {"ok": True}`
+# unconditionally -- so with neither KME reachable the caller got HTTP 200 and
+# `{"ok": true}`, and /physics printed "Reverted to config/qkd_params.yaml
+# defaults." having changed nothing anywhere.
+#
+# Same family as the restart button that always 403'd: an action that reports
+# success it did not have. There the promise was discarded; here the success was
+# fabricated one layer earlier.
+#
+# `ok` now means EVERY peer was reached and answered. `nodes` says which did, so
+# a half-applied override -- alice updated, bob not -- is visible rather than
+# indistinguishable from both succeeding. That asymmetry matters here: the two
+# KMEs must agree on the physics or the key rates they report diverge for a
+# reason nobody can see.
+def _fanout_result(outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Build the response, and say plainly which peers answered.
+
+    A peer is `ok` only if the POST completed AND the KME did not answer 4xx/5xx.
+    """
+    reached = [n for n, o in outcomes.items() if o["ok"]]
+    return {
+        "ok": len(reached) == len(outcomes),
+        "reached": len(reached),
+        "of": len(outcomes),
+        # Bodies are dropped here: `nodes` answers "did this peer apply it",
+        # and the applied values are returned once, under `kme`.
+        "nodes": {n: {k: v for k, v in o.items() if k != "body"}
+                  for n, o in outcomes.items()},
+    }
+
+
+async def _post_both(client: httpx.AsyncClient, path: str,
+                     json: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
+    """POST `path` to both KMEs, recording each outcome instead of discarding it."""
+    outcomes: dict[str, dict[str, Any]] = {}
+    for name, url in (("alice", KME_A_URL), ("bob", KME_B_URL)):
+        try:
+            r = await client.post(f"{url}{path}", json=json) if json is not None \
+                else await client.post(f"{url}{path}")
+            if r.status_code >= 400:
+                outcomes[name] = {"ok": False, "status": r.status_code,
+                                  "error": r.text[:200], "body": None}
+            else:
+                # Body captured HERE. A first draft of this had the caller POST
+                # a second time to read it, which applies the override twice --
+                # a fix that introduces a worse bug than the one it closes.
+                try:
+                    body = r.json()
+                except Exception:
+                    body = None
+                outcomes[name] = {"ok": True, "status": r.status_code, "body": body}
+        except Exception as e:
+            # Logged AND reported. Logging alone is what made this invisible:
+            # the operator never sees the backend's log.
+            log.warning("%s on %s failed: %s", path, url, e)
+            outcomes[name] = {"ok": False, "status": None,
+                              "error": str(e)[:200], "body": None}
+    return outcomes
+
+
 @app.post("/api/sim/backend")
 async def sim_backend_proxy(req: dict[str, Any]):
     async with httpx.AsyncClient(timeout=5.0) as client:
-        for url in (KME_A_URL, KME_B_URL):
-            try:
-                await client.post(f"{url}/sim/backend", json=req)
-            except Exception as e:
-                log.warning("backend switch on %s failed: %s", url, e)
-    return {"ok": True}
+        outcomes = await _post_both(client, "/sim/backend", req)
+    return _fanout_result(outcomes)
 
 
 @app.get("/api/sim/params/editable")
@@ -487,29 +545,26 @@ async def sim_params_set_proxy(req: dict[str, Any]):
     """Apply UI parameter overrides to BOTH KMEs (in-memory; config is default)."""
     last: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=5.0) as client:
-        for url in (KME_A_URL, KME_B_URL):
-            try:
-                r = await client.post(f"{url}/sim/params", json=req)
-                if r.status_code >= 400:
-                    raise HTTPException(r.status_code, r.text)
-                last = r.json()
-            except HTTPException:
-                raise
-            except Exception as e:
-                log.warning("param set on %s failed: %s", url, e)
-    return {"ok": True, "kme": last}
+        outcomes = await _post_both(client, "/sim/params", req)
+        # A 4xx from a KME is a rejected override -- a validation error the user
+        # must see, not a peer being down -- so it still raises rather than
+        # being folded into the per-node report.
+        for name, o in outcomes.items():
+            if o["status"] is not None and o["status"] >= 400:
+                raise HTTPException(o["status"], f"{name}: {o['error']}")
+        # The applied values, from whichever peer answered -- read from the
+        # response already captured, not by POSTing again.
+        last = next((o["body"] for o in outcomes.values() if o["ok"] and o["body"]),
+                    None)
+    return {**_fanout_result(outcomes), "kme": last}
 
 
 @app.post("/api/sim/params/reset")
 async def sim_params_reset_proxy():
     """Drop UI overrides on both KMEs — revert to config defaults."""
     async with httpx.AsyncClient(timeout=5.0) as client:
-        for url in (KME_A_URL, KME_B_URL):
-            try:
-                await client.post(f"{url}/sim/params/reset")
-            except Exception as e:
-                log.warning("param reset on %s failed: %s", url, e)
-    return {"ok": True}
+        outcomes = await _post_both(client, "/sim/params/reset")
+    return _fanout_result(outcomes)
 
 
 @app.post("/api/sim/optimize")
