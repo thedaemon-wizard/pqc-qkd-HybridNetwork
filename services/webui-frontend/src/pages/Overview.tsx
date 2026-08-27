@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getStack, postStack, type StackItem } from "../api";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
-import { useDemoMode } from "../lib/useConfig";
+import { useContainerControl } from "../lib/useConfig";
 
 const STATUS_COLOR: Record<string, string> = {
   running: "#3ddc84", restarting: "#f5a623", created: "#5b8def",
@@ -12,7 +12,17 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Overview() {
   const [stack, setStack] = useState<StackItem[]>([]);
-  const demo = useDemoMode();
+  // `useContainerControl`, not `useDemoMode`. Its own doc comment prescribes
+  // exactly this -- "Gate the UI on this rather than on !demo_mode: container
+  // control is opt-in server-side, so 'not a demo' no longer implies 'control
+  // is available'" -- and this page never adopted it.
+  //
+  // The two predicates disagree in one configuration, and it is the one the
+  // public demo runs: /api/config reports demo_mode false AND
+  // container_control false, so `!demo` rendered a restart button for all ten
+  // containers while the endpoint refused every click with 403.
+  const canControl = useContainerControl();
+  const [actionError, setActionError] = useState<string>("");
 
   async function refresh() { setStack(await getStack()); }
   useEffect(() => {
@@ -67,17 +77,37 @@ export default function Overview() {
                     }}>{s.status}</span>
                   </td>
                   <td>
-                    {demo ? (
-                      <span style={{ fontSize: 11, color: "#6b7796" }}>—</span>
+                    {canControl ? (
+                      // The promise is consumed. `onClick={() => postStack(...)}`
+                      // discarded it, so even a genuine 500 from the handler was
+                      // invisible -- no state change, no console entry, not even
+                      // an unhandled rejection, because the refusal RESOLVED.
+                      <button
+                        onClick={async () => {
+                          setActionError("");
+                          try {
+                            await postStack("restart", s.name);
+                            await refresh();
+                          } catch (e) {
+                            setActionError(`${s.name}: ${e instanceof Error ? e.message : String(e)}`);
+                          }
+                        }}
+                        style={btnStyle}
+                      >restart</button>
                     ) : (
-                      <button onClick={() => postStack("restart", s.name)}
-                              style={btnStyle}>restart</button>
+                      <span style={{ fontSize: 11, color: "#6b7796" }}
+                            title="container control is disabled on this deployment (/api/config)">—</span>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {actionError && (
+            <p role="alert" style={{ color: "#e25555", fontSize: 12, marginTop: 8 }}>
+              {actionError}
+            </p>
+          )}
         </div>
       </div>
     </div>
