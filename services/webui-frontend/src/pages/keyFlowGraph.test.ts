@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { KEY_FLOW_EDGES, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
+import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
 const HKDF = "HKDF-SHA3-256";
 const PSK = "WireGuard PSK (256 b)";
@@ -133,5 +133,37 @@ describe("the Plotly arrays are built from the edge list", () => {
     expect(() => toSankeyLinks([
       { from: "nope" as never, to: PSK, bits: 256 },
     ])).toThrow(/unknown keyflow node/);
+  });
+});
+
+describe("display labels stay in step with node ids", () => {
+  it("every node has a label", () => {
+    for (const n of KEY_FLOW_NODES) {
+      expect(KEY_FLOW_LABELS[n], `${n} has no display label`).toBeTruthy();
+    }
+    expect(Object.keys(KEY_FLOW_LABELS).sort()).toEqual([...KEY_FLOW_NODES].sort());
+  });
+
+  it("the two that collided are shortened, and only those", () => {
+    // Measured on the deployed page: with the full names, "HKDF-SHA3-256" and
+    // "WireGuard PSK (256 b)" render on top of each other. Shortening either
+    // one alone does not clear it; a right margin does nothing at 0, 40 or
+    // 150 px. Pinned so a future edit that restores the long labels has to
+    // re-measure rather than reintroduce the collision.
+    expect(KEY_FLOW_LABELS["HKDF-SHA3-256"]).toBe("HKDF");
+    expect(KEY_FLOW_LABELS["WireGuard PSK (256 b)"]).toBe("WireGuard PSK");
+    for (const n of KEY_FLOW_NODES) {
+      if (n === "HKDF-SHA3-256" || n === "WireGuard PSK (256 b)") continue;
+      expect(KEY_FLOW_LABELS[n], `${n} was shortened without cause`).toBe(n);
+    }
+  });
+
+  it("the units check still reads the ID, not the shortened label", () => {
+    // The `(256 b)` the unit test keys off lives in the id. If a future change
+    // moved that check onto the display label it would silently stop checking
+    // the two shortened nodes -- which are the two the derivation runs through.
+    const idsWithWidth = KEY_FLOW_NODES.filter((n) => /\(\d+ b\)/.test(n));
+    expect(idsWithWidth).toContain("WireGuard PSK (256 b)");
+    expect(idsWithWidth.length).toBeGreaterThanOrEqual(3);
   });
 });
