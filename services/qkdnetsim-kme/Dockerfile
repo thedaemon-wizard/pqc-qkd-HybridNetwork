@@ -5,9 +5,17 @@
 #   1) builder : compile NS-3 + qkdnetsim from source
 #   2) runtime : ubuntu:22.04 with just the binaries + minimal libs
 #
-# This image is used by the `composite_sim_to_net` backend and by
-# tests/test_etsi014_crossvalidate.py to cross-check the Python KME
-# against the reference C++ implementation.
+# This image is used by the `composite_sim_to_net` backend and exercised by
+# tests/test_etsi014_contract.py, which checks the ETSI GS QKD 014 REST
+# contract.
+#
+# It previously named tests/test_etsi014_crossvalidate.py, "to cross-check the
+# Python KME against the reference C++ implementation". That test has never
+# existed, and the runtime entrypoint is kme_facade.py -- a Flask app -- so
+# there is no C++ KME on the other side to compare against. What gets checked
+# is the contract, not key material. See the note on the build step below: the
+# same shape, one layer down, where a failed NS-3 compile still produced a
+# green image because the healthcheck probed a Flask route.
 #
 # NOTE: First build is ~10-15 min. Subsequent builds are cached.
 # =====================================================================
