@@ -395,6 +395,50 @@ rotations, not a stuck tunnel.
 > window already exceeds the ceiling, so the guard has almost no headroom at
 > this operating point, and a systematic mismatch would show as 3 of 6.
 
+### 2026-08-27: the CI failures are a DIFFERENT fault from the race above
+
+The unconditional timeline dump added to `strongswan-lane` finally produced the
+discriminating observation, and it rules out both standing hypotheses. CI run
+`33071519309`, 2 failures on each node, aligned by container timestamp:
+
+| time | `alice-ipsec` (drives reauth) | `bob-ipsec` (responder) |
+|---|---|---|
+| 12:28:01 | loaded ppk#2, rotate#2 -> SA[3] | loaded ppk#2, rotate#2 -> SA[3] |
+| **12:28:31** | loaded ppk#3, rotate#3 | **nothing** -> MAC mismatched, AUTH_FAILED |
+| **12:29:01** | loaded ppk#4, rotate#4 | **nothing** -> MAC mismatched, AUTH_FAILED |
+| 12:29:31 | loaded ppk#5, rotate#5 -> SA[6] | loaded ppk#**3**, rotate#**3** -> SA[6] |
+
+Bob logged **no load, no rotation and no invalidation for two whole intervals**.
+Its own generation counter advanced 2 -> 3 across 90 s while alice's advanced
+2 -> 5, so bob was running roughly two intervals behind. The MAC mismatch is the
+**consequence** -- alice authenticating with generation 3 against a responder
+still holding generation 2 -- not the fault.
+
+That is neither hypothesis:
+
+* **Not the sub-millisecond race** documented above. The gap is 60 s, not
+  microseconds, and it resolves by bob catching up rather than by charon
+  retrying.
+* **Not a systematic mismatch.** Rotations 5-8 succeed with no intervention.
+
+The remaining shape is that bob was **BACKUP** for those intervals and never
+received the `key_id` from alice, so it produced no key and logged only
+`[REQ] BACKUP for interval N, waiting for key_id from peer` -- a line the CI
+alternation did not match, which is precisely why nine previous dumps showed a
+hole where a cause should be. **This is not yet proven.** The alternation now
+covers arnika's own key-acquisition path (`[SND]`/`[RCV]`/`[REQ]`/`[STOP]`,
+`no ACK after`, `failed to retrieve QKD key`, `failed to send key_id`,
+`waiting for key_id`, `psk mismatch`), so the next failing run should name it.
+
+One line is worth watching in particular. On failure `setPSK` calls
+`InvalidateTunnel()`, which installs a **random** PPK the peer cannot match and
+logs `[STOP] configure random PSK to invalidate WireGuard session`. That would
+produce an identical `AUTH_FAILED`, so its presence or absence separates
+"arnika gave up loudly" from "arnika never ran the interval at all". It is
+absent from the lines captured above -- but the old alternation would not have
+matched it either, so that absence is not evidence yet. It will be on the next
+failing run.
+
 Widening the overlap does **not** fix it. Keeping both generations loaded makes
 two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to
 exactly one key with no way to try the other -- so the ambiguity replaces the

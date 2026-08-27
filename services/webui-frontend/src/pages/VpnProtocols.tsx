@@ -12,9 +12,16 @@ import { useEffect, useState } from "react";
  * a native VICI client that installs the key as an RFC 8784 PPK.
  *
  * Everything shown here is parsed from the running daemon -- `swanctl
- * --list-sas` / `--list-conns` for the IPsec lane, `wg show wg0` for the
+ * --list-sas` / `--list-conns` on BOTH IPsec nodes, `wg show wg0` for the
  * WireGuard one -- and no field falls back to a constant when the parse comes
  * back empty. `null` renders as an em dash.
+ *
+ * Three checklist rows (2.3 ESP counters, 2.11 PPK on both ends, 2.14
+ * rotations) used to say "Measured on the public host". The measurements were
+ * real but taken over SSH: the API exposed no ESP byte or packet field, and a
+ * single `ppk_required` boolean sourced only from alice-ipsec. A reader with a
+ * browser could reproduce none of them. Everything those rows assert is now on
+ * this page and in `curl /api/vpn/protocols`.
  *
  * That sentence used to read "nothing on this page is a constant" and was
  * false for the WireGuard panel, in both directions: the backend returned the
@@ -56,11 +63,59 @@ interface VpnStatus {
    * brings the tunnel up and passes traffic on Noise alone.
    */
   peers_with_psk?: number | null;
-  /** RFC 9370: an additional ML-KEM key exchange was negotiated. */
+  /**
+   * RFC 9370: an additional ML-KEM key exchange was negotiated.
+   *
+   * Genuinely tri-state now. `false` means the proposal was read and carries
+   * no ML-KEM -- a finding. `null` means no proposal was available.
+   */
   pq_key_exchange?: boolean | null;
+  /**
+   * RFC 8784: whether the PPK was actually USED for this IKE_SA.
+   *
+   * Read from the `/PPK` suffix strongSwan appends to the proposal line, which
+   * it sets from COND_PPK -- a flag raised in `apply_ppk()` only after the PPK
+   * has been mixed into SK_d/SK_pi/SK_pr. Proof of use, not of configuration.
+   * `ppk_required` below is the configuration, and the two fail independently:
+   * a required PPK that never arrives is the case worth seeing.
+   */
+  ppk_used?: boolean | null;
   /** RFC 8784: PPK identity configured on the connection. */
   ppk_id?: string | null;
   ppk_required?: boolean | null;
+  /** Per-CHILD_SA ESP counters and SPIs, parsed from `swanctl --list-sas`. */
+  child_sas?: ChildSa[] | null;
+  /** Per-node views. The flat fields above remain alice's. */
+  nodes?: Record<string, VpnStatus>;
+  ppk_required_both_ends?: boolean | null;
+  ppk_used_both_ends?: boolean | null;
+  pq_key_exchange_both_ends?: boolean | null;
+  /**
+   * alice's outbound SPI is bob's inbound one, and vice versa.
+   *
+   * The only aggregate here that one end could not fabricate: an SPI is chosen
+   * by the receiver and echoed by the sender, so a match proves both nodes
+   * describe the SAME pair of ESP SAs rather than two unrelated tunnels that
+   * both happen to be up.
+   */
+  spi_paired?: boolean | null;
+}
+
+interface ChildSa {
+  name: string;
+  state: string;
+  reqid: number;
+  esp_proposal?: string | null;
+  /** null when charon printed no line for that direction -- not zero. */
+  in?: { spi: string; bytes: number; packets: number } | null;
+  out?: { spi: string; bytes: number; packets: number } | null;
+}
+
+/** Tri-state renderer: yes / no / unknown must be three distinct readings. */
+function TriState({ v, yes, no }: { v: boolean | null | undefined; yes: string; no: string }) {
+  if (v === true) return <span style={{ color: "#3ddc84" }}>{yes}</span>;
+  if (v === false) return <span style={{ color: "#e25555" }}>{no}</span>;
+  return <span style={{ color: "#6b7796" }}>— not observed —</span>;
 }
 
 export default function VpnProtocols() {
@@ -130,13 +185,21 @@ export default function VpnProtocols() {
               <Row k="Active SA" v={ipsec.active_sa ?? "—"} />
               {/* No fallback constant: an unnegotiated SA must read as such. */}
               <Row k="Proposal" v={ipsec.proposal ?? "— not negotiated —"} />
-              <Row k="PQ key exchange" v={ipsec.pq_key_exchange ? "RFC 9370 ML-KEM" : "—"} />
-              <Row k="PPK (RFC 8784)" v={
+              {/* `? :` would render "no" for "unknown" -- see TriState. */}
+              <Row k="PQ key exchange" v={
+                <TriState v={ipsec.pq_key_exchange} yes="RFC 9370 ML-KEM" no="classical only" />
+              } />
+              <Row k="PPK in use (this SA)" v={
+                <TriState v={ipsec.ppk_used} yes="yes — mixed into SK_d" no="NO — fell back to NO_PPK_AUTH" />
+              } />
+              <Row k="PPK configured" v={
                 ipsec.ppk_id
                   ? `${ipsec.ppk_id}${ipsec.ppk_required ? " (required)" : " (optional)"}`
                   : "— not configured —"
               } />
-              <Row k="Last handshake" v={ipsec.last_handshake ?? "-"} />
+              <Row k="Last handshake" v={ipsec.last_handshake ?? "—"} />
+              <BothEnds s={ipsec} />
+              <EspCounters kids={ipsec.child_sas} />
             </>
           ) : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
@@ -195,6 +258,78 @@ Known limits, stated plainly:
   );
 }
 
+/**
+ * Facts that need BOTH ends to be known.
+ *
+ * The aggregates are computed server-side, not here, and that is deliberate:
+ * `null && true` is falsy in JavaScript, so `a.ppk_used && b.ppk_used` in this
+ * file would render "not in use" whenever one end merely failed to answer --
+ * turning an unknown into a negative finding. The backend keeps the three
+ * outcomes distinct and this component just displays them.
+ */
+function BothEnds({ s }: { s: VpnStatus }) {
+  const nodes = s.nodes;
+  if (!nodes) return null;
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1d2741" }}>
+      <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>
+        BOTH ENDS ({Object.keys(nodes).join(" + ")})
+      </div>
+      <Row k="PPK required, both ends" v={
+        <TriState v={s.ppk_required_both_ends} yes="yes" no="not on both" />
+      } />
+      <Row k="PPK in use, both ends" v={
+        <TriState v={s.ppk_used_both_ends} yes="yes" no="NOT on both" />
+      } />
+      <Row k="ML-KEM, both ends" v={
+        <TriState v={s.pq_key_exchange_both_ends} yes="yes" no="not on both" />
+      } />
+      <Row k="SPIs pair across ends" v={
+        <TriState v={s.spi_paired} yes="yes — same ESP SAs" no="NO — different tunnels" />
+      } />
+    </div>
+  );
+}
+
+/**
+ * ESP byte and packet counters, per CHILD_SA.
+ *
+ * These have always been in `swanctl --list-sas`; the API fetched that output
+ * and discarded them, so VERIFICATION_CHECKLIST rows 2.3 and 2.11 could only
+ * be executed over SSH. A missing direction shows as an em dash, never as 0 --
+ * charon omits the line it has nothing for, and "no outbound line" is not
+ * "zero bytes sent".
+ */
+function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
+  if (!kids) return null;
+  if (!kids.length) {
+    return (
+      <div style={{ marginTop: 10, fontSize: 12, color: "#6b7796" }}>
+        No CHILD_SA installed.
+      </div>
+    );
+  }
+  const dir = (d?: { spi: string; bytes: number; packets: number } | null) =>
+    d ? `${d.spi}  ${d.bytes.toLocaleString()} B / ${d.packets.toLocaleString()} pkt` : "—";
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1d2741" }}>
+      <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>
+        ESP COUNTERS (alice&rsquo;s view)
+      </div>
+      {kids.map((k) => (
+        <div key={`${k.name}-${k.reqid}-${k.in?.spi ?? k.out?.spi}`}
+             style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: "#9aa9d8" }}>
+            {k.name} · {k.state}{k.esp_proposal ? ` · ${k.esp_proposal}` : ""}
+          </div>
+          <Row k="in" v={dir(k.in)} />
+          <Row k="out" v={dir(k.out)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Panel({ title, color, children }: { title: string; color: string; children: React.ReactNode }) {
   return (
     <div style={{ background: "#0d1320", border: `1px solid ${color}40`,
@@ -207,10 +342,27 @@ function Panel({ title, color, children }: { title: string; color: string; child
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
+    // `gap` and the shrink rules are load-bearing, not tidying.
+    //
+    // This was a bare `space-between` with two auto-width spans. Nothing
+    // overflowed the panel -- the value wrapped -- but with no minimum gap the
+    // label and the value ABUT, and at a 700px content width the IPsec row
+    // rendered as `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...`, one
+    // unreadable token. Measured in the browser against the deployed demo on
+    // 2026-08-27: first collision at ~900px, three rows by 600px.
+    //
+    // Same failure mode as the Overview label that spilled its box: fine at
+    // the width it was written at, wrong at a common one, and invisible to
+    // every headless assertion because it is a rendering property.
+    //
+    // flexShrink 0 on the key keeps the label whole; minWidth 0 lets the value
+    // wrap inside its own column instead of pushing into the label; textAlign
+    // right keeps a wrapped value visually attached to its own side.
     <div style={{ display: "flex", justifyContent: "space-between",
-                   padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8" }}>{k}</span>
-      <span style={{ fontFamily: "monospace" }}>{v}</span>
+                   gap: 12, padding: "3px 0", fontSize: 13 }}>
+      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+      <span style={{ fontFamily: "monospace", minWidth: 0, textAlign: "right",
+                     overflowWrap: "anywhere" }}>{v}</span>
     </div>
   );
 }

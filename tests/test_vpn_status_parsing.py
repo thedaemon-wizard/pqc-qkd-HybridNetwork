@@ -87,10 +87,25 @@ def test_ppk_optional_is_not_reported_as_required():
 
 
 def test_classical_only_sa_does_not_claim_post_quantum():
+    """A classical proposal now reports False. It used to report None.
+
+    This assertion read `is None`, and that was the defect rather than the
+    contract. `"ML_KEM" in (proposal or "") or None` can only ever yield True
+    or None -- so "we read the proposal and there is no ML-KEM in it" produced
+    exactly the same value as "we never got a proposal at all". The test
+    encoded the collapse instead of catching it, which is part of why nothing
+    flagged it for so long.
+
+    The distinction is the entire point of the field: a lane that established
+    with a CLASSICAL-ONLY proposal is a finding; a lane that has not come up
+    yet is not. See test_pq_key_exchange_can_now_say_no.
+    """
     sas = SAS_ESTABLISHED.replace("/ML_KEM_768", "")
     st = _parse_ipsec_sas(sas, CONNS_PPK)
     assert st["proposal"] == "AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256"
-    assert st["pq_key_exchange"] is None
+    assert st["pq_key_exchange"] is False
+    # ...and the genuine unknown stays distinctly expressible.
+    assert _parse_ipsec_sas("", "")["pq_key_exchange"] is None
 
 
 @pytest.mark.parametrize("sas", ["", "   \n"])
@@ -304,3 +319,233 @@ def test_wg_unknown_measures_nothing():
     for key in ("active_sa", "proposal", "last_handshake", "last_handshake_s",
                 "peers", "peers_with_psk"):
         assert err[key] is None, f"{key} should be None in the unknown template"
+
+
+# --------------------------------------------------------------------------
+# ESP counters, PPK USE, and the both-ends aggregates
+#
+# Three checklist rows (2.3, 2.11, 2.14) said "Measured on the public host".
+# The measurements were real, but taken over SSH with swanctl -- the public API
+# exposed no ESP byte/packet fields and a single `ppk_required` boolean sourced
+# only from alice-ipsec, so a reader with a browser could reproduce none of the
+# three.
+#
+# The fixtures below are verbatim `swanctl --list-sas` output captured from the
+# running demo's alice-ipsec and bob-ipsec on 2026-08-27. Note the SPIs: alice's
+# `out` is bob's `in` and vice versa. That pairing is the one fact here that a
+# single end could not fabricate.
+# --------------------------------------------------------------------------
+_parse_child_sas = importlib.import_module("webui_backend_app.main")._parse_child_sas
+_both_ends = importlib.import_module("webui_backend_app.main")._both_ends
+
+SAS_ALICE = """\
+pqcqkd-vpn: #6261, ESTABLISHED, IKEv2, 05f7a6680d8a2024_i* 5c08b6797100ef13_r
+  local  'alice@pqcqkd.local' @ 10.30.0.20[4500]
+  remote 'bob@pqcqkd.local' @ 10.30.0.21[4500]
+  AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK
+  established 20s ago, reauth in 266s
+  tunnel: #6261, reqid 1, INSTALLED, TUNNEL-in-UDP, ESP:AES_GCM_16-256
+    installed 20s ago, rekeying in 3288s, expires in 3940s
+    in  cb1df209,   1680 bytes,    20 packets
+    out c15c9a27,    840 bytes,    10 packets
+    local  10.30.0.20/32
+    remote 10.30.0.21/32
+"""
+
+SAS_BOB = """\
+pqcqkd-vpn: #6261, ESTABLISHED, IKEv2, 05f7a6680d8a2024_i 5c08b6797100ef13_r*
+  local  'bob@pqcqkd.local' @ 10.30.0.21[4500]
+  remote 'alice@pqcqkd.local' @ 10.30.0.20[4500]
+  AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK
+  established 21s ago
+  tunnel: #6258, reqid 1, INSTALLED, TUNNEL-in-UDP, ESP:AES_GCM_16-256
+    installed 21s ago, rekeying in 3262s, expires in 3939s
+    in  c15c9a27,    840 bytes,    10 packets
+    out cb1df209,   1680 bytes,    20 packets
+    local  10.30.0.21/32
+    remote 10.30.0.20/32
+"""
+
+# A rekey window: TWO tunnel blocks under ONE IKE_SA. This is why the parser
+# has to be a line-scanning state machine -- pairing the Nth `in` with the Nth
+# `out` across the whole document mixes the old SA's inbound counters with the
+# new SA's outbound ones.
+SAS_REKEYING = """\
+pqcqkd-vpn: #7, ESTABLISHED, IKEv2, aaaa_i* bbbb_r
+  AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK
+  established 12s ago
+  tunnel: #7, reqid 1, REKEYING, TUNNEL, ESP:AES_GCM_16-256
+    installed 3500s ago, rekeying in 0s
+    in  11111111,  99000 bytes,   900 packets
+    out 22222222,  98000 bytes,   880 packets
+    local  10.30.0.20/32
+    remote 10.30.0.21/32
+  tunnel: #8, reqid 1, INSTALLED, TUNNEL, ESP:AES_GCM_16-256
+    installed 1s ago, rekeying in 3599s
+    in  33333333,      0 bytes,     0 packets
+    out 44444444,      0 bytes,     0 packets
+    local  10.30.0.20/32
+    remote 10.30.0.21/32
+"""
+
+# charon omits the line it has nothing for. An absent direction must be None.
+SAS_INBOUND_ONLY = """\
+pqcqkd-vpn: #1, ESTABLISHED, IKEv2, aaaa_i* bbbb_r
+  AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK
+  established 5s ago
+  tunnel: #1, reqid 1, INSTALLED, TUNNEL, ESP:AES_GCM_16-256
+    installed 5s ago, rekeying in 3599s
+    in  aabbccdd,    512 bytes,     4 packets
+    local  10.30.0.20/32
+"""
+
+# The same lane WITHOUT a PPK: charon establishes, negotiates ML-KEM, and
+# silently falls back to NO_PPK_AUTH. The proposal simply lacks the /PPK
+# suffix. This is the case the whole project exists to make visible.
+SAS_NO_PPK = SAS_ALICE.replace("/KE1_ML_KEM_768/PPK", "/KE1_ML_KEM_768")
+
+CONNS_BOB = """\
+bypass-arnika-control: IKEv1/2, no reauthentication, rekeying every 14400s
+  local:  %any[500]
+  remote: %any[500]
+  control-to-peer: PASS, no rekeying
+
+pqcqkd-vpn: IKEv2, no reauthentication, no rekeying
+  ppk: ppk-qkd@pqcqkd.local, required
+  local:  10.30.0.21[500]
+  remote: 10.30.0.20[500]
+"""
+
+
+def test_esp_counters_are_parsed_from_output_we_already_fetched():
+    """Rows 2.3 and 2.11 become browser-reproducible with zero extra execs."""
+    kids = _parse_child_sas(SAS_ALICE)
+    assert len(kids) == 1
+    k = kids[0]
+    assert k["in"] == {"spi": "cb1df209", "bytes": 1680, "packets": 20}
+    assert k["out"] == {"spi": "c15c9a27", "bytes": 840, "packets": 10}
+    assert k["state"] == "INSTALLED"
+    assert k["esp_proposal"] == "AES_GCM_16-256"
+    assert k["reqid"] == 1
+
+
+def test_a_rekey_window_keeps_its_two_blocks_separate():
+    """The reason this is a state machine and not two findall()s.
+
+    Two `tunnel:` blocks under one IKE_SA. A whole-document scan would pair
+    in[0] with out[0] and in[1] with out[1] -- which happens to be right here,
+    but only because both blocks are complete. Add an inbound-only block and
+    the pairing shifts silently. What must hold is that each block keeps ITS
+    OWN counters, which is what is asserted.
+    """
+    kids = _parse_child_sas(SAS_REKEYING)
+    assert len(kids) == 2
+    old, new = kids
+    assert old["state"] == "REKEYING"
+    assert old["in"]["spi"] == "11111111" and old["out"]["spi"] == "22222222"
+    assert old["in"]["bytes"] == 99000
+    assert new["state"] == "INSTALLED"
+    assert new["in"]["spi"] == "33333333" and new["out"]["spi"] == "44444444"
+    # The new SA has genuinely carried nothing yet. 0 here is a measurement.
+    assert new["out"]["bytes"] == 0
+
+
+def test_an_absent_direction_is_none_not_zero():
+    """charon omits the line; "no outbound line" is not "zero bytes sent"."""
+    k = _parse_child_sas(SAS_INBOUND_ONLY)[0]
+    assert k["in"]["bytes"] == 512
+    assert k["out"] is None, (
+        "an omitted direction became 0, so a half-installed SA now reads as an "
+        "idle one"
+    )
+
+
+def test_ppk_use_is_read_from_the_sa_not_from_the_config():
+    """/PPK on the proposal line is per-SA proof the PPK was applied.
+
+    strongSwan 6.0.7:
+      sa/ike_sa.h:258        COND_PPK -- "A Postquantum Preshared Key was used
+                             when this IKE_SA was created"
+      vici/vici_query.c:640  add_condition(b, ike_sa, "ppk", COND_PPK)
+      swanctl/list_sas.c:322 if ppk == yes -> printf("/PPK")
+      ikev2/tasks/ike_auth.c:1187  set inside apply_ppk(), only AFTER
+                             derive_ike_keys_ppk() succeeded
+
+    main.py's comment used to say charon does not report this over VICI. It
+    does, in output the function was already being handed. This project's own
+    CI job asserts on the same "/PPK" marker.
+    """
+    used = _parse_ipsec_sas(SAS_ALICE, CONNS_BOB)
+    assert used["ppk_used"] is True
+    assert used["ppk_required"] is True          # configuration, separate fact
+
+    # Established, ML-KEM negotiated, PPK silently absent -- charon fell back
+    # to NO_PPK_AUTH. Configuration still says "required"; use says no.
+    fell_back = _parse_ipsec_sas(SAS_NO_PPK, CONNS_BOB)
+    assert fell_back["status"] == "established"
+    assert fell_back["pq_key_exchange"] is True
+    assert fell_back["ppk_used"] is False, (
+        "a lane that established WITHOUT the PPK reports the same as one that "
+        "used it; that is the exact failure this project exists to surface"
+    )
+    assert fell_back["ppk_required"] is True
+
+
+def test_pq_key_exchange_can_now_say_no():
+    """It could previously say True or None and never False.
+
+    `"ML_KEM" in (proposal or "") or None` yields None for a proposal WITHOUT
+    ML-KEM -- the same value it yields when there is no proposal at all. So "we
+    read it and there is no ML-KEM" was indistinguishable from "we never
+    looked", and both render as an em dash.
+    """
+    classical = SAS_ALICE.replace("/KE1_ML_KEM_768/PPK", "/PPK")
+    assert _parse_ipsec_sas(classical, CONNS_BOB)["pq_key_exchange"] is False
+    # No SA at all -> genuinely unknown.
+    assert _parse_ipsec_sas("", "")["pq_key_exchange"] is None
+
+
+def test_the_spis_pair_across_the_two_ends():
+    """alice.out == bob.in and alice.in == bob.out.
+
+    The one aggregate here a single end could not fabricate: an SPI is chosen
+    by the receiver and echoed by the sender, so a match proves both containers
+    describe the SAME pair of ESP SAs rather than two unrelated tunnels that
+    both happen to be up.
+    """
+    a = _parse_ipsec_sas(SAS_ALICE, CONNS_BOB)
+    b = _parse_ipsec_sas(SAS_BOB, CONNS_BOB)
+    agg = _both_ends(a, b)
+    assert agg["spi_paired"] is True
+    assert agg["ppk_used_both_ends"] is True
+    assert agg["ppk_required_both_ends"] is True
+    assert agg["pq_key_exchange_both_ends"] is True
+
+    # Two tunnels that are each up but not to each other.
+    unrelated = SAS_BOB.replace("c15c9a27", "deadbeef").replace("cb1df209", "feedface")
+    assert _both_ends(a, _parse_ipsec_sas(unrelated, CONNS_BOB))["spi_paired"] is False
+
+
+def test_one_end_unknown_makes_the_aggregate_unknown_not_false():
+    """`null && true` is falsy in JS, which is why this is computed here.
+
+    A client-side `a.ppk_used && b.ppk_used` would render "not in use" when one
+    end simply failed to answer -- turning an unknown into a negative finding.
+    """
+    a = _parse_ipsec_sas(SAS_ALICE, CONNS_BOB)
+    down = _ipsec_unknown("error")
+    agg = _both_ends(a, down)
+    assert agg["ppk_used_both_ends"] is None
+    assert agg["ppk_required_both_ends"] is None
+    assert agg["spi_paired"] is None, (
+        "an unreachable peer must not read as an unpaired tunnel"
+    )
+    # And the genuine negative must still be expressible.
+    assert _both_ends(a, _parse_ipsec_sas(SAS_NO_PPK, CONNS_BOB))["ppk_used_both_ends"] is False
+
+
+def test_the_conns_parse_is_not_fooled_by_an_earlier_connection():
+    """bob-ipsec lists `bypass-arnika-control` before `pqcqkd-vpn`."""
+    st = _parse_ipsec_sas(SAS_BOB, CONNS_BOB)
+    assert st["ppk_id"] == "ppk-qkd@pqcqkd.local"
+    assert st["ppk_required"] is True
