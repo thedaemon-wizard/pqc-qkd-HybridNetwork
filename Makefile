@@ -104,7 +104,7 @@ smoke: ## Quick end-to-end smoke test
 
 .PHONY: test
 test: ## Run pytest contract & integration tests
-	python3.12 -m pytest tests/ -v
+	$(VENV)/python -m pytest tests/ -v
 
 .PHONY: bench
 bench: ## Run latency / throughput benchmarks
@@ -177,13 +177,45 @@ pqc-list: ## List PQC algorithms exposed by oqs-provider
 # -------------------------------------------------------------------
 # Lint / format
 # -------------------------------------------------------------------
+# CI_LINT_PATHS must equal the argument list in .github/workflows/ci.yml's
+# `ruff check` step. tests/test_make_lint_matches_ci.py parses both files and
+# fails if they drift -- the help text below claims they are the same, and that
+# claim was false for however long animations/ has been in this list.
+#
+# What was wrong: `lint` ran ruff over `services/ tests/ tools/ animations/
+# benchmarks/` while CI runs it over `services/ tests/ tools/ benchmarks/`.
+# animations/ has 149 errors today, so `make lint` fails locally on code CI is
+# green about, while advertising "same rules as CI". A developer who runs the
+# documented command sees a wall of errors that no gate cares about, and the
+# reasonable response -- ignoring `make lint` -- also disables it for the paths
+# that DO gate.
+#
+# animations/ stays unlinted rather than being cleaned up, and that is a
+# decision, not an oversight: those are Manim scenes that render documentation
+# videos. Nothing imports them, no image ships them, and Manim's idioms trip
+# rules chosen for service code. `lint-animations` exists for anyone who wants
+# to look; it is deliberately not a gate.
+CI_LINT_PATHS = services/ tests/ tools/ benchmarks/
+
+# `.venv/bin/`, not `python3.12 -m`. The system interpreter has neither ruff nor
+# pytest here, so the documented commands exited "No module named ruff" -- a
+# target that cannot run is not a gate either. VERIFICATION_CHECKLIST's
+# one-command block already used .venv; the Makefile had not caught up.
+VENV ?= .venv/bin
+
 .PHONY: fmt
-fmt: ## Format Python with ruff
-	python3.12 -m ruff format services/ tests/ tools/ animations/ benchmarks/
+fmt: ## Format Python with ruff (same paths as CI lints)
+	$(VENV)/ruff format $(CI_LINT_PATHS)
 
 .PHONY: lint
-lint: ## Lint Python with ruff (same rules as CI)
+lint: ## Lint Python with ruff (exactly what CI's python job runs)
 # No `|| true`. These targets used to swallow every failure, so `make lint`
 # reported success no matter what -- which is why 99 lint errors accumulated
 # unnoticed, one of them a reference to an undefined name.
-	python3.12 -m ruff check services/ tests/ tools/ animations/ benchmarks/
+	$(VENV)/ruff check $(CI_LINT_PATHS)
+
+.PHONY: lint-animations
+lint-animations: ## Lint animations/ (NOT a gate; CI does not run this)
+	@echo "animations/ is not linted by CI -- see the note above CI_LINT_PATHS."
+	@echo "Manim scenes, not shipped code. Failures here block nothing."
+	$(VENV)/ruff check animations/
