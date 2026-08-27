@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-200 rows, of which **36 are machine-checked and 164 are not**. Worth knowing
+201 rows, of which **37 are machine-checked and 164 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,15 +17,21 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 18 | **18** | 0 |
 | 2 | IPsec lane | 15 | 1 | 14 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **117** | 4 | **113** |
+| 4 | Browser, every page | **118** | 5 | **113** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | 5 | 14 |
 | 7 | Documentation | 14 | 3 | 11 |
 
-Section 4 is 61 % of the checklist and almost entirely manual. That is partly
+Section 4 is 59 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
 says are not headless assertions -- but it is also where the least automation
 has been attempted, so it is the first place to look for rows worth converting.
+
+It is also structurally blind in one direction, which row 4.8.6 records: every
+row here starts from a page, so a route no page calls has no row. That is how
+`/api/wg/{node}` served the WireGuard private key and the QKD-derived preshared
+key through a complete page-by-page audit. Enumerate routes from `main.py`'s
+decorators, not from what the UI fetches.
 
 Section 2 reads as manual and is not: the `ipsec` CI job asserts 2.6, 2.7, 2.8,
 2.8b, 2.11, 2.12 and 2.13 on every pull request. Treat a green run as those
@@ -304,6 +310,7 @@ question about it could not be answered from this checklist.
 | 4.8.3 | Container controls hidden | no restart buttons on `/` |
 | 4.8.4 | Demo matches local | same behaviour on every page |
 | 4.8.5 | **The deployment's posture is checked from outside it** | `sh scripts/verify-demo-hardening.sh https://<demo>` -> `ok: ... is hardened`. Asserts `/api/config` reports `container_control: false`, that `POST /api/stack/restart` does not answer 200 (belt and braces: config could report one thing while the route does another, so it probes with a service name that does not exist), and that an absent log is a 404. External rather than a unit test because the risk is a *deployment* that forgot a variable: `ENABLE_CONTAINER_CONTROL` gates an endpoint that reaches a mounted docker.sock, and nothing inside the image can see how the running instance was launched. `main.py` had pointed at this script for several rounds while it did not exist -- see 7.14. Measured 2026-08-22: checks 1-3 pass on the demo, check 4 correctly fails until this branch is deployed. |
+| 4.8.6 | **No API response carries key material -- including routes no page calls** | `.venv/bin/python -m pytest tests/test_wg_endpoint_redacts_secrets.py` -> 6 pass. Then, against the deployment: `curl -s https://<demo>/api/wg/alice` must show `private key: (hidden)` and `preshared key: (hidden)`, and must contain no tab characters. **This row exists because the whole of section 4 could not have found the defect it guards.** `GET /api/wg/{node}` ran `wg show wg0 dump`, whose format is positional -- field 1 of line 1 is the interface private key, field 2 of each peer line is the preshared key, which on this stack is the arnika HKDF(QKD \|\| PQC) output. Both were served unauthenticated, HTTP 200, with no `DEMO_MODE` gate; confirmed live on 2026-08-27. No page called the route, so no rendering looked wrong and no control misbehaved: a page-by-page browser audit is structurally blind to it. Enumerate the routes from `main.py`'s decorators, not from what the UI fetches, and read every response body -- not just its status. |
 
 ---
 
