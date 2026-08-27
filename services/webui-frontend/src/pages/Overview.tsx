@@ -91,8 +91,12 @@ function ArchPanel() {
       <svg id="overview-arch-svg" viewBox="0 0 420 280" style={{ width: "100%" }}>
         {/* E2E Layer */}
         <rect x="20" y="20" width="380" height="60" rx="6" fill="#332247" stroke="#7c5cff" />
-        <text x="210" y="48" fill="#d8c8ff" textAnchor="middle" fontSize="14">End-to-End: Rosenpass handshake (McEliece 460896 + Kyber512)</text>
-        <text x="210" y="66" fill="#9d8fc8" textAnchor="middle" fontSize="11">writes pqc.psk file</text>
+        {/* Two lines because SVG text does not wrap. Correcting the KEM name
+            lengthened this label to 420px inside a 380px box, so it spilled
+            20px past both borders. Measured with getComputedTextLength, not
+            eyeballed -- see checklist 4.2.5. */}
+        <text x="210" y="44" fill="#d8c8ff" textAnchor="middle" fontSize="14">End-to-End: Rosenpass handshake</text>
+        <text x="210" y="62" fill="#9d8fc8" textAnchor="middle" fontSize="11">McEliece 460896 + Kyber512 — writes pqc.psk file</text>
         {/* Transport Layer */}
         <rect x="20" y="100" width="380" height="60" rx="6" fill="#3a2a18" stroke="#ff9442" />
         <text x="210" y="128" fill="#ffd9b8" textAnchor="middle" fontSize="14">Transport: Arnika (HKDF-SHA3-256 fuses QKD‖PQC)</text>
