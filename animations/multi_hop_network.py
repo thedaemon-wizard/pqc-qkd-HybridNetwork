@@ -8,7 +8,9 @@ from manim import *
 
 class MultiHopScene(Scene):
     def construct(self) -> None:
-        title = Text("Multi-hop QKD + PQC E2E (paper §III)", font_size=28).to_edge(UP)
+        # Rendered INTO the video, so changing it invalidates any existing artefact
+        # under docs/images/ -- re-render before publishing one.
+        title = Text("Multi-hop QKD + PQC E2E (paper, 3.2 Routing and Composition)", font_size=24).to_edge(UP)
         self.play(Write(title))
 
         a = Circle(radius=0.45, color=GREEN).shift(LEFT * 5)

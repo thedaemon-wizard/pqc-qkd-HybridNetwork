@@ -113,7 +113,7 @@ pqc-qkd-hybrid/
 ├── ARCHITECTURE.md                    # Detailed design & paper mapping
 ├── docker-compose.yml                 # Main topology
 ├── docker-compose.boringtun.yml       # WG kernel fallback (userspace)
-├── docker-compose.multihop.yml        # Adds Charlie relay (paper §III)
+├── docker-compose.multihop.yml        # Adds Charlie relay (paper, 3.2 Routing and Composition)
 ├── .env.example                       # Sample environment
 ├── Makefile                           # build / up / smoke / bench
 ├── references/                        # Reference papers (only where the licence permits)
