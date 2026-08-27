@@ -57,7 +57,31 @@ class PoolStats:
     rounds_aborted: int = 0
     last_qber: float = 0.0
     last_round_ms: float = 0.0
-    last_skr_bps: float = 0.0
+    # `modelled_skr_bps`, not `last_skr_bps`.
+    #
+    # Every backend fills RoundOutcome.skr_bps from `skr_bps_from_config(cfg)`,
+    # whose signature is `(cfg) -> float` -- it takes no round. So this is a
+    # closed-form prediction from config/qkd_params.yaml, and no round can move
+    # it. It sat in the `last_*` group carrying a per-round prefix, between
+    # `last_qber` and `intercepted_total`, both of which really are measured.
+    #
+    # What that looked like on the public demo, 2026-08-27:
+    #
+    #   alice  rounds=6      last_skr_bps=12072051.175288066
+    #   bob    rounds=12126  last_skr_bps=12072051.175288066
+    #
+    # Identical to the last mantissa bit across a 2000x difference in rounds,
+    # and equal to what the config alone predicts with no simulator running --
+    # while `last_qber` (0.0098 vs 0.0) and `last_round_ms` (220.8 vs 300.3)
+    # differed, because those are measurements.
+    #
+    # Renamed rather than aliased: keeping `last_skr_bps` as a synonym would
+    # preserve the claim under the old name, and a shape change fails loudly
+    # where a meaning change fails silently.
+    modelled_skr_bps: float = 0.0
+    # Stated in the payload rather than left to the field name alone, so a
+    # consumer reading JSON does not have to know this convention.
+    skr_provenance: str = "closed-form from config; not measured per round"
     intercepted_total: int = 0
     keys_emitted: int = 0
     pool_size: int = 0
@@ -139,7 +163,7 @@ class KeyPool:
             self._stats.rounds_total += 1
             self._stats.last_qber = r.qber
             self._stats.last_round_ms = r.elapsed_ms
-            self._stats.last_skr_bps = r.skr_bps
+            self._stats.modelled_skr_bps = r.skr_bps
             self._stats.intercepted_total += r.intercepted
             self._stats.last_frames = r.sample_frames
             if r.accepted:
@@ -242,7 +266,8 @@ class KeyPool:
             rounds_aborted=self._stats.rounds_aborted,
             last_qber=self._stats.last_qber,
             last_round_ms=self._stats.last_round_ms,
-            last_skr_bps=self._stats.last_skr_bps,
+            modelled_skr_bps=self._stats.modelled_skr_bps,
+            skr_provenance=self._stats.skr_provenance,
             intercepted_total=self._stats.intercepted_total,
             keys_emitted=self._stats.keys_emitted,
             pool_size=len(self._buf),
