@@ -11,18 +11,51 @@ import { useEffect, useState } from "react";
  * different key-writer adapters: WireGuard via wgctrl netlink, strongSwan via
  * a native VICI client that installs the key as an RFC 8784 PPK.
  *
- * Everything shown here is parsed from the running daemon
- * (`swanctl --list-sas` / `--list-conns`); nothing on this page is a constant.
+ * Everything shown here is parsed from the running daemon -- `swanctl
+ * --list-sas` / `--list-conns` for the IPsec lane, `wg show wg0` for the
+ * WireGuard one -- and no field falls back to a constant when the parse comes
+ * back empty. `null` renders as an em dash.
+ *
+ * That sentence used to read "nothing on this page is a constant" and was
+ * false for the WireGuard panel, in both directions: the backend returned the
+ * literal "ChaCha20-Poly1305 + Noise + PSK" as `proposal` and the literal "via
+ * wg show" as `last_handshake`, and this file carried its own copy of the first
+ * as a `??` fallback. WireGuard negotiates no suite -- its primitives are fixed
+ * by the protocol and `wg show` reports none of them -- so `proposal` is now
+ * permanently null here, and `peers_with_psk` carries the observable fact
+ * instead.
  */
 
 interface VpnStatus {
   name: string;
   status: string;
-  uptime?: string;
-  active_sa?: number;
-  /** Negotiated IKE_SA proposal, or null before the SA is up. */
+  /**
+   * Established SAs (IPsec) or peers that have completed a handshake
+   * (WireGuard). `null` means the daemon was not reachable -- distinct from 0,
+   * which means it answered and there are none.
+   */
+  active_sa?: number | null;
+  /**
+   * Negotiated IKE_SA proposal, or null before the SA is up.
+   *
+   * Always null on the WireGuard lane. See the note above: there is nothing in
+   * `wg show` to derive one from, so a value here could only be invented.
+   */
   proposal?: string | null;
   last_handshake?: string | null;
+  /** Handshake age in seconds. 0 is a measurement; null is the lack of one. */
+  last_handshake_s?: number | null;
+  /** WireGuard: peers configured on the interface. */
+  peers?: number | null;
+  /**
+   * WireGuard: peers with a preshared key installed.
+   *
+   * `wg show` prints a peer's `preshared key:` line only when one is actually
+   * set, so this is direct evidence that arnika wrote the QKD-derived key.
+   * Worth showing because the failure is silent: a peer without the PSK still
+   * brings the tunnel up and passes traffic on Noise alone.
+   */
+  peers_with_psk?: number | null;
   /** RFC 9370: an additional ML-KEM key exchange was negotiated. */
   pq_key_exchange?: boolean | null;
   /** RFC 8784: PPK identity configured on the connection. */
@@ -71,9 +104,19 @@ export default function VpnProtocols() {
           {wg ? (
             <>
               <Row k="Status" v={<Badge text={wg.status} color={statusColor(wg.status)} />} />
-              <Row k="Active SA" v={String(wg.active_sa ?? "-")} />
-              <Row k="Proposal" v={wg.proposal ?? "ChaCha20-Poly1305 + Noise + PSK"} />
-              <Row k="Last handshake" v={wg.last_handshake ?? "-"} />
+              <Row k="Peers handshaked" v={wg.active_sa ?? "—"} />
+              {/* No fallback constant, on either lane. WireGuard negotiates no
+                  suite, so this reads as such rather than restating the
+                  protocol's fixed primitives as though they were measured. */}
+              <Row k="Proposal" v={wg.proposal ?? "— none negotiated (WireGuard has no suite) —"} />
+              <Row k="Last handshake" v={wg.last_handshake ?? "—"} />
+              {/* The one observable security fact here: `wg show` prints a
+                  peer's `preshared key:` line only when one is installed. */}
+              <Row k="Peers with QKD PSK" v={
+                wg.peers_with_psk == null || wg.peers == null
+                  ? "—"
+                  : `${wg.peers_with_psk} of ${wg.peers}`
+              } />
             </>
           ) : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
@@ -84,7 +127,7 @@ export default function VpnProtocols() {
           {ipsec ? (
             <>
               <Row k="Status" v={<Badge text={ipsec.status} color={statusColor(ipsec.status)} />} />
-              <Row k="Active SA" v={String(ipsec.active_sa ?? "-")} />
+              <Row k="Active SA" v={ipsec.active_sa ?? "—"} />
               {/* No fallback constant: an unnegotiated SA must read as such. */}
               <Row k="Proposal" v={ipsec.proposal ?? "— not negotiated —"} />
               <Row k="PQ key exchange" v={ipsec.pq_key_exchange ? "RFC 9370 ML-KEM" : "—"} />
@@ -180,8 +223,14 @@ function Badge({ text, color }: { text: string; color: string }) {
 }
 
 function statusColor(s: string): string {
-  if (s === "running" || s === "established") return "#3ddc84";
-  if (s === "restarting" || s === "rekeying") return "#f5a623";
+  // Only "established" is green. "running" means the daemon answered but no SA
+  // is up, which on this page is a lane carrying no traffic -- it shared green
+  // with "established" while the WireGuard branch also degraded a FAILED
+  // `wg show` to "running", so a dead lane rendered as a healthy one. The
+  // backend now returns "error" for that, and "running" moves to amber because
+  // it is genuinely an in-between state rather than a success.
+  if (s === "established") return "#3ddc84";
+  if (s === "running" || s === "restarting" || s === "rekeying") return "#f5a623";
   // "error" means swanctl itself failed -- charon is not answering. That must
   // read as a fault, not fall through to the neutral colour that also means
   // "absent", or a dead daemon looks unremarkable.

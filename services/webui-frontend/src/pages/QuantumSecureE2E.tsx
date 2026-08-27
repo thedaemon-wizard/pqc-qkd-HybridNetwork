@@ -104,7 +104,11 @@ export default function QuantumSecureE2E() {
       `# bytes:      ${s.total_bytes_encrypted}`,
       `# rate_bps:   ${s.rate_bps}`,
       `# last_key_id:${s.last_qkd_key_id}`,
-      `# psk_prefix: ${s.last_psk_prefix_hex}`,
+      // Empty means phase 3 found neither leg alive and declined to derive:
+      // HKDF over an empty IKM returns a public constant, not a secret. Say so
+      // -- a bare "# psk_prefix:" reads as a truncated export rather than a
+      // measured absence.
+      `# psk_prefix: ${s.last_psk_prefix_hex || "(none - no key material survived)"}`,
       s.last_error ? `# last_error: ${s.last_error}` : "",
       "",
     ].filter(Boolean);
