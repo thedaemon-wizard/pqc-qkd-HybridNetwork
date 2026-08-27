@@ -227,9 +227,10 @@ export default function PhysicsParams() {
         />
       </div>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        Defaults come from <code>config/qkd_params.yaml</code> (grounded in the
-        openQKDsecurity precomputed table and the closed-form formulae in
-        arXiv:2511.21253). <b>Edit any value below and press Apply</b> — the live
+        Defaults come from <code>config/qkd_params.yaml</code> (grounded in
+        the precomputed table in <code>config/qkd_keyrate_table.json</code> and
+        the closed-form formulae of Lo&ndash;Ma&ndash;Chen, PRL 94, 230504 and
+        arXiv:2511.21253).{" "} <b>Edit any value below and press Apply</b> — the live
         key-rate recomputes <b>client-side</b> as you type, and the values are
         best-effort synced to the KMEs (in-memory; the YAML file is never modified;
         reset on restart). Press <b>Reset</b> to revert to defaults, or

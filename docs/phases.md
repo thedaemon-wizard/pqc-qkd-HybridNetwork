@@ -32,8 +32,10 @@ conversions, π/2 etc., and explicitly documented CV-QKD defaults).
 ```
 1. WebUI live slider (PhysicsParams page)        →
 2. config/qkd_params.yaml (hot-reloaded via watchdog) →
-3. config/qkd_keyrate_table.json (pre-computed, openQKDsecurity SDP +
-                                  arXiv:2511.21253 closed-form)
+3. config/qkd_keyrate_table.json (pre-computed by
+                                  tools/precompute_keyrate_table_fallback.py:
+                                  Lo-Ma-Chen PRL 94, 230504 + arXiv:2511.21253
+                                  closed-form. NOT an SDP -- see LIMITATIONS)
 4. scikit-optimize gp_minimize (Bayesian Optimization on closed-form SKR)
 ```
 
@@ -184,8 +186,28 @@ python tools/compare_to_paper.py
 cat benchmarks/results/paper_comparison.json | head -n 30
 ```
 
-Sample output (after `make bench`): rosenpass-scalability experiment-summary.csv
-mean handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes.
+**What the output does NOT say.** This paragraph used to read: *"Sample output
+(after `make bench`): rosenpass-scalability experiment-summary.csv mean
+handshake time is within ±15 % of the paper's 10.27 s @ 10 nodes."* Three
+things are wrong with that, and they compound:
+
+1. `tools/compare_to_paper.py` reads columns 0 and 1 of every CSV it finds. In
+   `rosenpass-scalability/results/experiment-summary.csv` those columns are
+   `peer_count` and `avg_cpu_percent`. **That file has no handshake-time column
+   at all.** The reported `mean: 11.93` is a mean CPU *percentage*, compared
+   against a *time in seconds*. Reproduce it: the column holds
+   0.01, 3.19, 6.17, 15.56, 34.72, whose mean is exactly 11.93 and whose
+   standard deviation is the 12.5236783733... the JSON prints.
+2. The file's peer counts are 1, 500, 1000, 2500 and 5000. There is no 10-node
+   row to compare against.
+3. `paper_comparison.json` records `"ours": {"n": 0}` -- our side of the
+   comparison is empty, because `benchmarks/results/handshake_age.csv` has
+   never been produced.
+
+So the "±15 % agreement" was a numerical coincidence between two quantities in
+different units, at a scale that is not in the data, against a measurement that
+does not exist. `make bench` still runs and the JSON is still a useful index of
+what the supplementary repository contains; it is not a validation.
 
 ### End-to-end browser verification (13 pages)
 
@@ -462,15 +484,20 @@ coordinates: `QKD KEY y=[208,208], key_ID y=[288,288], VPN tunnel y=174`.
 `submodules/qkd_kme_server` is now part of the repo —
 [`thomasarmel/qkd_kme_server`](https://github.com/thomasarmel/qkd_kme_server)
 with its most recent commit on **2026-04-01**, Rust + ETSI GS QKD 014 v1.1.1
-compliant. Together with our existing Python `bb84-kme` (Phase 1) and NS-3
-C++ `qkdnetsim-kme` (Phase 9), this gives **three independent ETSI 014
-implementations** for cross-validation:
+compliant.
 
-| Implementation | Language | Phase | Last commit |
+**Two** ETSI 014 servers actually run in this repository, not three. The row
+below listed `services/qkdnetsim-kme` as "NS-3 contrib, C++", but that service
+is `kme_facade.py`, a Flask app minting `secrets.token_bytes`; no NS-3 binary
+is invoked. It is a genuine second implementation of the REST contract and
+useful as one -- it is just Python, and it is not NS-3. The Rust server is
+vendored and not yet wired into any compose profile.
+
+| Implementation | Language | Phase | Runs here? |
 |---|---|---|---|
-| `services/bb84-kme` (this repo) | Python + SimQN | 1 | live |
-| `services/qkdnetsim-kme` (NS-3 contrib) | C++ | 9 | 2026-05-03 |
-| `submodules/qkd_kme_server` | Rust | 14 | **2026-04-01** |
+| `services/bb84-kme` (this repo) | Python + SimQN | 1 | yes |
+| `services/qkdnetsim-kme` (`kme_facade.py`) | Python (Flask) | 9 | yes -- a facade over the contract, NOT the NS-3 C++ KMS |
+| `submodules/qkd_kme_server` | Rust | 14 | no -- vendored, in no compose profile |
 
 Note: `pq-wireguard` (Kudelski Security) was previously listed as a
 candidate but was **archived on 2024-09-03** ("not actively maintained

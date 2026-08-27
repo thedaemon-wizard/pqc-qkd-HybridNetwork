@@ -43,13 +43,26 @@ Each retains its original copyright notice and license terms.
   Per the standard library-vs-binary distinction we treat this service as a GPLv3
   sub-component of the otherwise Apache-2.0 repository; the GPL only extends to
   derivative works of SimQN itself.
-- **qkdnetsim (GPL v2)** runs in an isolated Docker container
-  (`services/qkdnetsim-kme/`). Its source is unmodified; we only invoke its
-  binaries over the network. This is the standard pattern that does not impose
-  GPL obligations on the calling code.
-- **openQKDsecurity (MIT)** is *not* shipped in the runtime image. We use it
-  off-line to pre-compute `config/qkd_keyrate_table.json`; the resulting table is
-  data, not derivative MATLAB code, and may be redistributed freely.
+- **qkdnetsim (GPL v2)** is vendored as a submodule and its source is
+  unmodified. This entry previously said it "runs in an isolated Docker
+  container (`services/qkdnetsim-kme/`) ... we only invoke its binaries over
+  the network". That service is `kme_facade.py`, a Flask app of our own; no
+  qkdnetsim binary is invoked by anything in this repository. The conclusion --
+  no GPL obligation on the calling code -- still holds, and now for a simpler
+  reason: nothing links to it or executes it at all. Restore the
+  invoke-over-the-network argument if the real NS-3 KMS is ever wired in.
+- **openQKDsecurity (MIT)** is *not* shipped in the runtime image, and is not
+  currently used to produce anything. This entry previously read "We use it
+  off-line to pre-compute `config/qkd_keyrate_table.json`; the resulting table
+  is data, not derivative MATLAB code, and may be redistributed freely." The
+  conclusion happens to be right and the premise is wrong, which is worse than
+  either alone: that table's own `provenance` field names
+  `tools/precompute_keyrate_table_fallback.py`, its `formulas` field names only
+  Lo-Ma-Chen and arXiv:2511.21253, and `tools/precompute_keyrate_table.m` has
+  never existed in this repository. No MATLAB ran, so there was no
+  derivative-work question to answer. The submodule is vendored for the
+  roadmap; if it is ever used to generate a shipped artefact, restore the
+  data-not-code argument then, on a real premise.
 - **Strawberry Fields (Apache-2.0)** and **PQClean (per-file MIT / Public
   Domain)** are fully compatible with this repository's Apache-2.0 baseline.
 - **strongSwan (GPL-2.0-or-later, with an OpenSSL/LGPL linking exception)** runs

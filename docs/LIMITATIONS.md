@@ -17,9 +17,13 @@ When citing or releasing the PoC, **please always disclose the limitations below
   - `tno_keyrate` — TNO-Quantum's independently developed decoy-state BB84/BBM92
     key-rate engine (`submodules/tno-qkd-key-rate`, Apache-2.0), used to
     cross-check this project's own rate model against a third-party one
-  - `qkdnetsim_proxy` — fetches keys from the NS-3 reference KME's own C++
-    ETSI GS QKD 014 implementation, for cross-validating the REST contract
-- All parameters are **scientifically grounded** — `config/qkd_keyrate_table.json` is precomputed offline from the openQKDsecurity Winick SDP and the arXiv:2511.21253 closed-form formula.
+  - `qkdnetsim_proxy` — fetches keys from `qkdnetsim-kme`, a second and
+    independently written ETSI GS QKD 014 server, to cross-check the REST
+    contract. That server is `kme_facade.py`, a Flask app; it is **not** the
+    NS-3 C++ KMS, and nothing compares key material between the two -- both
+    draw from a CSPRNG, so agreement on bytes would be impossible rather than
+    merely unverified
+- All parameters are **scientifically grounded** — `config/qkd_keyrate_table.json` is precomputed offline by [`tools/precompute_keyrate_table_fallback.py`](../tools/precompute_keyrate_table_fallback.py) from Lo-Ma-Chen (PRL 94, 230504, 2005) and the arXiv:2511.21253 closed-form finite-key bound. This line previously credited "the openQKDsecurity Winick SDP" as well. No SDP ran: the file's own `provenance` field names the Python script, its `formulas` field names only those two references, and the MATLAB producer those sites pointed at (`tools/precompute_keyrate_table.m`) has never existed in this repository. openQKDsecurity is vendored as a submodule and has produced nothing that ships.
 - Device-specific non-idealities such as **temperature drift, bandpass filtering, and wavelength-dependent quantum efficiency** are still not modelled.
 
 ### 12.2 Hardware connectivity
