@@ -92,3 +92,33 @@ export function toSankeyLinks(edges: KeyFlowEdge[] = KEY_FLOW_EDGES) {
     value: edges.map((e) => e.bits),
   };
 }
+
+/**
+ * What the CHART prints, as opposed to what the data calls each node.
+ *
+ * Plotly draws a Sankey node's label to the right of the node, except for the
+ * terminal column, which it draws to the LEFT -- into the same gap. With the
+ * full names, "HKDF-SHA3-256" and "WireGuard PSK (256 b)" landed on top of each
+ * other and rendered as the single unreadable token "HKDWireGuardiPSK (256 b)".
+ *
+ * Measured on the deployed page and bisected there, not guessed. What does NOT
+ * fix it: a right margin (0, 40 and 150 px all overlap identically), explicit
+ * `node.x`/`node.y` with arrangement "snap", or shortening either label alone
+ * -- "HKDF-SHA3" with the full PSK name still collides, and so does "HKDF" with
+ * it. Only shortening BOTH clears, at every margin tried.
+ *
+ * So the ids above stay full -- the tests key off the "(256 b)" in them to
+ * check units -- and the chart prints these. Nothing is lost from the page: the
+ * paragraph above the chart states "HKDF-SHA3-256" and the 512 -> 256 narrowing
+ * in full.
+ */
+export const KEY_FLOW_LABELS: Record<KeyFlowNode, string> = {
+  "BB84 raw bits": "BB84 raw bits",
+  "Sifted (basis-match)": "Sifted (basis-match)",
+  "Reconciled (QBER ok)": "Reconciled (QBER ok)",
+  "QKD key (256 b)": "QKD key (256 b)",
+  "Rosenpass McEliece+Kyber512": "Rosenpass McEliece+Kyber512",
+  "PQC key (256 b)": "PQC key (256 b)",
+  "HKDF-SHA3-256": "HKDF",
+  "WireGuard PSK (256 b)": "WireGuard PSK",
+};
