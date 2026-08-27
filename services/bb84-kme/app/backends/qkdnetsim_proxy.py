@@ -68,6 +68,52 @@ class QKDNetSimProxyBackend(KeyProducer):
                 backend_meta={"backend": "qkdnetsim_proxy", "error": str(e)},
             )
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        # NONE of the per-round physics below is measured, because the peer
+        # reports none. `kme_facade.py`'s /enc_keys returns exactly
+        # {"key_ID": uuid4(), "key": base64(secrets.token_bytes(...))} -- no
+        # qber, no photon count, no sifted count, no error rate, anywhere in
+        # that response or its /status object.
+        #
+        # qber=0.0 is not merely optimistic, it is impossible: the analytical
+        # Lo-Ma E_mu for this configuration is 0.0150, and a real BB84 link
+        # cannot have a zero error rate. It is a placeholder that reads as a
+        # perfect channel.
+        #
+        # These stay as they are rather than becoming None -- RoundOutcome types
+        # them int/float and every consumer assumes that -- but the round is now
+        # MARKED, and `unmeasured` names each field so a reader does not have to
+        # know which of them this backend can and cannot know.
+        #
+        # skr_bps is deliberately NOT in that list. Reporting
+        # skr_bps_from_config(cfg) is a repository-wide contract asserted by
+        # tests/test_skr_is_not_a_sifting_ratio.py::test_backend_reports_the_shared_rate
+        # ("No backend may reintroduce its own derivation"). What is worth
+        # saying about it here is narrower: the shared Lo-Ma fibre model
+        # describes a link this backend never traverses, since the keys arrive
+        # over HTTP from a CSPRNG. It is a model of the wrong channel, not an
+        # invented constant.
+        meta = {
+            "backend": "qkdnetsim_proxy",
+            "source": self._url,
+            # The marker tests/test_skr_is_not_a_sifting_ratio.py already
+            # demands of the simqn backend, and which this one omitted.
+            "synthetic": True,
+            "unmeasured": ["qber", "n_photons", "n_sifted", "intercepted"],
+            "note": (
+                "the peer serves key material only; no per-round physics is "
+                "measured. skr_bps is the shared closed-form rate for the "
+                "configured fibre, which this lane does not traverse."
+            ),
+        }
+        if self.cfg.eve_enabled:
+            # The Eve control is a no-op here and used to say nothing. Driven
+            # with intercept_prob=1.0 the round still returned qber=0.0 and
+            # intercepted=0 -- a knob that appears to work and changes nothing.
+            meta["eve_ignored"] = True
+            log.warning(
+                "eve_enabled is set but has no effect on qkdnetsim_proxy: keys "
+                "arrive over HTTP, there is no quantum channel to intercept",
+            )
         return RoundOutcome(
             accepted=True,
             qber=0.0,
@@ -79,7 +125,7 @@ class QKDNetSimProxyBackend(KeyProducer):
             # Was pulse_rate_hz / 2 -- a constant with no physics in it at all,
             # reported in a field named skr_bps.
             skr_bps=skr_bps_from_config(self.cfg),
-            backend_meta={"backend": "qkdnetsim_proxy", "source": self._url},
+            backend_meta=meta,
         )
 
     async def _sleep_a_bit(self) -> None:
