@@ -82,6 +82,24 @@ class PoolStats:
     # Stated in the payload rather than left to the field name alone, so a
     # consumer reading JSON does not have to know this convention.
     skr_provenance: str = "closed-form from config; not measured per round"
+    # Whether the LAST round's physics was measured or generated.
+    #
+    # The simqn backend has computed `backend_meta["synthetic"]` for a long
+    # time, and tests/test_skr_is_not_a_sifting_ratio.py asserts it is present
+    # and a bool -- under a docstring saying "presenting generated bits as a
+    # simulation result without saying so is how a demo starts reporting
+    # numbers nobody can reproduce". It was then dropped here: `backend_meta`
+    # is read by nothing outside backends/, and /sim/stats exposed no such key.
+    # Computed, unit-tested, and discarded before any caller could see it, so
+    # the marker protected nothing.
+    #
+    # None means the backend said nothing either way -- distinct from False,
+    # which is a backend affirming the round was measured.
+    last_round_synthetic: bool | None = None
+    # Which per-round quantities the backend could not measure, by name. The
+    # qkdnetsim_proxy reports qber=0.0 for a peer that serves key material and
+    # no physics at all; 0.0 is not optimistic there, it is impossible.
+    last_round_unmeasured: list[str] = field(default_factory=list)
     intercepted_total: int = 0
     keys_emitted: int = 0
     pool_size: int = 0
@@ -164,6 +182,13 @@ class KeyPool:
             self._stats.last_qber = r.qber
             self._stats.last_round_ms = r.elapsed_ms
             self._stats.modelled_skr_bps = r.skr_bps
+            meta = r.backend_meta or {}
+            syn = meta.get("synthetic")
+            self._stats.last_round_synthetic = syn if isinstance(syn, bool) else None
+            unmeasured = meta.get("unmeasured")
+            self._stats.last_round_unmeasured = (
+                list(unmeasured) if isinstance(unmeasured, (list, tuple)) else []
+            )
             self._stats.intercepted_total += r.intercepted
             self._stats.last_frames = r.sample_frames
             if r.accepted:
@@ -268,6 +293,8 @@ class KeyPool:
             last_round_ms=self._stats.last_round_ms,
             modelled_skr_bps=self._stats.modelled_skr_bps,
             skr_provenance=self._stats.skr_provenance,
+            last_round_synthetic=self._stats.last_round_synthetic,
+            last_round_unmeasured=list(self._stats.last_round_unmeasured),
             intercepted_total=self._stats.intercepted_total,
             keys_emitted=self._stats.keys_emitted,
             pool_size=len(self._buf),
