@@ -34,10 +34,46 @@ check() {
         return
     fi
 
+    # Every named compose file must exist. Without this the gate is vacuous:
+    # the grep below sends its errors to /dev/null, so a missing, renamed or
+    # moved compose file yields an EMPTY `required` set, and the loop over an
+    # empty set finds nothing missing. Measured 2026-08-27 -- run against a
+    # directory holding only the two .env.example files, this script printed
+    #
+    #   ok: deploy/.env.example satisfies all 0 mandatory variable(s) of [...]
+    #   ok: .env.example satisfies all 0 mandatory variable(s) of [...]
+    #
+    # and exited 0. That is the CI `env-example` gate reporting success having
+    # read nothing, and this gate exists precisely because the public demo sat
+    # on a two-month-old build when deploy/.env.example lacked ARNIKA_PSK.
+    for f in "$@"; do
+        if [ ! -f "$f" ]; then
+            echo "::error::compose file $f (required by $example) does not exist."
+            echo "         Renamed or moved? Update the check() call below --"
+            echo "         a compose file this script cannot read is a check it"
+            echo "         cannot perform, not a check that passed."
+            fail=1
+            return
+        fi
+    done
+
     # `${VAR:?...}` and `${VAR?...}` are both fatal-if-unset. `${VAR:-default}`
     # is not, and must not be reported.
     required=$(grep -ohE '\$\{[A-Za-z_][A-Za-z0-9_]*:?\?' "$@" 2>/dev/null \
                | grep -oE '[A-Za-z_][A-Za-z0-9_]*' | sort -u)
+
+    # Zero mandatory variables across a real set of compose files means the
+    # PATTERN stopped matching, not that the requirement went away -- compose
+    # interpolates the whole file before selecting services, so these projects
+    # always have some. Fail rather than print a reassuring "all 0".
+    if [ -z "$required" ]; then
+        echo "::error::found NO \${VAR:?} references in [$*]."
+        echo "         Either compose stopped using the mandatory-variable form,"
+        echo "         or this script's pattern no longer matches it. Either way"
+        echo "         nothing was checked."
+        fail=1
+        return
+    fi
 
     provided=$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$example" \
                | tr -d '=' | sort -u)
