@@ -46,8 +46,14 @@ export default function FailureCascadeTimeline({
   const tElapsed = startedAt ? Math.min(max, now - startedAt) : 0;
   const headX = padL + (tElapsed / max) * innerW;
 
+  // The paper has no Roman-numeral headings: they are Arabic, and the 240-720 s
+  // cascade is in 4.3 Fail-Safe Mechanism. This Panel title cited the sixth
+  // section -- which is Security Evaluation and contains no timing at all --
+  // while lines 4-9 of this very file already named the right one. The string a
+  // user sees and the comment explaining it disagreed, and only the comment was
+  // ever read.
   return (
-    <Panel title="Failure Cascade Timeline (0-720 s, arXiv:2604.05599 §VI)">
+    <Panel title="Failure Cascade Timeline (0-720 s, arXiv:2604.05599, 4.3 Fail-Safe Mechanism)">
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%" }}>
         {/* Axis */}
         <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB}
