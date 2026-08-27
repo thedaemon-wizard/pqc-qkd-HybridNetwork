@@ -41,7 +41,19 @@ def asymptotic_skr_per_pulse(
     E_nu1 = qber_Emu(Y0, eta_total, e_d, nu1)
     if nu1 <= 0 or mu - nu1 <= 0:
         return 0.0
-    denom = mu * nu1 - nu1 * nu1
+    # Ma et al. PRA 72, 012326 (2005), Eq. (18)/(34). The denominator is the
+    # GENERAL two-decoy form. It previously read `mu * nu1 - nu1 * nu1`, which
+    # is that expression with nu2 = 0 substituted -- while the numerator kept
+    # its (nu1^2 - nu2^2) term, so the two halves assumed different nu2. The
+    # paper's validity condition is nu1 + nu2 < mu, not nu2 == 0.
+    #
+    # Correct at the shipped default (nu2 = 0.0) and wrong above it, which is
+    # why 301 tests passed: every case pinned nu2 = 0.0. The optimiser grid in
+    # config/qkd_params.yaml does search nu2 = 0.01, and /physics exposes nu2
+    # as an editable field.
+    denom = mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2
+    if denom <= 0:
+        return 0.0
     Y1_L = (mu / denom) * (
         Q_nu1 * math.exp(nu1) - Q_nu2 * math.exp(nu2)
         - (nu1 * nu1 - nu2 * nu2) / (mu * mu) * (Q_mu * math.exp(mu) - Y0)
