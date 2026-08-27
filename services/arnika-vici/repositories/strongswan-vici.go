@@ -396,9 +396,51 @@ func (r *StrongswanViciRepository) retireBootstrap(ctx context.Context, sess *vi
 			r.cfg.BootstrapCredentialID, err, r.cfg.PPKID)
 		return
 	}
+
+	// A success reply from unload-shared does not mean anything was unloaded.
+	//
+	// assertLoaded's own comment, twelve lines below this one, already says so:
+	// "unload-shared reports success for ids that never existed, so get-shared
+	// is the only reliable existence check". SetPSK acts on that and calls
+	// assertLoaded after every load. This function did not, and then latched
+	// bootstrapRetired and logged
+	//
+	//     "PPK_ID %s is now answered only by QKD-derived material"
+	//
+	// which is a SECURITY claim -- that the pre-QKD credential can no longer
+	// answer a PPK_ID lookup during IKE_AUTH -- resting on a reply that carries
+	// no information about it. If the bootstrap were still loaded, two
+	// credentials would answer one PPK_ID, charon's get_ppk_r would resolve to
+	// exactly one of them with no way to try the other, and the lane could
+	// authenticate with material containing no QKD contribution at all. That is
+	// the failure this retirement exists to prevent, and the log line asserted
+	// it had been prevented without checking.
+	//
+	// So confirm with get-shared, and do NOT latch unless confirmed. Latching on
+	// an unverified unload would suppress every future retry: retireBootstrap is
+	// called after each rotation precisely so a failure gets another chance.
+	ids, err := r.sharedIDs(ctx, sess)
+	if err != nil {
+		log.Printf("[WARN] [VICI] unload-shared %s reported success but get-shared "+
+			"could not confirm it (%v); NOT claiming PPK_ID %s is QKD-only, and "+
+			"will retry after the next rotation",
+			r.cfg.BootstrapCredentialID, err, r.cfg.PPKID)
+		return
+	}
+	for _, id := range ids {
+		if id == r.cfg.BootstrapCredentialID {
+			log.Printf("[ERROR] [VICI] unload-shared %s reported success but the id "+
+				"is STILL present in get-shared; PPK_ID %s is answered by two "+
+				"credentials and charon may select the pre-QKD one",
+				r.cfg.BootstrapCredentialID, r.cfg.PPKID)
+			return
+		}
+	}
+
 	r.bootstrapRetired = true
-	log.Printf("[INFO] [VICI] unloaded the bootstrap credential %s; PPK_ID %s is now "+
-		"answered only by QKD-derived material",
+	log.Printf("[INFO] [VICI] unloaded the bootstrap credential %s and confirmed it "+
+		"is absent from get-shared; PPK_ID %s is now answered only by QKD-derived "+
+		"material",
 		r.cfg.BootstrapCredentialID, r.cfg.PPKID)
 }
 
