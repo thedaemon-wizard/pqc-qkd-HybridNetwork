@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-204 rows, of which **37 are machine-checked and 167 are not**. Worth knowing
+205 rows, of which **39 are machine-checked and 166 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
