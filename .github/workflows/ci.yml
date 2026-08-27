@@ -376,13 +376,19 @@ jobs:
             # before the bootstrap credential was retired, so a 20% ceiling
             # separates the two cleanly.
             # Print the timeline whenever there is ANY failure, not only when
-            # the ceiling trips. The count has been bimodal across CI runs --
-            # 4 or 0, never 1 to 3, identical on both nodes -- and a passing
-            # run with one or two failures is exactly the data point that would
-            # discriminate between a startup window and a per-rotation race.
-            # Dumping only on failure meant those runs told us nothing, and two
-            # local reproductions (7 rotations, 0 failures each) could not
-            # produce the condition at all.
+            # the ceiling trips. A passing run with one or two failures is
+            # exactly the data point that discriminates between a startup
+            # window and a per-rotation race, and dumping only on failure meant
+            # those runs told us nothing. Two local reproductions (7 rotations,
+            # 0 failures each) could not produce the condition at all.
+            #
+            # An earlier version of this comment said the count was "bimodal --
+            # 4 or 0, never 1 to 3, identical on both nodes". Withdrawn: the
+            # observed series is 0, 0, 1, 4, 8, 4, 2, which is not bimodal. It
+            # was pattern-matched from too few samples, and it mattered because
+            # "bimodal" implies a switch while a spread implies a race -- the
+            # shape of the distribution was doing argumentative work it could
+            # not support.
             # UNCONDITIONAL. This dump was guarded by `authfail > 0`, and that
             # guard is why nine observations produced no diagnosis: a run with
             # ZERO failures is precisely the discriminating case, and it
@@ -390,10 +396,48 @@ jobs:
             # passing run looks like it shows "the bootstrap was never retired"
             # when in truth nothing was dumped at all. Measured that misreading
             # on 2026-08-22 while diagnosing this very assertion.
+            # 2026-08-27: this dump finally produced the discriminating data,
+            # and it rules out BOTH standing hypotheses. Run 33071519309,
+            # 2 failures on each node, aligned by container timestamp:
+            #
+            #   time      alice-ipsec (drives reauth)   bob-ipsec (responder)
+            #   12:28:01  loaded ppk#2, rotate#2 -> OK  loaded ppk#2, rotate#2 -> OK
+            #   12:28:31  loaded ppk#3, rotate#3        (nothing at all)
+            #                                          MAC mismatched, AUTH_FAILED
+            #   12:29:01  loaded ppk#4, rotate#4        (nothing at all)
+            #                                          MAC mismatched, AUTH_FAILED
+            #   12:29:31  loaded ppk#5, rotate#5 -> OK  loaded ppk#3, rotate#3 -> OK
+            #
+            # Bob logged NO load, NO rotation and NO invalidation for two whole
+            # intervals -- its own counter went 2 -> 3 across 90s while alice's
+            # went 2 -> 5. So bob ran ~2 intervals BEHIND, and the MAC mismatch
+            # is the CONSEQUENCE (alice authenticating with generation 3 while
+            # bob still held 2), not the fault.
+            #
+            # That is neither of the two hypotheses previously written here. Not
+            # a sub-millisecond rotation race: the gap is 60s, not microseconds,
+            # and the failures resolve by bob catching up rather than by a
+            # retry. Not a systematic mismatch either: rotations 5-8 all
+            # succeed with no intervention.
+            #
+            # What it looks like instead: bob was BACKUP for those intervals and
+            # never got the key_id from alice, so it produced no key and logged
+            # only `[REQ] BACKUP for interval N, waiting for key_id from peer`
+            # -- a line the OLD alternation below did not match, which is why
+            # the previous dumps showed a hole rather than a cause.
+            #
+            # So the alternation now covers arnika's OWN key-acquisition path,
+            # not just charon's reaction to it. Every branch that can end an
+            # interval without a PSK is listed, from submodules/arnika/main.go
+            # and udpserver.go. Note `[STOP] configure random PSK` in
+            # particular: on failure arnika deliberately installs a random PPK
+            # the peer cannot match, which would produce an identical
+            # AUTH_FAILED -- so its presence or absence separates "arnika gave
+            # up loudly" from "arnika never ran the interval".
             echo "--- $node: $authfail auth failure(s) in $rot rotations, in context ---"
             docker logs -t "$node" 2>&1 \
-              | grep -nE 'AUTH_FAILED|no PPK found|MAC mismatched|tried [0-9]+ shared key|loaded PPK shared key|unloaded shared key|unloaded the bootstrap|unloaded orphaned|PPK rotated|IKE_SA .* established|reauthenticating IKE_SA' \
-              | head -120
+              | grep -nE 'AUTH_FAILED|no PPK found|MAC mismatched|tried [0-9]+ shared key|loaded PPK shared key|unloaded shared key|unloaded the bootstrap|unloaded orphaned|PPK rotated|IKE_SA .* established|reauthenticating IKE_SA|\[SND\]|\[RCV\]|\[REQ\]|\[OK\]|\[STOP\]|no ACK after|failed to retrieve QKD key|failed to retrieve PQC key|failed to send key_id|failed to derive key|waiting for key_id|psk mismatch or message corrupted|no QKD key received' \
+              | head -200
 
             if [ $((authfail * 5)) -gt "$rot" ]; then
               echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
