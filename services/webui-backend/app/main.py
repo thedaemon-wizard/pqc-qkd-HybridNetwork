@@ -8,7 +8,10 @@ Endpoints:
     GET  /api/wg/{node}      : redacted `wg show wg0` for the node. NOT `dump`:
                                that form emits the interface private key and the
                                preshared key in plaintext. See WG_SHOW_CMD.
-    POST /api/stack/{action} : start|stop|restart a service
+    POST /api/stack/{action}/{name} : start|stop|restart a service
+                             ^^^^^^^ the {name} segment is not optional. Omitting
+                             it here is what made scripts/verify-demo-hardening.sh
+                             probe a route that does not exist and pass on the 404.
     POST /api/bench/ping     : run ping benchmark
     GET  /api/topology       : graph nodes/edges for D3
 """
