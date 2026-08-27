@@ -232,9 +232,19 @@ function Idle() {
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8" }}>{k}</span>
-      <span style={{ fontFamily: "monospace" }}>{v}</span>
+    // gap / flexShrink / minWidth are load-bearing. A bare `space-between` with
+    // two auto-width spans does not overflow -- the value wraps -- but with no
+    // minimum gap the label and value ABUT, and at a 700px content width /vpn
+    // rendered `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...` as one unreadable
+    // token. Measured in the browser on 2026-08-27; first collision at ~900px.
+    // Four near-identical Row components exist (here, PQCValidator,
+    // QuantumSecureE2E, and an UNUSED components/Row.tsx); all are fixed the
+    // same way. Consolidating them is a separate change.
+    <div style={{ display: "flex", justifyContent: "space-between",
+                   gap: 12, padding: "3px 0", fontSize: 13 }}>
+      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+      <span style={{ fontFamily: "monospace", minWidth: 0, textAlign: "right",
+                     overflowWrap: "anywhere" }}>{v}</span>
     </div>
   );
 }
