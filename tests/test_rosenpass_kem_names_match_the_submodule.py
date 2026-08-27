@@ -43,20 +43,68 @@ LABEL_FILE = ROOT / "submodules" / "rosenpass" / "rosenpass" / "src" / "labeled_
 LABEL = re.compile(r'"Rosenpass v1 ([^"]+)"')
 
 # Text that pairs Rosenpass with ML-KEM within a short window, in either order.
+#
+# The window deliberately spans NEWLINES. The first version of this pattern
+# excluded them (`[^.\n|]`) and ran per line, and it missed a seventh instance:
+# the sidebar in services/webui-frontend/src/App.tsx, which renders on all 13
+# pages and read
+#
+#     ML-KEM-768 + HKDF-SHA3-256<br />
+#     arnika · liboqs · rosenpass
+#
+# as one visual block. Two facts on adjacent lines make a claim that neither
+# line makes alone, and a line-oriented scan cannot see it. Same failure shape
+# as grepping SP 800-227 for "quantum key distribution" and missing it because
+# the PDF hyphenated it across a line break as "quan-\ntum".
+#
+# `.` stays excluded so the window cannot run past a sentence boundary, which
+# is what keeps a 70-character reach from pairing unrelated prose.
 CONFLATION = re.compile(
-    r"Rosenpass[^.\n|]{0,70}ML[-_]KEM|ML[-_]KEM[^.\n|]{0,40}(?:via\s+)?Rosenpass",
+    r"Rosenpass[^.|]{0,70}ML[-_]KEM|ML[-_]KEM[^.|]{0,70}Rosenpass",
     re.IGNORECASE,
 )
 
-# Files allowed to contain the pairing because they exist to correct it.
+# Adjacency is only a defect when the ML-KEM is UNATTRIBUTED. The corrected
+# sidebar lists
+#
+#     IKEv2: ML-KEM-768 (RFC 9370)
+#     Rosenpass: McEliece + Kyber512
+#
+# on consecutive lines, which the window above matches -- yet it is exactly
+# right, because each algorithm names the lane that uses it. What made the old
+# text wrong was that "ML-KEM-768 + HKDF-SHA3-256" belonged to nothing in
+# particular and the eye attached it to the components underneath. So a match
+# carrying an explicit owner for the ML-KEM is not a finding.
+ATTRIBUTED = re.compile(r"IKEv2|IKE_SA|RFC\s*9370|KE1_ML_KEM|key exchange", re.IGNORECASE)
+
+# Prose files allowed to contain the pairing because they exist to correct it.
+# Source files are NOT listed here: their comments are stripped instead, so the
+# code itself stays under the guard. Exempting a whole source file would make
+# the exemption permanent -- the explanatory comment would keep satisfying the
+# anchor check forever, and a real regression in the JSX beside it would pass.
 DOCUMENTS_THE_CORRECTION = {
     "tests/test_rosenpass_kem_names_match_the_submodule.py",
     "docs/paper_mapping.md",
     "docs/IMAGE1_VPN_SCOPE.md",
-    "services/webui-frontend/src/pages/KeyFlow.tsx",
     "VERIFICATION_CHECKLIST.md",
 }
 SKIP_SUFFIXES = {".pdf", ".png", ".jpg", ".gif", ".webm", ".ico", ".woff2"}
+
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+LINE_COMMENT = re.compile(r"(?<!:)//[^\n]*")
+
+
+def _strip_comments(body: str, suffix: str) -> str:
+    """Remove comments from source, so an explanation is not read as a claim.
+
+    Every file corrected here carries a comment saying what the mistake was,
+    and those comments necessarily pair "Rosenpass" with "ML-KEM". Stripping
+    them keeps the file under the guard instead of exempting it wholesale.
+    `(?<!:)` keeps `https://` out of the line-comment pattern.
+    """
+    if suffix not in {".ts", ".tsx", ".js", ".jsx"}:
+        return body
+    return LINE_COMMENT.sub("", BLOCK_COMMENT.sub("", body))
 
 
 def _suite() -> str:
@@ -101,15 +149,30 @@ def test_no_tracked_file_calls_the_rosenpass_handshake_ml_kem():
         path = ROOT / rel
         if not path.is_file() or path.suffix in SKIP_SUFFIXES:
             continue
-        if rel in DOCUMENTS_THE_CORRECTION:
-            continue
         try:
-            body = path.read_text(encoding="utf-8")
+            body = _strip_comments(path.read_text(encoding="utf-8"), path.suffix)
         except (UnicodeDecodeError, OSError):
             continue
-        for line_no, line in enumerate(body.splitlines(), 1):
-            if CONFLATION.search(line):
-                offenders.append(f"{rel}:{line_no}: {line.strip()[:110]}")
+
+        if rel in DOCUMENTS_THE_CORRECTION:
+            # Exempt because it explains the mistake, so it has to name it.
+            # Require it to also name the right answer, or the exemption
+            # becomes the place a wrong claim hides.
+            if CONFLATION.search(body):
+                assert re.search(r"McEliece|Kyber512", body, re.IGNORECASE), (
+                    f"{rel} is exempt because it documents the correction, but it "
+                    "pairs Rosenpass with ML-KEM without naming the actual suite."
+                )
+            continue
+
+        # Scan the WHOLE body, not line by line: the seventh instance was two
+        # adjacent lines in a sidebar, which no per-line scan can see.
+        for m in CONFLATION.finditer(body):
+            if ATTRIBUTED.search(m.group(0)):
+                continue
+            line_no = body.count("\n", 0, m.start()) + 1
+            snippet = " ".join(m.group(0).split())[:110]
+            offenders.append(f"{rel}:{line_no}: {snippet}")
 
     assert not offenders, (
         "these describe the Rosenpass handshake as ML-KEM. The pinned Rosenpass "

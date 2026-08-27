@@ -54,9 +54,19 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
+        {/* Each algorithm is attributed to the lane that uses it. This block
+            used to read "ML-KEM-768 + HKDF-SHA3-256" directly above
+            "arnika · liboqs · rosenpass", and read top-to-bottom that says
+            Rosenpass does ML-KEM. It does not -- the pinned Rosenpass is
+            Classic McEliece 460896 + Kyber512. ML-KEM-768 is genuine here, but
+            it is the IKEv2 key exchange (RFC 9370), not the PQC half of the
+            KDF. Widths measured against the 187px content box before
+            committing; the longest line renders at 164px. */}
         <div style={{ marginTop: 36, fontSize: 11, color: "#6b7796", lineHeight: 1.5 }}>
           ETSI GS QKD 014<br />
-          ML-KEM-768 + HKDF-SHA3-256<br />
+          HKDF-SHA3-256 (QKD ‖ PQC)<br />
+          IKEv2: ML-KEM-768 (RFC 9370)<br />
+          Rosenpass: McEliece + Kyber512<br />
           arnika · liboqs · rosenpass
         </div>
       </aside>
