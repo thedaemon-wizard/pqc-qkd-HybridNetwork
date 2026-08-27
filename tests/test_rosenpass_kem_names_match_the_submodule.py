@@ -29,9 +29,15 @@ Why it mattered enough to guard:
 
 The label is derived here rather than hardcoded, so bumping the submodule to a
 Rosenpass that really does use ML-KEM updates the expectation automatically.
+That derivation needs the submodule on disk, and CI's `python` job checks out
+without submodules by default -- so it inits `submodules/rosenpass` explicitly
+before running pytest, and `_suite()` below fails rather than skips when the
+file is missing under CI. Without both, the derived half would go quiet and
+only the text scan would still gate.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -109,6 +115,14 @@ def _strip_comments(body: str, suffix: str) -> str:
 
 def _suite() -> str:
     if not LABEL_FILE.is_file():
+        if os.environ.get("CI"):
+            pytest.fail(
+                f"{LABEL_FILE} is absent under CI, so the half of this guard that "
+                "derives the KEM names from the pinned submodule did not run. "
+                "Restore the `git submodule update --init --depth 1 "
+                "submodules/rosenpass` step in the `python` job rather than "
+                "letting this degrade to a skip."
+            )
         pytest.skip("rosenpass submodule not checked out")
     m = LABEL.search(LABEL_FILE.read_text(encoding="utf-8"))
     if not m:

@@ -89,6 +89,36 @@ const N_PACKETS = 64;
  */
 export const NOMINAL_PHASE_DWELL_MS = 450;
 
+/**
+ * `/e2e`'s phase history as CSV rows.
+ *
+ * Here, not inside the page component, so a test can call the thing that
+ * actually builds the file. While this was a closure over `state` the only
+ * symbol a test could reach was the dwell constant, so the guard written to
+ * keep `duration_ms` from coming back could not see a single exported column.
+ */
+export function e2eCsvRows(history: PhaseRec[]): Record<string, unknown>[] {
+  return history.map((h) => ({
+    phase: h.phase,
+    name: h.name,
+    started_at: new Date(h.started_at * 1000).toISOString(),
+    completed_at: h.completed_at
+      ? new Date(h.completed_at * 1000).toISOString() : "",
+    // Named for what it is. This is the wall-clock time the UI sat on the
+    // phase, not a protocol timing: the dwell is a fixed animation constant,
+    // and Chrome clamps timers to ~1 Hz in a hidden tab, so a run recorded in
+    // a background tab logs ~1000 ms against a 450 ms nominal -- observed on
+    // the deployed demo. Exporting the nominal beside it lets a reader detect
+    // that distortion instead of plotting it as a measurement.
+    ui_dwell_ms: h.completed_at
+      ? Math.round((h.completed_at - h.started_at) * 1000) : "",
+    nominal_dwell_ms: NOMINAL_PHASE_DWELL_MS,
+    // One column per detail key rather than a JSON blob, so the CSV is
+    // usable in a spreadsheet without post-processing.
+    ...h.detail,
+  }));
+}
+
 export class E2ESim {
   /** Pool ceiling, so a long run reports a bounded depth rather than a ramp. */
   static readonly KEY_POOL_CAPACITY = 8;

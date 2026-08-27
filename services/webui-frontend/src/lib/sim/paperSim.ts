@@ -92,6 +92,33 @@ export interface PaperFlowState {
   engine?: string;
 }
 
+/**
+ * `/paper-flow`'s phase history as CSV rows.
+ *
+ * Here rather than inline in the page for the same reason as e2eSim's: it is
+ * the only way a test can assert on the columns. Note it closes over THIS
+ * module's 350 ms nominal -- importing e2eSim's 450 here would export a dwell
+ * this page never uses.
+ */
+export function paperCsvRows(
+  history: PaperFlowState["history"],
+): Record<string, unknown>[] {
+  return history.map((h) => ({
+    phase: h.phase, name: h.name,
+    started_at: new Date(h.started_at * 1000).toISOString(),
+    completed_at: h.completed_at
+      ? new Date(h.completed_at * 1000).toISOString() : "",
+    // Wall-clock the UI sat on the phase, not a protocol timing: the dwell is
+    // a fixed animation constant, and Chrome clamps timers to ~1 Hz in a
+    // hidden tab. The nominal is exported beside it so a reader can spot a
+    // throttled recording rather than plot it.
+    ui_dwell_ms: h.completed_at
+      ? Math.round((h.completed_at - h.started_at) * 1000) : "",
+    nominal_dwell_ms: NOMINAL_PHASE_DWELL_MS,
+    packets: h.packets, bytes: h.bytes,
+  }));
+}
+
 function b64(bytes: Uint8Array): string {
   let s = ""; for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s);
