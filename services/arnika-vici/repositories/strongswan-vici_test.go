@@ -75,6 +75,11 @@ type fakeVici struct {
 	// truthfully and the test can assert unload behaviour.
 	loaded map[string]bool
 	failOn map[string]string
+	// unloadIsCosmetic models what charon actually does: unload-shared answers
+	// success regardless, including for ids that were never loaded. With this
+	// set the fake replies success and KEEPS the credential, which is the state
+	// retireBootstrap used to treat as proof of removal.
+	unloadIsCosmetic bool
 	// saIDs are the IKE_SA unique ids list-sas reports. Empty models a lane
 	// that has not come up yet, which is the branch that initiates rather than
 	// reauthenticates.
@@ -205,7 +210,12 @@ func (f *fakeVici) reply(req request) []byte {
 		}
 
 	case "unload-shared":
-		delete(f.loaded, req.fields["id"])
+		if !f.unloadIsCosmetic {
+			delete(f.loaded, req.fields["id"])
+		}
+		// Success either way -- that is the whole point. charon returns success
+		// for ids it never held, which is why get-shared is the only existence
+		// check (see assertLoaded's comment in strongswan-vici.go).
 		fields = map[string]string{"success": "yes"}
 
 	case "get-shared":
@@ -770,5 +780,65 @@ func TestNeverInvokesLoadCreds(t *testing.T) {
 		if r.name == "load-creds" || r.name == "clear-creds" {
 			t.Fatalf("adapter issued %q, which would destroy injected credentials", r.name)
 		}
+	}
+}
+
+
+// The bootstrap credential is the pre-QKD key: it answers the SAME PPK_ID as
+// every rotated credential and contains no QKD material. Retiring it is what
+// stops charon resolving a PPK_ID lookup to material the quantum channel never
+// touched, so "it is retired" is a security claim and must be verified.
+//
+// retireBootstrap used to latch on unload-shared's reply alone and log
+// "PPK_ID ... is now answered only by QKD-derived material". charon returns
+// success for that call unconditionally.
+
+func TestRetireBootstrapConfirmsWithGetShared(t *testing.T) {
+	f := newFakeVici(t)
+	// Success reply, credential kept -- exactly what charon does for an id it
+	// did not hold, and what a genuinely failed unload looks like on the wire.
+	f.unloadIsCosmetic = true
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	// Put the bootstrap credential where get-shared will report it.
+	f.loaded[repo.cfg.BootstrapCredentialID] = true
+
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := repo.SetPSK(key); err != nil {
+		t.Fatalf("SetPSK: %v", err)
+	}
+
+	if repo.bootstrapRetired {
+		t.Fatal("latched bootstrapRetired while the credential is still in " +
+			"get-shared; the retirement claim would be false and never retried")
+	}
+	if n := len(f.callsTo("get-shared")); n == 0 {
+		t.Fatal("never called get-shared, so the claim rests on unload-shared's " +
+			"unconditional success reply")
+	}
+}
+
+func TestRetireBootstrapLatchesOnceConfirmed(t *testing.T) {
+	// The other direction. A check that can only refuse is as useless as one
+	// that can only accept, and would make the adapter retry forever.
+	f := newFakeVici(t)
+	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	f.loaded[repo.cfg.BootstrapCredentialID] = true
+
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := repo.SetPSK(key); err != nil {
+		t.Fatalf("SetPSK: %v", err)
+	}
+	if !repo.bootstrapRetired {
+		t.Fatal("did not latch after a real unload confirmed by get-shared; " +
+			"the bootstrap would be re-unloaded on every rotation forever")
+	}
+	if _, still := f.loaded[repo.cfg.BootstrapCredentialID]; still {
+		t.Fatal("fake still holds the bootstrap credential")
 	}
 }
