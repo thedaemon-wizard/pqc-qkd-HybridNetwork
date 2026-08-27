@@ -662,7 +662,11 @@ func TestSetPSKDoesNotUnloadPreviousWhenReauthFails(t *testing.T) {
 }
 
 func TestSetPSKRejectsShortKey(t *testing.T) {
-	// RFC 8784: the PPK must carry at least 256 bits of entropy.
+	// A PPK below 32 bytes is rejected before it reaches charon. The floor is
+	// this adapter's, not RFC 8784's -- the RFC sets no length requirement, only
+	// a Sec. 6 remark that 256 bits of entropy is "the strongest practice". See
+	// minPPKBytes. The message still cites the RFC, because that is where the
+	// number comes from; it must not claim the RFC compels it.
 	f := newFakeVici(t)
 	repo, err := NewStrongswanViciRepository(testConfig(f.path))
 	if err != nil {
@@ -674,7 +678,12 @@ func TestSetPSKRejectsShortKey(t *testing.T) {
 		t.Fatal("expected short PPK to be rejected")
 	}
 	if !strings.Contains(err.Error(), "RFC 8784") {
-		t.Errorf("error = %v, want it to cite the RFC 8784 entropy floor", err)
+		t.Errorf("error = %v, want it to cite where the 256-bit figure comes from", err)
+	}
+	// Guard the correction itself: the message must not attribute the
+	// requirement to the RFC. Without this the honest wording could drift back.
+	if strings.Contains(err.Error(), "RFC 8784 requires") {
+		t.Errorf("error = %v, want it NOT to say RFC 8784 requires a length; it does not", err)
 	}
 	if n := len(f.callsTo("load-shared")); n != 0 {
 		t.Fatalf("short key reached charon (%d load-shared calls)", n)
