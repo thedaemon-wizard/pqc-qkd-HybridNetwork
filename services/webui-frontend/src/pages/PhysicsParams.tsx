@@ -95,7 +95,26 @@ export default function PhysicsParams() {
   async function resetParams() {
     setBusy(true); setNote("");
     try {
-      await fetch("/api/sim/params/reset", { method: "POST" });
+      // The response is READ now. This was `await fetch(...)` with the result
+      // discarded, and the backend returned {"ok": true} even when neither KME
+      // was reachable -- so the note below asserted a revert that had happened
+      // nowhere. Both halves are fixed; this half would still have lied if only
+      // the backend had been.
+      const r = await fetch("/api/sim/params/reset", { method: "POST" });
+      const body = await r.json().catch(() => ({} as Record<string, unknown>));
+      if (!r.ok || body.ok !== true) {
+        const nodes = (body.nodes ?? {}) as Record<string, { ok?: boolean; error?: string }>;
+        const failed = Object.entries(nodes)
+          .filter(([, n]) => !n.ok)
+          .map(([name, n]) => `${name} (${n.error ?? "no response"})`);
+        setEdits({});
+        setNote(
+          failed.length
+            ? `Reset reached ${body.reached ?? 0} of ${body.of ?? 2} KMEs — not applied on ${failed.join(", ")}.`
+            : "Reset was not confirmed by the backend.",
+        );
+        return;
+      }
       setEdits({}); setNote("Reverted to config/qkd_params.yaml defaults.");
     } finally { setBusy(false); await load(); }
   }
