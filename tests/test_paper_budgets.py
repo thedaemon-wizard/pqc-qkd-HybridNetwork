@@ -152,6 +152,57 @@ REAL_SECTIONS = ["Introduction", "Related Work", "Implementation",
                  "Evaluation", "Conclusion"]
 WRONG_CITATIONS = ["Table III", "§IV-B", "IV-B", "section VI"]
 
+# The four literals above are the strings a 2026-08-22 sweep replaced. They are
+# kept so those exact regressions stay caught -- but a substring blocklist can
+# only ever catch what someone already thought to list, and fourteen further
+# sites survived it untouched: "II.A".."II.D", "III", "IV.A", "IV.B" in
+# docs/paper_mapping.md, and "§III"/"§VI" in README.md, docs/phases.md,
+# docker-compose.multihop.yml, animations/multi_hop_network.py and TWO React
+# components whose strings ship as visible page titles on the public demo.
+# `pytest tests/test_paper_budgets.py` was green with every one of them present.
+#
+# So: a grammar check, not a longer list. The paper has NO Roman-numeral
+# headings at all -- `pdftotext -layout` over the redistributed PDF returns zero
+# matches for one -- so any Roman-numeral section reference near a citation of
+# it is wrong by construction.
+#
+# Why this is not a bare `[IVX]+` scan: "VI" occurs inside VICI, "V" and "X"
+# occur constantly, and `if bad in body` is a naive substring test. The pattern
+# therefore requires either a section sign or a subsection separator, and the
+# LINE must also mention the paper.
+# Two patterns, checked with different strictness, because they carry different
+# false-positive risk.
+#
+# A section sign followed by a Roman numeral is checked EVERYWHERE, with no
+# requirement that the line mention the paper. Surveyed the whole tree: every
+# legitimate section citation here uses Arabic numerals (RFC 8784 Sec. 2.15,
+# SP 800-227 Sec. 4.6.2, and so on), and the only Roman ones left are inside the
+# three files that document this very correction. Gating this on a paper mention
+# is what let `| Failure model | ... | **240-720 s layer cascade** per §VI |` in
+# docs/phases.md survive -- a comparison-table row that cites the paper by
+# context, never by name.
+SECTION_SIGN_ROMAN_RE = re.compile(r"§\s*[IVX]{1,4}\b")
+# The bare subsection form (II.A, IV-B) IS gated on a paper mention: "V.A" or
+# "X.B" could plausibly appear in unrelated text, and `if bad in body` taught us
+# what a too-eager substring match costs.
+SUBSECTION_ROMAN_RE = re.compile(r"\b[IVX]{1,4}[.-][A-F]\b")
+# A line only counts if it is talking about THIS paper.
+#
+# `\bpaper\b`, not `\bthe paper\b`. The narrower form missed
+# `# Adds Charlie relay (paper III)` in README.md and the identical comment in
+# docker-compose.multihop.yml -- two of the sites this widening exists to catch.
+# Measured: reverting those two files' citations left the guard green.
+# The false-positive risk is small because the pattern below ALSO requires a
+# section sign or a subsection separator on the same line.
+CITES_THE_PAPER_RE = re.compile(r"2604\.05599|Spooren|\bpaper\b", re.IGNORECASE)
+
+# docs/paper_mapping.md's QuLore table is deliberately out of scope: that is
+# arXiv:2511.22416, CC BY-NC-ND, which this repository does NOT redistribute
+# (see docs/references.md). Its numbering cannot be checked against a local
+# copy, so "correcting" it would be a guess dressed as a fix. The exclusion is
+# by explicit marker rather than by line number so it cannot drift.
+QULORE_TABLE_MARKER = "## QuLore"
+
 # Files that RECORD the correction, and so have to quote the wrong citation in
 # order to say what was wrong. Every one of them must also name the right
 # anchor, checked below -- otherwise the exemption becomes the place a bad
@@ -245,6 +296,35 @@ def test_no_tracked_file_cites_a_section_the_paper_does_not_have():
         for bad in WRONG_CITATIONS:
             if bad in body:
                 offenders.append(f"{rel}: {bad!r}")
+
+        # Grammar pass. Scoped per LINE so a file may legitimately discuss
+        # another paper's Roman numbering elsewhere.
+        haystack = body.split(QULORE_TABLE_MARKER)[0] if rel == "docs/paper_mapping.md" else body
+        for line_no, line in enumerate(haystack.splitlines(), 1):
+            m = SECTION_SIGN_ROMAN_RE.search(line)
+            if m:
+                offenders.append(f"{rel}:{line_no}: Roman section {m.group(0)!r}")
+                continue
+            if CITES_THE_PAPER_RE.search(line):
+                m = SUBSECTION_ROMAN_RE.search(line)
+                if m:
+                    offenders.append(f"{rel}:{line_no}: Roman subsection {m.group(0)!r}")
+
+    # The Spooren table's rows do not each name the paper, so its section column
+    # is checked unconditionally -- that column exists to cite it.
+    mapping = ROOT / "docs" / "paper_mapping.md"
+    if mapping.is_file():
+        text = mapping.read_text(encoding="utf-8").split(QULORE_TABLE_MARKER)[0]
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if not line.startswith("|") or line.startswith("|---"):
+                continue
+            first_cell = line.split("|")[1] if line.count("|") >= 2 else ""
+            m = SUBSECTION_ROMAN_RE.search(first_cell) or re.match(
+                r"\s*[IVX]{1,4}(\.[A-F])?\s*$", first_cell)
+            if m:
+                offenders.append(
+                    f"docs/paper_mapping.md:{line_no}: section column reads "
+                    f"{first_cell.strip()!r}, a numbering the paper does not use")
 
     assert not offenders, (
         "arXiv:2604.05599 has no Roman-numeral sections and exactly one table "

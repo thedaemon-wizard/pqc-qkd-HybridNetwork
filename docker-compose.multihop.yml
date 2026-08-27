@@ -1,6 +1,6 @@
 # ===================================================================
 # Override file: adds Charlie as a trusted-node relay between Alice and Bob.
-# Models the multi-hop case from the paper (§III).
+# Models the multi-hop case from the paper (3.2 Routing and Composition).
 # Apply with:
 #   docker compose -f docker-compose.yml -f docker-compose.multihop.yml --profile multihop up -d
 # ===================================================================
