@@ -126,12 +126,23 @@ def _pins() -> dict[str, str]:
 
     `git submodule status` reports the working tree, which is empty for the
     twelve submodules that are not checked out here. The index always knows.
+
+    `git ls-files -s`, not `git ls-tree HEAD`. This read the committed tree
+    until 2026-08-27, which made it lag one commit behind whatever is being
+    prepared: the arnika bump to `9d44332` staged the new gitlink AND the new
+    notices row together, and the guard failed with "the row says `9d44332`,
+    but the index pins 018b3541" -- naming the index in its own error message
+    while not reading it. It would then have passed on the commit it had just
+    rejected. A guard that only evaluates the previous commit cannot gate the
+    next one; the same shape as running a new check before `git add`.
     """
     pins = {}
-    for line in _run(["git", "ls-tree", "HEAD", "submodules/"]).splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[1] == "commit":
-            pins[Path(parts[3]).name] = parts[2]
+    for line in _run(["git", "ls-files", "-s", "submodules/"]).splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        # 160000 is git's gitlink mode -- a submodule rather than a blob.
+        if len(parts) >= 2 and parts[0] == "160000":
+            pins[Path(path).name] = parts[1]
     return pins
 
 
