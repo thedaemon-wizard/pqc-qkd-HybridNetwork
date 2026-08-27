@@ -93,7 +93,7 @@ python tools/precompute_keyrate_table_fallback.py
 # wrote 1170 rows to config/qkd_keyrate_table.json
 ```
 
-The table is committed to git so users without MATLAB get production defaults.
+The table is committed to git, so the shipped configuration has production defaults without re-running this script; regenerate it whenever the physical parameters change.
 
 ---
 
@@ -277,13 +277,15 @@ State streams live over WebSocket (`/ws/e2e`) at ~4 Hz.
 > **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
 > simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
 > `paperSim.ts`); the frontend opens no WebSocket at all. The backend
-> orchestrators and the REST/WebSocket surface described above have been
-> deleted. The paper budgets survive in
+> orchestrators, and every route in the "REST + WebSocket surface" table
+> that follows this note, have been deleted -- that table is a record of a
+> surface the backend no longer serves, not a list of live endpoints. The
+> paper budgets survive in
 > `services/webui-backend/app/paper_budgets.py`, which is what
 > `/api/verify/paper-budgets` now reads.
 
 
-### REST + WebSocket surface
+### REST + WebSocket surface (deleted -- historical record)
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -440,16 +442,16 @@ Backend orchestrator (deleted; now `services/webui-frontend/src/lib/sim/paperSim
   **total handshake = 9 pkt / 5248 B**
 - Failure cascade scheduler with 7 stages (0/180/240/360/420/540/720 s)
 - WebSocket `/ws/paper-flow` at ~4 Hz
+- REST: `/api/paper-flow/{state,start,pause,resume,reset,config,inject-failure,clear-failure}`
 
 > **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
 > simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
 > `paperSim.ts`); the frontend opens no WebSocket at all. The backend
-> orchestrators and the REST/WebSocket surface described above have been
+> orchestrators and every REST/WebSocket route listed above -- the
+> `/ws/paper-flow` and `/api/paper-flow/*` bullets included -- have been
 > deleted. The paper budgets survive in
 > `services/webui-backend/app/paper_budgets.py`, which is what
 > `/api/verify/paper-budgets` now reads.
-
-- REST: `/api/paper-flow/{state,start,pause,resume,reset,config,inject-failure,clear-failure}`
 
 Frontend (`services/webui-frontend/src/pages/PaperDataExchange.tsx`):
 - `MultiHopTopologySvg` — image-2 faithful 3-column-or-more SVG (Alice \|

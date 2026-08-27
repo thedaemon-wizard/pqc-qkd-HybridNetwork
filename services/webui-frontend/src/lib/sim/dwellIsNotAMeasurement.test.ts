@@ -23,8 +23,43 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { NOMINAL_PHASE_DWELL_MS as E2E_DWELL } from "./e2eSim";
-import { NOMINAL_PHASE_DWELL_MS as PAPER_DWELL } from "./paperSim";
+import {
+  E2ESim, NOMINAL_PHASE_DWELL_MS as E2E_DWELL, e2eCsvRows,
+  type E2EState, type PhaseRec,
+} from "./e2eSim";
+import {
+  NOMINAL_PHASE_DWELL_MS as PAPER_DWELL, paperCsvRows, type PaperFlowState,
+} from "./paperSim";
+
+/**
+ * One closed phase and one still open, in the shape each simulator records.
+ *
+ * The closed /e2e phase carries the dwell actually measured on the deployed
+ * demo with the tab hidden -- 999 ms against a 450 ms nominal -- so the ratio
+ * asserted below is computed from an exported row rather than from two
+ * literals defined next to it.
+ */
+const T0 = 1_700_000_000;
+const E2E_HISTORY: PhaseRec[] = [
+  { phase: 1, name: "Quantum Plane", started_at: T0, completed_at: T0 + 0.999,
+    detail: { alice_pool: 3 } },
+  { phase: 2, name: "QKD Key IDs (ETSI 014)", started_at: T0 + 1,
+    completed_at: null, detail: {} },
+];
+const PAPER_HISTORY: PaperFlowState["history"] = [
+  { phase: 1, name: "Quantum Plane", started_at: T0, completed_at: T0 + 0.35,
+    packets: 0, bytes: 0, detail: {} },
+  { phase: 2, name: "Arnika QKD key_ID exchange", started_at: T0 + 1,
+    completed_at: null, packets: 2, bytes: 78, detail: {} },
+];
+
+/** One full /e2e cycle, driven through the real simulator. */
+function e2eCycle(): E2EState {
+  let last: E2EState | null = null;
+  const sim = new E2ESim((s) => { last = s; });
+  for (let i = 0; i < 4; i++) sim.step();
+  return last as unknown as E2EState;
+}
 
 describe("the nominal dwell is published", () => {
   it("is a positive number on both simulators", () => {
@@ -50,22 +85,44 @@ describe("the nominal dwell is published", () => {
   });
 });
 
-describe("what a throttled recording looks like", () => {
-  /**
-   * Not a test of our code -- a test of the reasoning the export encodes. If
-   * measured and nominal diverge by this much, the run was throttled and the
-   * timing column carries no information about the simulation.
-   */
-  const throttledRatio = (measuredMs: number, nominalMs: number) => measuredMs / nominalMs;
+describe("the columns the export actually ships", () => {
+  const rows = [...e2eCsvRows(E2E_HISTORY), ...paperCsvRows(PAPER_HISTORY)];
 
-  it("flags the ratio actually observed on the deployed demo", () => {
-    // 999 ms measured against the 450 ms nominal, tab hidden.
-    expect(throttledRatio(999, E2E_DWELL)).toBeGreaterThan(2);
+  it("never ships a column named duration_ms again", () => {
+    // The original defect. Nothing in this file could observe it before:
+    // every assertion here ran on the two dwell constants alone, so the
+    // pre-fix column set passed this suite untouched.
+    for (const row of rows) expect(Object.keys(row)).not.toContain("duration_ms");
   });
 
-  it("does not flag a foreground run", () => {
-    // A visible tab lands within a tick of the nominal.
-    expect(throttledRatio(470, E2E_DWELL)).toBeLessThan(1.2);
+  it("publishes the nominal beside the measured dwell, on both pages", () => {
+    for (const row of rows) {
+      expect(Object.keys(row)).toContain("ui_dwell_ms");
+      expect(Object.keys(row)).toContain("nominal_dwell_ms");
+    }
+  });
+
+  it("gives each page its OWN nominal, not the other page's", () => {
+    // The near-miss described at the top of this file: importing e2eSim's
+    // constant into the paper-flow page would have exported 450 for a page
+    // that dwells 350.
+    expect(e2eCsvRows(E2E_HISTORY)[0].nominal_dwell_ms).toBe(E2E_DWELL);
+    expect(paperCsvRows(PAPER_HISTORY)[0].nominal_dwell_ms).toBe(PAPER_DWELL);
+  });
+
+  it("rounds ui_dwell_ms to whole ms and leaves an open phase blank", () => {
+    expect(e2eCsvRows(E2E_HISTORY)[0].ui_dwell_ms).toBe(999);
+    expect(e2eCsvRows(E2E_HISTORY)[1].ui_dwell_ms).toBe("");
+    expect(paperCsvRows(PAPER_HISTORY)[0].ui_dwell_ms).toBe(350);
+    expect(paperCsvRows(PAPER_HISTORY)[1].ui_dwell_ms).toBe("");
+  });
+
+  it("lets a reader detect the throttling from one exported row", () => {
+    // Both terms are read out of the row, so this stops holding the moment
+    // either column is dropped or renamed -- which is the point of the test.
+    const [hidden] = e2eCsvRows(E2E_HISTORY);
+    expect((hidden.ui_dwell_ms as number) / (hidden.nominal_dwell_ms as number))
+      .toBeGreaterThan(2);
   });
 });
 
@@ -78,21 +135,25 @@ describe("rate_bps has the same wall-clock dependence", () => {
    * Measured on the demo: 4470 bytes reported at 8952 bps, implying 3.995 s
    * for a cycle whose nominal length is 4 x 450 ms = 1.8 s. The dwell column
    * had already been fixed this way and rate_bps had been left behind.
+   *
+   * The nominal below is read off a real run rather than recomputed here, so
+   * these fail if the simulator stops publishing the term a reader needs.
    */
-  const NOMINAL_CYCLE_MS = 4 * E2E_DWELL;
-
-  it("publishes a nominal cycle to compare the rate against", () => {
-    expect(NOMINAL_CYCLE_MS).toBe(1800);
+  it("publishes both terms of the comparison in the run state", () => {
+    const s = e2eCycle();
+    expect(s.nominal_cycle_ms).toBe(4 * E2E_DWELL);
+    expect(s.nominal_cycle_ms).toBe(1800);
+    expect(s.rate_bps).toBeGreaterThan(0);
+    expect(s.total_bytes_encrypted).toBeGreaterThan(0);
   });
 
   it("detects the throttled recording actually observed", () => {
-    const impliedElapsedS = (4470 * 8) / 8952.08531538921;
-    const ratio = (impliedElapsedS * 1000) / NOMINAL_CYCLE_MS;
-    expect(ratio).toBeGreaterThan(2);   // ~2.2x, the throttle
+    const impliedElapsedMs = ((4470 * 8) / 8952.08531538921) * 1000;
+    expect(impliedElapsedMs / e2eCycle().nominal_cycle_ms).toBeGreaterThan(2);
   });
 
   it("does not flag a foreground run", () => {
-    const foreground = (4470 * 8) / 19866;   // ~1.8 s
-    expect((foreground * 1000) / NOMINAL_CYCLE_MS).toBeLessThan(1.2);
+    const impliedElapsedMs = ((4470 * 8) / 19866) * 1000;   // ~1.8 s
+    expect(impliedElapsedMs / e2eCycle().nominal_cycle_ms).toBeLessThan(1.2);
   });
 });

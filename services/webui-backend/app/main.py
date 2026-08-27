@@ -12,8 +12,13 @@ Endpoints:
                              ^^^^^^^ the {name} segment is not optional. Omitting
                              it here is what made scripts/verify-demo-hardening.sh
                              probe a route that does not exist and pass on the 404.
-    POST /api/bench/ping     : run ping benchmark
     GET  /api/topology       : graph nodes/edges for D3
+
+    This module serves no bench route, and never has. The ping benchmark is
+    `benchmarks/ping_loop.sh` (run by `make bench`), a shell script that does
+    `docker exec alice ping` and writes benchmarks/results/ping_*.log; nothing
+    ever wrapped it in a handler. The index above advertised such a route from
+    the initial commit, and it answered 404 on the live demo the whole time.
 """
 from __future__ import annotations
 

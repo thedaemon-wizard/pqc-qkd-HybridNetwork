@@ -26,8 +26,9 @@ WCP per the formulas in:
       BB84 QKD with passive measurement" — closed-form finite-key bound.
   [3] M. Curty, F. Xu, et al., Nature Communications 5, 3732 (2014).
 
-The output table is committed to git so users without MATLAB still have
-production-quality defaults.
+The output table is committed to git so the shipped configuration has
+production-quality defaults without re-running this script; regenerate it
+whenever the physical parameters change.
 
 Usage:
     python tools/precompute_keyrate_table_fallback.py --out config/qkd_keyrate_table.json
