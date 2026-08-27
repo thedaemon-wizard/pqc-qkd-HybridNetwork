@@ -51,7 +51,12 @@ class KeysResponse(BaseModel):
 
 
 class KeyRequest(BaseModel):
-    """Body of POST .../enc_keys (spec clause 6.1)."""
+    """Body of POST .../enc_keys (spec clause 6.2, "Key request data format").
+
+    Clause 6.1 is the *Status* data format -- a response model (that is
+    `KMEStatus` below), not this request body. 6.2 Table 10 is where `number`
+    and `size` are defined.
+    """
 
     number: int = Field(1, ge=1, description="Number of keys requested")
     size: int = Field(256, description="Key size in BITS (not bytes)")
@@ -62,7 +67,10 @@ class KeyID(BaseModel):
 
 
 class KeyIDs(BaseModel):
-    """Body of POST .../dec_keys (spec clause 6.3).
+    """Body of POST .../dec_keys (spec clause 6.4, "Key IDs data format").
+
+    Clause 6.3 is the *Key container* data format -- the response model (that is
+    `KeysResponse` above), not this request body.
 
     `key_IDs` is an array of *objects*, each holding a `key_ID` -- not an array
     of bare strings. Getting this wrong is one of the most common 014 interop
