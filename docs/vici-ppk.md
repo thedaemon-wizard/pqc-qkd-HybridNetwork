@@ -49,8 +49,19 @@ RFC 8784 mixes a Post-quantum Preshared Key into the key schedule itself:
 an attacker now needs **both** the DH secret **and** the QKD key. That is the
 property QKD material is supposed to provide.
 
-RFC 8784 requires the PPK to carry **at least 256 bits of entropy** for 128-bit
-post-quantum security; the adapter enforces this and refuses shorter keys.
+RFC 8784 sets **no** PPK length requirement — it uses no MUST, SHOULD or
+RECOMMENDED for PPK length anywhere. Its Sec. 6 says only that *"the strongest
+practice is to ensure that any post-quantum preshared key contains at least 256
+bits of entropy; this will provide 128 bits of post-quantum security, while
+providing security against conventional dictionary attacks."* Descriptive, not
+normative.
+
+The adapter nevertheless refuses anything shorter than 32 bytes, for a reason
+specific to this deployment rather than to the RFC: every PPK it installs is a
+32-byte HKDF-SHA3-256 output from arnika, so a shorter one means the key path is
+broken upstream, not that an operator chose weaker material. That floor is this
+project's — see `minPPKBytes` in
+`services/arnika-vici/repositories/strongswan-vici.go`.
 
 This is the same mechanism MikroTik RouterOS, Palo Alto PAN-OS and Cisco SKIP
 use for QKD integration — no invention here, just the standard construction.

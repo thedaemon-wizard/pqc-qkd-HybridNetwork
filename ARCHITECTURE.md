@@ -74,7 +74,7 @@ contract updates here:
 | Paper claim | Implementation correspondence |
 |---|---|
 | WireGuard PSK rotated periodically per hop | `ARNIKA_INTERVAL` (default 30s in PoC, 120s in paper) |
-| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...` matching `kms.go:126-134` |
+| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...`, which is the `KMS_URL` base arnika is configured with; arnika appends `/enc_keys?number=1&size=256` (`kms.go:94`) or `/dec_keys?key_ID=...` (`kms.go:101`) and issues the request at `kms.go:110` (`r.conn.Get(r.baseURL + path)`) |
 | PQC E2E via Rosenpass | `nodes/alice/rosenpass-sidecar.sh` produces pqc.psk; arnika fuses it via HKDF (`kdf/kdf.go`) |
 | Layered composability (compromise of one layer ≠ catastrophe) | Three Docker networks isolate planes; mode `QkdAndPqcRequired` enforces both layers |
 | Setup time scales with slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples ONE container's handshake age over time (`--container`, `--duration`; output `epoch,handshake_age_s`). It varies no chain length and has no hop dimension, so nothing in it could distinguish scaling-with-slowest-hop from scaling-cumulatively. `benchmarks/results/handshake_age.csv` does not exist in this tree and `paper_comparison.json` records `"ours": {"n": 0}` -- it has never captured a row. |

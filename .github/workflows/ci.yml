@@ -44,6 +44,14 @@ jobs:
       - name: Lint
         run: ruff check services/ tests/ tools/ benchmarks/
 
+      # tests/test_rosenpass_kem_names_match_the_submodule.py derives the KEM
+      # names from the pinned submodule's domain-separation label; with no
+      # submodule on disk that half self-skips and only its text scan runs.
+      # Just this one of the fifteen submodules is needed, so init it shallowly
+      # instead of making this job pay for `submodules: recursive`.
+      - name: Check out the pinned rosenpass (the KEM guard derives from it)
+        run: git submodule update --init --depth 1 submodules/rosenpass
+
       # Contract tests self-skip without a live KME; the `live-stack` job runs
       # them for real.
       - name: Unit tests
@@ -445,12 +453,17 @@ jobs:
               # when it fired there was nothing to diagnose from: two runs on
               # 2026-08-22 reported exactly 4 failures against 6 and then 8
               # rotations, and neither could be placed in time. A constant
-              # count across different rotation counts suggests a fixed
-              # STARTUP cost rather than a per-rotation race -- the denominator
-              # only counts rotations inside the 240s window, while the
-              # numerator greps the whole container lifetime including
-              # bootstrap. That is a hypothesis, and these lines are what will
-              # confirm or kill it.
+              # count across different rotation counts would suggest a fixed
+              # STARTUP cost rather than a per-rotation race -- but note that
+              # this ratio has no window asymmetry to lean on: $authfail and
+              # $rot are both greps of the same unwindowed `docker logs`, so
+              # numerator and denominator span the SAME interval, the whole
+              # container lifetime, bootstrap included. The `sleep 240` above
+              # only decides WHEN the counting runs, not WHAT it counts. The
+              # 2026-08-27 timeline further up supersedes the startup guess
+              # anyway: the failures were bob lagging alice by two rotation
+              # intervals. These lines stay because a count alone still cannot
+              # be placed in time.
               echo "--- $node: auth failures in context ---"
               docker logs "$node" 2>&1 | grep -nE 'AUTH_FAILED|no PPK found|unloaded the bootstrap|unloaded orphaned|PPK rotated' | head -40
               fail=1
