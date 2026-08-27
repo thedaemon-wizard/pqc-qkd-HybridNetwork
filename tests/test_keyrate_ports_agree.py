@@ -46,6 +46,16 @@ CASES = [
     # the parity test. Every other case has Y0 > 0 and eta > 0, which makes
     # Q_mu strictly positive.
     (0.000, 0.0,    0.015, 0.50, 0.10, 0.0, 1.16),   # dark channel, q == 0
+    # nu2 > 0. Every case above pinned nu2 = 0.0, and so did every other test
+    # in the suite -- which is why 301 of them passed over a Y1 denominator
+    # that was the nu2 = 0 special case of Ma Eq. (18) while the numerator kept
+    # its (nu1^2 - nu2^2) term. Correct at the default, wrong above it.
+    #
+    # Not a hypothetical input: config/qkd_params.yaml gives the optimiser the
+    # grid nu2: [0.00, 0.01], and /physics exposes nu2 as an editable field.
+    (0.020, 1.0e-6, 0.015, 0.50, 0.10, 0.01, 1.16),  # optimiser grid point
+    (0.020, 1.0e-6, 0.015, 0.50, 0.10, 0.05, 1.16),  # nu1 + nu2 still < mu
+    (0.045, 1.7e-6, 0.033, 0.48, 0.05, 0.02, 1.22),  # GYS with a second decoy
 ]
 
 

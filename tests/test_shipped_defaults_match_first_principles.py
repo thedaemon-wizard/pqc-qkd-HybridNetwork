@@ -85,7 +85,11 @@ def _reference_model(p: dict) -> dict[str, float]:
     q_n2 = gain(nu2) if nu2 > 0 else y0
 
     # Decoy bounds, Eqs. 34 and 37.
-    y1_l = (mu / (mu * nu1 - nu1 * nu1)) * (
+    # General two-decoy denominator, Ma Eq. (18)/(34): mu*nu1 - mu*nu2 - nu1^2 + nu2^2.
+    # This file previously carried the nu2 = 0 special case, i.e. a transcription
+    # of the implementation it is supposed to check independently -- which is
+    # exactly the circularity its own docstring warns against.
+    y1_l = (mu / (mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2)) * (
         q_n1 * math.exp(nu1) - q_n2 * math.exp(nu2)
         - (nu1 * nu1 - nu2 * nu2) / (mu * mu) * (q_mu * math.exp(mu) - y0)
     )

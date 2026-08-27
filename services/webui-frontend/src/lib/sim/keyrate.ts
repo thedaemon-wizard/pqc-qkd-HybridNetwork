@@ -43,7 +43,12 @@ export function asymptoticSkrPerPulse(p: {
   const Q_nu2 = nu2 > 0 ? gainQmu(Y0, etaTotal, nu2) : Y0;
   const E_nu1 = qberEmu(Y0, etaTotal, eD, nu1);
   if (nu1 <= 0 || mu - nu1 <= 0) return 0.0;
-  const denom = mu * nu1 - nu1 * nu1;
+  // Ma et al. PRA 72, 012326 (2005), Eq. (18)/(34): the GENERAL two-decoy
+  // denominator. It previously read `mu * nu1 - nu1 * nu1`, that expression
+  // with nu2 = 0 substituted, while the numerator kept its (nu1^2 - nu2^2)
+  // term -- the two halves assumed different nu2. Validity is nu1 + nu2 < mu.
+  const denom = mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2;
+  if (denom <= 0) return 0;
   let Y1_L = (mu / denom) * (
     Q_nu1 * Math.exp(nu1) - Q_nu2 * Math.exp(nu2)
     - ((nu1 * nu1 - nu2 * nu2) / (mu * mu)) * (Q_mu * Math.exp(mu) - Y0)
