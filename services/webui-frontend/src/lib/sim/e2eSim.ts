@@ -331,9 +331,28 @@ export class E2ESim {
         this.pqcSecret = (this.s.failed_layer === "pqc" || mode === "A")
           ? new Uint8Array(0)
           : randomBytes(32);
-        // The derivation still runs on whatever survives. With one leg gone the
+        // The derivation still runs on whatever survives. With ONE leg gone the
         // PSK is weaker, not absent -- that is the property being demonstrated,
         // so it is shown rather than short-circuited.
+        //
+        // With BOTH gone there is nothing to derive from, and HKDF will not say
+        // so: over a zero-length IKM it returns a value fixed entirely by the
+        // public salt and info, identical on every run. Two of the nine mode x
+        // failure cells reach that state -- mode A with QKD down, mode B with
+        // PQC down -- and both used to display its prefix under the heading
+        // "Latest derived WireGuard PSK". A public constant in the slot the page
+        // labels key material. Report the absence instead; see
+        // e2eEmptyIkm.test.ts, which pins the two cells by name.
+        if (this.qkdKey.length === 0 && this.pqcSecret.length === 0) {
+          this.derived = new Uint8Array(0);
+          this.s.last_psk_prefix_hex = "";
+          this.exit({
+            psk_prefix: null, qkd_bytes: 0, pqc_bytes: 0,
+            note: "no key material survived; HKDF over an empty IKM would return "
+                + "a fixed public constant, not a secret",
+          });
+          break;
+        }
         this.derived = deriveHkdfSha3(this.qkdKey, this.pqcSecret, mode);
         this.s.last_psk_prefix_hex = toHex(this.derived).slice(0, 16);
         this.exit({ psk_prefix: this.s.last_psk_prefix_hex,
