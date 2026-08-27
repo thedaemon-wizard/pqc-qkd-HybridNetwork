@@ -47,7 +47,14 @@ BINARY = re.compile(r"\.(pdf|png|jpg|jpeg|gif|webm|mp4|ico|woff2?|zip|whl|so)$",
 
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 EMOJI = re.compile(r"[\U0001F300-\U0001FAFF✀-➿⬀-⯿]")
-TOOLING = re.compile(r"\b(anthropic|copilot|chatgpt|openai)\b", re.I)
+# `claude` is on this list because it is the name that actually gets written:
+# the default attribution is "Generated with Claude Code", which contains no
+# vendor word at all, so a list of vendors alone cannot fail on it. The CI
+# commit-message job has always grepped for it; this pattern had not, and this
+# is the only check that reads file CONTENT rather than commit messages.
+# Naming it makes this file match its own pattern -- which is what SELF below
+# is for. The exemption is one named file, not a blanket skip.
+TOOLING = re.compile(r"\b(anthropic|claude|copilot|chatgpt|openai)\b", re.I)
 
 # Files that must contain a forbidden pattern in order to detect it. There are
 # exactly two kinds and both are unavoidable: the checklist row that documents
@@ -150,3 +157,28 @@ def test_no_demo_host_identifiers_in_tracked_files():
         f"non-private IP addresses in tracked files: {offenders}. The public "
         "demo's address must not be committed."
     )
+
+
+def test_the_tooling_pattern_matches_what_the_tools_actually_emit():
+    """Positive control: a blocklist is only as good as the names on it.
+
+    The scan above can only fail on a string `TOOLING` matches, so a missing
+    name is a silent hole -- every tracked file passes and the guard looks
+    green. `claude` was that hole: the four vendor words were all present
+    while the one product name the tooling signs with was not.
+
+    These literals can live in this file and nowhere else. It is the only
+    file exempt from the scan via SELF, so moving the control into a fixture
+    or a data file would make it trip the very guard it is testing.
+    """
+    for sample in (
+        "Generated with Claude Code",
+        "Co-Authored-By: Claude <noreply@example.invalid>",
+        "assisted by Copilot",
+        "drafted with ChatGPT",
+        "an Anthropic model",
+    ):
+        assert TOOLING.search(sample), f"TOOLING does not match {sample!r}"
+    # And it stays word-bounded, so ordinary prose is not collateral.
+    for benign in ("claudette", "openairport"):
+        assert not TOOLING.search(benign), f"TOOLING over-matches {benign!r}"
