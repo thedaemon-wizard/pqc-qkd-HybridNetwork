@@ -643,17 +643,205 @@ def _ipsec_unknown(status: str) -> dict[str, Any]:
         "proposal": None,
         "last_handshake": None,
         "pq_key_exchange": None,
+        "ppk_used": None,
         "ppk_id": None,
         "ppk_required": None,
+        "child_sas": None,
     }
 
 
+# One CHILD_SA block from `swanctl --list-sas`, at four spaces of indent:
+#
+#     in  cb1df209,      0 bytes,     0 packets
+#     out c15c9a27,   1680 bytes,    20 packets,     3s ago
+#
+# Format from swanctl/commands/list_sas.c:194-224 -- the SPI may carry a
+# "/<cpi>" suffix and an optional " (mark .../if-id ...)" group before the
+# comma, and an optional ", %5ss ago" after the packet count. Counters are
+# printed with `%6s` / `%5s` of a plain integer, so the whitespace is variable
+# and there are no thousands separators.
+_CHILD_DIR_RE = re.compile(
+    r"^\s{4}(in|out)\s+([0-9a-fA-F]+)(?:/\S+)?(?:\s+\([^)]*\))?,"
+    r"\s*(\d+)\s+bytes,\s*(\d+)\s+packets",
+)
+# The CHILD_SA header, at two spaces:
+#     tunnel: #6261, reqid 1, INSTALLED, TUNNEL-in-UDP, ESP:AES_GCM_16-256
+_CHILD_HEAD_RE = re.compile(
+    r"^\s{2}(\S+):\s*#(\d+),\s*reqid\s+(\d+),\s*([A-Z-]+)"
+    r"(?:,\s*([^,]+?))?(?:,\s*ESP:(\S+))?\s*$",
+)
+# An IKE_SA header sits at column 0, which is what ends a CHILD_SA block.
+_IKE_HEAD_RE = re.compile(r"^\S")
+
+
+def _parse_child_sas(sas: str) -> list[dict[str, Any]]:
+    """CHILD_SA byte/packet counters and SPIs, as a line-scanning state machine.
+
+    NOT two `findall`s over the whole text. During a rekey window `--list-sas`
+    prints two `tunnel:` blocks under one IKE_SA, and pairing the Nth `in` line
+    with the Nth `out` line across the whole document silently mixes the old
+    SA's inbound counters with the new SA's outbound ones. Scanning line by line
+    and closing a block when the indent drops is the only form that stays
+    correct while a rekey is in flight -- which is exactly when someone is
+    looking.
+
+    An absent direction is None, never 0. charon omits the line it has nothing
+    for, and "no outbound line" must not read as "zero bytes sent".
+    """
+    children: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+
+    def _close() -> None:
+        nonlocal cur
+        if cur is not None:
+            children.append(cur)
+            cur = None
+
+    for line in sas.splitlines():
+        head = _CHILD_HEAD_RE.match(line)
+        if head:
+            _close()
+            cur = {
+                "name": head.group(1),
+                "unique_id": int(head.group(2)),
+                "reqid": int(head.group(3)),
+                "state": head.group(4),
+                "mode": head.group(5),
+                "esp_proposal": head.group(6),
+                "in": None,
+                "out": None,
+            }
+            continue
+        if _IKE_HEAD_RE.match(line):
+            # Back at column 0: a new IKE_SA, so the previous child is complete.
+            _close()
+            continue
+        if cur is None:
+            continue
+        d = _CHILD_DIR_RE.match(line)
+        if d:
+            cur[d.group(1)] = {
+                "spi": d.group(2),
+                "bytes": int(d.group(3)),
+                "packets": int(d.group(4)),
+            }
+    _close()
+    return children
+
+
+def _sample_ipsec(cli, container: str) -> dict[str, Any]:
+    """One node's IPsec view. Two `docker exec`s; never raises."""
+    try:
+        c = cli.containers.get(container)
+        rc_sas, sas = c.exec_run("swanctl --list-sas")
+        rc_conns, conns = c.exec_run("swanctl --list-conns")
+        # Check the exit codes. swanctl writes its error text to the same
+        # stream as its output, and that text is non-empty, so passing a
+        # failed invocation into the parser makes `sas.strip()` truthy and
+        # reports status "running" for a charon that is dead. That is the
+        # precise "healthy while doing nothing" mode this lane exists to
+        # eliminate, reproduced in the status API.
+        if rc_sas != 0 or rc_conns != 0:
+            detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
+            log.warning(
+                "swanctl failed in %s (list-sas rc=%s, list-conns rc=%s): %s",
+                container, rc_sas, rc_conns, detail.strip()[:200],
+            )
+            # Same keys as the success path, so a consumer never has to branch
+            # on which shape it received. Seeded from the template rather than
+            # restated, so the two cannot drift apart -- which is how the
+            # WireGuard branch ended up with a two-key default while a comment
+            # claimed the invariant held for both.
+            #
+            # active_sa is None, not 0: swanctl did not answer, so "we looked
+            # and there are none" is not something we know.
+            return _ipsec_unknown("error")
+        return _parse_ipsec_sas(
+            sas.decode("utf-8", errors="replace"),
+            conns.decode("utf-8", errors="replace"),
+        )
+    except Exception as e:
+        log.warning("ipsec status unavailable for %s: %s", container, e)
+        return _ipsec_unknown("absent")
+
+
+def _both_ends(alice: dict[str, Any], bob: dict[str, Any]) -> dict[str, Any]:
+    """Aggregate the two nodes' views into facts that need BOTH to be known.
+
+    Computed server-side, not in the browser, for a specific reason: `null &&
+    true` is falsy in JavaScript, so a client-side `a.ppk_used && b.ppk_used`
+    would render "not in use" for "one end did not answer". Here the three
+    outcomes stay distinct -- True, False, and None for "could not tell".
+    """
+    def _both(key: str) -> bool | None:
+        a, b = alice.get(key), bob.get(key)
+        if a is None or b is None:
+            return None
+        return bool(a) and bool(b)
+
+    # alice's outbound SPI must be bob's inbound one, and vice versa. This is
+    # the only field here that could not be faked by one end alone: an SPI is
+    # chosen by the receiver and echoed by the sender, so a match proves the
+    # two containers are describing the same pair of ESP SAs rather than two
+    # unrelated tunnels that both happen to be up.
+    def _spis(node: dict[str, Any]) -> tuple[set[str], set[str]] | None:
+        kids = node.get("child_sas")
+        if not kids:
+            return None
+        return (
+            {k["in"]["spi"] for k in kids if k.get("in")},
+            {k["out"]["spi"] for k in kids if k.get("out")},
+        )
+
+    a_spis, b_spis = _spis(alice), _spis(bob)
+    if a_spis is None or b_spis is None or not (a_spis[0] or a_spis[1]):
+        spi_paired: bool | None = None
+    else:
+        spi_paired = bool(a_spis[1] & b_spis[0]) and bool(a_spis[0] & b_spis[1])
+
+    return {
+        # Deliberately NEW names, not a redefinition of the flat `ppk_required`.
+        # A shape change fails loudly; a meaning change fails silently -- a
+        # cached frontend would render alice-only data under a both-ends label
+        # and nothing would break.
+        "ppk_required_both_ends": _both("ppk_required"),
+        "ppk_used_both_ends": _both("ppk_used"),
+        "pq_key_exchange_both_ends": _both("pq_key_exchange"),
+        "spi_paired": spi_paired,
+    }
+
+
+# Sampling `/api/vpn/protocols` costs five `docker exec`s (wg show, and
+# list-sas + list-conns on each of the two IPsec nodes). The page polls every
+# 3 s per viewer, so on a public host that is five execs per viewer per poll.
+# A short TTL collapses concurrent viewers onto one sample without introducing
+# a background task -- main.py deliberately has none.
+#
+# Failure shapes are cached too. Caching only successes would make a broken
+# lane the expensive case, which is precisely when the host is least able to
+# absorb it.
+VPN_SAMPLE_TTL_S = float(os.environ.get("VPN_SAMPLE_TTL_S", "2.0"))
+_vpn_sample: dict[str, Any] = {}
+
+
 @app.get("/api/vpn/protocols")
-async def vpn_protocols():
-    """Return live status of both VPN lanes (WireGuard + IPsec/IKEv2)."""
+def vpn_protocols():
+    """Live status of both VPN lanes, from both ends of the IPsec one.
+
+    A plain `def`, not `async def`. Every call inside is a blocking
+    `exec_run`; under `async def` those five round trips run ON the event loop
+    and stall every other request for their duration. FastAPI dispatches a sync
+    handler to its threadpool instead.
+    """
+    now = time.monotonic()
+    cached = _vpn_sample.get("v")
+    if cached is not None and (now - cached["at"]) < VPN_SAMPLE_TTL_S:
+        return cached["value"]
+
     cli = app.state.docker
     wg_status: dict[str, Any] = _wg_unknown("absent")
-    ipsec_status: dict[str, Any] = _ipsec_unknown("absent")
+    alice_ipsec: dict[str, Any] = _ipsec_unknown("absent")
+    bob_ipsec: dict[str, Any] = _ipsec_unknown("absent")
 
     if cli is not None:
         try:
@@ -663,9 +851,8 @@ async def vpn_protocols():
             if rc != 0:
                 # Previously a non-zero rc degraded to status "running", which
                 # VpnProtocols.tsx renders GREEN -- so a lane whose `wg show`
-                # failed outright looked healthy. The IPsec branch below has
-                # said "error" for this case since it was written; this one now
-                # matches it.
+                # failed outright looked healthy. The IPsec branch has said
+                # "error" for this case since it was written; this one matches.
                 log.warning(
                     "wg show failed in alice (rc=%s): %s", rc, wg_text.strip()[:200],
                 )
@@ -673,43 +860,115 @@ async def vpn_protocols():
             else:
                 wg_status = _parse_wg(wg_text)
         except Exception as e:
-            # The IPsec branch below logs; this one used to swallow silently, so
-            # a WireGuard lane that was never reachable looked identical to one
+            # The IPsec branch logs; this one used to swallow silently, so a
+            # WireGuard lane that was never reachable looked identical to one
             # that was simply absent.
             log.warning("wireguard status unavailable: %s", e)
-        try:
-            c = cli.containers.get("alice-ipsec")
-            rc_sas, sas = c.exec_run("swanctl --list-sas")
-            rc_conns, conns = c.exec_run("swanctl --list-conns")
-            # Check the exit codes. swanctl writes its error text to the same
-            # stream as its output, and that text is non-empty, so passing a
-            # failed invocation into the parser makes `sas.strip()` truthy and
-            # reports status "running" for a charon that is dead. That is the
-            # precise "healthy while doing nothing" mode this lane exists to
-            # eliminate, reproduced in the status API.
-            if rc_sas != 0 or rc_conns != 0:
-                detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
-                log.warning(
-                    "swanctl failed in alice-ipsec (list-sas rc=%s, list-conns rc=%s): %s",
-                    rc_sas, rc_conns, detail.strip()[:200],
-                )
-                # Same keys as the success path, so a consumer never has to
-                # branch on which shape it received. Seeded from the template
-                # rather than restated, so the two cannot drift apart -- which
-                # is how the WireGuard branch ended up with a two-key default
-                # while this comment claimed the invariant.
-                #
-                # active_sa is None, not 0: swanctl did not answer, so "we
-                # looked and there are none" is not something we know.
-                ipsec_status = _ipsec_unknown("error")
-            else:
-                ipsec_status = _parse_ipsec_sas(
-                    sas.decode("utf-8", errors="replace"),
-                    conns.decode("utf-8", errors="replace"),
-                )
-        except Exception as e:
-            log.warning("ipsec status unavailable: %s", e)
-    return {"wireguard": wg_status, "ipsec": ipsec_status}
+
+        alice_ipsec = _sample_ipsec(cli, "alice-ipsec")
+        bob_ipsec = _sample_ipsec(cli, "bob-ipsec")
+
+    value = {
+        "wireguard": wg_status,
+        # The flat IPsec fields keep meaning exactly what they meant before:
+        # alice's view. Adding `nodes` and the *_both_ends aggregates alongside
+        # them is additive; redefining these would have been a silent change.
+        "ipsec": {
+            **alice_ipsec,
+            "nodes": {"alice": alice_ipsec, "bob": bob_ipsec},
+            **_both_ends(alice_ipsec, bob_ipsec),
+        },
+        # So a reader can tell a fresh sample from a cached one rather than
+        # inferring it from how fast the numbers move.
+        "observed_at": time.time(),
+        "cache_ttl_s": VPN_SAMPLE_TTL_S,
+    }
+    _vpn_sample["v"] = {"at": now, "value": value}
+    return value
+
+
+# Rotations get their own endpoint, at their own cadence.
+#
+# VERIFICATION_CHECKLIST row 2.14 is a ten-minute procedure, not a snapshot.
+# Folding it into /api/vpn/protocols would mean reading two containers' whole
+# log streams every 3 s per viewer -- server compute the public demo is
+# supposed to avoid, and orders of magnitude more expensive than the five
+# `exec_run`s above.
+_ROTATION_RE = re.compile(r"PPK rotated \(id=(\S+?) ")
+ROTATION_WINDOW_MAX_S = int(os.environ.get("VPN_ROTATION_WINDOW_MAX_S", "3600"))
+ROTATION_TTL_S = float(os.environ.get("VPN_ROTATION_TTL_S", "15.0"))
+_rotation_sample: dict[int, Any] = {}
+
+
+def _count_rotations(cli, container: str, window_s: int) -> dict[str, Any]:
+    """Count 'PPK rotated' lines in a container's recent log.
+
+    Counts only. The log lines themselves are never returned: they carry
+    credential ids and peer identities, and this endpoint is public.
+
+    `count: None` plus an `error` string when we could not look. Zero rotations
+    and "could not look" must never be the same value -- a stalled arnika and
+    an unreachable container are different faults and the first is the one row
+    2.14 exists to catch.
+    """
+    try:
+        c = cli.containers.get(container)
+        raw = c.logs(since=int(time.time()) - window_s, stdout=True, stderr=True)
+        text = raw.decode("utf-8", errors="replace")
+    except Exception as e:
+        log.warning("could not read %s logs: %s", container, e)
+        return {"count": None, "distinct_ids": None, "error": str(e)[:200]}
+    ids = _ROTATION_RE.findall(text)
+    return {
+        "count": len(ids),
+        # A rotation that reinstalls the SAME credential id is not a rotation.
+        # Reporting both makes that visible instead of inflating the count.
+        "distinct_ids": len(set(ids)),
+        "error": None,
+    }
+
+
+@app.get("/api/vpn/ppk-rotations")
+def vpn_ppk_rotations(window_s: int = 600):
+    """How many PPK rotations each IPsec node logged in the last `window_s`.
+
+    Bounded and cached: an unbounded window would read the entire log stream of
+    two containers on every request.
+    """
+    window_s = max(30, min(int(window_s), ROTATION_WINDOW_MAX_S))
+    now = time.monotonic()
+    cached = _rotation_sample.get(window_s)
+    if cached is not None and (now - cached["at"]) < ROTATION_TTL_S:
+        return cached["value"]
+
+    cli = app.state.docker
+    if cli is None:
+        nodes = {n: {"count": None, "distinct_ids": None, "error": "docker not available"}
+                 for n in ("alice-ipsec", "bob-ipsec")}
+    else:
+        nodes = {n: _count_rotations(cli, n, window_s)
+                 for n in ("alice-ipsec", "bob-ipsec")}
+
+    value = {
+        "window_s": window_s,
+        "nodes": nodes,
+        "observed_at": time.time(),
+        "cache_ttl_s": ROTATION_TTL_S,
+        # What this endpoint does NOT establish, said here rather than left for
+        # a reader to assume. Row 2.14 also asserts "concurrency 1 across 20
+        # samples"; proving that needs a sampler running between requests, and
+        # main.py deliberately runs no background tasks (see `lifespan`). A
+        # single instantaneous `active_sa` from /api/vpn/protocols is the most
+        # this API can honestly offer.
+        "note": (
+            "Counts log lines in a window. It does not establish that SA "
+            "concurrency stayed at 1 throughout -- that needs repeated sampling, "
+            "which this server does not do. Read active_sa from "
+            "/api/vpn/protocols for an instantaneous value."
+        ),
+    }
+    _rotation_sample[window_s] = {"at": now, "value": value}
+    return value
 
 
 # `wg show wg0` renders one block per peer, e.g.
@@ -859,12 +1118,45 @@ def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
         "proposal": proposal,
         "last_handshake": f"{age.group(1)}{age.group(2)} ago" if age else None,
         # RFC 9370: an additional ML-KEM key exchange was negotiated.
-        "pq_key_exchange": "ML_KEM" in (proposal or "") or None,
-        # RFC 8784: the connection is configured to mix a PPK into the key
-        # schedule. charon does not report per-SA PPK use over VICI, so this is
-        # honestly labelled as configuration, not as proof of use.
+        #
+        # Tri-state, deliberately. This was `"ML_KEM" in (proposal or "") or None`,
+        # which yields True or None and NEVER False -- so "we read the proposal
+        # and there is no ML-KEM in it" was indistinguishable from "we never
+        # got a proposal". Both rendered as an em dash, so nothing on screen
+        # could contradict it either.
+        "pq_key_exchange": ("ML_KEM" in proposal) if proposal else None,
+        # RFC 8784: whether the PPK was actually USED for this IKE_SA.
+        #
+        # This comment used to read: "charon does not report per-SA PPK use over
+        # VICI, so this is honestly labelled as configuration, not as proof of
+        # use." That is wrong, and the evidence was already in the output this
+        # function is given. strongSwan 6.0.7, three files:
+        #
+        #   sa/ike_sa.h:258      /** A Postquantum Preshared Key was used when
+        #                            this IKE_SA was created */
+        #                        COND_PPK = (1<<13),
+        #   vici/vici_query.c:640   add_condition(b, ike_sa, "ppk", COND_PPK);
+        #   swanctl/list_sas.c:322  if (streq(ike->get(ike, "ppk"), "yes"))
+        #                               printf("/PPK");
+        #
+        # and the condition is set in ikev2/tasks/ike_auth.c:1187, inside
+        # apply_ppk(), only AFTER derive_ike_keys_ppk() has succeeded -- i.e.
+        # only once the PPK has actually been mixed into SK_d/SK_pi/SK_pr.
+        #
+        # So the trailing "/PPK" on the proposal line is per-SA proof of use.
+        # We were fetching --list-sas already and discarding the answer, while
+        # reading --list-conns for a weaker one.
+        "ppk_used": ("/PPK" in proposal) if proposal else None,
+        # ...and this stays what it always was: CONFIGURATION, from
+        # --list-conns. Kept separate rather than merged, because "the operator
+        # required a PPK" and "charon mixed one in" fail independently -- a
+        # required PPK that never arrives is exactly the case worth seeing.
         "ppk_id": ppk.group(1) if ppk else None,
         "ppk_required": (ppk.group(2) == "required") if ppk else None,
+        # ESP counters and SPIs, per CHILD_SA. `swanctl --list-sas` has always
+        # carried these; nothing parsed them, so VERIFICATION_CHECKLIST rows
+        # 2.3 and 2.11 could only be executed over SSH.
+        "child_sas": _parse_child_sas(sas),
     }
 
 
