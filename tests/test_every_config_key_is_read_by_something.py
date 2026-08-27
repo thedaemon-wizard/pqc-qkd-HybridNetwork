@@ -96,6 +96,20 @@ def _leaves(node, prefix: str = ""):
             yield path
 
 
+# This file names every unread key, in KNOWN_UNREAD and in its own docstring.
+# Searching it would therefore find a "reader" for each of them -- the guard
+# proving its own subjects alive, which makes `test_no_new_config_key_is_unread`
+# vacuous and `test_the_known_list_has_not_gone_stale` fire on everything.
+#
+# Caught by the staleness check on the first CI run, which is the one direction
+# that could catch it. It is the sixth guard in this repository to trip on its
+# own explanatory text -- after depolarizing_rate, logService, the paper
+# citation, the secret-scanner fixtures and the RoundOutcome comment -- and the
+# first where the file's whole subject is things that reference themselves into
+# looking alive.
+SELF = "tests/test_every_config_key_is_read_by_something.py"
+
+
 def _code_bodies() -> dict[str, str]:
     out: dict[str, str] = {}
     listed = subprocess.run(
@@ -103,6 +117,8 @@ def _code_bodies() -> dict[str, str]:
     ).stdout.split()
     for rel in listed:
         if rel.startswith("submodules/") or rel == "config/qkd_params.yaml":
+            continue
+        if rel == SELF:
             continue
         p = ROOT / rel
         # `is_file()` matters: gitlinks are listed as paths but are directories.
@@ -191,4 +207,23 @@ def test_a_docs_mention_does_not_count_as_a_reader(bodies):
     assert any(h.startswith("services/bb84-kme/") for h in hits), (
         "basis_bias_pz is no longer read by the backend; if that is deliberate "
         "it belongs in KNOWN_UNREAD"
+    )
+
+
+def test_the_guard_does_not_count_itself_as_a_reader(bodies):
+    """Without this the guard proves its own subjects alive.
+
+    Every unread key is named here, in KNOWN_UNREAD and in the docstring. If
+    this file were searched, `_readers` would return a hit for each of them --
+    `test_no_new_config_key_is_unread` would pass vacuously (nothing is ever
+    unread) and `test_the_known_list_has_not_gone_stale` would fire on the whole
+    list. Both failure modes were observed before the exclusion was added.
+    """
+    assert SELF not in bodies, (
+        "the guard is searching itself; every key it names would look read"
+    )
+    # And the exclusion must be exactly this file, not a blanket tests/ skip --
+    # a test that genuinely reads a config key is a real reader.
+    assert any(rel.startswith("tests/") for rel in bodies), (
+        "all of tests/ is excluded, so a key read only by a test now looks dead"
     )
