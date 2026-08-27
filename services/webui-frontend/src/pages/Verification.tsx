@@ -54,6 +54,11 @@ export default function Verification() {
   const fmt = (x: number | null | undefined, d = 3) =>
     typeof x === "number" ? x.toExponential(d) : "—";
 
+  /** Render an absent export field as an em dash. A bare `${x}` writes the
+   *  literal string "undefined" into a file this page offers as citable
+   *  evidence, where it reads as a value rather than as a missing one. */
+  const cite = (x: unknown) => (x === undefined || x === null ? "—" : String(x));
+
   return (
     <div>
       {/* This page is headed "Implementation Verification" and had no way to
@@ -87,9 +92,20 @@ export default function Verification() {
               lines.push(`same_order_of_magnitude\t${keyrate.same_order_of_magnitude}`);
             }
             if (budgets) {
+              // `/api/verify/paper-budgets` returns computed_total_* and
+              // paper_total_*. It does NOT return total_handshake_*: that is the
+              // shape of `paper_budgets.as_dict()`, which the endpoint wraps and
+              // renames -- its docstring says exactly this. Reading the unwrapped
+              // names put "total_packets<TAB>undefined" in the export while the
+              // panel beside it rendered 9 and 5248 from that same response, and
+              // the export is the only artefact a reviewer can cite.
               lines.push("#", "# Paper budgets (arXiv:2604.05599 Table 1)");
-              lines.push(`total_packets\t${budgets.total_handshake_packets}`);
-              lines.push(`total_bytes\t${budgets.total_handshake_bytes}`);
+              lines.push(`computed_total_packets\t${cite(budgets.computed_total_packets)}`);
+              lines.push(`paper_total_packets\t${cite(budgets.paper_total_packets)}`);
+              lines.push(`computed_total_bytes\t${cite(budgets.computed_total_bytes)}`);
+              lines.push(`paper_total_bytes\t${cite(budgets.paper_total_bytes)}`);
+              lines.push(`packets_match\t${cite(budgets.packets_match)}`);
+              lines.push(`bytes_match\t${cite(budgets.bytes_match)}`);
             }
             return lines.join("\n") + "\n";
           }}

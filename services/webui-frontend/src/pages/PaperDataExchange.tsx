@@ -9,7 +9,7 @@ import PhaseSequenceSvg, { type PhaseBudget } from "../components/PhaseSequenceS
 import PacketFlowTable from "../components/PacketFlowTable";
 import FailureCascadeTimeline, { type CascadeEvent } from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
-import { NOMINAL_PHASE_DWELL_MS, PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
+import { paperCsvRows, PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
 
 /**
  * Paper Data Exchange page.
@@ -120,24 +120,20 @@ export default function PaperDataExchange() {
           logProvider={runLog}
           pngTargetSelector="#paper-flow-topology-svg"
           jsonProvider={() => state ?? { status: "loading" }}
-          csvProvider={() => (state?.history ?? []).map((h) => ({
-            phase: h.phase, name: h.name,
-            started_at: new Date(h.started_at * 1000).toISOString(),
-            completed_at: h.completed_at
-              ? new Date(h.completed_at * 1000).toISOString() : "",
-            // Wall-clock the UI sat on the phase, not a protocol timing: the
-            // dwell is a fixed animation constant, and Chrome clamps timers to
-            // ~1 Hz in a hidden tab. The nominal is exported beside it so a
-            // reader can spot a throttled recording rather than plot it.
-            ui_dwell_ms: h.completed_at
-              ? Math.round((h.completed_at - h.started_at) * 1000) : "",
-            nominal_dwell_ms: NOMINAL_PHASE_DWELL_MS,
-            packets: h.packets, bytes: h.bytes,
-          }))}
+          csvProvider={() => paperCsvRows(state?.history ?? [])}
         />
       </div>
 
-      {/* KPI cards (paper values + live) */}
+      {/*
+        KPI cards. The last two were labelled "Live", which read as observed
+        traffic sitting beside the paper's quoted constants. They are neither
+        live nor independent of the "Paper bytes / handshake" card: PaperSim
+        adds PHASE_BUDGETS[phase].bytes -- the paper's own Table 1 figures --
+        into bytesTotal on every phase, so the byte total is 5248 (exactly what
+        that card shows) times the number of completed cycles, plus the one
+        quantity this page really produces: the ~64-byte ChaCha20-Poly1305
+        record phase 5 seals. Named and footnoted as derived.
+      */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)",
                      gap: 12, marginBottom: 16 }}>
         <KPI label="Paper packets / handshake"
@@ -146,10 +142,23 @@ export default function PaperDataExchange() {
              value={state?.paper_budgets.total_handshake_bytes ?? "—"} />
         <KPI label="Mean setup @ 10 hops (s)"
              value={state?.paper_budgets.mean_10_hop_setup_s ?? "—"} />
-        <KPI label="Live cycles done"
+        <KPI label="Sim cycles done"
              value={state?.cycles_total ?? 0} />
-        <KPI label="Live bytes total"
+        <KPI label="Sim bytes (paper budget × cycles)"
              value={state?.bytes_total ?? 0} />
+      </div>
+      <div style={{ fontSize: 11, color: colors.textSec, lineHeight: 1.5,
+                     marginTop: -8, marginBottom: 16 }}>
+        The two <b>Sim</b> cards are not measured traffic, and the byte total is
+        not an independent check on the paper. This page has no network path: the
+        orchestrator runs in the browser (<code>src/lib/sim/paperSim.ts</code>)
+        and accrues each phase's byte budget straight from the paper's Table 1,
+        so the total is those same constants summed over the phases that ran --
+        5248 per completed cycle, the figure the <code>Paper bytes / handshake</code>
+        card quotes. The only bytes this page itself produces are the ~64-byte
+        ChaCha20-Poly1305 record phase 5 seals each cycle. Moving the
+        trusted-node slider from 1 to 8 changes the total by zero, because no
+        per-hop traffic is being counted.
       </div>
 
       {/* Topology — primary image-2 faithful figure */}

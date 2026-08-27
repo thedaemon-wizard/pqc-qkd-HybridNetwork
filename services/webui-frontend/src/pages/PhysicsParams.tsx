@@ -220,9 +220,19 @@ export default function PhysicsParams() {
             path: f.path,
             label: LABELS[f.path] ?? f.path,
             type: f.type,
-            config_default: f.value,
+            // `f.value` is not the config default: /sim/params/editable fills
+            // it from config_loader.get(), which returns the YAML default
+            // ALREADY overlaid with any applied runtime override. Exporting it
+            // as `config_default` meant that after Apply the CSV presented the
+            // overridden number as the shipped default.
+            applied_value: f.value,
             effective: edits[f.path] ?? f.value,
-            overridden: f.path in edits,
+            // `edits` holds only UNAPPLIED drafts, and applyEdits() clears it
+            // on success, so this column read false for exactly the parameters
+            // whose override had actually taken effect. `f.overridden` is the
+            // KME's own flag and survives Apply; the draft is its own column.
+            overridden: f.overridden || f.path in edits,
+            pending_edit: f.path in edits,
           }))}
         />
       </div>
