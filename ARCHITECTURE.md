@@ -77,7 +77,7 @@ contract updates here:
 | ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...` matching `kms.go:126-134` |
 | PQC E2E via Rosenpass | `nodes/alice/rosenpass-sidecar.sh` produces pqc.psk; arnika fuses it via HKDF (`kdf/kdf.go`) |
 | Layered composability (compromise of one layer ≠ catastrophe) | Three Docker networks isolate planes; mode `QkdAndPqcRequired` enforces both layers |
-| Setup time scales with slowest QKD hop, not cumulative | `benchmarks/handshake_timer.py` measures this |
+| Setup time scales with slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples ONE container's handshake age over time (`--container`, `--duration`; output `epoch,handshake_age_s`). It varies no chain length and has no hop dimension, so nothing in it could distinguish scaling-with-slowest-hop from scaling-cumulatively. `benchmarks/results/handshake_age.csv` does not exist in this tree and `paper_comparison.json` records `"ours": {"n": 0}` -- it has never captured a row. |
 | Forward secrecy at both QKD and PQC layers | Independent rotation: BB84 producer triggers QKD refresh, Rosenpass sidecar triggers PQC refresh |
 ---
 
@@ -126,8 +126,8 @@ today.
                          ▼                       ▼
                 ┌────────────────┐      ┌────────────────────┐
                 │ arnika (Go)    │      │ qkdnetsim-kme      │
-                │ HKDF-SHA3-256  │      │ NS-3 v3.46 + ETSI  │
-                │ → WG PSK       │      │ 014/004 reference  │
+                │ HKDF-SHA3-256  │      │ Flask ETSI 014 srv │
+                │ → WG PSK       │      │ (facade, not NS-3) │
                 └────────────────┘      └────────────────────┘
 ```
 
@@ -136,7 +136,8 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 - `simqn_backend.py` — SimQN BB84 + QubitLossChannel + our Cascade+TPA
 - `sequence_backend.py` — SeQUeNCe physical layer (depolarising + measurement noise)
 - `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
-- `qkdnetsim_proxy.py` — pulls keys from the NS-3 reference KME (ETSI 014 cross-check)
+- `qkdnetsim_proxy.py` — pulls keys from `qkdnetsim-kme`, a second ETSI 014 server
+  (a Flask facade, not the NS-3 C++ KMS); checks the REST contract, not key material
 - `composite_sim_to_net.py` — SimQN computes per-link SKR → injected into qkdnetsim
 - `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
   engine, used to cross-check this project's own rate model
@@ -183,7 +184,7 @@ Tests (host venv):
                 │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┬───┐│
                 │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │tno││
                 │ └──────┴─────┴────────┴───────┴──────────┴──────────┴───┘│
-                │ openQKDsecurity (offline SKR) + PQClean (NIST reference) │
+                │ precompute_keyrate_table_fallback.py (offline SKR table) │
                 │ aparcar/qkd-pqc-paper-supplementary (Phase 9-B baseline) │
                 └───────────────────────────────────────────────────────────┘
 ```
@@ -303,9 +304,10 @@ Shared UI under `services/webui-frontend/src/components/`:
                                 └────────────┬──────────────────────────┘
                                              │
                               ┌──────────────┴──────────────────┐
-                              │  3 independent ETSI 014 KMEs    │
+                              │  2 ETSI 014 servers RUNNING     │
                               │  - bb84-kme (Python + SimQN)    │
-                              │  - qkdnetsim-kme (NS-3 C++)     │
+                              │  - qkdnetsim-kme (Flask facade) │
+                              │  vendored, not wired in:        │
                               │  - submodules/qkd_kme_server    │
                               │      (Rust, 2026-04-01 active)  │
                               └─────────────────────────────────┘
