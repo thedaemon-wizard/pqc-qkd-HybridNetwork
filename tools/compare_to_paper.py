@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
-"""Compare our benchmark output against the published paper supplementary data.
+"""Index the published paper supplementary data and summarise each CSV.
 
 `submodules/qkd-pqc-paper-supplementary/` contains the raw experimental data
-from Spooren et al. (arXiv:2604.05599) — handshake traces, key rotation logs,
-multi-hop daisy-chain timings, failure-recovery measurements.
+from Spooren et al. (arXiv:2604.05599).
 
-This tool aligns our `benchmarks/results/*.csv` to those baselines and produces
-overlay plots in `benchmarks/results/paper_overlay/`.
+WHAT THIS TOOL DOES NOT DO: it does not align quantities. It reads columns 0
+and 1 of every CSV it finds and summarises column 1, whatever that column
+happens to hold. Different files hold different things there, and the summary
+carried no record of which -- so `rosenpass-scalability/results/
+experiment-summary.csv`, whose columns are `peer_count` and `avg_cpu_percent`,
+produced `mean: 11.93`, and docs/phases.md read that mean CPU PERCENTAGE as a
+handshake TIME and reported "within +/-15 % of the paper\'s 10.27 s @ 10 nodes".
+Two different units, at a peer count (10) that is not in the file, against an
+`ours` entry of `{"n": 0}`.
+
+The summaries now carry `x_column` and `y_column`, taken from the CSV header,
+so a reader can see what was averaged before comparing it to anything. Read
+those names before drawing any conclusion from `mean`.
 
 Usage (inside .venv):
     python tools/compare_to_paper.py --our benchmarks/results/handshake_age.csv \
@@ -39,11 +49,16 @@ def _setup_logger() -> logging.Logger:
 log = _setup_logger()
 
 
-def load_csv_two_col(path: Path) -> tuple[list[float], list[float]]:
+def load_csv_two_col(path: Path) -> tuple[list[float], list[float], list[str]]:
+    """Columns 0 and 1 as floats, plus the header row so callers can say which.
+
+    Returning the header is the point: without it every summary looks the same
+    whether column 1 is seconds, a percentage or a byte count.
+    """
     xs, ys = [], []
     with path.open() as f:
         reader = csv.reader(f)
-        next(reader, None)
+        header = next(reader, None) or []
         for row in reader:
             if len(row) < 2:
                 continue
@@ -51,17 +66,29 @@ def load_csv_two_col(path: Path) -> tuple[list[float], list[float]]:
                 xs.append(float(row[0])); ys.append(float(row[1]))
             except ValueError:
                 continue
-    return xs, ys
+    return xs, ys, [h.strip() for h in header[:2]]
 
 
-def summarise(name: str, xs: list[float], ys: list[float]) -> dict[str, float]:
+def summarise(name: str, xs: list[float], ys: list[float],
+              header: list[str] | None = None) -> dict[str, object]:
+    """Summarise column 1, and SAY WHICH COLUMN that was.
+
+    `mean` on its own is unitless and invites comparison with anything of a
+    similar magnitude. Carrying the column names makes a units mismatch visible
+    in the output file rather than only in the source of the tool.
+    """
+    header = header or []
+    cols = {
+        "x_column": header[0] if len(header) > 0 else "(no header)",
+        "y_column": header[1] if len(header) > 1 else "(no header)",
+    }
     if not ys:
-        return {"name": name, "n": 0}
+        return {"name": name, "n": 0, **cols}
     n = len(ys)
     mean = sum(ys) / n
     var = sum((y - mean) ** 2 for y in ys) / n
-    return {"name": name, "n": n, "mean": mean, "stddev": var ** 0.5,
-            "min": min(ys), "max": max(ys)}
+    return {"name": name, "n": n, **cols, "summarised": cols["y_column"],
+            "mean": mean, "stddev": var ** 0.5, "min": min(ys), "max": max(ys)}
 
 
 def main() -> int:
@@ -80,11 +107,15 @@ def main() -> int:
     }
 
     if our_path.exists():
-        xs, ys = load_csv_two_col(our_path)
-        summary["ours"] = summarise("ours", xs, ys)
+        xs, ys, header = load_csv_two_col(our_path)
+        summary["ours"] = summarise("ours", xs, ys, header)
     else:
+        # n == 0 means "we never measured", not "we measured zero". Anything
+        # reading this file must not treat the two the same; docs/phases.md
+        # once reported a +/-15 % agreement against exactly this empty entry.
         log.warning("our file missing: %s", our_path)
-        summary["ours"] = {"name": "ours", "n": 0}
+        summary["ours"] = {"name": "ours", "n": 0,
+                           "note": f"{our_path} does not exist; nothing measured"}
 
     # Scan the paper supplementary for relevant CSV / log files
     paper_candidates: list[dict] = []
@@ -92,10 +123,10 @@ def main() -> int:
         for csvf in paper_root.rglob("*.csv"):
             if csvf.stat().st_size > 0 and csvf.stat().st_size < 50_000_000:
                 try:
-                    xs, ys = load_csv_two_col(csvf)
+                    xs, ys, header = load_csv_two_col(csvf)
                     paper_candidates.append({
                         "path": str(csvf.relative_to(paper_root)),
-                        **summarise(csvf.stem, xs, ys),
+                        **summarise(csvf.stem, xs, ys, header),
                     })
                 except Exception as e:
                     paper_candidates.append({
