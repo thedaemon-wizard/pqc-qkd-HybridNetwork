@@ -467,13 +467,25 @@ product name, so these survive every green CI run.
   Only one id carried role context and that one was healthy. CI now captures
   `SND`/`RCV`/`REQ` with the interval and role, so the next failing run
   distinguishes the two. The 20 % threshold is deliberately unchanged.
-- **`arXiv:2511.21253` is cited for a formula it does not contain.** The finite-
-  size penalty implemented in `_skr.py` and
-  `tools/precompute_keyrate_table_fallback.py` is a generic first-order term,
-  `R_N ~ R_inf - sqrt(2/N) * sqrt(log2(2/eps))`. The paper is real, is about
-  closed-form finite-key rates, and does contain such a result — but its Eq. (32)
-  is a key *length* with the deviation terms inside the single-photon bounds,
-  for a receiver with passive biased basis choice, which is not this channel
-  model. Either implement Eq. (32) or downgrade the comment to "generic
-  first-order finite-size penalty; cf. arXiv:2511.21253 for a rigorous
-  treatment". Not done here because it changes a published number.
+- **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
+  (2014), arXiv:1311.7129.** This entry previously recorded that a paper was
+  cited for a formula it does not contain, and proposed either implementing
+  that paper's Eq. (32) or downgrading the comment to "generic first-order
+  penalty". Neither was done: a web fact-check found three further faults
+  beyond the citation, so the formula was replaced outright.
+  (a) `sqrt(2/N)*sqrt(log2(2/eps))` is 2.402x a two-sided Hoeffding deviation,
+  with `log2` where `ln` belongs. (b) It was channel-independent, so it never
+  propagated through the decoy inversion, where near-cancelling differences over
+  small denominators amplify the deviation by one to two orders of magnitude —
+  the dominant finite-size effect in decoy BB84, entirely absent. (c) It was
+  subtracted from a rate rather than producing a key *length*, so it bounded
+  nothing in either direction: optimistic on the statistics, pessimistic on the
+  rate, and therefore not defensible as conservative.
+  Implemented from the paper and cross-checked to 8 significant figures against
+  an independent transcription. The zero-crossing moved from 93.3 km to 98.49 km
+  at N = 1e9, and the curve now saturates against the asymptotic wall rather
+  than gaining ~25 km per decade of N without limit — the old shape would have
+  claimed key past 500 km at N = 1e30.
+  `tools/precompute_keyrate_table_fallback.py` held a SECOND copy of the same
+  wrong formula and wrote it into `config/qkd_keyrate_table.json` as shipped
+  data; it now delegates to `_skr.py`, and the table has been regenerated.

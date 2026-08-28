@@ -26,9 +26,13 @@ class BackendConfig:
     intensity_decoy_1_nu1: float
     intensity_decoy_2_nu2: float
     basis_bias_pz: float
+    prob_signal_mu: float
+    prob_decoy_1_nu1: float
+    prob_decoy_2_nu2: float
     # protocol
     block_size_N: int
     security_epsilon: float
+    correctness_epsilon: float
     ec_efficiency_f: float
     qber_threshold_abort: float
     out_bits_per_key: int
@@ -110,8 +114,12 @@ def cfg_from_yaml() -> BackendConfig:
         intensity_decoy_1_nu1=float(cl.get("source.intensity_decoy_1_nu1")),
         intensity_decoy_2_nu2=float(cl.get("source.intensity_decoy_2_nu2")),
         basis_bias_pz=float(cl.get("source.basis_bias_pz")),
+        prob_signal_mu=float(cl.get("source.prob_signal_mu")),
+        prob_decoy_1_nu1=float(cl.get("source.prob_decoy_1_nu1")),
+        prob_decoy_2_nu2=float(cl.get("source.prob_decoy_2_nu2")),
         block_size_N=int(float(cl.get("protocol.block_size_N"))),
         security_epsilon=float(cl.get("protocol.security_epsilon")),
+        correctness_epsilon=float(cl.get("protocol.correctness_epsilon")),
         ec_efficiency_f=float(cl.get("protocol.ec_efficiency_f")),
         qber_threshold_abort=float(cl.get("protocol.qber_threshold_abort")),
         out_bits_per_key=int(cl.get("protocol.out_bits_per_key")),

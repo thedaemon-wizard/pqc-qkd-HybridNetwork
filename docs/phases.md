@@ -34,7 +34,7 @@ conversions, π/2 etc., and explicitly documented CV-QKD defaults).
 2. config/qkd_params.yaml (hot-reloaded via watchdog) →
 3. config/qkd_keyrate_table.json (pre-computed by
                                   tools/precompute_keyrate_table_fallback.py:
-                                  Lo-Ma-Chen PRL 94, 230504 + arXiv:2511.21253
+                                  Lo-Ma-Chen PRL 94, 230504 + Lim PRA 89, 022307
                                   closed-form. NOT an SDP -- see LIMITATIONS)
 4. scikit-optimize gp_minimize (Bayesian Optimization on closed-form SKR)
 ```

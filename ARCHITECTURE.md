@@ -119,7 +119,7 @@ today.
                 │  optimizer.py                    │
                 │   scikit-optimize gp_minimize    │
                 │   ↔ closed-form Lo-Ma 2005       │
-                │   ↔ arXiv:2511.21253 finite-key  │
+                │   ↔ Lim 2014 finite-key (1311.7129) │
                 └────────┬───────────────────────┬─┘
                          │                       │
                          │ ETSI 014              │ ETSI 014 (cross-validate)
@@ -144,7 +144,7 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 
 Parameter pipeline:
 - `config_loader.py` watches YAML and pushes `BackendConfig` on change
-- `_skr.py` holds the closed-form Lo-Ma 2005 / arXiv:2511.21253 SKR helper
+- `_skr.py` holds the Lo-Ma 2005 asymptotic decoy bound and the Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129 finite-key key length. It was credited to arXiv:2511.21253, which contains no such term; the formula shipped was a mangled Hoeffding deviation that ignored the decoy inversion entirely. SKR helper
 - `optimizer.py` calls `skopt.gp_minimize` on the closed-form objective
   to maximise the secret key rate per pulse over (μ, ν₁, ν₂, p_z)
 

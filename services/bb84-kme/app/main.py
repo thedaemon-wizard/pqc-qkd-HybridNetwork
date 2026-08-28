@@ -346,7 +346,7 @@ async def keyrate_crosscheck():
         "ours_closed_form": {
             "rate_per_pulse": ours,
             "skr_bps": ours * cfg.pulse_rate_hz,
-            "method": "Lo-Ma two-decoy (closed form; arXiv:2511.21253)",
+            "method": "Lo-Ma two-decoy asymptotic bound (PRL 94, 230504 (2005))",
         },
         "tno": tno,
         "relative_delta": rel,
