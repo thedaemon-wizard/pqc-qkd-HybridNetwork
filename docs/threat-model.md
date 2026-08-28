@@ -1,0 +1,108 @@
+# Threat model: what this project is defending against, and why hybrid
+
+This document existed nowhere. `README.md`, `ARCHITECTURE.md` and
+`docs/LIMITATIONS.md` contained no mention of Q-Day, harvest-now-decrypt-later,
+or Mosca's inequality — while `docs/references.md` documented every agency
+objection to QKD in full. The repository built a QKD-plus-PQC hybrid whose
+entire justification is long-lifetime confidentiality and never stated the
+threat it exists for. A reader could not tell whether the design was a response
+to an argument or an assembly of interesting parts.
+
+## 1. The adversary
+
+**Harvest now, decrypt later (HNDL).** The adversary records ciphertext today
+and decrypts it once a cryptographically relevant quantum computer (CRQC)
+exists. Nothing about the recording is detectable, and no future key rotation
+helps: the traffic is already captured.
+
+This is the only threat model under which a QKD lane is worth its cost here. A
+classical adversary is adequately handled by ML-KEM alone.
+
+## 2. Mosca's inequality
+
+Migration must start before the threat arrives, by the shelf life of the data:
+
+```math
+X + Y \;>\; Z \quad\Longrightarrow\quad \text{you are already late}
+```
+
+- $`X`$ — how long the data must stay confidential
+- $`Y`$ — how long migration takes
+- $`Z`$ — time until a CRQC exists
+
+The term this project addresses is $`Y`$: the *mechanism* for delivering
+quantum-derived key material into a running IPsec or WireGuard tunnel, so that
+$`Y`$ is not itself measured in years. It does not shorten $`Z`$ and makes no
+claim about it.
+
+## 3. What the estimates actually say — and what they do not
+
+**No date is defensible, and this document does not give one.** What exists are
+elicited expert probabilities, and they are moving in one direction.
+
+The **Quantum Threat Timeline Report 2025** (Mosca and Piani, Global Risk
+Institute / evolutionQ, published 9 March 2026, 26 surveyed experts) puts the
+averaged probability of a CRQC within **10 years at 28–49 %**, and within
+**15 years at 51–70 %**. That 10-year figure is the highest in the survey's
+seven-year history: the averaged optimistic estimate rose from **34 % in 2024 to
+49 % in 2025**, the sharpest single-year shift the series has recorded, which
+the authors attribute to progress in error correction and logical-qubit storage.
+
+Read those as a distribution over expert belief, not a forecast. The honest
+statement is that the estimates have compressed, not that a year is known.
+
+## 4. Why hybrid, specifically
+
+Two independent hardness assumptions, combined so that breaking either alone is
+insufficient:
+
+| Lane | Mechanism | Fails to |
+|---|---|---|
+| QKD | BB84 decoy-state, ETSI GS QKD 014 delivery | a computational break of any kind — its security is information-theoretic, conditioned on the device model |
+| PQC | Rosenpass (Classic McEliece 460896 + Kyber512) | a break of *both* a code-based and a lattice-based assumption |
+
+`arnika` derives the tunnel key as `HKDF-SHA3-256(QKD ‖ PQC)`, so an attacker
+needs both. See [`vici-ppk.md`](vici-ppk.md) for how that key reaches IKEv2, and
+for the SP 800-227 combiner analysis — including where this construction does
+**not** meet the approved form.
+
+**The mitigation this buys is specific.** Kyber512 is the pre-standardisation
+parameter set and is not approved under FIPS 203 or CNSA 2.0. What limits the
+damage is that Classic McEliece is a *different* hardness assumption — code
+based, not lattice based — so the composite survives a Kyber512 break. That is
+an argument for the hybrid construction, not an excuse for the parameter set.
+
+## 5. Migration mandates in force
+
+Dates matter here because they bound $`Y`$ for anyone deploying this.
+
+**CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** and
+**ML-DSA-87** — and only those. Every new NSS acquisition must support CNSA 2.0
+from **1 January 2027**; software and firmware signing and networking equipment
+target exclusive use by **2030**; operating systems, custom applications and
+cloud services by **2033**, ahead of the **2035** goal in NSM-10.
+
+**This repository's IKEv2 lane negotiates `ke1_mlkem768`.** That is
+NIST-approved and IETF-conformant, and it is **outside CNSA 2.0 scope**, which
+approves only the 1024 parameter set. `IKE_PROPOSALS` in
+`docker-compose.strongswan.yml` is environment-driven, so `ke1_mlkem1024` is a
+one-variable change. Stated as available, not as done.
+
+## 6. What this project does not claim
+
+- It does not shorten $`Z`$, predict Q-Day, or assert a CRQC date.
+- It does not claim CNSA 2.0 conformance. See §5.
+- It does not claim the QKD lane is unconditionally secure in practice. The
+  information-theoretic argument is conditioned on a device model, and the
+  simulated channel here is not a device. `docs/LIMITATIONS.md` is the
+  authority on what is simulated versus measured.
+- It does not claim the key combiner is NIST-approved. It is not; see
+  [`vici-ppk.md`](vici-ppk.md).
+
+## Sources
+
+| Claim | Source |
+|---|---|
+| CRQC probability 28–49 % in 10 years, 51–70 % in 15; 34 % (2024) to 49 % (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
+| Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
+| CNSA 2.0 algorithms and dates | NSA CNSA 2.0 FAQ and transition guidance; see also [thequantuminsider.com, 2026-05-08](https://thequantuminsider.com/2026/05/08/post-quantum-migration-timelines-government-industry-impact/) |

@@ -189,7 +189,10 @@ Tests (host venv):
                 └───────────────────────────────────────────────────────────┘
 ```
 
-PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696 + NIST SP 800-131A Rev.3):
+PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696; **not** SP 800-131A
+Rev. 3, which `docs/references.md` records as an initial public draft that has
+never gone final -- citing it as a conformance target here contradicted this
+repository's own reference table):
 - `Dockerfile.oqs-provider` — broadest algorithm space (ML-KEM, ML-DSA, SLH-DSA,
   Falcon, HQC, Classic McEliece) for research and crypto agility
 - `Dockerfile.openssl35-native` — FIPS-stable native ML-KEM / ML-DSA (OpenSSL 3.5+)

@@ -57,7 +57,12 @@ export function gifFrameDelays(captureTimes: number[], endedAt: number): number[
 function timestamp(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  // UTC, matching services/webui-backend/app/main.py's `time.strftime` in the
+  // container. These were local vs UTC, so two artefacts saved from one click
+  // sequence -- a client-side PNG and a backend-saved copy -- carried
+  // timestamps hours apart and sorted apart in a directory listing.
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`
+    + `-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
 }
 
 function triggerDownload(blob: Blob, filename: string): void {
