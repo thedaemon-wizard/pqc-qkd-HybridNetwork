@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-217 rows, of which **43 are machine-checked and 174 are not**. Worth knowing
+218 rows, of which **43 are machine-checked and 175 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | 1 | 14 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **133** | 8 | **125** |
+| 4 | Browser, every page | **134** | 8 | **126** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 14 | 3 | 11 |
@@ -206,6 +206,7 @@ below was taken from the live demo on 2026-08-21 with real navigations; a
 | 4.4.11 | **Disabled set matches the state** | Read `button.disabled` per state. `idle` -> Pause, Resume, Abort disabled. `running` -> Run, Resume, Step disabled. `paused` -> Pause disabled only. Measured on the demo 2026-08-21; this is what makes 4.3.3 checkable rather than a matter of opinion. |
 | 4.4.12 | **Pause really stops the clock** | Note `Cycles`, wait 4 s, read again: unchanged. A paused run that keeps counting is the failure this catches; a paused run that merely stops repainting is not. |
 | 4.4.13 | **Failure injection exists on `/e2e` too** | Three buttons (`qkd`, `pqc`, `data`) plus `clear`. Previously only `/paper-flow` had this, though both pages are specified to. |
+| 4.4.13b | **`/paper-flow` injection: five layers, and `clear` tracks whether one is active** | Verified on the deployed build 2026-08-28. The buttons are `qkd`, `arnika`, `wireguard`, `rosenpass`, `data` plus `clear` -- **five layers, not the three `/e2e` has**, because `paperSim`'s `Layer` type models the paper's own stack. Do not carry `/e2e`'s names over: a first pass filtered the DOM for `qkd\|pqc\|data\|clear`, found one match, and nearly recorded "only qkd is wired" -- the measurement was wrong, not the page. Three-state check, which is the part worth automating: with nothing injected, no button carries the `●` marker and **`clear` is disabled**; after injecting `rosenpass`, exactly `● rosenpass` is marked and `clear` becomes **enabled**; after `clear`, neither. That ties the control's own enabled-state to the simulator's, so a stuck injection cannot hide behind a button that always looks pressable. State machine separately confirmed idle -> running -> paused with the disabled sets of 4.4.11 (idle: Pause/Resume/clear; running: Run/Resume/Step/clear; paused: Pause/clear). |
 | 4.4.14 | **Injection outcome depends on the mode** | Not a cascade -- a single tunnel has nothing to cascade through. Mode C survives `qkd` or `pqc` (degrades to the surviving leg, `total_packets` keeps rising, banner says `Degraded:`). Mode A dies on `qkd`, mode B dies on `pqc` (`status: paused`, `total_packets` 0). Mode A ignores `pqc` and mode B ignores `qkd` -- a layer a mode never used must not stop it, or the control is a global kill switch. |
 | 4.4.15 | **`data` is fatal in every mode** | AEAD has no second leg. All three modes reach `status: paused` with an error naming AEAD. |
 | 4.4.16 | **The banner reads the simulator's verdict, not its own** | `state.failure_is_fatal` is published by `E2ESim`; the page must not recompute it. Check the two cells a mode-based guess gets wrong: mode A + `pqc` and mode B + `qkd` must read "never used this layer; run continues" while the run keeps encrypting. Caught on the deployed demo -- every simulator test passed while the banner said "fatal in mode A" over a healthy run. |
