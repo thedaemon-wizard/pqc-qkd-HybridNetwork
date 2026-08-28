@@ -43,7 +43,7 @@ from app.backends._skr import (  # noqa: E402
 
 Y0 = 1.0e-7
 ETA = total_transmittance(0.2, 0.2, 10.0)
-BASE = dict(Y0=Y0, eta_total=ETA, e_d=0.015, f_EC=1.16)
+BASE = {"Y0": Y0, "eta_total": ETA, "e_d": 0.015, "f_EC": 1.16}
 
 
 def rate(mu: float, nu1: float, nu2: float) -> float:
