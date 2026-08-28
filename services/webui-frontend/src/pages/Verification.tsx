@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+
+import { describeVerdict } from "./crosscheckVerdict";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Panel from "../components/Panel";
@@ -89,7 +91,11 @@ export default function Verification() {
               lines.push(`distance_km\t${keyrate.distance_km}`);
               lines.push(`ours_bps\t${keyrate.ours_closed_form?.skr_bps}`);
               lines.push(`tno_bps\t${keyrate.tno?.skr_bps}`);
-              lines.push(`same_order_of_magnitude\t${keyrate.same_order_of_magnitude}`);
+              // `verdict`, not `same_order_of_magnitude`. The old line wrote
+              // `false` into the citable export for five different outcomes,
+              // one of which was the two implementations agreeing completely.
+              lines.push(`verdict\t${keyrate.verdict}`);
+              lines.push(`relative_delta\t${keyrate.relative_delta ?? "n/a (no ratio defined)"}`);
             }
             if (budgets) {
               // `/api/verify/paper-budgets` returns computed_total_* and
@@ -210,16 +216,20 @@ export default function Verification() {
                 <Row k="Relative Δ"
                      v={keyrate.relative_delta != null
                         ? `${(keyrate.relative_delta * 100).toFixed(1)} %` : "—"} />
-                <Row k="Same order of magnitude"
-                     v={keyrate.same_order_of_magnitude ? "YES ✓ (independent agreement)" : "review"}
-                     ok={keyrate.same_order_of_magnitude} />
+                <Row k="Cross-check"
+                     v={describeVerdict(keyrate.verdict).label}
+                     ok={describeVerdict(keyrate.verdict).ok} />
               </tbody>
             </table>
             <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
-              Two independent implementations (our closed-form Lo-Ma bound vs
-              TNO-Quantum's optimiser) agree to order of magnitude — the rates
-              differ because TNO optimises the intensity μ while ours uses the
-              configured μ. Source: {keyrate.tno?.source ?? "—"}.
+              {/* The wording is derived from the verdict, not asserted. This
+                  paragraph used to state that the two implementations "agree to
+                  order of magnitude" unconditionally, so it kept claiming
+                  agreement in the same render where the row beside it said
+                  "review". */}
+              Our closed-form Lo-Ma bound against TNO-Quantum's optimiser:{" "}
+              {describeVerdict(keyrate.verdict).detail} Source:{" "}
+              {keyrate.tno?.source ?? "—"}.
             </p>
           </>
         )}
