@@ -343,7 +343,31 @@ def skr_finite(*, Y0, eta_total, e_d, mu, nu1, nu2, f_EC, N, eps,
     but they are real physics: tau_1 depends on them, and so does the delta/p_k
     amplification that dominates the finite-size cost. Pass them from config.
     """
-    if N <= 0 or not 0.0 < eps < 1.0:
+    # qx must be a probability. It was unvalidated, and because it enters as
+    # qx^2 scaling the detection counts, a value above 1 inflates the key
+    # without bound. Measured at the shipped 50 km config, where the detection
+    # probability Q_mu is 9.95e-3:
+    #
+    #     basis_bias_pz   rate/pulse    bits/s @ 1 GHz
+    #             0.5     4.7016e-04     470 k
+    #             2.0     1.0178e-02     10.2 M   -- already exceeds Q_mu
+    #            50.0     7.1922e+00     7.19 G   -- 723x the detections
+    #
+    # accepts_round() returned True for all of them, so the backend would have
+    # minted keys against a rate claiming more secret bits than there were
+    # detected photons. `source.basis_bias_pz` is in EDITABLE_PARAMS
+    # (main.py:207) and the /physics input carries no min or max, so someone
+    # typing "50" for "50 %" reaches this in one keystroke.
+    if N <= 0 or not 0.0 < eps < 1.0 or not 0.0 < qx < 1.0:
+        return 0.0
+    if not 0.0 < eps_cor < 1.0:
+        return 0.0
+    ps_sum = p_mu + p_nu1 + p_nu2
+    if not all(x > 0.0 for x in (p_mu, p_nu1, p_nu2)) or abs(ps_sum - 1.0) > 1e-9:
+        # tau_n is a probability distribution over photon number and the
+        # Hoeffding deviation is divided by p_k; neither means anything if the
+        # intensity probabilities do not sum to 1, and a zero p_k divides by
+        # zero outright.
         return 0.0
     mus, ps = (mu, nu1, nu2), (p_mu, p_nu1, p_nu2)
     if not (mu > nu1 + nu2 and nu1 > nu2 >= 0.0):
@@ -397,6 +421,23 @@ def skr_bps_from_config(cfg) -> float:
         # the intensity probabilities and the Hoeffding deviation is divided by
         # them, so defaults that silently disagree with the YAML would give a
         # rate for a protocol nobody is running.
+        # `qx` is Lim's q_x: the probability of choosing the KEY basis, from
+        # which the sifted key is extracted (his Sec. II -- "the secret key is
+        # extracted from the events whereby Alice and Bob both choose the X
+        # basis"). The config key is named `basis_bias_pz`, and the project has
+        # never stated which basis carries its key; docs/keyrate.md maps the
+        # same field to `q`, the SIFTING FACTOR, which is a third quantity
+        # again (q = qx^2 here, not qx).
+        #
+        # All three readings coincide at the shipped 0.5, which is why nothing
+        # noticed -- and why the "qx = 0.5 forces s_X1 == s_Z1" test cannot
+        # catch a mix-up. They diverge fast: at 0.9 the key-basis and
+        # complement readings differ by 106x.
+        #
+        # Passed as the key-basis probability, which is the reading that makes
+        # `basis_bias_pz: 0.5  # symmetric BB84` mean what it says. The name
+        # should be settled separately -- renaming a config key is a breaking
+        # change for existing deployments and is not smuggled in here.
         qx=cfg.basis_bias_pz,
         p_mu=cfg.prob_signal_mu, p_nu1=cfg.prob_decoy_1_nu1,
         p_nu2=cfg.prob_decoy_2_nu2,
@@ -423,7 +464,7 @@ def accepts_round(qber: float, skr_bps: float, cfg) -> bool:
 
     **`skr_bps` here is the FINITE-KEY rate, not the asymptotic one.** Callers
     pass `skr_bps_from_config`, which calls `skr_finite`, so this predicate
-    crosses zero 160 km before the asymptotic GLLP curve that `/physics` and
+    crosses zero 155 km before the asymptotic GLLP curve that `/physics` and
     `/verify` display. An earlier revision of this docstring quoted the
     asymptotic band, and the test that was supposed to pin it called
     `asymptotic_skr_per_pulse` directly -- so it passed while describing a band
@@ -431,20 +472,21 @@ def accepts_round(qber: float, skr_bps: float, cfg) -> bool:
     e_d = 0.015, f_EC = 1.16, N = 1e9, eps = 1e-10)::
 
          L(km)     QBER    R_asym     R_finite   old pred   this pred
-            90  0.01503  3.04e-04   4.28e-05    accept     accept
-            93  0.01504  2.65e-04   3.44e-06    accept     accept
-          93.3  0.01504  2.61e-04   0.000000    accept     REJECT   <-- here
+            90  0.01503  3.04e-04   1.81e-05    accept     accept
+            93  0.01504  2.65e-04   1.04e-05    accept     accept
+            98  0.01504  2.11e-04   7.56e-07    accept     accept
+         98.49  0.01505  2.06e-04   0.000000    accept     REJECT   <-- here
            150  0.01548  1.90e-05   0.000000    accept     REJECT
            253  0.06495  3.29e-09   0.000000    accept     REJECT
            254  0.06705  0.000000   0.000000    accept     REJECT
            270  0.11237  0.000000   0.000000    abort      REJECT
 
     The band where the old QBER-only test accepted a zero-rate round is
-    **93.3 km to 270 km at QBER 1.504 % to 11.0 %**, not the 254-270 km the
+    **98.49 km to 270 km at QBER 1.505 % to 11.0 %**, not the 254-270 km the
     earlier text claimed. The conclusion is unchanged and in fact stronger --
     the QBER test alone admits a far wider dead band than first measured.
 
-    Note the two curves disagree by 160 km, which is itself worth knowing: the
+    Note the two curves disagree by 155 km, which is itself worth knowing: the
     rate the product SHOWS is not the rate it ACCEPTS on. See the finite-key
     caveat on `skr_finite`. `simqn` -- the default backend -- returned a
     256-bit key there, `/verify` displayed `skr_bps: 0`, and both were reported
