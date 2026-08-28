@@ -36,7 +36,13 @@ export default function Topology() {
     <div>
       <h2 style={{ marginTop: 0 }}>Network Topology</h2>
       <p style={{ color: "#9aa9d8" }}>
-        Alice and Bob (WireGuard hops), one BB84 + ETSI-014 KME per side, and Charlie as the trusted relay when multi-hop is enabled.
+        Alice and Bob (WireGuard hops) and one BB84 + ETSI-014 KME per side. Four nodes,
+        always -- {/* `/api/topology` returns a static list with no multihop branch and no
+            signal that would indicate one; its docstring says so, and README was corrected on
+            the same grounds. This caption was the last place still promising Charlie. Do not
+            redirect the reader to /paper-flow for him: that page draws no Charlie either. */}
+        <code>/api/topology</code> has no multi-hop branch, so Charlie is not drawn here or
+        anywhere else in the UI. Adding him needs a way to know the profile is active.
       </p>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>
         {topo.edges.map((e, i) => {
