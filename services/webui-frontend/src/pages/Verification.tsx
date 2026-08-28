@@ -142,7 +142,11 @@ export default function Verification() {
       </div>
 
       {/* 1. Crypto-agility matrix */}
-      <Panel title="1 · Crypto-Agility Matrix (liboqs — ML-KEM + ML-DSA)">
+      {/* SLH-DSA belongs in the title: pqc-validator ships six signature
+          algorithms (main.py DEFAULT_SIG_ALGOS), three of them SLH-DSA,
+          so the matrix is nine rows and the panel rendered three families
+          under a heading naming two. */}
+      <Panel title="1 · Crypto-Agility Matrix (liboqs — ML-KEM, ML-DSA, SLH-DSA)">
         {!agility ? <Loading /> : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
@@ -180,7 +184,10 @@ export default function Verification() {
             </table>
             <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
               Crypto-agility = swapping the algorithm is one list edit; all NIST
-              levels (512/768/1024 · 44/65/87) run through the same interface.
+              levels run through the same interface — ML-KEM 512/768/1024,
+              ML-DSA 44/65/87 and SLH-DSA-SHA2 128s/192s/256s. The last three
+              are hash-based rather than lattice-based, which is the point: the
+              interface does not care what the hardness assumption is.
             </p>
           </>
         )}
