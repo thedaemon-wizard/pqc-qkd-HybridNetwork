@@ -99,7 +99,7 @@ today.
                                │  REST + WebSocket
                 ┌──────────────▼──────────────────────────────────────────┐
                 │  webui-backend (FastAPI)                               │
-                │   /api/sim/params, /api/sim/backend, /api/sim/optimize  │
+                │   /api/sim/params, /api/sim/backend                     │
                 │   /api/pqc/algorithms, /api/pqc/roundtrip               │
                 └──┬─────────────────────────────────────────────┬────────┘
                    │                                             │
@@ -165,7 +165,7 @@ Tests (host venv):
                 ┌──────────────▼──────────────────────────────────────────┐
                 │  webui-backend (FastAPI orchestrator)                   │
                 │   /api/vpn/protocols      — both lanes' live status     │
-                │   /api/sim/optimize       — Bayesian Opt trigger        │
+                │   (mu/nu optimisation runs client-side on /physics)     │
                 │   /api/pqc/{algorithms,roundtrip}                       │
                 └──┬───────────────────────────────────────────────┬──────┘
                    │                                               │
