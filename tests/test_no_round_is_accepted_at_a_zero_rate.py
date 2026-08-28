@@ -97,7 +97,7 @@ def _shipped_bps(km: float) -> float:
     THIS is the path production takes. An earlier version of this file called
     `asymptotic_skr_per_pulse` directly, which is a DIFFERENT curve --
     skr_bps_from_config uses skr_finite -- so the file passed while asserting a
-    band 160 km from the one the shipped predicate produces. Testing a function
+    band 155 km from the one the shipped predicate produces. Testing a function
     production does not call is the defect class this whole suite exists to
     remove, and it was reintroduced here.
     """
@@ -183,10 +183,10 @@ def test_qber_alone_would_have_accepted_the_band():
 
 
 def test_the_shipped_curve_is_not_the_displayed_curve():
-    """160 km apart, and conflating them is how this file first went wrong.
+    """155 km apart, and conflating them is how this file first went wrong.
 
     `/physics` and `/verify` show the asymptotic GLLP rate; `accepts_round` is
-    fed the finite-key one. Between 93.3 and 253.5 km the UI shows a positive
+    fed the finite-key one. Between 98.49 and 253.5 km the UI shows a positive
     rate for a link the backend will not mint a key on.
     """
     qber, asym = _at(150.0)

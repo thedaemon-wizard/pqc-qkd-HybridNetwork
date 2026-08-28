@@ -32,7 +32,11 @@ matches the backend. Both run in CI.
 | $\mu$ | Signal intensity (mean photon number) | `source.intensity_signal_mu` |
 | $\nu_1,\nu_2$ | Decoy intensities | `source.intensity_decoy_1_nu1`, `..._2_nu2` |
 | $f_{\mathrm{EC}}$ | Error-correction efficiency | `protocol.ec_efficiency_f` |
-| $q$ | Sifting factor, $=\tfrac12$ for symmetric BB84 | `source.basis_bias_pz` |
+| $q$ | Sifting factor in the ASYMPTOTIC rate, $=\tfrac12$ for symmetric BB84 | hard-coded `0.5` |
+| $q_x$ | Probability of choosing the KEY basis, in the finite-key analysis. **Not the same quantity as $q$** -- the sifted fraction is $q_x^2$. Both readings coincide at the shipped `0.5`, which is why one field served both; they differ by 106x at 0.9. | `source.basis_bias_pz` |
+| $p_{\mu}, p_{\nu_1}, p_{\nu_2}$ | Intensity-choice probabilities. Load-bearing: $\tau_n = \sum_k p_k e^{-k} k^n / n!$ and the Hoeffding deviation is divided by $p_k$. Must sum to 1. | `source.prob_signal_mu`, `source.prob_decoy_1_nu1`, `source.prob_decoy_2_nu2` |
+| $\varepsilon_{\text{sec}}$ | Secrecy parameter. Composed from seven terms; all equal gives $\varepsilon_{\text{sec}} = 21\varepsilon$. | `protocol.security_epsilon` |
+| $\varepsilon_{\text{cor}}$ | Correctness parameter -- the error-verification hash collision probability. A distinct quantity, previously absent entirely. | `protocol.correctness_epsilon` |
 
 ---
 
@@ -141,23 +145,58 @@ estimator.
 
 ## 5. Finite-key correction
 
-Real runs are finite, so the asymptotic rate is optimistic. A first-order
-correction is applied:
+Real runs are finite. The implementation is Lim, Curty, Walenta, Xu, Zbinden,
+*Phys. Rev. A* **89**, 022307 (2014), [arXiv:1311.7129](https://arxiv.org/abs/1311.7129),
+main text Eqs. (1)-(5) and supplementary Eqs. (1)-(14). It produces a key
+**length in bits**, not a rate:
 
 ```math
-R_{\text{finite}} \;=\; \max\left(0,\; R - \sqrt{\frac{2}{N}}\sqrt{\log_2\frac{2}{\varepsilon}}\right)
+\ell \;=\; \left\lfloor s_{X,0} + s_{X,1}\left[1 - h(\phi_X)\right] - \text{leak}_{\text{EC}}
+        - 6\log_2\frac{21}{\varepsilon_{\text{sec}}} - \log_2\frac{2}{\varepsilon_{\text{cor}}} \right\rfloor
 ```
 
-with block size $N$ (`protocol.block_size_N`) and security parameter
-$\varepsilon$ (`protocol.security_epsilon`).
+and the rate is $`R = \ell / N`$ with $`N`$ the **pulses Alice sent** -- all
+bases, all intensities, detected or not (`protocol.block_size_N`). Note $`N`$
+appears in *no bound*: the statistics are driven by the detection counts
+$`n_X, n_Z, m_Z`$, which are channel-dependent.
 
-> **Limitation, stated plainly.** This is a first-order penalty term, not a
-> composable finite-key security proof. A rigorous treatment needs the bounds of
-> Lim *et al.*, *Phys. Rev. A* **89**, 022307 (2014), which track
-> $\varepsilon_{\text{sec}}$, $\varepsilon_{\text{cor}}$, $\varepsilon_{\text{PA}}$
-> and $\varepsilon_{\text{EC}}$ separately and use Chernoff/Hoeffding bounds on
-> each estimated quantity. Numbers from this project's finite-key path should be
-> read as indicative, not as certified key lengths.
+The single-photon and vacuum counts $`s_{X,0}, s_{X,1}`$ come from the decoy
+inversion with Hoeffding deviations *inside* it
+($`\delta(n,\varepsilon) = \sqrt{(n/2)\ln(1/\varepsilon)}`$, natural log), and
+$`\phi_X`$ adds a random-sampling-without-replacement term (Fung-Ma-Chau).
+Every $`\varepsilon`$ is $`\varepsilon_{\text{sec}}/21`$, which is where the 21
+and the coefficient 6 above come from.
+
+### What this replaced, and why
+
+This section previously typeset
+
+```math
+R_{\text{finite}} = \max\left(0,\; R - \sqrt{2/N}\,\sqrt{\log_2(2/\varepsilon)}\right)
+```
+
+credited to a paper that contains no such expression. Beyond the citation it
+was wrong three further ways: it is $`2.402\times`$ a two-sided Hoeffding
+deviation with $`\log_2`$ where $`\ln`$ belongs; being channel-independent it
+never entered the decoy inversion, where near-cancelling differences over small
+denominators amplify the deviation by one to two orders of magnitude -- the
+dominant finite-size effect in decoy BB84; and subtracting a constant from a
+rate bounds nothing, since a rate is not an empirical mean of $`N`$ bounded
+i.i.d. variables.
+
+> **Limitation, stated plainly.** The counts fed to these estimators are
+> **expected** values from the channel model, not observed ones. Lim's theorem
+> is conditioned on the data of a single run: *given* the observed
+> $`(n_{X,k}, m_{Z,k})`$, a key of length $`\ell`$ is
+> $`\varepsilon_{\text{sec}}`$-secret. Substituting expectations yields
+> $`\ell(\mathbb{E}[\text{data}])`$, which is neither $`\mathbb{E}[\ell]`$ nor
+> a bound for any particular run -- a real run lands below it about half the
+> time. This is the standard simulation convention (Lim's own Fig. 1 does it),
+> but read the output as an **expected key length under a modelled channel**,
+> never as an achieved one. The $`\varepsilon_{\text{sec}}`$ guarantee does not
+> attach to a simulated number. Hoeffding also assumes independent trials,
+> while `dead_time_s` and `after_pulse_prob` in the shipped config correlate
+> consecutive ones and this channel model ignores both.
 
 ---
 
