@@ -221,6 +221,20 @@ export class E2ESim {
    */
   step() {
     if (this.s.status === "running") return;
+    // NOT `this.s.status = "paused"` here, though stepping from `idle` does
+    // leave the badge reading "idle" while the machine advances.
+    //
+    // `paused` is already overloaded in this state machine: it is the FATALITY
+    // verdict. e2eFailure.test.ts:156 asserts `status === "paused"` equals
+    // whether the injected failure was fatal for the mode, and seven of its
+    // tests distinguish survived-vs-halted by exactly that comparison. Setting
+    // it on a manual step would make "the operator stepped" and "the run died"
+    // the same state.
+    //
+    // The badge really is wrong during a manual step, but fixing it needs a
+    // distinct status value and a pass over every consumer of the union type.
+    // Left as its own change rather than smuggled in behind a one-line edit
+    // that quietly redefines a value seven tests depend on.
     if (this.s.current_phase === 0) this.enter(1);
     this.runPhaseWork();
     this.advance(true);
@@ -249,6 +263,17 @@ export class E2ESim {
     this.qkdKey = new Uint8Array(0);
     this.pqcSecret = new Uint8Array(0);
     this.derived = new Uint8Array(0);
+    // The RENDERED identifiers too. Zeroing the buffers while leaving these
+    // set wiped what nobody could see and left on screen exactly what a reader
+    // would call key material: QuantumSecureE2E.tsx:281 renders
+    // `last_qkd_key_id`, and the export at :95 prints `last_psk_prefix_hex`
+    // with the fallback text "(none - no key material survived)" -- which
+    // never appeared, because something always survived.
+    //
+    // Reset looked correct only because it replaces the whole state object
+    // (`this.s = this.fresh(mode)`), so it never exercised this method's gap.
+    this.s.last_qkd_key_id = "";
+    this.s.last_psk_prefix_hex = "";
   }
 
   private ensureLoop() {
