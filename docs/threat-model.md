@@ -147,7 +147,7 @@ conventional VPN frameworks explicitly.
 | Component | QCI-CAT use case | Here |
 |---|---|---|
 | Hardware Security Modules | yes | **none** |
-| PKCS#11 interface | yes | **none** — `grep -rl 'pkcs11\|PKCS#11'` across the tree returns nothing |
+| PKCS#11 interface | yes | **none** — no first-party source references it. The vendored strongSwan ships a pkcs11 plugin and this project does not build it (`configure.ac` makes it opt-in; `nodes/strongswan/Dockerfile` never enables it). An earlier version of this row offered a `grep` as proof and said it "returns nothing"; the grep matches 40 paths, two of them outside `submodules/` — this document and the test that guards the claim. There is no checkout state in which it returns nothing, because the row contained the string it said could not be found. |
 | HA partition synchronisation / cloning | yes, the actual payload | **none** |
 | Real QKD hardware | yes | **no** — simulated, see `docs/LIMITATIONS.md` |
 
