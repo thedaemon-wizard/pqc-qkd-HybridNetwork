@@ -105,7 +105,15 @@ export default function PaperDataExchange() {
           <>
             Multi-hop trusted-node Data Exchange faithful to the
             arnika multi-hop diagram and the paper's Table 1 packet budgets
-            (9 packets / 5248 bytes per handshake). Differs from
+            ({/* Derived, not typed. This read "(9 packets / 5248 bytes per
+                handshake)" as a literal while the two KPI cards thirty lines
+                below rendered the same figure from
+                `paper_budgets.total_handshake_*`. Editing a phase row would
+                have moved the cards and left the sentence asserting the old
+                total -- and the sentence is the one a reader quotes. */}
+            {state?.paper_budgets.total_handshake_packets ?? 9} packets /{" "}
+            {state?.paper_budgets.total_handshake_bytes ?? 5248} bytes per
+            handshake). Differs from
             <code> /e2e </code> (single-tunnel concept) by showing a daisy
             chain, the 5-phase swimlane and the 240-720 s failure cascade.
           </>
