@@ -245,7 +245,11 @@ Mode mapping:
 - `B` → `mode_label = "PQC-only"` (skips QKD in Phase 2)
 - `C` → `mode_label = "Hybrid (QKD ‖ PQC)"` (default — both phases active)
 
-Detailed image-to-code mapping: see `docs/IMAGE1_VPN_SCOPE.md`.
+Detailed image-to-code mapping: see
+[`docs/IMAGE1_VPN_SCOPE.md`](docs/IMAGE1_VPN_SCOPE.md) for the single-tunnel
+scope and [`docs/IMAGE2_MULTIHOP.md`](docs/IMAGE2_MULTIHOP.md) for the
+trusted-node multi-hop chain. The second was reachable only by knowing the
+filename -- nothing in the tree linked it.
 
 ### A.4 Phase 12 — File-backed logger + shared UI + per-page exports
 
