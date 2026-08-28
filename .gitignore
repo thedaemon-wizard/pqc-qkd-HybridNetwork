@@ -146,3 +146,12 @@ deploy/caddy.d/*.caddy
 # protection at all and `git add -A` would have staged such files. Verified by
 # simulating a clean clone.
 /private/
+
+# Rust build output for the BB84 WASM kernel.
+#
+# 13 of these were committed in #105: the compiled .wasm, cargo fingerprints,
+# CACHEDIR.TAG and .cargo-lock. The SOURCE (wasm/bb84/src) and the generated
+# base64 module (src/lib/sim/generated/) are the artefacts that belong in git;
+# cargo's intermediate tree is not, and it made `git pull` fail on a clean
+# checkout because the same paths existed untracked.
+services/webui-frontend/wasm/*/target/
