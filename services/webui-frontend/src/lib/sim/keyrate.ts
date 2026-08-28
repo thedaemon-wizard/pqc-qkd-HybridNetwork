@@ -47,15 +47,34 @@ export function asymptoticSkrPerPulse(p: {
   // denominator. It previously read `mu * nu1 - nu1 * nu1`, that expression
   // with nu2 = 0 substituted, while the numerator kept its (nu1^2 - nu2^2)
   // term -- the two halves assumed different nu2. Validity is nu1 + nu2 < mu.
+  // Ma et al. Eq. (13) is the validity condition for the Eq. (18) bound:
+  //     0 <= nu2 < nu1   and   nu1 + nu2 < mu
+  // `denom <= 0` is NOT equivalent: denom factorises as
+  // (nu1 - nu2) * (mu - nu1 - nu2), so it is positive when BOTH margins are
+  // negative. mu=0.5, nu1=0.1, nu2=0.45 gave denom=+0.0175 and a 21 % high
+  // rate, reachable from the nu2 field on /physics.
+  if (!(nu2 >= 0 && nu2 < nu1 && nu1 + nu2 < mu)) return 0;
   const denom = mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2;
-  if (denom <= 0) return 0;
+  if (denom <= 0) return 0;   // unreachable given Eq. (13); divisor guard only
   let Y1_L = (mu / denom) * (
     Q_nu1 * Math.exp(nu1) - Q_nu2 * Math.exp(nu2)
     - ((nu1 * nu1 - nu2 * nu2) / (mu * mu)) * (Q_mu * Math.exp(mu) - Y0)
   );
   Y1_L = Math.max(Y1_L, 0.0);
   if (Y1_L <= 0 || nu1 <= 0) return 0.0;
-  let e1_U = (E_nu1 * Q_nu1 * Math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1);
+  // Ma et al. Eq. (22), the general two-decoy bound. This used Eq. (33) -- the
+  // Vacuum+Weak form with nu2 = 0 -- while Y1_L above already used the general
+  // nu2 form, so the two halves of one rate assumed different nu2. Optimistic
+  // by +0.15 % at the optimiser's own grid point nu2 = 0.01. The forms
+  // coincide exactly at nu2 = 0, so the shipped default is unchanged.
+  let e1_U: number;
+  if (nu2 > 0) {
+    const E_nu2 = qberEmu(Y0, etaTotal, eD, nu2);
+    e1_U = (E_nu1 * Q_nu1 * Math.exp(nu1) - E_nu2 * Q_nu2 * Math.exp(nu2))
+           / ((nu1 - nu2) * Y1_L);
+  } else {
+    e1_U = (E_nu1 * Q_nu1 * Math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1);
+  }
   e1_U = Math.max(0.0, Math.min(0.5, e1_U));
   const Q1 = mu * Math.exp(-mu) * Y1_L;
   const rate = 0.5 * (-Q_mu * fEC * H2(E_mu) + Q1 * (1.0 - H2(e1_U)));
