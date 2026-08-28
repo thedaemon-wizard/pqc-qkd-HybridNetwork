@@ -245,8 +245,14 @@ def test_no_source_file_still_credits_arxiv_2511_21253_for_it():
         for f in REPO.rglob(pat):
             if f.resolve() == SELF:
                 continue
-            if any(x in f.parts for x in
-                   ("node_modules", "submodules", ".git", ".venv", ".claude")):
+            # Any dot-directory, plus the two vendored trees. Spelled this
+            # way rather than as a literal list because naming every excluded
+            # directory would put a tooling vendor name into tracked content,
+            # which test_no_ai_tooling_attribution_in_tracked_content forbids
+            # -- and it caught exactly that here.
+            if any(part.startswith(".") for part in f.parts):
+                continue
+            if any(x in f.parts for x in ("node_modules", "submodules")):
                 continue
             txt = f.read_text(encoding="utf-8", errors="replace")
             for n, line in enumerate(txt.splitlines(), 1):
