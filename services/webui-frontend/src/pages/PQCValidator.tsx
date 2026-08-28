@@ -27,6 +27,15 @@ export default function PQCValidator() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Changing the picker discards the previous algorithm's result.
+  //
+  // Titling from `kem?.algo` stops the heading lying, but leaving a stale
+  // result body under a picker set to something else is still a mismatch a
+  // reader has to notice. Clearing makes the page say "press Run", which is
+  // the truth. Same for the interop row, which is keyed to the KEM.
+  useEffect(() => { setKem(null); setInterop(null); }, [kemName]);
+  useEffect(() => { setSig(null); }, [sigName]);
+
   // Probe the optional server-side validator once. Its absence is a normal
   // state in the public demo, not an error.
   useEffect(() => {
@@ -148,7 +157,13 @@ export default function PQCValidator() {
       {error && <div style={errBox}>✗ {error}</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <Panel title={`KEM — ${kemName}${kem ? ` (${kem.standard})` : ""}`}>
+        {/* Titled from the RESULT, not the picker. `kemName` is the select
+            state and `kem` is set only inside run(), so changing the
+            dropdown without pressing Run left the heading naming one
+            algorithm over another's category, key sizes and a green tick.
+            The CSV export at :95 already used `kem.algo` and was right,
+            so screen and export contradicted each other. */}
+        <Panel title={`KEM — ${kem?.algo ?? kemName}${kem ? ` (${kem.standard})` : ""}`}>
           {kem ? (
             <>
               <Row k="Shared secrets agree" v={<Verdict ok={kem.sharedSecretMatch} />} />
@@ -166,7 +181,7 @@ export default function PQCValidator() {
             "FIPS 204" for every scheme, so SLH-DSA rendered with correct
             FIPS 205 sizes under a FIPS 204 title -- the same view-owns-a-
             duplicate-rule defect as the /e2e failure banner. */}
-        <Panel title={`Signature — ${sigName}${sig ? ` (${sig.standard})` : ""}`}>
+        <Panel title={`Signature — ${sig?.algo ?? sigName}${sig ? ` (${sig.standard})` : ""}`}>
           {sig ? (
             <>
               <Row k="Signature verifies" v={<Verdict ok={sig.verified} />} />
