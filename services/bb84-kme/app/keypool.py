@@ -82,6 +82,29 @@ class PoolStats:
     # Stated in the payload rather than left to the field name alone, so a
     # consumer reading JSON does not have to know this convention.
     skr_provenance: str = "closed-form from config; not measured per round"
+    # WHEN it was computed from, not just what from.
+    #
+    # `modelled_skr_bps` is refreshed only when a round completes, and the
+    # producer only runs a round when the key buffer has drained below the low
+    # watermark. On an idle pool it can therefore reflect a configuration the
+    # operator has already replaced. Measured on the public demo 2026-08-28:
+    # setting link_length_km to 100 left it reading 3.9866e+06 (the 10 km
+    # value) for 40 seconds, until a round happened to run and it dropped to
+    # 0.0 -- correct, because 100 km is past the finite-key zero crossing.
+    #
+    # `skr_provenance` already said the figure is modelled rather than
+    # measured, which is honest, but not WHICH configuration it was modelled
+    # from. A consumer compares these two: equal means current.
+    skr_config_generation: int = -1
+    config_generation: int = -1
+    # The comparison, made for the consumer.
+    #
+    # Two integers require the reader to know the convention; a boolean does
+    # not, and /benchmarks polls this every second. False means the plotted
+    # rate predates the current parameters and a round has not run since --
+    # true staleness, not an error. -1 == -1 would read as "current" before the
+    # first round ever runs, so an unset generation is explicitly not current.
+    skr_reflects_current_config: bool = False
     # Whether the LAST round's physics was measured or generated.
     #
     # The simqn backend has computed `backend_meta["synthetic"]` for a long
@@ -182,6 +205,7 @@ class KeyPool:
             self._stats.last_qber = r.qber
             self._stats.last_round_ms = r.elapsed_ms
             self._stats.modelled_skr_bps = r.skr_bps
+            self._stats.skr_config_generation = cl.generation()
             meta = r.backend_meta or {}
             syn = meta.get("synthetic")
             self._stats.last_round_synthetic = syn if isinstance(syn, bool) else None
@@ -293,6 +317,12 @@ class KeyPool:
             last_round_ms=self._stats.last_round_ms,
             modelled_skr_bps=self._stats.modelled_skr_bps,
             skr_provenance=self._stats.skr_provenance,
+            skr_config_generation=self._stats.skr_config_generation,
+            config_generation=cl.generation(),
+            skr_reflects_current_config=(
+                self._stats.skr_config_generation >= 0
+                and self._stats.skr_config_generation == cl.generation()
+            ),
             last_round_synthetic=self._stats.last_round_synthetic,
             last_round_unmeasured=list(self._stats.last_round_unmeasured),
             intercepted_total=self._stats.intercepted_total,
