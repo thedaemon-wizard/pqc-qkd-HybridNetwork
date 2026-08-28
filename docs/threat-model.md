@@ -47,8 +47,18 @@ averaged probability of a CRQC within **10 years at 28–49 %**, and within
 seven-year history: the averaged optimistic estimate rose from **34 % in 2024 to
 49 % in 2025**, the sharpest single-year shift the series has recorded, which
 the authors attribute to progress in error correction and logical-qubit storage.
+The pessimistic floor moved with it, from 14 % to 28 %.
 
-Read those as a distribution over expert belief, not a forecast. The honest
+**The panel is not the same panel.** It has shrunk each year — **37 experts in
+2023, 32 in 2024, 26 in 2025** — so a 15-point year-on-year jump is measured
+across a respondent set roughly a fifth smaller than the one it is compared
+against, with no guarantee the departures were random. That does not explain the
+shift away, and the movement is in the same direction on both the optimistic and
+pessimistic ends, which is harder to attribute to composition alone. But a
+year-on-year delta from a changing panel is weaker evidence than the same delta
+from a fixed one, and this document should not borrow strength it does not have.
+
+Read these as a distribution over expert belief, not a forecast. The honest
 statement is that the estimates have compressed, not that a year is known.
 
 ## 4. Why hybrid, specifically
@@ -103,7 +113,7 @@ one-variable change. Stated as available, not as done.
 
 | Claim | Source |
 |---|---|
-| CRQC probability 28–49 % in 10 years, 51–70 % in 15; 34 % (2024) to 49 % (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
+| CRQC probability 28–49 % in 10 years, 51–70 % in 15; optimistic 34 % (2024) to 49 % (2025), pessimistic 14 % to 28 %; panel 37 (2023) / 32 (2024) / 26 (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. Re-verified against the publishers 2026-08-28. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
 | Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
 | CNSA 2.0 algorithms and dates | NSA CNSA 2.0 FAQ and transition guidance; see also [thequantuminsider.com, 2026-05-08](https://thequantuminsider.com/2026/05/08/post-quantum-migration-timelines-government-industry-impact/) |
 
