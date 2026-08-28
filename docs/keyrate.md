@@ -249,7 +249,72 @@ Being explicit, since the WebUI presents these numbers as physics:
 
 ---
 
-## 8. References
+## 8. Could an existing OSS package do this instead?
+
+Asked because "we wrote our own" is a claim that needs defending, and because
+this project's own history says it should be: the finite-key term shipped here
+until 2026-08-28 was wrong four ways, and the asymptotic bound had two
+estimator defects. Code that does not exist cannot be wrong; code someone else
+maintains is wrong less often.
+
+Surveyed 2026-08-28. Licence and last-push verified through the GitHub API, not
+from memory.
+
+### Already in use
+
+`tno-qkd-key-rate` (TNO, **Apache-2.0**, v2.0.4) is the independent cross-check
+on `/verify`. It is a genuinely separate implementation, which is what makes
+the comparison worth anything -- see section 5 and the `verdict` field.
+
+### Not in use, and worth knowing about
+
+| Package | What it computes | Licence | Last push |
+|---|---|---|---|
+| [ConicQKD.jl](https://github.com/araujoms/ConicQKD.jl) | Finite-size rates from Renyi entropies via non-symmetric conic optimisation | MIT | 2026-08-24 |
+| [Renyi-security-framework](https://github.com/Optical-Quantum-Communication-Theory/Renyi-security-framework) | Decoy BB84, 1- and 2-decoy, against **coherent** attacks | MIT | 2026-08-09 |
+| [1-decoy BB84 key-rate simulation](https://github.com/JeromeWiesemann/Quantum-key-distribution-secure-key-rate-simulation-1-decoy-BB84) | Reference implementation for Wiesemann et al., arXiv:2405.16578 | MIT | 2026-01-20 |
+| [LDPC4QKD](https://github.com/XQP-Munich/LDPC4QKD) | Rate-adaptive LDPC reconciliation -- would **measure** $`f_{EC}`$ instead of assuming it | GPL-3.0 | 2026-08-22 |
+
+Several more sit in the same Waterloo group as `openQKDsecurity` (numerical
+security proofs, entropy-accumulation finite-size analysis), all MIT, all
+MATLAB.
+
+### Why none of them replaced the code here
+
+**Language.** Four of the five are MATLAB or Julia. This is a Python service
+with a TypeScript port that runs the same model in the browser, and
+`tests/test_keyrate_ports_agree.py` holds the two within 1e-9. Adding a third
+runtime to a container that currently needs none would cost more than the
+~200 lines it would remove.
+
+**The one that is Python** is a *1-decoy* reference implementation. This
+project ships three intensities, so the 2-decoy form is the structural match --
+which is why Lim et al. was implemented from the paper rather than adapted from
+that code, and then cross-checked against an independent transcription to eight
+significant figures.
+
+**Not a licence problem.** All four are commercially usable; LDPC4QKD's GPL-3.0
+is copyleft but this repository already documents how it handles GPL components
+(see `THIRD_PARTY_NOTICES.md`), so that is a distribution question, not a bar.
+
+### The one that would change a real claim
+
+`LDPC4QKD` is the interesting entry. `f_EC = 1.16` is currently an **assumed
+constant** -- `docs/roadmap.md` lists "no real error correction" as a known gap,
+and the leakage is never measured. A rate-adaptive LDPC reconciliation would
+turn $`f_{EC}`$ from an assumption into a measurement, which is the kind of
+change that makes a claim stronger rather than merely different. It is
+recorded here rather than scheduled: it is a substantial piece of work, and
+GPL-3.0 in the key path is a decision for the maintainer.
+
+Excluded after checking: **NetSquid** (non-commercial licence), **QuNetSim**
+(MIT but no decoy maths and no release since 2024-04), and two topical
+repositories in the same area that carry **no LICENSE file at all**, which
+means all rights reserved rather than permissive.
+
+---
+
+## 9. References
 
 Full citations in [`references.md`](references.md).
 
