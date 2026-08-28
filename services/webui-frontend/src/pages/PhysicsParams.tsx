@@ -37,6 +37,50 @@ const LABELS: Record<string, string> = {
   "eve.intercept_prob": "Eve intercept probability",
 };
 
+/**
+ * Physical bounds per parameter. `[min, max]`; `null` means unbounded that side.
+ *
+ * Every numeric parameter on this page routed through one `<input type="number"
+ * step="any">` with no `min` or `max`, so the page accepted values the physics
+ * has no meaning for and then RENDERED THE RESULT: a negative link length gives
+ * eta_total > 1 and a secret-key rate above one bit per pulse, displayed with
+ * the same styling as a real figure.
+ *
+ * The server-side model gained its own guard (`_skr.py` rejects a basis bias
+ * outside (0,1) and intensity probabilities that do not sum to 1), but a model
+ * refusing to compute is the last line, not the first. The input should decline
+ * the value before anything downstream has to decide what it means.
+ *
+ * These are bounds on MEANING, not on taste: a probability cannot exceed 1, an
+ * error-correction efficiency cannot beat the Shannon limit (f >= 1), a
+ * misalignment error above 1/2 is a relabelling of the bases.
+ */
+const BOUNDS: Record<string, [number | null, number | null]> = {
+  "physical.link_length_km": [0, null],
+  "physical.fiber_attenuation_db_per_km": [0, null],
+  "physical.detector_efficiency": [0, 1],
+  "physical.dark_count_rate_hz": [0, null],
+  "physical.misalignment_error_ed": [0, 0.5],
+  "source.pulse_rate_hz": [1, null],
+  "source.intensity_signal_mu": [0, null],
+  "source.intensity_decoy_1_nu1": [0, null],
+  "source.intensity_decoy_2_nu2": [0, null],
+  "source.basis_bias_pz": [0, 1],
+  "protocol.ec_efficiency_f": [1, null],
+  "protocol.qber_threshold_abort": [0, 0.5],
+  "simulator.bb84_batch_size": [1, null],
+  "eve.intercept_prob": [0, 1],
+};
+
+/** Parameters this page's own client-side panel actually reads. */
+const CLIENT_SIDE_INPUTS = new Set([
+  "physical.detector_efficiency", "physical.fiber_attenuation_db_per_km",
+  "physical.link_length_km", "physical.dark_count_rate_hz",
+  "physical.misalignment_error_ed", "source.pulse_rate_hz",
+  "source.intensity_signal_mu", "source.intensity_decoy_1_nu1",
+  "source.intensity_decoy_2_nu2", "protocol.ec_efficiency_f",
+]);
+
 const GROUPS: { title: string; prefix: string }[] = [
   { title: "Channel (fiber + detector)", prefix: "physical." },
   { title: "Source (WCP intensities)", prefix: "source." },
@@ -330,7 +374,14 @@ export default function PhysicsParams() {
           <KpiCell label="SKR (bps)" value={skrBps.toExponential(3)} />
         </div>
         <p style={{ fontSize: 11, color: "#6b7796", marginBottom: 0 }}>
-          Computed in the browser from the current parameters — no backend call.
+          Computed in the browser — no backend call. From the{" "}
+          <b>{CLIENT_SIDE_INPUTS.size} parameters this panel reads</b>, not all
+          fourteen above: basis bias, QBER abort threshold, batch size and the
+          two Eve fields do not enter these formulas and editing them will not
+          move these numbers. They are not inert — the abort threshold gates the
+          backend&apos;s accept decision and the Eve settings drive the
+          simulator — but they act elsewhere, and a caption saying &quot;the
+          current parameters&quot; implied all of them.
           Edit a value above to see it update live.
         </p>
       </Panel>
@@ -389,11 +440,21 @@ function FieldRow({ field, draft, onChange }:
       ) : (
         <input type="number" value={String(cur)}
                step="any"
+               min={BOUNDS[field.path]?.[0] ?? undefined}
+               max={BOUNDS[field.path]?.[1] ?? undefined}
                aria-label={label}
                onChange={(e) => {
                  const n = field.type === "int"
                    ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
-                 if (!Number.isNaN(n)) onChange(n);
+                 if (Number.isNaN(n)) return;
+                 // `min`/`max` alone only style the field and block the
+                 // spinner; a typed or pasted value still reaches onChange.
+                 // Refuse it here so nothing downstream has to decide what a
+                 // negative link length means.
+                 const [lo, hi] = BOUNDS[field.path] ?? [null, null];
+                 if (lo !== null && n < lo) return;
+                 if (hi !== null && n > hi) return;
+                 onChange(n);
                }}
                style={{
                  width: 120, textAlign: "right", fontFamily: "monospace",
