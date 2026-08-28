@@ -42,8 +42,26 @@ RUN git clone --depth 1 -b ${NS3_REF} https://gitlab.com/nsnam/ns-3-dev.git ns-3
 COPY submodules/qkdnetsim /src/ns-3-dev/contrib/qkdnetsim
 
 WORKDIR /src/ns-3-dev
-# Configure with examples + the qkdnetsim module
-RUN ./ns3 configure --enable-examples --enable-modules='core;network;internet;applications;point-to-point;mobility;qkdnetsim' 2>&1 | tail -n 5 || true
+# Configure with examples + the qkdnetsim module.
+#
+# The three routing modules are not optional. qkdnetsim's model headers include
+# `ns3/aodv-packet.h`, `ns3/dsdv-packet.h` and `ns3/olsr-header.h`, so a module
+# list without them fails with
+#
+#     fatal error: ns3/dsdv-packet.h: No such file or directory
+#
+# and this image did exactly that until 2026-08-28 -- meaning the whole
+# `crossvalidate` profile was unbuildable, which nothing in the repository said.
+# `dsdv` is the one the compiler reaches first; adding it alone just moves the
+# error to the next header, so all three go in together.
+#
+# Note WHERE it surfaced: `configure` succeeded and the error appeared four
+# files into `ns3 build`, because omitting a dependency is not a configure
+# error. So the trailing `|| true` below buys nothing here and would swallow a
+# genuine configure failure; it survives only because the build step runs under
+# `pipefail` and fails the image when NS-3 does not compile. That guard is what
+# turned this from a silently NS-3-less image into a red build.
+RUN ./ns3 configure --enable-examples --enable-modules='core;network;internet;applications;point-to-point;mobility;aodv;dsdv;olsr;qkdnetsim' 2>&1 | tail -n 5 || true
 
 # Build — the qkdnetsim ETSI 014 example produces a binary we can invoke.
 #
