@@ -83,6 +83,11 @@ class _FullCfg:
     ec_efficiency_f = F_EC
     block_size_N = int(_PROTO["block_size_N"])
     security_epsilon = float(_PROTO["security_epsilon"])
+    correctness_epsilon = float(_PROTO["correctness_epsilon"])
+    basis_bias_pz = float(_SRC["basis_bias_pz"])
+    prob_signal_mu = float(_SRC["prob_signal_mu"])
+    prob_decoy_1_nu1 = float(_SRC["prob_decoy_1_nu1"])
+    prob_decoy_2_nu2 = float(_SRC["prob_decoy_2_nu2"])
     qber_threshold_abort = ABORT
 
 
@@ -153,9 +158,8 @@ def test_shor_preskill_is_11_percent_and_is_a_different_number():
 
 
 @pytest.mark.parametrize("km,expect_key", [
-    (10.0, True), (90.0, True), (93.0, True),
-    (93.3, False),       # the dead band OPENS here, not at 254 km
-    (100.0, False),
+    (10.0, True), (50.0, True), (90.0, True), (98.0, True),
+    (99.0, False),       # the dead band OPENS here
     (150.0, False),
     (254.0, False),
     (270.0, False),      # past the abort threshold too
@@ -170,7 +174,7 @@ def test_the_predicate_rejects_the_whole_dead_band(km, expect_key):
 
 def test_qber_alone_would_have_accepted_the_band():
     """Show the old predicate failing, so this file is not vacuous."""
-    for km in (100.0, 150.0, 200.0, 254.0):
+    for km in (99.0, 150.0, 200.0, 254.0):
         qber = _at(km)[0]
         bps = _shipped_bps(km)
         assert qber < ABORT, f"premise: the old QBER-only test passes at {km} km"
@@ -204,9 +208,13 @@ def test_the_two_crossings_are_where_the_docs_say():
         return hi
     shipped = crossing(_shipped_bps)
     displayed = crossing(lambda km: _at(km)[1])
-    assert shipped == pytest.approx(93.3, abs=0.5), f"shipped {shipped:.2f} km"
+    # 98.49 km: Lim et al. 2014 finite-key at N = 1e9 pulses. The old sqrt(2/N)
+    # penalty put this at 93.3 km, which was within 5 km by coincidence of that
+    # one decade -- it had no saturation and would have claimed key past 500 km
+    # at N = 1e30. See tests/test_finite_key_is_lim_2014.py.
+    assert shipped == pytest.approx(98.49, abs=0.5), f"shipped {shipped:.2f} km"
     assert displayed == pytest.approx(253.51, abs=0.5), f"displayed {displayed:.2f} km"
-    assert displayed - shipped == pytest.approx(160.2, abs=1.0)
+    assert displayed - shipped == pytest.approx(155.0, abs=1.5)
 
 
 def test_the_abort_ceiling_still_applies_on_its_own():

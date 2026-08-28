@@ -133,7 +133,7 @@ pqc-qkd-hybrid/
 │   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
 ├── config/                            # (Phase 8) Central tunables
 │   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
-│   └── qkd_keyrate_table.json         # Pre-computed SKR table (arXiv:2511.21253)
+│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
 ├── services/
 │   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno

@@ -58,7 +58,7 @@ Each retains its original copyright notice and license terms.
   conclusion happens to be right and the premise is wrong, which is worse than
   either alone: that table's own `provenance` field names
   `tools/precompute_keyrate_table_fallback.py`, its `formulas` field names only
-  Lo-Ma-Chen and arXiv:2511.21253, and `tools/precompute_keyrate_table.m` has
+  Lo-Ma-Chen and Lim et al. PRA 89, 022307 (2014), and `tools/precompute_keyrate_table.m` has
   never existed in this repository. No MATLAB ran, so there was no
   derivative-work question to answer. The submodule is vendored for the
   roadmap; if it is ever used to generate a shipped artefact, restore the
