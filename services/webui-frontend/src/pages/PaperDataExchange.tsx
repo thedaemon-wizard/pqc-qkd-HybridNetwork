@@ -142,9 +142,24 @@ export default function PaperDataExchange() {
              value={state?.paper_budgets.total_handshake_bytes ?? "—"} />
         <KPI label="Mean setup @ 10 hops (s)"
              value={state?.paper_budgets.mean_10_hop_setup_s ?? "—"} />
-        <KPI label="Sim cycles done"
-             value={state?.cycles_total ?? 0} />
-        <KPI label="Sim bytes (paper budget × cycles)"
+        {/* `cycles_total` counts cycles STARTED -- paperSim.ts:240 increments it
+            in beginCycle(), before any phase has run. `cycles_succeeded`
+            counts the ones that finished without an injected failure. The
+            label used to say "done", which is the second meaning while the
+            value is the first. */}
+        <KPI label="Sim cycles started (accepted)"
+             value={`${state?.cycles_total ?? 0} (${state?.cycles_succeeded ?? 0})`} />
+        {/* Was "Sim bytes (paper budget × cycles)". That label states an
+            arithmetic relation the code does not maintain: bytes accrue per
+            PHASE as each completes (paperSim.ts:297), so mid-cycle the total
+            is not a multiple of 5248. Read live on the demo: the cards showed
+            3 cycles and 10624 bytes, and 3 x 5248 = 15744. The 10624 is
+            correct -- 2 completed cycles at 5248 plus their two ~64 B
+            ChaCha20-Poly1305 records -- but a reader checking the stated
+            multiplication finds it fails and cannot tell which number is
+            wrong. Nothing could have caught it: both values were right, only
+            the relation between them was invented. */}
+        <KPI label="Sim bytes accrued (per completed phase)"
              value={state?.bytes_total ?? 0} />
       </div>
       <div style={{ fontSize: 11, color: colors.textSec, lineHeight: 1.5,
