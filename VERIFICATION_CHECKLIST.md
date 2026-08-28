@@ -57,7 +57,7 @@ Everything CI can check, in one command:
 | 1.3 | Frontend typechecks | `npm run typecheck` in `services/webui-frontend` | CI `frontend` |
 | 1.4 | Frontend builds | `npx vite build` | CI `frontend` |
 | 1.5 | VICI adapter builds against pinned arnika | `sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika` | CI `go` |
-| 1.6 | VICI adapter tests pass | `go test ./repositories/...` | CI `go` |
+| 1.6 | VICI adapter tests pass | `GOEXPERIMENT=runtimesecret ARNIKA_VICI_VET_AND_TEST=1 sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici` | CI `go`. **Not** bare `go test ./repositories/...` from `submodules/arnika`, which this row used to name: that runs in the wrong tree, without `-tags strongswan_vici`, and without the `wireguardnetlink.go` build-tag narrowing -- `build.sh:47` copies the adapter's `repositories/*.go` into a temporary assembled tree, and `build.sh:44` records that copying one file instead of the glob once left the adapter's own tests behind while still reporting ok. `runtime/secret` (imported by `kms.go:14`, `pqc.go:7` and `main.go:11`) is gated behind the GOEXPERIMENT, so the bare form does not build either. Go 1.26 per `submodules/arnika/go.mod`. |
 | 1.7 | No secrets in history | `gitleaks detect` | CI `secrets` |
 | 1.8 | Both node images build | `docker build -f nodes/{strongswan,alice}/Dockerfile .` | CI `images` |
 | 1.9 | Key-rate model matches published values | `pytest tests/test_keyrate_golden_vector.py` | CI `keyrate` |
@@ -133,7 +133,7 @@ measured values.
 | 3.1 | Smoke test passes | `make smoke` | KME health → ETSI 014 → ping → PSK rotation logged |
 | 3.2 | arnika roles do not collide | `docker logs alice \| grep -i primary` | alice and bob take opposite roles (distinct `ARNIKA_ID`) |
 | 3.3 | Rosenpass produces a real OSK | `docker logs alice \| grep rosenpass` | genuine exchange, no stub |
-| 3.4 | PSK actually rotates | `docker exec alice wg show wg0` twice | preshared key changes |
+| 3.4 | PSK actually rotates | `docker exec alice wg show wg0 dump \| tail -n +2 \| cut -f2 \| sha256sum`, twice, more than `ARNIKA_INTERVAL` apart | The two digests differ. **`dump`, not the pretty form**: `wg show wg0` prints `preshared key: (hidden)` and never the value -- row 4.8.6 in this same file requires exactly that -- so watching it for a change can only ever show the literal string `(hidden)` twice. In `dump` output the PSK is field 2 of each *peer* line (line 1 is the interface: private-key, public-key, listen-port, fwmark). Hashing keeps the key material off the terminal and out of shell history while still proving it moved. Cross-check with `docker logs alice \| grep -c 'PSK configured on WireGuard interface'`, which must rise by one per interval. |
 | 3.5 | **Multi-hop: count PSK installs, not ping replies** | `docker compose -f docker-compose.yml -f docker-compose.multihop.yml --profile multihop up -d alice bob charlie bb84-kme-a bb84-kme-b`, wait ~90 s, then per node `docker logs <n> \| grep -c 'PSK configured on WireGuard interface'` and `\| grep -c 'not found on interface'`. Expect alice **2 peers, 2 of 2 with a preshared key, 0 errors**, and `docker logs alice \| grep -c 'starting arnika'` -> **2** (one instance per neighbour; arnika manages a single `WIREGUARD_PEER_PUBLIC_KEY`). **Ping is not the check.** WireGuard works fine with no preshared key, so 0 %% loss in all three directions proves connectivity and says nothing about protection -- that is how a silent loss of the QKD PSK was nearly signed off. Confirm with `docker exec alice wg show wg0 \| grep -c 'preshared key'` -> **2**. And rebuild before measuring: `docker compose up -d` reuses the existing image, which once produced a whole round of "the second instance never started". |
 
 ---
@@ -226,7 +226,7 @@ question about it could not be answered from this checklist.
 | 4.4b.1 | Controls present | Run, Pause, Resume, Reset, **Step**, five inject-failure buttons, clear |
 | 4.4b.2 | **Step** | `idle → 1 → 2`; disabled while running, enabled when paused |
 | 4.4b.3 | **Inject failure differs per layer** | Cascade stage count is **7 / 6 / 5 / 4 / 2** for qkd / arnika / wireguard / rosenpass / data. A lower layer must cascade through more layers above it (arXiv:2604.05599). Equal counts mean `injectFailure` stopped slicing `CASCADE_STAGES` from the injected layer |
-| 4.4b.4 | Banner names the layer and the cascade | e.g. `⚠ qkd failure — 7-stage cascade`. Identical text across layers is the symptom that prompted this row |
+| 4.4b.4 | Banner names the layer and the cascade | Reads `U+26A0 qkd failure -- 7-stage cascade` (`MultiHopTopologySvg.tsx:285`; U+26A0 is WARNING SIGN, written as a codepoint because the no-emoji rule applies to documents and not to the UI). Substitute the layer that is actually down and its stage count. Identical text across layers is the symptom that prompted this row |
 | 4.4b.5 | Injecting while stopped says so | banner appends `(armed; press Run)`; a red bar with no motion and no explanation is not acceptable feedback |
 | 4.4b.6 | `clear` | removes the banner and empties the cascade timeline |
 | 4.4b.7 | Hop slider | `aria-label="Trusted node hop count"`, range 1-8, topology redraws |

@@ -46,7 +46,31 @@ ROOT = Path(__file__).resolve().parents[1]
 BINARY = re.compile(r"\.(pdf|png|jpg|jpeg|gif|webm|mp4|ico|woff2?|zip|whl|so)$", re.I)
 
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
-EMOJI = re.compile(r"[\U0001F300-\U0001FAFF✀-➿⬀-⯿]")
+# Every endpoint as an escape, not a literal. The previous form spelled three
+# of its six endpoints as pasted characters (U+2700, U+27BF, U+2B00, U+2BFF),
+# which is unreviewable in a diff -- the reader has to trust that the glyph on
+# screen is the codepoint intended, in a file whose entire job is to police
+# glyphs. The gap this had left:
+#
+#   U+2600-U+26FF  Miscellaneous Symbols. WARNING SIGN, HIGH VOLTAGE, NO ENTRY.
+#                  The class started at U+2700, one past the end of the block.
+#   U+FE0F         VARIATION SELECTOR-16, the character that turns a text
+#                  symbol into a colour emoji. Invisible, and it survived.
+#   U+1F1E6-1F1FF  Regional indicators (flags). Below U+1F300, so also missed.
+#   U+20E3         COMBINING ENCLOSING KEYCAP, as in the 1..9 keycap emoji.
+#
+# Measured when the range was widened: exactly one tracked .md file was hiding
+# in the gap -- VERIFICATION_CHECKLIST.md row 4.4b.4, quoting a UI banner.
+EMOJI = re.compile(
+    "["
+    "\U00002600-\U000027BF"      # Misc Symbols + Dingbats (was U+2700 up)
+    "\U00002B00-\U00002BFF"      # Misc Symbols and Arrows
+    "\U0001F1E6-\U0001F1FF"      # Regional indicators
+    "\U0001F300-\U0001FAFF"      # Pictographs, emoticons, transport, symbols
+    "\U0000FE0F"                  # Variation Selector-16
+    "\U000020E3"                  # Combining Enclosing Keycap
+    "]"
+)
 # `claude` is on this list because it is the name that actually gets written:
 # the default attribution is "Generated with Claude Code", which contains no
 # vendor word at all, so a list of vendors alone cannot fail on it. The CI
@@ -112,6 +136,49 @@ def test_the_only_japanese_is_the_row_that_documents_the_japanese_check():
         f"{exempt_row} was renumbered, update JAPANESE_EXEMPTION; if this is new "
         "prose, translate it."
     )
+
+
+@pytest.mark.parametrize("ch,name", [
+    ("\u26A0", "WARNING SIGN"),
+    ("\u26A1", "HIGH VOLTAGE"),
+    ("\u26D4", "NO ENTRY"),
+    ("\u2600", "BLACK SUN WITH RAYS -- first codepoint of the missed block"),
+    ("\u26FF", "WHITE FLAG -- last codepoint of the missed block"),
+    ("\uFE0F", "VARIATION SELECTOR-16 -- invisible, and it made the difference"),
+    ("\U0001F1EF", "REGIONAL INDICATOR J -- flags live below U+1F300"),
+    ("\u20E3", "COMBINING ENCLOSING KEYCAP"),
+    ("\u2705", "WHITE HEAVY CHECK MARK -- was already caught, must stay caught"),
+    ("\U0001F512", "LOCK -- was already caught, must stay caught"),
+])
+def test_the_guard_catches_what_it_used_to_miss(ch, name):
+    """Pins the gap shut.
+
+    The class ran `[\\U0001F300-\\U0001FAFF✀-➿⬀-⯿]`, starting at U+2700 -- one
+    past the end of Miscellaneous Symbols. Everything in U+2600-U+26FF passed
+    through, as did the variation selector that turns a text symbol into a
+    colour emoji. A guard that cannot fail on WARNING SIGN is not checking the
+    thing its name claims.
+    """
+    assert EMOJI.search(ch), f"U+{ord(ch):04X} {name} is invisible to the guard"
+
+
+@pytest.mark.parametrize("ch,name", [
+    ("\u2014", "EM DASH"),
+    ("\u2192", "RIGHTWARDS ARROW -- used in prose throughout docs/"),
+    ("\u00B5", "MICRO SIGN -- mu, in every key-rate formula"),
+    ("\u03BC", "GREEK SMALL LETTER MU"),
+    ("\u2264", "LESS-THAN OR EQUAL TO"),
+    ("\u00B1", "PLUS-MINUS SIGN"),
+    ("\u2011", "NON-BREAKING HYPHEN"),
+    ("\u201C", "LEFT DOUBLE QUOTATION MARK"),
+])
+def test_the_guard_does_not_catch_ordinary_typography(ch, name):
+    """The widening must not start failing on mathematics and punctuation.
+
+    These are all in use in tracked documents right now, so a range that
+    swallowed them would make the guard unsatisfiable rather than strict.
+    """
+    assert not EMOJI.search(ch), f"U+{ord(ch):04X} {name} is not an emoji"
 
 
 @pytest.mark.parametrize("doc", sorted(f for f in _tracked() if f.endswith(".md")))
