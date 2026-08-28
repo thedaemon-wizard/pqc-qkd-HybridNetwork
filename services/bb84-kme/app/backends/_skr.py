@@ -137,20 +137,34 @@ def accepts_round(qber: float, skr_bps: float, cfg) -> bool:
 
         R = q * { -Q_mu * f_EC * h2(E_mu) + Q_1 * [1 - h2(e_1)] }
 
-    reaches zero much earlier. With the shipped parameters (mu = 0.5,
-    e_d = 0.015, f_EC = 1.16) the crossing is at::
+    reaches zero much earlier.
 
-        L = 253.51 km,  QBER = 6.602 %
+    **`skr_bps` here is the FINITE-KEY rate, not the asymptotic one.** Callers
+    pass `skr_bps_from_config`, which calls `skr_finite`, so this predicate
+    crosses zero 160 km before the asymptotic GLLP curve that `/physics` and
+    `/verify` display. An earlier revision of this docstring quoted the
+    asymptotic band, and the test that was supposed to pin it called
+    `asymptotic_skr_per_pulse` directly -- so it passed while describing a band
+    production never reaches. Measured on the shipped config (mu = 0.5,
+    e_d = 0.015, f_EC = 1.16, N = 1e9, eps = 1e-10)::
 
-    So between roughly 254 km and 270 km the QBER sits under 0.11 while the
-    modelled secret-key rate is exactly 0. Measured on the shipped config::
+         L(km)     QBER    R_asym     R_finite   old pred   this pred
+            90  0.01503  3.04e-04   4.28e-05    accept     accept
+            93  0.01504  2.65e-04   3.44e-06    accept     accept
+          93.3  0.01504  2.61e-04   0.000000    accept     REJECT   <-- here
+           150  0.01548  1.90e-05   0.000000    accept     REJECT
+           253  0.06495  3.29e-09   0.000000    accept     REJECT
+           254  0.06705  0.000000   0.000000    accept     REJECT
+           270  0.11237  0.000000   0.000000    abort      REJECT
 
-           L(km)    QBER    rate/pulse   old predicate   new predicate
-             253  0.06495  3.29e-09      accept          accept
-             254  0.06705  0.000000      accept          REJECT
-             270  0.11237  0.000000      abort           REJECT
+    The band where the old QBER-only test accepted a zero-rate round is
+    **93.3 km to 270 km at QBER 1.504 % to 11.0 %**, not the 254-270 km the
+    earlier text claimed. The conclusion is unchanged and in fact stronger --
+    the QBER test alone admits a far wider dead band than first measured.
 
-    The middle row is the defect. `simqn` -- the default backend -- returned a
+    Note the two curves disagree by 160 km, which is itself worth knowing: the
+    rate the product SHOWS is not the rate it ACCEPTS on. See the finite-key
+    caveat on `skr_finite`. `simqn` -- the default backend -- returned a
     256-bit key there, `/verify` displayed `skr_bps: 0`, and both were reported
     as a healthy round. A key extracted at a rate the project's own model puts
     at zero carries no proven secrecy: privacy amplification has no entropy to
