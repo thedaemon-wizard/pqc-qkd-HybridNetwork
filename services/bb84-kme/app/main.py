@@ -279,6 +279,37 @@ async def sim_params_reset():
     return {"ok": True, "params": config_loader.params()}
 
 
+# The five states /sim/keyrate/crosscheck can be in. Named, because one bool
+# could not tell them apart -- see the note at the return statement below.
+#
+# AGREE is deliberately NOT extended to cover the both-zero case. "Same order of
+# magnitude" is undefined for 0/0, so reporting agreement under a ratio test
+# would be a different false claim than the one being removed. The two
+# implementations DO agree there, and NEITHER_PREDICTS_A_KEY says exactly that
+# without pretending a ratio was computed.
+CROSSCHECK_AGREE = "agree"                                # ratio within [0.1, 10]
+CROSSCHECK_DISAGREE = "disagree"                          # ratio outside it
+CROSSCHECK_NEITHER_KEY = "neither_predicts_a_key"         # both exactly 0
+CROSSCHECK_ONE_SIDE_ZERO = "one_side_zero"                # ratio undefined
+CROSSCHECK_ENGINE_UNAVAILABLE = "engine_unavailable"      # TNO never produced a rate
+
+
+def _crosscheck_verdict(ours: float, tno_rate: float | None) -> str:
+    """Classify the cross-check without collapsing distinct outcomes.
+
+    Order matters: the zero cases are decided BEFORE the ratio, because
+    `tno_rate / ours` raises on ours == 0 and is meaningless when either side
+    is 0.
+    """
+    if tno_rate is None:
+        return CROSSCHECK_ENGINE_UNAVAILABLE
+    if ours == 0.0 and tno_rate == 0.0:
+        return CROSSCHECK_NEITHER_KEY
+    if ours == 0.0 or tno_rate == 0.0:
+        return CROSSCHECK_ONE_SIDE_ZERO
+    return CROSSCHECK_AGREE if 0.1 <= (tno_rate / ours) <= 10.0 else CROSSCHECK_DISAGREE
+
+
 @app.get("/sim/keyrate/crosscheck")
 async def keyrate_crosscheck():
     """Independent-implementation verification: compare OUR closed-form Lo-Ma
@@ -304,9 +335,11 @@ async def keyrate_crosscheck():
         tno_err = str(e)
 
     tno_rate = tno["rate_per_pulse"] if tno else None
-    rel = (abs(tno_rate - ours) / ours) if (tno_rate and ours > 0) else None
-    same_order = (tno_rate is not None and ours > 0
-                  and 0.1 <= (tno_rate / ours) <= 10.0)
+    # `is not None`, not truthiness. `if tno_rate and ...` treats a genuine TNO
+    # output of 0.0 as an absent one, so a measured zero serialised
+    # `relative_delta: null` -- byte-identical to the engine never running.
+    rel = (abs(tno_rate - ours) / ours) if (tno_rate is not None and ours > 0) else None
+    verdict = _crosscheck_verdict(ours, tno_rate)
     return {
         "distance_km": cfg.link_length_km,
         "attenuation_db": cfg.fiber_attenuation_db_per_km * cfg.link_length_km,
@@ -317,7 +350,29 @@ async def keyrate_crosscheck():
         },
         "tno": tno,
         "relative_delta": rel,
-        "same_order_of_magnitude": same_order,
+        # `verdict`, not `same_order_of_magnitude`.
+        #
+        # That bool answered five different questions with one `false`, and
+        # three of them also produced `relative_delta: null`, so the payload
+        # could not tell them apart either. Measured through the real endpoint:
+        #
+        #   engine never ran      ours=1.23e-02  tno=None      -> false
+        #   ran, disagreed 1000x  ours=1.23e-02  tno=12.334    -> false
+        #   ran, returned 0.0     ours=1.23e-02  tno=0.0       -> false
+        #   both predict no key   ours=0.0       tno=0.0       -> false
+        #   ours 0, tno tiny      ours=0.0       tno=1e-09     -> false
+        #
+        # The fourth is the inversion that matters: two independent
+        # implementations agreeing as completely as they can -- neither predicts
+        # an extractable key -- rendered on /verify as "review". Reachable with
+        # the shipped config at any link beyond 253.51 km, and
+        # physical.link_length_km is an unbounded editable field.
+        #
+        # Renamed rather than kept alongside a new field: a `false` meaning five
+        # things is not made honest by adding a sixth value elsewhere, and
+        # nothing would have stopped the frontend reading the old one. The field
+        # has exactly three readers, all in Verification.tsx.
+        "verdict": verdict,
         "error": tno_err,
     }
 

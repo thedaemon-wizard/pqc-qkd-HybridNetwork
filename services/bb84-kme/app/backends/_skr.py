@@ -121,3 +121,48 @@ def skr_bps_from_config(cfg) -> float:
         N=cfg.block_size_N, eps=cfg.security_epsilon,
     )
     return r_per_pulse * cfg.pulse_rate_hz
+
+
+def accepts_round(qber: float, skr_bps: float, cfg) -> bool:
+    """Should a round that produced bits be handed out as a secret key?
+
+    Two conditions, not one. `qber < cfg.qber_threshold_abort` alone is not
+    sufficient, and the gap between the two is a real band of distances.
+
+    **`qber_threshold_abort` is 0.11, and 0.11 is the wrong number to stop at.**
+    It is the Shor-Preskill bound -- the root of `1 - 2*h2(e) = 0`, computed
+    independently here as **11.003 %** -- which holds for *ideal single photons
+    with perfect error correction*. What this repository actually models is a
+    decoy-state weak-coherent-pulse source with `f_EC = 1.16`, whose GLLP rate
+
+        R = q * { -Q_mu * f_EC * h2(E_mu) + Q_1 * [1 - h2(e_1)] }
+
+    reaches zero much earlier. With the shipped parameters (mu = 0.5,
+    e_d = 0.015, f_EC = 1.16) the crossing is at::
+
+        L = 253.51 km,  QBER = 6.602 %
+
+    So between roughly 254 km and 270 km the QBER sits under 0.11 while the
+    modelled secret-key rate is exactly 0. Measured on the shipped config::
+
+           L(km)    QBER    rate/pulse   old predicate   new predicate
+             253  0.06495  3.29e-09      accept          accept
+             254  0.06705  0.000000      accept          REJECT
+             270  0.11237  0.000000      abort           REJECT
+
+    The middle row is the defect. `simqn` -- the default backend -- returned a
+    256-bit key there, `/verify` displayed `skr_bps: 0`, and both were reported
+    as a healthy round. A key extracted at a rate the project's own model puts
+    at zero carries no proven secrecy: privacy amplification has no entropy to
+    draw on, so the output is a hash of bits Eve may hold entirely.
+
+    `tno_backend.py` already had this right (`res["rate_per_pulse"] > 0.0 and
+    qber < threshold`). This lifts that predicate to where the other two
+    backends can share it rather than each re-deciding.
+
+    Note `skr_bps` is a *modelled* rate from the configured physics, not a
+    measurement of this round. That is the same quantity the UI displays, which
+    is the point: the accept decision and the displayed rate can no longer
+    disagree.
+    """
+    return skr_bps > 0.0 and qber < cfg.qber_threshold_abort

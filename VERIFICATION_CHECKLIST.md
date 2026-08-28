@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-205 rows, of which **39 are machine-checked and 166 are not**. Worth knowing
+206 rows, of which **39 are machine-checked and 167 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | 1 | 14 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **121** | 5 | **116** |
+| 4 | Browser, every page | **122** | 5 | **117** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **6** | 13 |
 | 7 | Documentation | 14 | 3 | 11 |
@@ -294,13 +294,14 @@ question about it could not be answered from this checklist.
 |---|---|---|
 | 4.7.1 | `/physics` key rate matches the derivation | Same inputs into [`docs/keyrate.md`](docs/keyrate.md) section 4 give the same rate to 3 significant figures. |
 | 4.7.2 | QBER responds to the channel | Raising `link_length_km`, `misalignment_error_ed` or `dark_count_rate_hz` each raises QBER; lowering each lowers it. A figure that does not move is not modelling the channel. |
-| 4.7.3 | Rate falls with distance and vanishes | Monotonic decrease over 0-100 km, reaching 0 above roughly 11 % QBER (the Lo-Ma asymptotic bound, `protocol.qber_threshold_abort`). |
-| 4.7.4 | `/verify` TNO cross-check agrees | `same_order_of_magnitude: true`. Measured 2026-08-21: closed form 12,333,658 bps against TNO 45,726,822 bps at 10 km -- same order, and the two use independent implementations. |
+| 4.7.3 | Rate falls with distance and vanishes | Monotonic decrease over 0-100 km. The rate reaches 0 at **QBER 6.60 %** (L = 253.51 km with the shipped mu = 0.5, e_d = 0.015, f_EC = 1.16), *not* at the 11 % in `protocol.qber_threshold_abort`. 11.003 % is the Shor-Preskill bound 1 - 2h_2(e) = 0 for **ideal single photons and perfect error correction**; the shipped decoy-state weak-coherent rate is the GLLP form and vanishes well before it. Over 0-100 km the rate stays positive, so this row is checked on the slope, not the zero -- take the zero from 4.7.10. |
+| 4.7.4 | `/verify` TNO cross-check agrees | `verdict: "agree"` **at the default 10 km**. Measured 2026-08-21: closed form 12,333,658 bps against TNO 45,726,822 bps -- ratio 3.7, and the two use independent implementations. The distance qualifier is load-bearing: this row and 4.7.3 were previously both stated unconditionally, and no distance satisfies both at once. |
 | 4.7.5 | `/paper-flow` budgets match the paper | Per phase 0/0, 2/78, 3/398, 4/4772; handshake total 9 packets / 5248 bytes. |
 | 4.7.6 | `/vpn` shows the **negotiated** proposal | The string comes from `swanctl --list-sas`, not a constant: it names the KEM actually agreed. |
 | 4.7.7 | **The Table 1 match check can fail** | `GET /api/verify/paper-budgets` -> `packets_match` and `bytes_match` compare the phase-table sum against `PAPER_TOTAL_PACKETS`/`PAPER_TOTAL_BYTES`, which are literals transcribed from the paper. They previously compared the sum against a constant defined as that same sum, so they were true by construction. Edit one phase figure and the flag must go false. |
 | 4.7.8 | **`/bb84` offline defaults equal `qkd_params.yaml`** | Stop the backend, reload `/bb84`: the simulated link must be the configured one. They had drifted to 25 km and 1e7 against a configured 10 km and 1e9. Pinned by `tests/test_frontend_defaults_match_config.py`. |
 | 4.7.9 | **Reported key rate is a rate, not a sifting fraction** | `/verify` `ours_closed_form.skr_bps` must sit far below `pulse_rate_hz / 2`. All three backends once reported the sifting fraction: 500 Mbps against an actual 12.07 Mbps. |
+| 4.7.10 | The cross-check names *which* of its five outcomes occurred | Set `link_length_km` to 300 on `/physics`, then reload `/verify`. The row reads **"Both predict no extractable key"**, not "review": closed form and TNO both return exactly 0, which is agreement. Also confirm `relative_delta` is reported as `n/a (no ratio defined)` in the TSV export rather than blank -- 0/0 has no ratio, and a blank cell used to be how a missing TNO engine looked too. Restore 10 km afterwards. |
 
 ### 4.8 Demo-mode hardening
 
