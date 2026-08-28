@@ -80,12 +80,12 @@ protocol:
   # Shor-Preskill root of 1 - 2*h2(e) = 0 (computed: 11.003 %), which holds
   # for IDEAL SINGLE PHOTONS with perfect error correction. The shipped
   # source is decoy-state weak-coherent with f_EC = 1.16, and its rate reaches
-  # zero well before 0.11 -- at QBER 1.504 % (L = 93.3 km) for the FINITE-KEY
+  # zero well before 0.11 -- at QBER 1.505 % (L = 98.49 km) for the FINITE-KEY
   # rate the accept predicate uses, and at QBER 6.602 % (L = 253.51 km) for
-  # the asymptotic GLLP curve the UI displays. Those are 160 km apart.
+  # the asymptotic GLLP curve the UI displays. Those are 155 km apart.
   #
   # Keep 0.11 as the hard abort ceiling, but it is NOT the accept criterion:
-  # from ~93 km to ~270 km the QBER is under 0.11 while the modelled rate is
+  # from ~98.5 km to ~270 km the QBER is under 0.11 while the modelled rate is
   # exactly 0. Backends require skr_bps > 0 as well -- see `accepts_round()`
   # in services/bb84-kme/app/backends/_skr.py.
   #

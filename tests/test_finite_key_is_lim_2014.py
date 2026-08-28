@@ -67,6 +67,8 @@ def _run(**over):
 
 def _rate(L, N=1.0e9, **over):
     p = {**REF, "L_km": L, "N": N, **over}
+    if "qx" in over:
+        p["qx"] = over["qx"]
     eta = _skr.total_transmittance(p["eta_d"], p["alpha_db_km"], p["L_km"])
     return _skr.skr_finite(Y0=p["Y0"], eta_total=eta, e_d=p["e_d"],
                            mu=p["mus"][0], nu1=p["mus"][1], nu2=p["mus"][2],
@@ -255,12 +257,20 @@ def test_no_source_file_still_credits_arxiv_2511_21253_for_it():
             if any(x in f.parts for x in ("node_modules", "submodules")):
                 continue
             txt = f.read_text(encoding="utf-8", errors="replace")
-            for n, line in enumerate(txt.splitlines(), 1):
+            lines = txt.splitlines()
+            for n, line in enumerate(lines, 1):
                 if "2511.21253" not in line:
                     continue
-                low = line.lower()
+                # A +/-3 line window, not the single line. PhysicsParams.tsx
+                # rendered "the closed-form formulae of Lo-Ma-Chen ... and
+                # arXiv:2511.21253" to every visitor of /physics, and the
+                # single-line form skipped it because that one line happened to
+                # carry none of the keywords -- the sentence was wrapped.
+                low = "\n".join(lines[max(0, n - 4):n + 3]).lower()
                 if not any(w in low for w in ("finite-key", "finite key",
-                                              "finite-size", "penalty")):
+                                              "finite-size", "penalty",
+                                              "key rate", "key-rate",
+                                              "closed-form", "skr")):
                     continue
                 # The paper is real. Naming it to RETRACT the citation is the
                 # record of why the formula changed and must survive -- what is
@@ -276,3 +286,71 @@ def test_no_source_file_still_credits_arxiv_2511_21253_for_it():
     assert stale == [], (
         "arXiv:2511.21253 is still credited for the finite-key correction at: "
         + ", ".join(stale))
+
+
+# --------------------------------------------------------------------------
+# The basis bias is a probability, and nothing may claim more key than photons.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("qx", [1.0, 1.0001, 2.0, 50.0, 100.0, 0.0, -0.5])
+def test_a_basis_bias_outside_zero_to_one_yields_no_key(qx):
+    """It enters as qx^2 scaling the counts, so >1 inflates without bound.
+
+    Measured before the guard, at the shipped 50 km config where the detection
+    probability Q_mu is 9.95e-3:
+
+        basis_bias_pz   rate/pulse    bits/s @ 1 GHz
+                0.5     4.7016e-04     470 k
+                2.0     1.0178e-02     10.2 M   -- already exceeds Q_mu
+               50.0     7.1922e+00     7.19 G   -- 723x the detections
+
+    and accepts_round() returned True for every one. `source.basis_bias_pz` is
+    editable through the API and the /physics input has no min or max, so "50"
+    typed for "50 %" reached it.
+    """
+    assert _rate(50.0, 1e9, qx=qx) == 0.0
+
+
+def test_the_rate_can_never_exceed_the_detection_probability():
+    """A sanity ceiling no correct implementation can breach.
+
+    One detected photon cannot yield more than one secret bit, so the per-pulse
+    rate is bounded above by the per-pulse detection probability. This is the
+    invariant the unvalidated qx violated by 723x.
+    """
+    for L in (0.0, 10.0, 50.0, 90.0):
+        eta = _skr.total_transmittance(0.2, 0.2, L)
+        q_mu = _skr.gain_Qmu(1e-7, eta, 0.5)
+        for qx in (0.1, 0.3, 0.5, 0.7, 0.9):
+            r = _rate(L, 1e12, qx=qx)
+            assert r <= q_mu, (
+                f"L={L} qx={qx}: rate {r:.4e} exceeds detection probability "
+                f"{q_mu:.4e} -- more secret bits than detected photons")
+
+
+def test_a_legal_basis_bias_still_works_given_enough_data():
+    """The guard must not swallow honest values.
+
+    qx = 0.9 gives zero at 50 km / N = 1e9 because only 1 % of pulses land in
+    the check basis and phi_X defaults to 0.5 -- that is the physics refusing
+    to bound the phase error, and it recovers with more data. If this ever
+    fails, the range guard is over-rejecting.
+    """
+    assert _rate(10.0, 1e9, qx=0.9) > 0.0
+    assert _rate(50.0, 1e11, qx=0.9) > 0.0
+    assert _rate(50.0, 1e9, qx=0.9) == 0.0     # starved, not rejected
+
+
+@pytest.mark.parametrize("pm,p1,p2", [
+    (0.5, 0.3, 0.5),     # sums to 1.3
+    (0.3, 0.3, 0.3),     # sums to 0.9
+    (0.8, 0.2, 0.0),     # a zero divisor in the bracketed counts
+    (1.0, 0.0, 0.0),
+])
+def test_intensity_probabilities_must_be_a_distribution(pm, p1, p2):
+    """tau_n is a distribution over photon number, and delta is divided by p_k.
+
+    Neither means anything if the probabilities do not sum to 1, and a zero
+    p_k divides by zero outright.
+    """
+    assert _rate(50.0, 1e9, ps=(pm, p1, p2)) == 0.0
