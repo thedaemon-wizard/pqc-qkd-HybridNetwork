@@ -20,9 +20,38 @@ export interface Bb84Frame {
   i: number; alice_bit: number; alice_basis: number;
   bob_basis: number; bob_bit: number; basis_match: boolean;
 }
+/**
+ * What happened when a GPU tier was tried.
+ *
+ * The selection was measured and then thrown away: the outcome went to
+ * `console.info` and nowhere else, so the page showed `Worker (CPU)` with
+ * nothing to say that WebGPU had been built, initialised and benchmarked.
+ * Measured on the deployed demo 2026-08-28, five consecutive rounds:
+ *
+ *     [bb84] WebGPU 33M/s <= Worker 42M/s -- keeping Worker
+ *     [bb84] WebGPU 50M/s <= Worker 61M/s -- keeping Worker
+ *
+ * A reader with the page open concludes the compute-shader path does not
+ * exist. It does, it ran, and it lost on this hardware -- which is a result,
+ * not an absence, and exactly the kind of thing this project otherwise puts on
+ * screen. The same defect `/benchmarks` had with `skr_provenance`.
+ */
+export interface TierTrial {
+  tier: string;
+  /** Benchmarked rate, or null when the tier could not be initialised. */
+  pulsesPerSec: number | null;
+  adopted: boolean;
+  /** Present only when init or the benchmark threw. Never a bare "failed". */
+  error?: string;
+}
+
 export interface Bb84Update {
   qber: number; pool_size: number; frames: Bb84Frame[];
   engine: string; pulsesPerSec: number;
+  /** Empty until the upgrade pass has run; never undefined. */
+  tierTrials: TierTrial[];
+  /** The CPU rate the tiers were compared against, once known. */
+  workerPulsesPerSec: number | null;
 }
 
 // Derived from the one bundled parameter set, not restated. These used to be
@@ -40,6 +69,8 @@ export class Bb84Engine {
   private gl: Bb84Gl | null = null;
   private running = false;
   private upgraded = false;
+  /** Every tier tried, in order, with the rate it achieved. Surfaced. */
+  private trials: TierTrial[] = [];
   private gpuTimer: number | null = null;
   private workerPps = 0;
   private onUpdate: (u: Bb84Update) => void;
@@ -59,20 +90,46 @@ export class Bb84Engine {
     window.setTimeout(() => this.tryUpgrade(), 1300);
   }
 
+  /**
+   * Record one tier's outcome, at most once.
+   *
+   * Deduplicated by tier because the failure paths overlap: a `dispose()` that
+   * throws after a successful benchmark lands in the same `catch` as an
+   * `init()` that threw, and a second push for the same tier both duplicated
+   * the React key and showed the reader that tier twice, once with a rate and
+   * once with an error.
+   */
+  private record(t: TierTrial) {
+    if (this.trials.some((x) => x.tier === t.tier)) return;
+    this.trials.push(t);
+  }
+
   /** Benchmark WebGPU then WebGL2; adopt whichever clearly beats the CPU Worker. */
   private async tryUpgrade() {
     if (!this.running || this.upgraded) return;
     const target = Math.max(this.workerPps, 1) * UPGRADE_MARGIN;
+    const GPU = "WebGPU (compute shader)";
+    const GL = "WebGL2 (GPGPU)";
 
     try {                                                 // ── WebGPU ──
       const gpu = new Bb84Gpu();
       if (await gpu.init()) {
         const r = await gpu.runRound(this.cfg);           // one benchmark round
-        if (r.pulsesPerSec >= target) { this.adoptGpu(gpu); return; }
+        if (r.pulsesPerSec >= target) {
+          this.record({ tier: GPU, pulsesPerSec: r.pulsesPerSec, adopted: true });
+          this.adoptGpu(gpu); return;
+        }
+        this.record({ tier: GPU, pulsesPerSec: r.pulsesPerSec, adopted: false });
         console.info(`[bb84] WebGPU ${fmt(r.pulsesPerSec)} ≤ Worker ${fmt(this.workerPps)} — keeping Worker`);
         gpu.dispose();
+      } else {
+        // init() returning false is "this browser has no WebGPU", which is a
+        // different fact from "the shader threw" and must not read the same.
+        this.record({ tier: GPU, pulsesPerSec: null, adopted: false,
+                      error: "not available in this browser" });
       }
     } catch (e) {
+      this.record({ tier: GPU, pulsesPerSec: null, adopted: false, error: String(e) });
       console.warn("[bb84] WebGPU init/bench failed — investigate before relying on fallback:", e);
     }
 
@@ -80,14 +137,48 @@ export class Bb84Engine {
       const gl = new Bb84Gl();
       if (gl.init()) {
         const r = gl.runRound(this.cfg);                  // one benchmark round
-        if (r.pulsesPerSec >= target) { this.adoptGl(gl); return; }
+        if (r.pulsesPerSec >= target) {
+          this.record({ tier: GL, pulsesPerSec: r.pulsesPerSec, adopted: true });
+          this.adoptGl(gl); return;
+        }
+        this.record({ tier: GL, pulsesPerSec: r.pulsesPerSec, adopted: false });
         console.info(`[bb84] WebGL ${fmt(r.pulsesPerSec)} ≤ Worker ${fmt(this.workerPps)} — keeping Worker`);
         gl.dispose();
+      } else {
+        this.record({ tier: GL, pulsesPerSec: null, adopted: false,
+                      error: "not available in this browser" });
       }
     } catch (e) {
+      this.record({ tier: GL, pulsesPerSec: null, adopted: false, error: String(e) });
       console.warn("[bb84] WebGL init/bench failed — investigate before relying on fallback:", e);
     }
     // else: keep the CPU Worker (already running)
+  }
+
+  /** Attach the selection record to every update, so the page can show it. */
+  private emit(u: Omit<Bb84Update, "tierTrials" | "workerPulsesPerSec">) {
+    this.onUpdate({ ...u, tierTrials: [...this.trials],
+                    workerPulsesPerSec: this.workerPps || null });
+  }
+
+  /**
+   * A tier that was adopted and then threw mid-run is no longer adopted.
+   *
+   * The revert path set `upgraded = false` and restarted the CPU worker but
+   * left the trial record saying `adopted: true`, so the page rendered
+   * "WebGPU (compute shader) 100.0M/s -- adopted" in green next to a badge
+   * reading "Worker (CPU)", and the export said the same. `tryUpgrade()` is
+   * scheduled once and never re-runs, so that contradiction was permanent for
+   * the page load. Precisely the defect this record was added to prevent, with
+   * the sign flipped and a citable artefact attached to it.
+   */
+  private revertTier(tier: string, e: unknown) {
+    for (const t of this.trials) {
+      if (t.tier === tier && t.adopted) {
+        t.adopted = false;
+        t.error = `adopted, then failed mid-run and reverted to the CPU worker: ${String(e)}`;
+      }
+    }
   }
 
   private adoptGpu(gpu: Bb84Gpu) {
@@ -102,9 +193,10 @@ export class Bb84Engine {
     if (!this.running || !this.gpu) return;
     try {
       const r = await this.gpu.runRound(this.cfg);
-      this.onUpdate({ ...r, engine });
+      this.emit({ ...r, engine });
     } catch (e) {
       console.warn("[bb84] WebGPU runRound failed — reverting to Worker:", e);
+      this.revertTier("WebGPU (compute shader)", e);
       this.gpu?.dispose(); this.gpu = null; this.upgraded = false; this.startWorker(); return;
     }
     if (this.running) this.gpuTimer = window.setTimeout(() => this.gpuLoop(engine), 250);
@@ -114,9 +206,10 @@ export class Bb84Engine {
     if (!this.running || !this.gl) return;
     try {
       const r = this.gl.runRound(this.cfg);
-      this.onUpdate({ ...r, engine });
+      this.emit({ ...r, engine });
     } catch (e) {
       console.warn("[bb84] WebGL runRound failed — reverting to Worker:", e);
+      this.revertTier("WebGL2 (GPGPU)", e);
       this.gl?.dispose(); this.gl = null; this.upgraded = false; this.startWorker(); return;
     }
     if (this.running) this.gpuTimer = window.setTimeout(() => this.glLoop(engine), 250);
@@ -129,7 +222,7 @@ export class Bb84Engine {
       const m = ev.data;
       if (m.type === "frames") {
         this.workerPps = m.pulsesPerSec;
-        this.onUpdate({ qber: m.qber, pool_size: m.pool_size, frames: m.frames,
+        this.emit({ qber: m.qber, pool_size: m.pool_size, frames: m.frames,
           engine: m.engine, pulsesPerSec: m.pulsesPerSec });
       }
     };
@@ -147,6 +240,16 @@ export class Bb84Engine {
     this.running = false;
     if (this.gpuTimer !== null) { clearTimeout(this.gpuTimer); this.gpuTimer = null; }
     this.stopWorker();
+    // Reset the tier state, so a later start() benchmarks again instead of
+    // reporting a stale verdict. Without this, stop() left `upgraded = true`
+    // while disposing nothing, and the restart ran the CPU worker while the
+    // panel still said "WebGPU -- adopted". Not reachable from the page today,
+    // which builds a fresh engine per mount, but this is a public method and
+    // the failure is silent.
+    this.upgraded = false;
+    this.trials = [];
+    this.gpu?.dispose(); this.gpu = null;
+    this.gl?.dispose(); this.gl = null;
   }
 
   dispose() {
