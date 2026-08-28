@@ -552,6 +552,7 @@ async def _post_both(client: httpx.AsyncClient, path: str,
 async def sim_backend_proxy(req: dict[str, Any]):
     async with httpx.AsyncClient(timeout=5.0) as client:
         outcomes = await _post_both(client, "/sim/backend", req)
+    _invalidate_keyrate_cache()
     return _fanout_result(outcomes)
 
 
@@ -579,6 +580,7 @@ async def sim_params_set_proxy(req: dict[str, Any]):
         # response already captured, not by POSTing again.
         last = next((o["body"] for o in outcomes.values() if o["ok"] and o["body"]),
                     None)
+    _invalidate_keyrate_cache()
     return {**_fanout_result(outcomes), "kme": last}
 
 
@@ -587,6 +589,7 @@ async def sim_params_reset_proxy():
     """Drop UI overrides on both KMEs — revert to config defaults."""
     async with httpx.AsyncClient(timeout=5.0) as client:
         outcomes = await _post_both(client, "/sim/params/reset")
+    _invalidate_keyrate_cache()
     return _fanout_result(outcomes)
 
 
@@ -638,13 +641,87 @@ async def pqc_roundtrip(req: dict[str, Any]):
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
 
 
+# Two endpoints that are PURE FUNCTIONS of things that rarely change, and were
+# recomputed from scratch on every page load.
+#
+# Measured against the live demo 2026-08-28:
+#
+#     POST /api/pqc/agility    4.0 s      -- 3 ML-KEM + 3 ML-DSA + 3 SLH-DSA
+#                                            keygen/sign/verify in liboqs
+#     GET  /api/verify/keyrate 1.1 s      -- closed form (microseconds) plus a
+#                                            scipy optimise in the TNO engine
+#
+# /verify fetches both on mount, so every visitor cost ~5 s of server CPU
+# before seeing anything. The agility matrix does not depend on the request at
+# all -- it runs a fixed algorithm list -- and the key-rate cross-check depends
+# only on config, which POST /api/sim/params changes.
+#
+# CACHED RATHER THAN MOVED TO THE BROWSER, deliberately. `lib/sim/pqc.ts`
+# already has an `agilityMatrix()` that computes the same thing with
+# @noble/post-quantum, and it is never called. Wiring it in would be the bigger
+# saving -- and would make the panel title ("Crypto-Agility Matrix (liboqs ...)")
+# and the citable export line ("# Crypto-agility matrix (liboqs)") FALSE, because
+# the numbers would then come from a different library. Provenance is the point
+# of that page. A cache buys most of the time back and costs no honesty.
+#
+# Failures are cached too, briefly: an unreachable validator should not mean a
+# 20-second httpx timeout per viewer.
+PQC_AGILITY_TTL_S = float(os.environ.get("PQC_AGILITY_TTL_S", "300.0"))
+KEYRATE_TTL_S = float(os.environ.get("KEYRATE_TTL_S", "10.0"))
+_pure_cache: dict[str, dict[str, Any]] = {}
+
+
+def _cached(key: str, ttl: float):
+    hit = _pure_cache.get(key)
+    if hit is not None and (time.monotonic() - hit["at"]) < ttl:
+        return hit["value"], hit["at"]
+    return None, None
+
+
+def _store(key: str, value: Any) -> Any:
+    _pure_cache[key] = {"at": time.monotonic(), "value": value}
+    return value
+
+
+def _invalidate_keyrate_cache() -> None:
+    """Drop the key-rate cache whenever the KME's effective config changes.
+
+    A bare TTL would make VERIFICATION_CHECKLIST.md row 4.7.10 racy: it tells
+    the reader to POST a new link length and reload /verify, and within the
+    window they would read the previous distance's verdict and conclude the
+    endpoint is broken. Explicit invalidation keeps the checklist executable as
+    written.
+
+    Called from the three proxies that mutate KME state -- backend swap,
+    parameter override, override reset. Defined here rather than beside them so
+    it sits with the cache it clears; Python resolves the global at call time,
+    so the ordering is irrelevant at runtime.
+    """
+    _pure_cache.pop("keyrate", None)
+
+
 @app.post("/api/pqc/agility")
 async def pqc_agility(req: dict[str, Any] | None = None):
-    """Crypto-agility matrix (ML-KEM + ML-DSA across security levels)."""
+    """Crypto-agility matrix (ML-KEM, ML-DSA and SLH-DSA across levels).
+
+    Cached: the validator runs a FIXED algorithm list, so the response is the
+    same for every caller and every request body.
+    """
+    # Only the default (bodyless) call is cacheable -- a caller who supplies an
+    # explicit algorithm list is asking for something else.
+    cacheable = not req
+    if cacheable:
+        value, at = _cached("agility", PQC_AGILITY_TTL_S)
+        if value is not None:
+            return {**value, "cached": True,
+                    "cache_age_s": round(time.monotonic() - at, 3)}
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(f"{PQC_VALIDATOR_URL}/api/agility", json=req or {})
-            return r.json()
+            out = r.json()
+            if cacheable:
+                _store("agility", out)
+            return {**out, "cached": False} if isinstance(out, dict) else out
     except Exception as e:
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
 
@@ -652,11 +729,25 @@ async def pqc_agility(req: dict[str, Any] | None = None):
 # ----------------------- Implementation verification -----------------------
 @app.get("/api/verify/keyrate")
 async def verify_keyrate():
-    """TNO-vs-closed-form key-rate cross-check (from KME A)."""
+    """TNO-vs-closed-form key-rate cross-check (from KME A).
+
+    Cached for a short TTL. It is a pure function of the KME's effective
+    config, which only POST /api/sim/params changes -- and the TTL is short
+    enough (10 s) that an operator editing a parameter sees the new figure
+    within one poll rather than having to know a cache exists.
+    """
+    value, at = _cached("keyrate", KEYRATE_TTL_S)
+    if value is not None:
+        return {**value, "cached": True,
+                "cache_age_s": round(time.monotonic() - at, 3)}
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"{KME_A_URL}/sim/keyrate/crosscheck")
-            return r.json()
+            out = r.json()
+            if isinstance(out, dict):
+                _store("keyrate", out)
+                return {**out, "cached": False}
+            return out
     except Exception as e:
         raise HTTPException(503, f"kme unavailable: {e}")
 
