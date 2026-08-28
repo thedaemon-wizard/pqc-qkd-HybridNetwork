@@ -85,12 +85,31 @@ Stated plainly, because it is easy to overclaim:
   expired, there is no way to use it except for deleting the IKE SA and
   recreating a new one from scratch."*
 
-  **strongSwan 6.0.7 does not implement it.** Verified 2026-08-20 against
-  `src/libcharon/encoding/payloads/notify_payload.h` on `master`, which defines
-  only `USE_PPK = 16435`, `PPK_IDENTITY = 16436` and `NO_PPK_AUTH = 16437`.
-  Neither `USE_PPK_INT` (16445) nor `PPK_IDENTITY_KEY` (16446) appears anywhere
-  in the tree, and no branch implements them. Until it lands, a reauthentication
-  per rotation is not a design choice here — it is the only mechanism available.
+  **Two reproducible observations, not a flat claim.** The previous wording
+  said the pinned tree "defines only `USE_PPK = 16435`, `PPK_IDENTITY = 16436`
+  and `NO_PPK_AUTH = 16437`", and that "no branch implements them". The first
+  is false and the second is not checkable. `notify_payload.h` also defines
+  `INTERMEDIATE_EXCHANGE_SUPPORTED = 16438`, `ADDITIONAL_KEY_EXCHANGE = 16441`,
+  `USE_AGGFRAG = 16442` and `SA_RESOURCE_INFO = 16444` — and dropping 16444
+  discarded the strongest part of the argument. What can actually be
+  established, in a minute each:
+
+  1. RFC 9867 needs `USE_PPK_INT` (16445) and `PPK_IDENTITY_KEY` (16446).
+     Neither appears anywhere under `submodules/strongswan/src/`, so neither
+     can be sent or parsed. Note *where* they would sit: **16444 is the highest
+     Status Type in the enum**, and the next entry is
+     `INITIAL_CONTACT_IKEV1 = 24578`. So 16445 and 16446 are the two values
+     immediately above the top of the range, not a gap in the middle.
+  2. The `IKE_SA_INIT` response on this lane carries `N(USE_PPK)`. RFC 9867
+     §3.1 has a responder return either `USE_PPK_INT` or `USE_PPK` and never
+     both, so that single notify settles which specification is running.
+
+  `N(IKE_INT_SUP)` also appears on this lane; that is RFC 9242's intermediate
+  exchange, present for RFC 9370's ML-KEM key exchange, and is **not** an
+  RFC 9867 indicator.
+
+  Until 9867 lands, a reauthentication per rotation is not a design choice
+  here — it is the only mechanism available.
 
 ---
 
@@ -470,3 +489,47 @@ would need a `load-conn` carrying the new id in addition to `load-shared`. That
 is available over VICI and is the natural next change; it is not made here
 because it alters the connection on every rotation and wants its own two-node
 soak test.
+
+
+## Appendix: SP 800-227 and this project's key combiner
+
+`docs/references.md` points here for "how far this project meets" SP 800-227
+§4.6.2. It did not, until now — the analysis existed only in
+`services/arnika-vici/README.md`, which nothing pointed at. Moved here, where
+the promise was already made.
+
+SP 800-227 (Final, September 2025) §4.6.1 acknowledges that a multi-algorithm
+scheme may include a secret established via QKD. §4.6.2 then requires ("shall")
+an approved key combiner, drawn from SP 800-56C or SP 800-133.
+
+**What arnika does**, from `submodules/arnika/kdf/kdf.go`:
+
+```go
+hkdf := hkdf.New(sha3.New256, combined, nil, nil)
+```
+
+i.e. `HKDF-SHA3-256(QKD ‖ PQC)` with a nil salt and no info string.
+
+**Where that stands against the requirement, precisely:**
+
+- The **two-step shape is right**. SP 800-56C's form is
+  `K <- Expand(Extract(salt, Z), FixedInfo)`, and HKDF is exactly
+  Extract-then-Expand. A nil HKDF salt is not a missing salt: RFC 5869 §2.2
+  defines it as HashLen zero bytes, which is the default salt SP 800-56C
+  permits. An earlier version of this analysis said arnika "supplies neither
+  salt nor FixedInfo" — the salt half of that carries no weight.
+- **FixedInfo is genuinely absent.** No domain separator, no protocol or party
+  binding. That is a real gap against §4.6.2, and it is the one to state.
+- **The inputs are not approved-KEM-derived.** The pinned Rosenpass v0.2.3
+  combines Classic McEliece 460896 with Kyber512 — Kyber512 is the
+  pre-standardisation parameter set, not FIPS 203 ML-KEM. So even with
+  FixedInfo the combiner would not be operating on an approved shared secret.
+  `tests/test_rosenpass_kem_names_match_the_submodule.py` derives those names
+  from the submodule's own domain-separation labels rather than trusting this
+  paragraph.
+- **Concatenation itself is fine here.** §4.6.2 warns that concatenating inputs
+  is unsafe when the lengths can vary; both inputs here are fixed at 32 bytes,
+  so the ambiguity it warns about cannot arise.
+
+Adding a FixedInfo string is a wire-format change affecting both ends, so it is
+an upstream decision for arnika rather than something to patch locally.

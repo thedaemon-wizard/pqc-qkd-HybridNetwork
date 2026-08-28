@@ -185,8 +185,12 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
 
   SP 800-227 §4.6.2 says an approved key combiner **shall** be used, and points
   at SP 800-56C, whose two-step form is
-  `K <- Expand(Extract(salt, Z), FixedInfo)`. arnika supplies **neither** salt
-  nor FixedInfo, so it does not instantiate that form.
+  `K <- Expand(Extract(salt, Z), FixedInfo)`. arnika's HKDF IS that form; what
+  it omits is FixedInfo. This previously read "neither salt nor FixedInfo",
+  which is wrong on the salt: `kdf.go` passes nil, and RFC 5869 §2.2 defines a
+  nil HKDF salt as HashLen zero bytes — the default salt SP 800-56C permits.
+  The full analysis now lives in [`docs/vici-ppk.md`](../../docs/vici-ppk.md),
+  where `docs/references.md` already promised it.
 
   A second point in the same section is worth recording because it is the one
   that turns out to be satisfied: SP 800-227 warns that concatenating inputs is
