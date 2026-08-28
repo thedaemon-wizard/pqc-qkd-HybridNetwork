@@ -83,12 +83,22 @@ def _run_ts(cases) -> list[dict]:
 
         driver = tmp_path / "driver.mjs"
         driver.write_text(textwrap.dedent(f"""
-            import {{ gainQmu, qberEmu, asymptoticSkrPerPulse }} from "./keyrate.js";
+            import {{ gainQmu, qberEmu, asymptoticSkrPerPulse, skrFinite }}
+              from "./keyrate.js";
             const cases = {json.dumps(cases)};
+            // The FINITE cases too. Until this was added the guard compared
+            // only the asymptotic rate, so when the Python side moved to Lim
+            // et al. and the TypeScript side still carried sqrt(2/N), the two
+            // ports disagreed by 3.5x on the number /physics actually shows --
+            // and this file passed.
             const out = cases.map(([etaTotal, Y0, eD, mu, nu1, nu2, fEC]) => ({{
               gain: gainQmu(Y0, etaTotal, mu),
               qber: qberEmu(Y0, etaTotal, eD, mu),
               rate: asymptoticSkrPerPulse({{ Y0, etaTotal, eD, mu, nu1, nu2, fEC }}),
+              finite: [1e7, 1e9, 1e12].map((N) => skrFinite({{
+                Y0, etaTotal, eD, mu, nu1, nu2, fEC, N, eps: 1e-10,
+                qx: 0.5, pMu: 0.70, pNu1: 0.15, pNu2: 0.15, epsCor: 1e-15,
+              }})),
             }}));
             console.log(JSON.stringify(out));
         """))
@@ -114,3 +124,29 @@ def test_typescript_port_matches_python_reference():
         assert got["gain"] == pytest.approx(py_gain, rel=1e-12), f"Q_mu drift @ {label}"
         assert got["qber"] == pytest.approx(py_qber, rel=1e-12), f"E_mu drift @ {label}"
         assert got["rate"] == pytest.approx(py_rate, rel=1e-9), f"rate drift @ {label}"
+
+        # Lim et al. finite-key, across three block sizes. This is the number
+        # /physics renders, so a drift here is visible to every visitor.
+        for N, ts_val in zip((1e7, 1e9, 1e12), got["finite"], strict=True):
+            py_val = _skr.skr_finite(
+                Y0=Y0, eta_total=eta, e_d=e_d, mu=mu, nu1=nu1, nu2=nu2,
+                f_EC=f_EC, N=N, eps=1e-10, qx=0.5,
+                p_mu=0.70, p_nu1=0.15, p_nu2=0.15, eps_cor=1e-15,
+            )
+            assert ts_val == pytest.approx(py_val, rel=1e-9, abs=1e-18), (
+                f"finite-key drift @ {label} N={N:.0e}: "
+                f"ts={ts_val!r} py={py_val!r}")
+
+
+def test_the_finite_comparison_is_not_vacuous():
+    """At least one case must produce a non-zero finite rate.
+
+    If every case sat at zero the loop above would compare 0 to 0 and pass
+    while checking nothing -- which is how the asymptotic-only version of this
+    guard let a 3.5x port divergence through.
+    """
+    ts = _run_ts(CASES)
+    nonzero = [v for row in ts for v in row["finite"] if v > 0.0]
+    assert len(nonzero) >= 3, (
+        f"only {len(nonzero)} non-zero finite rates across "
+        f"{len(CASES)} cases x 3 block sizes")

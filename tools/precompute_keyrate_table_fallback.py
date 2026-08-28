@@ -22,8 +22,11 @@ WCP per the formulas in:
 
   [1] H.-K. Lo, X. Ma, K. Chen, "Decoy state quantum key distribution",
       Phys. Rev. Lett. 94, 230504 (2005). DOI 10.1103/PhysRevLett.94.230504
-  [2] arXiv:2511.21253 (2026), "Finite-key security analysis of the decoy-state
-      BB84 QKD with passive measurement" — closed-form finite-key bound.
+  [2] Lim, Curty, Walenta, Xu, Zbinden, PRA 89, 022307 (2014), arXiv:1311.7129,
+      "Concise security bounds for practical decoy-state QKD" -- the finite-key
+      analysis, applied through services/bb84-kme/app/backends/_skr.py rather
+      than reimplemented here. (Was arXiv:2511.21253, which does not contain
+      the formula this tool used.)
   [3] M. Curty, F. Xu, et al., Nature Communications 5, 3732 (2014).
 
 The output table is committed to git so the shipped configuration has
@@ -41,6 +44,7 @@ import json
 import logging
 import math
 import os
+import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 
@@ -59,7 +63,15 @@ def _setup_logger() -> logging.Logger:
 
 
 log = _setup_logger()
-from pathlib import Path
+from pathlib import Path  # noqa: E402
+
+# One implementation of the finite-key analysis, not two. This tool used to
+# carry its own copy of the (wrong) sqrt(2/N) penalty and write the result into
+# config/qkd_keyrate_table.json as shipped data, so a fix in the other copy
+# would have left this one silently stale.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]
+                       / "services" / "bb84-kme"))
+from app.backends import _skr  # noqa: E402
 
 H2 = lambda x: -x * math.log2(x) - (1 - x) * math.log2(1 - x) if 0 < x < 1 else 0.0
 
@@ -151,14 +163,31 @@ def asymptotic_skr_per_pulse(p: PhysParams) -> float:
     return max(rate, 0.0)
 
 
-def finite_key_correction(R_inf: float, N: int, eps: float = 1e-10) -> float:
-    """First-order finite-key penalty per arXiv 2511.21253 closed-form:
-        R_N ≈ R_inf - sqrt(2 / N) * sqrt(log2(2 / eps))
+def finite_key_correction(p: PhysParams, N: int, eps: float = 1e-10,
+                          eps_cor: float = 1e-15) -> float:
+    """Finite-key rate per pulse, delegated to the shipped implementation.
+
+    This used to carry its OWN copy of
+
+        R_N ~ R_inf - sqrt(2/N) * sqrt(log2(2/eps))
+
+    credited to arXiv:2511.21253, which contains no such term. Two copies of
+    the same wrong formula, and this one wrote its output into
+    `config/qkd_keyrate_table.json` as `R_finite_per_pulse` -- shipped data.
+
+    It now calls `services/bb84-kme/app/backends/_skr.py`, so there is one
+    implementation of Lim et al. (PRA 89, 022307 (2014), arXiv:1311.7129) and
+    the table cannot drift from the runtime model. A duplicate is how the
+    original defect survived a fix in the other copy.
     """
-    if N <= 0 or R_inf <= 0:
+    if N <= 0:
         return 0.0
-    penalty = math.sqrt(2.0 / N) * math.sqrt(math.log2(2.0 / eps))
-    return max(R_inf - penalty, 0.0)
+    return _skr.skr_finite(
+        Y0=p.Y0, eta_total=channel_transmittance(p), e_d=p.e_d,
+        mu=p.mu, nu1=p.nu1, nu2=p.nu2, f_EC=p.f_EC,
+        N=N, eps=eps, eps_cor=eps_cor,
+        qx=0.5, p_mu=0.70, p_nu1=0.15, p_nu2=0.15,
+    )
 
 
 def precompute(distances_km, etas, y0s, eds, N_block) -> list[dict]:
@@ -174,8 +203,11 @@ def precompute(distances_km, etas, y0s, eds, N_block) -> list[dict]:
                 best = (r, mu)
         R_inf = best[0]
         mu_opt = best[1]
-        R_N = finite_key_correction(R_inf, N_block)
         p_opt = PhysParams(distance_km=distance, eta_d=eta_d, Y0=Y0, e_d=e_d, mu=mu_opt)
+        # The finite rate is computed at the OPTIMISED mu, matching R_inf.
+        # Passing the un-optimised `p` would have paired an asymptotic rate at
+        # mu_opt with a finite rate at the default mu in the same table row.
+        R_N = finite_key_correction(p_opt, N_block)
         rows.append({
             "distance_km": distance,
             "eta_d": eta_d,
@@ -212,7 +244,7 @@ def main() -> None:
         "provenance": "tools/precompute_keyrate_table_fallback.py",
         "formulas": [
             "Lo-Ma-Chen PRL 94, 230504 (2005)",
-            "arXiv 2511.21253 (2026) closed-form finite-key bound",
+            "Lim et al. PRA 89, 022307 (2014) finite-key (via app/backends/_skr.py)",
         ],
         "block_size_N": args.N,
         "rows": rows,
