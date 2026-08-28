@@ -16,16 +16,111 @@ made that mistake -- it spelled out two private filenames while asserting that
 "a reference from a tracked file discloses the name", and its own grep returned
 the checklist.
 
-This test asserts the mechanism exists and works. It cannot assert the operator
-has moved anything into it, because doing so would require knowing the names.
+**This file used to make the same mistake, one level down.** It carried the
+names in plaintext so it could grep for them, and then exempted itself from its
+own check by path. That exemption was not a wart in the guard; it was the guard
+recording that it violated the rule it enforces. This repository is public, so
+the test asserting "no tracked file names a private file" was itself the tracked
+file naming them -- to anyone reading the suite, and to anyone searching it.
+
+So the names are stored as SHA-256 digests and candidate tokens are hashed
+before comparison. The guard keeps working -- in CI, with no artefact and no
+submodule -- and the self-exemption is gone, because there is no longer a
+plaintext name to exempt.
+
+**What this buys, stated narrowly, because the obvious reading is wrong.**
+
+It keeps the names out of the TIP TREE. That is all. It is not a confidentiality
+measure, and describing it as one would be false:
+
+  - The plaintext is in published history. Three commits reachable from `main`
+    contain it, and the diff of the commit that removes it prints it in full.
+    GitHub renders and indexes blame, file history and commit diffs, so a reader
+    still finds the names by clicking rather than by guessing.
+  - The digests are unsalted, necessarily: the check must run from a fresh clone
+    with no secret to key on. A filename is a small search space, so a candidate
+    list of a few dozen recovers them. This was demonstrated, not assumed --
+    all preimages fell to a 50-candidate sweep built only from the blob still
+    on `main`.
+
+Removing them from history means rewriting a published branch, which is the
+operator's call, not a test's. Until that happens the honest description is:
+this stops NEW references accumulating and keeps a browsing reader from
+tripping over one. It does not make the names private, because they are not.
+
+**The tokeniser is the load-bearing part, and the first version was weaker than
+the substring test it replaced.** Hashing forces exact-token equality, so
+anything that is not exactly the hashed string slips through. The first draft
+matched `<name>.md` and missed `<name>.md.` (a trailing sentence period joins
+the token), `<name>.md-old`, `private/<name>/` and `<name>*` -- one shape out of
+five, where the old `if "<name>.md" in body` caught all five.
+
+The fix is to store STEMS and to expand every candidate at each `.`, `-` and `_`
+boundary, which makes the check a superset of the substring test rather than a
+subset. A stem also matches the bare English word, which is a false positive in
+the loud direction and is the one to prefer.
 """
 from __future__ import annotations
 
+import hashlib
+import re
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GITIGNORE = ROOT / ".gitignore"
+
+# SHA-256 of lowercased STEMS, not of full filenames.
+#
+# Stems, because an extension is the easiest thing to vary: a digest of
+# `<name>.md` is blind to `<name>.rst`, `<name>*`, `private/<name>/` and a
+# trailing sentence period. Two of these are the two spellings of one name; the
+# third is the shared prefix of a family.
+#
+# To add one: hash the lowercased stem and paste the digest. Do not paste the
+# stem, not even in a comment; that is the whole point of this file.
+_PRIVATE_DIGESTS = frozenset({
+    "59b817983b45e008fc59f901c8f87153e7c1fc80a34ec5cad78bd0bdab1edbeb",
+    "0024e33f12d44eb69133a0612478c357fe0c7d5477a95f842a6a33f9a56bf1ad",
+    "8ed11a91cf0dec238ca8550097fb6d2bc4ce6251899ea0b020c3a677c08e354b",
+})
+
+# Filename-shaped runs. Includes `.`, `-` and `_` so a full filename arrives as
+# one token; _tokens() then takes it apart again at every one of those
+# boundaries. Anything outside this class -- `/`, whitespace, quotes, `*` -- is
+# already a separator, so `private/<name>/` and `<name>*` arrive split.
+_TOKEN = re.compile(r"[a-z0-9_.-]+")
+_SEPARATORS = "._-"
+
+
+def _tokens(text: str) -> set[str]:
+    """Every candidate a private name could appear as.
+
+    For each filename-shaped run, emit the run and every prefix ending at a
+    `.`, `-` or `_` boundary. That is what makes this a SUPERSET of the
+    substring test it replaced rather than a subset of it:
+
+        <name>.md        -> <name>, <name>.md
+        <name>.md.       -> <name>, <name>.md            (trailing period)
+        <name>.md-old    -> <name>, <name>.md, ...       (suffixed)
+        private/<name>/  -> private, <name>              (already split on /)
+        <name>*          -> <name>                       (already split on *)
+
+    All five were checked against the previous implementation, which caught
+    only the first.
+    """
+    out: set[str] = set()
+    for run in _TOKEN.findall(text.lower()):
+        out.add(run)
+        for i, ch in enumerate(run):
+            if ch in _SEPARATORS and i:
+                out.add(run[:i])
+    return out
+
+
+def _names_a_private_file(text: str) -> bool:
+    return any(hashlib.sha256(t.encode()).hexdigest() in _PRIVATE_DIGESTS
+               for t in _tokens(text))
 
 
 def _ignored(relpath: str) -> bool:
@@ -55,16 +150,18 @@ def test_the_rule_lives_in_gitignore_not_only_in_a_local_exclude():
 
 def test_gitignore_does_not_name_the_private_files():
     """A rule that names what it hides defeats itself in a public repository."""
-    text = GITIGNORE.read_text(encoding="utf-8").lower()
-    for token in ("monetization", "monetisation", "ssh_info"):
-        assert token not in text, (
-            f".gitignore contains {token!r}. Naming a private file in a tracked "
-            "file discloses it; that is why the rule is a generic directory."
-        )
+    assert not _names_a_private_file(GITIGNORE.read_text(encoding="utf-8")), (
+        ".gitignore names an operator-private file. Naming one in a tracked "
+        "file discloses it; that is why the rule is a generic directory."
+    )
 
 
 def test_no_tracked_file_names_the_private_files():
-    """Same rule, applied to the whole repository rather than one file."""
+    """Same rule, applied to the whole repository rather than one file.
+
+    No path is exempt, including this one. That is now possible because the
+    names are not written here.
+    """
     tracked = subprocess.run(
         ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
     ).stdout.split()
@@ -74,16 +171,77 @@ def test_no_tracked_file_names_the_private_files():
         if not p.is_file():
             continue
         try:
-            body = p.read_text(encoding="utf-8", errors="ignore").lower()
+            body = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        # This test file necessarily contains the tokens in prose, as does any
-        # future test of the same rule; exempt only by path, never by content.
-        if rel == f"tests/{Path(__file__).name}":
-            continue
-        if "monetization.md" in body or "ssh_info_" in body:
+        if _names_a_private_file(body):
             offenders.append(rel)
     assert not offenders, (
         f"these tracked files name an operator-private file: {offenders}. "
         "Describe the rule, not the filenames."
     )
+
+
+# --------------------------------------------------------------------------
+# The detector has to actually detect. A hashed guard fails silently if the
+# tokenisation stops producing the form that was hashed, and it would fail in
+# the safe-looking direction: everything passes.
+# --------------------------------------------------------------------------
+
+# A stand-in for a private stem. Everything below is expressed against this
+# rather than against a real name, so the tests can be thorough without the
+# file disclosing anything.
+_PROBE = "zzprobestem"
+_PROBE_DIGEST = hashlib.sha256(_PROBE.encode()).hexdigest()
+
+
+def _caught(text: str) -> bool:
+    """`_names_a_private_file` with the probe stem treated as private."""
+    patched = _PRIVATE_DIGESTS | {_PROBE_DIGEST}
+    return any(hashlib.sha256(t.encode()).hexdigest() in patched
+               for t in _tokens(text))
+
+
+def test_the_detector_catches_every_shape_a_filename_appears_in():
+    """The first hashed draft caught one of these five and shipped anyway.
+
+    Hashing forces exact-token equality, so each way of decorating a name is a
+    separate way to miss it. The substring test this replaced caught all five;
+    a replacement that caught one would have been a regression sold as an
+    improvement.
+    """
+    for text in (
+        f"see {_PROBE}.md",              # the plain reference
+        f"see {_PROBE}.md.",             # trailing sentence period
+        f"see {_PROBE}.md-old",          # suffixed
+        f"see {_PROBE}.md.bak",          # second extension
+        f"private/{_PROBE}/",            # a directory rule
+        f"{_PROBE}*",                    # a glob
+        f"/{_PROBE}.md",                 # a rooted gitignore entry
+        f"'{_PROBE}.md'",                # quoted, as in a grep pattern
+    ):
+        assert _caught(text), f"missed: {text!r}"
+
+
+def test_the_detector_does_not_fire_on_unrelated_text():
+    """Loud is the right direction to fail, but not on everything."""
+    for text in ("see docs/keyrate.md for the model",
+                 "a perfectly ordinary sentence",
+                 f"{_PROBE}x.md",        # different stem, not a boundary
+                 f"x{_PROBE}.md"):       # substring, but not at a boundary
+        assert not _caught(text), f"false positive on {text!r}"
+
+
+def test_the_boundary_expansion_is_what_makes_that_work():
+    """Pin the mechanism, so a 'simplification' has to argue with a test."""
+    toks = _tokens("aa.bb-cc_dd.md")
+    for expected in ("aa", "aa.bb", "aa.bb-cc", "aa.bb-cc_dd", "aa.bb-cc_dd.md"):
+        assert expected in toks, expected
+
+
+def test_every_stored_digest_is_a_sha256_and_none_is_a_plaintext_token():
+    """Guards against someone 'fixing' a miss by pasting the name back in."""
+    for d in _PRIVATE_DIGESTS:
+        assert re.fullmatch(r"[0-9a-f]{64}", d), (
+            f"{d!r} is not a SHA-256 digest. If a name was pasted in to make a "
+            f"check work, the file is disclosing it again.")
