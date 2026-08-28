@@ -51,7 +51,17 @@ protocol:
   block_size_N: 1000000000               # finite-key block 1e9 symbols
   security_epsilon: 1.0e-10              # composable security
   ec_efficiency_f: 1.16                  # Cascade
-  qber_threshold_abort: 0.11             # Lo-Ma asymptotic bound
+  # NOT the Lo-Ma bound, which is what this line used to say. 0.11 is the
+  # Shor-Preskill root of 1 - 2*h2(e) = 0 (computed: 11.003 %), which holds
+  # for IDEAL SINGLE PHOTONS with perfect error correction. The shipped
+  # source is decoy-state weak-coherent with f_EC = 1.16, and its GLLP rate
+  # reaches zero at QBER 6.602 % (L = 253.51 km) -- well before 0.11.
+  #
+  # Keep it as the hard abort ceiling, but it is NOT the accept criterion:
+  # between ~254 and ~270 km the QBER is under 0.11 while the modelled rate
+  # is exactly 0. Backends require skr_bps > 0 as well -- see
+  # `accepts_round()` in services/bb84-kme/app/backends/_skr.py.
+  qber_threshold_abort: 0.11             # hard abort ceiling (Shor-Preskill)
   out_bits_per_key: 256                  # what arnika needs (matches kms.go)
 
 simulator:
