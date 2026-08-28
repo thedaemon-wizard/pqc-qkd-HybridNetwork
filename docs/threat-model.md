@@ -126,7 +126,7 @@ EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
 arnika and cites that lineage, a reader could reasonably assume it implements
 that use case. It does not, and the difference is worth stating precisely.
 
-**What QCI-CAT's use case is**, from its own page (reviewed 2026-08-28):
+**What QCI-CAT's use case is**, from its own page (re-verified in a browser 2026-08-28; the page's own text confirms HSM-to-backup-HSM over a QKD-protected VPN, ETSI 014 inside conventional VPN frameworks, PKCS#11, HA partition cloning and the Demo App):
 cryptographic material is transferred from a Hardware Security Module to a
 **backup HSM** over a VPN whose link is QKD-protected. The specific link being
 protected is **HA partition synchronisation / cloning** between two HSMs, and a
@@ -162,8 +162,26 @@ cloning and has no cross-instance replication — the very thing the use case is
 about. Standing one up and calling the result "HSM backup over QKD" would
 manufacture exactly the overstatement this document exists to prevent.
 
-**Licence position.** qci-cat.at publishes no licence terms: the site's footer
-"LEGAL NOTICE" link returns 404 and only a privacy page exists (checked
-2026-08-28). Nothing from it is reproduced here — no text, no diagram. The use
-case is described in this project's own words and cited by URL, which is what
-the absence of stated terms permits.
+**Licence position.** Nothing from qci-cat.at is reproduced here — no text, no
+diagram. The use case is described in this project's own words and cited by URL.
+
+That is the right posture regardless of terms, and it is deliberately not
+justified by a claim about what those terms are. An earlier version of this
+paragraph did make such a claim — that the footer "LEGAL NOTICE" link returns
+404 and only a privacy page exists — and it was **false**. Re-checked in a
+browser 2026-08-28:
+
+| link | result |
+|---|---|
+| footer *Legal Notice* → <https://www.ait.ac.at/en/imprint> | **200** |
+| footer *Privacy* → <https://qci-cat.at/privacy/> | 200 |
+| `qci-cat.at/legal-notice` | 404 — but this path is not linked from anywhere |
+
+The 404 came from a guessed path, not from the link the site actually
+publishes. The imprint resolves; its contents could not be read programmatically
+because AIT serves a bot-check to automated fetches, so this document does not
+characterise them either way.
+
+Which leaves the honest position: **the terms are unread, not absent.** Since
+nothing is reproduced, no permission is being relied on and none needs to be
+established.
