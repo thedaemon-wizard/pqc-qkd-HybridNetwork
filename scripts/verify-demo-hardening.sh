@@ -112,5 +112,27 @@ say "GET /api/logs/download/<absent>" "HTTP $code"
     fail=1
 }
 
+# ---- 5) the POST rate limiter must be ACTIVE -----------------------------
+# This script printed /api/config verbatim -- including `"rate_limit":null` --
+# and then certified the host as "hardened" without asserting on it. Until
+# 2026-08-28 the limiter was gated on DEMO_MODE, which the public host runs
+# unset, so null was the honest report of an inert limiter and this script
+# said "ok" anyway.
+#
+# The limiter is now unconditional, so null means something is wrong rather
+# than something is off.
+case "$cfg" in
+    *'"rate_limit":null'*)
+        echo "::error::rate_limit is null on $BASE. The POST limiter is"
+        echo "         supposed to be unconditional since 2026-08-28; a null"
+        echo "         here means it is not running, and one unauthenticated"
+        echo "         POST loop can then saturate the host."
+        fail=1 ;;
+    *'"rate_limit":{'*) say "POST rate limiter active" "ok" ;;
+    *)
+        echo "::error::could not read rate_limit from /api/config"
+        fail=1 ;;
+esac
+
 [ "$fail" -eq 0 ] && echo "ok: $BASE is hardened"
 exit "$fail"
