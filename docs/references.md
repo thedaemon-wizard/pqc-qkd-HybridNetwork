@@ -209,7 +209,10 @@ Licences for everything vendored under `submodules/` are recorded in
 Rosenpass was funded by NLnet **NGI Assure** (grant agreement No. 957073); that
 grant period **ended in 2024**. arnika is a result of the EU **EUROQCI /
 QCI-CAT** project (DIGITAL-2021-QCI-01, No. 101091642), originally developed at
-CANCOM Converged Services GmbH. Neither is an NLnet-funded project today.
+CANCOM Converged Services GmbH and, since **Q2 2026, actively maintained at
+XBC Digital GmbH** -- the maintainer moved with the people, and
+`submodules/arnika/README.md:345-352` records both. Neither is an NLnet-funded
+project today.
 
 ---
 
