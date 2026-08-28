@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
-import { Bb84Engine, type Bb84Frame } from "../lib/sim/bb84Sim";
+import { Bb84Engine, type TierTrial, type Bb84Frame } from "../lib/sim/bb84Sim";
+import { engineChoiceSummary } from "../lib/sim/engineChoice";
 import { BUNDLED_PARAMS, channelFromParams } from "../lib/sim/keyrate";
 import ExportToolbar from "../components/ExportToolbar";
 
@@ -37,6 +38,8 @@ export default function BB84() {
   const [pps, setPps] = useState(0);
   const [lastQber, setLastQber] = useState(0);
   const [pool, setPool] = useState(0);
+  const [tierTrials, setTierTrials] = useState<TierTrial[]>([]);
+  const [workerPps, setWorkerPps] = useState<number | null>(null);
   const [qberThreshold, setQberThreshold] = useState(DEFAULT_PARAMS.qberThresholdAbort);
   const engineRef = useRef<Bb84Engine | null>(null);
 
@@ -49,6 +52,8 @@ export default function BB84() {
       setPps(u.pulsesPerSec);
       setLastQber(u.qber);
       setPool(u.pool_size);
+      setTierTrials(u.tierTrials);
+      setWorkerPps(u.workerPulsesPerSec);
     });
     engineRef.current = eng;
     // Load editable config defaults (falls back to bundled defaults offline).
@@ -125,6 +130,11 @@ export default function BB84() {
           jsonProvider={() => ({
             engine: engineName,
             pulses_per_sec: pps,
+            // Which accelerators were benchmarked and what they scored. The
+            // export is the citable artefact, so "the CPU won" has to be
+            // recoverable from it and not only from the screen.
+            accelerator_trials: tierTrials,
+            worker_pulses_per_sec: workerPps,
             eve: { enabled: eveOn, intercept_probability: eveProb },
             qber_threshold_abort: qberThreshold,
             last_qber: lastQber,
@@ -152,10 +162,38 @@ export default function BB84() {
                  onChange={(e) => updateEve(eveOn, parseFloat(e.target.value))} />
         </label>
         <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
-                        borderRadius: 10, padding: "2px 10px" }}>
+                        borderRadius: 10, padding: "2px 10px" }}
+              title={engineChoiceSummary(tierTrials, workerPps)}>
           ⚡ {engineName} · {(pps / 1e6).toFixed(1)}M pulses/s
         </span>
       </div>
+
+      {/*
+        Which accelerators were tried, and what they scored.
+
+        This was measured and then discarded to `console.info`, so the badge
+        above read `Worker (CPU)` and a reader concluded the WebGPU compute
+        shader did not exist. It does; on the demo host it benchmarked
+        33-50 M/s against the CPU worker's 42-61 M/s and correctly lost. That
+        is a result worth showing -- "we tried the GPU and the CPU was faster"
+        is a different statement from "there is no GPU path", and only one of
+        them is true here.
+      */}
+      {tierTrials.length > 0 && (
+        <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 12 }}>
+          Accelerator selection (measured in your browser
+          {workerPps !== null && `, CPU worker ${(workerPps / 1e6).toFixed(1)}M/s`}):{" "}
+          {tierTrials.map((t, i) => (
+            <span key={`${t.tier}-${i}`}>
+              {i > 0 && " · "}
+              <b style={{ color: t.adopted ? "#3ddc84" : "#8d9ac4" }}>{t.tier}</b>{" "}
+              {t.pulsesPerSec !== null
+                ? `${(t.pulsesPerSec / 1e6).toFixed(1)}M/s ${t.adopted ? "— adopted" : "— slower, not adopted"}`
+                : `— ${t.error ?? "no result"}`}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Plots */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

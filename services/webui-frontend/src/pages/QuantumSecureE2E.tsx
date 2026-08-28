@@ -271,8 +271,8 @@ export default function QuantumSecureE2E() {
         <KPI label="Packets encrypted" value={state?.total_packets ?? 0} />
         <KPI label="Bytes encrypted (×10³)"
              value={Math.round((state?.total_bytes_encrypted ?? 0) / 1000)} />
-        <KPI label="Throughput (Mbps)"
-             value={((state?.rate_bps ?? 0) / 1e6).toFixed(2)} />
+        <KPI label={`Throughput (${formatRate(state?.rate_bps).unit})`}
+             value={formatRate(state?.rate_bps).value} />
       </div>
 
       {/* Latest derived material */}
@@ -716,6 +716,59 @@ function KeyLegend({ x, flip, mode }:
       })}
     </g>
   );
+}
+
+/**
+ * Pick a unit the measured rate is actually legible in.
+ *
+ * This card read `((rate_bps ?? 0) / 1e6).toFixed(2)`, and the rates this
+ * simulator produces are a few kbps, so it had two decimal places to express a
+ * number three orders of magnitude below its unit. Measured on the deployed
+ * build 2026-08-28, the two Data Exchange phases in one run:
+ *
+ *     rate_mbps 0.003576858446018516  ->  3577 bps  ->  card read "0.00"
+ *     rate_mbps 0.008981990806995938  ->  8982 bps  ->  card read "0.01"
+ *
+ * The card was showing `0.00` while the phase history beside it recorded a
+ * measured rate: two panels on one screen, one saying throughput was measured
+ * and the other saying there was none, with the wrong one in the larger font.
+ *
+ * The second line is the more instructive of the two. `0.01` is not a rescue --
+ * it is a single significant figure that looks like a real reading, so it fails
+ * quietly where `0.00` at least looks broken. Both are the same defect.
+ *
+ * Both of those are also THROTTLED readings, taken in a hidden tab. The caveat
+ * is one file over, in `e2eSim.ts`: a foreground cycle is 4 x 450 ms and runs
+ * at about 19.9 kbps, which the old card rendered `0.02`. So the fault was
+ * never "always zero" -- it was one or two significant figures at every rate
+ * this page produces, and the foreground case is the one that looks most like
+ * a real measurement.
+ *
+ * The `?? 0` was the second half of the same fault: "the run has not reported a
+ * rate yet" and "the rate is zero" rendered identically. That substitution is
+ * the one this page's own comments reject for QBER, and
+ * `provenanceReachesTheScreen.test.ts` pins it for the synthetic-round flags.
+ * An absent rate is a dash.
+ */
+export function formatRate(bps: number | null | undefined):
+    { value: string; unit: string } {
+  if (typeof bps !== "number" || !Number.isFinite(bps)) {
+    return { value: "—", unit: "not reported" };
+  }
+  // Thresholds are the ROUNDING boundaries, not the unit boundaries, because
+  // `toFixed` rounds after the branch has already been chosen. Picking the
+  // unit at 1e6 rendered 999_999 bps as "1000.00 kbps" -- a four-digit
+  // kilobit reading, which is the same class of nonsense this function exists
+  // to remove. 999_995 is the least value that rounds to 1.00 Mbps at two
+  // decimals; 999.5 is the least that rounds to 1.00 kbps.
+  // Gbps exists so Mbps is not the top unit. Without it a 1e9 rate rendered
+  // "1000.00 Mbps", which is the same four-digit-in-the-wrong-unit reading the
+  // thresholds above exist to prevent -- the guard would have had to exempt
+  // its own top tier, which is how an exception becomes the bug.
+  if (bps >= 999_999_500) return { value: (bps / 1e9).toFixed(2), unit: "Gbps" };
+  if (bps >= 999_995) return { value: (bps / 1e6).toFixed(2), unit: "Mbps" };
+  if (bps >= 999.5) return { value: (bps / 1e3).toFixed(2), unit: "kbps" };
+  return { value: bps.toFixed(0), unit: "bps" };
 }
 
 function KPI({ label, value }: { label: string; value: any }) {
