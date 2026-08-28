@@ -32,7 +32,7 @@ labelled element in that image is realised by the Phase 10 implementation.
 | **Mode A** label | `QuantumSecureE2E.tsx` `setMode("A")` → `simRef.current.setMode("A")` (no HTTP) → `state.mode = "A"` (mode_label = "QKD-only") | Skips PQC in Phase 3 |
 | **Mode B** label | Same flow with `mode="B"` (mode_label = "PQC-only") | Skips QKD in Phase 2 |
 | **Mode C** label | Same flow with `mode="C"` (mode_label = "Hybrid (QKD ‖ PQC)") | Default; both Phase 2 and Phase 3 active |
-| **ETSI interface E** | `services/bb84-kme/app/etsi014.py` (`/api/v1/keys/{SAE}/{enc,dec}_keys`) | Matches `submodules/arnika/repositories/kms.go:43-101` byte-for-byte |
+| **ETSI interface E** | `services/bb84-kme/app/etsi014.py` (`/api/v1/keys/{SAE}/{enc,dec}_keys`) | Serves the contract that `submodules/arnika/repositories/kms.go:43-101` consumes. **Not** a byte-for-byte match -- that comparison is not well-formed: `kms.go` is an HTTP *client* (`HTTPKMSRepository`, `http.Client`) and `etsi014.py` is a FastAPI *server*, and no code path compares them. What is checkable is the wire format: the Go structs pin `key_ID`, `key` and `keys`, `models.py:45,66` emit exactly those names, and CI job *ETSI GS QKD 014 contract tests (live KMEs)* drives the real endpoints. |
 | **Secure Application Entity** (purple dashed box) | The combination of bb84-kme + webui-backend orchestrator | The "application" boundary of the PoC |
 
 ## Active-element highlighting rules

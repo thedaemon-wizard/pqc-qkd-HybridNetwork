@@ -59,7 +59,15 @@ ACVP_Z = "1cdacb8740c0b87c4a379575f187b367cbfa3b300bf591b109f79816e9cbe8f0"
 ACVP_EK_SHA256 = "4158f6afb5e516c99f1da07da8c651348422b17c1f4e9a08ad73fb1f91249b3e"
 
 # Cross-derived 2026-08-22 by liboqs (this file) and @noble/post-quantum 0.7.0
-# (the browser test). Public-key lengths are FIPS 203 Table 2.
+# (the browser test).
+#
+# Public-key lengths are FIPS 203 **Table 3**, "Sizes (in bytes) of keys and
+# ciphertexts of ML-KEM" -- not Table 2, which is "Approved parameter sets"
+# (n, q, k, eta1, eta2, du, dv, required RBG strength) and states no byte
+# length at all. FIPS 203 introduces it that way itself: "The values of these
+# variables in each parameter set are given in Table 2 of Section 8." The
+# standard calls this key the encapsulation key; 800 / 1184 / 1568 is its row
+# in Table 3.
 CROSS_DERIVED = [
     ("ML-KEM-512", 800,
      "871c0a93974ea840f32bf4fd4352e37a5e2422815e0f43f73f6acd4895b93e37"),
