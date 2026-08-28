@@ -26,6 +26,11 @@ CONFIG_PATH = Path(os.environ.get("QKD_PARAMS_FILE", "/etc/pqcqkd/qkd_params.yam
 
 @dataclass(slots=True)
 class _CachedParams:
+    # Bumped whenever the EFFECTIVE parameters change -- a file reload or an
+    # override patch. Consumers that cache a derived value can record the
+    # generation they derived it at and say whether it is still current.
+    # Without this a stale figure and a fresh one are indistinguishable.
+    generation: int = 0
     raw: dict[str, Any] = field(default_factory=dict)
     # In-memory runtime overrides set from the WebUI. The YAML file is the
     # DEFAULT; overrides win and are NEVER written back to disk (they reset on
@@ -79,6 +84,7 @@ def reload() -> dict[str, Any]:
     (file defaults overlaid with any in-memory overrides)."""
     with _cache.lock:
         _cache.raw = _read_file()
+        _cache.generation += 1
         try:
             _cache.mtime = CONFIG_PATH.stat().st_mtime
         except FileNotFoundError:
@@ -111,6 +117,7 @@ def set_overrides(patch: dict[str, Any]) -> dict[str, Any]:
     """
     with _cache.lock:
         _cache.overrides = _deep_merge(_cache.overrides, patch)
+        _cache.generation += 1
         effective = _effective_locked()
         listeners = list(_cache.listeners)
     _notify(effective, listeners)
@@ -122,6 +129,11 @@ def clear_overrides() -> dict[str, Any]:
     """Drop all in-memory overrides (revert to file defaults) and notify."""
     with _cache.lock:
         _cache.overrides = {}
+        # Bump here too. Clearing overrides CHANGES the effective parameters,
+        # so a derived value computed before the reset is just as stale as one
+        # computed before an override -- and without this the staleness flag
+        # would read "current" for it.
+        _cache.generation += 1
         effective = _effective_locked()
         listeners = list(_cache.listeners)
     _notify(effective, listeners)
@@ -187,3 +199,16 @@ def start_watchdog(poll_interval_s: float = 1.0) -> threading.Thread:
 
 # convenience accessors (kept narrow on purpose — the rest use get(path))
 
+
+
+def generation() -> int:
+    """How many times the effective parameters have changed since start.
+
+    Lets a consumer that caches a derived quantity report whether that
+    quantity still reflects the current configuration. `modelled_skr_bps` in
+    keypool.py is recomputed only when a round runs, and rounds only run when
+    the key buffer drains -- so on an idle pool it can be arbitrarily old, and
+    nothing in the payload said so.
+    """
+    with _cache.lock:
+        return _cache.generation
