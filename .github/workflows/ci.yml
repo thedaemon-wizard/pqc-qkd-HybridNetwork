@@ -44,13 +44,43 @@ jobs:
       - name: Lint
         run: ruff check services/ tests/ tools/ benchmarks/
 
-      # tests/test_rosenpass_kem_names_match_the_submodule.py derives the KEM
-      # names from the pinned submodule's domain-separation label; with no
-      # submodule on disk that half self-skips and only its text scan runs.
-      # Just this one of the fifteen submodules is needed, so init it shallowly
-      # instead of making this job pay for `submodules: recursive`.
-      - name: Check out the pinned rosenpass (the KEM guard derives from it)
-        run: git submodule update --init --depth 1 submodules/rosenpass
+      # Three of the fifteen submodules, shallowly -- not `submodules:
+      # recursive`. Each is here because a guard DERIVES a claim from it and
+      # self-skips without it, which meant the guard was silent in the only job
+      # that runs it:
+      #
+      #   rosenpass                    the KEM names come from the pinned
+      #                                domain-separation label
+      #   tno-qkd-key-rate             the independent-engine cross-check reads
+      #                                the upstream bb84.py it compares against
+      #                                (536K shallow)
+      #   qkd-pqc-paper-supplementary  the units guard reads the real CSV
+      #                                headers, so an upstream column rename is
+      #                                what makes it fail (1.7M shallow)
+      #
+      # strongswan is deliberately NOT added: it is 183 MB, and the `go` job
+      # already checks it out recursively, so the notify-payload guard runs
+      # there instead of making every push pay for it twice.
+      - name: Check out the pinned submodules the guards derive from
+        run: |
+          git submodule update --init --depth 1 \
+            submodules/rosenpass \
+            submodules/tno-qkd-key-rate \
+            submodules/qkd-pqc-paper-supplementary
+
+      # benchmarks/results/ is gitignored, so this artefact never exists on a
+      # fresh checkout and all four guards in
+      # tests/test_paper_comparison_says_what_it_averaged.py skipped -- the file
+      # was inert in CI and ran only on a developer machine that happened to
+      # have generated it once.
+      #
+      # Generating it here is also the stronger test: the guards then run
+      # against the REAL upstream CSV headers, which is the thing that can
+      # change under us. `ours` is legitimately absent (no handshake_age.csv is
+      # produced in CI) and the producer records that as n=0 WITH a note --
+      # which is exactly the distinction the third guard checks.
+      - name: Generate the paper comparison the units guards read
+        run: python tools/compare_to_paper.py
 
       # Contract tests self-skip without a live KME; the `live-stack` job runs
       # them for real.
@@ -142,6 +172,35 @@ jobs:
         env:
           ARNIKA_VICI_VET_AND_TEST: "1"
         run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
+
+      # This guard derives its claims from two pinned trees -- strongSwan's
+      # notify_payload.h (which Status Types exist, and that 16444 is still the
+      # highest) and arnika's kdf.go (the exact HKDF call the SP 800-227
+      # analysis is written against). Without them it self-skips, and the
+      # `python` job that runs the rest of tests/ checks out neither.
+      #
+      # It lives here rather than there because this job has already paid for
+      # `submodules: recursive`; adding 183 MB of strongSwan to the Python job
+      # to run five assertions would cost every push far more than a pip
+      # install of pytest costs this one.
+      # setup-python rather than the runner's system interpreter: Ubuntu 24.04
+      # marks that one externally-managed (PEP 668), so a bare `pip install`
+      # into it exits non-zero.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # pytest-asyncio is not used by this file. It is installed because
+      # pytest.ini sets asyncio_mode and asyncio_default_fixture_loop_scope for
+      # the suite as a whole, and without the plugin pytest prints two
+      # "Unknown config option" warnings on every run of this job -- noise that
+      # would camouflage a real warning later. Verified with a pytest-only
+      # virtualenv first: the file passes either way, so this is for the log,
+      # not for correctness.
+      - name: Claims derived from the pinned strongSwan and arnika trees
+        run: |
+          python -m pip install --quiet pytest pytest-asyncio
+          python -m pytest tests/test_claims_about_the_pinned_strongswan_hold.py -v
 
   env-example:
     name: Example env files satisfy the compose set

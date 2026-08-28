@@ -236,3 +236,68 @@ def test_this_repository_passes_its_own_secret_scan():
     assert r.returncode == 0, (
         "the repository fails its own secret scan:\n" + r.stdout + r.stderr
     )
+
+
+def _case_branch(body: str, pattern: str) -> str:
+    """One `case` arm: from its pattern to its own `;;`, not to `esac`.
+
+    Slicing to `esac` was the original bug here. Every later arm -- including
+    the `*)` catch-all, which also sets `fail=1` -- fell inside the slice, so
+    the assertion below passed on the strength of a DIFFERENT branch's failure
+    handling. Deleting `fail=1` from the null arm alone left the script
+    printing "::error::rate_limit is null" and exiting 0, and this test still
+    went green. Exactly the defect it was written to prevent, one level up.
+    """
+    start = body.index(pattern)
+    end = body.index(";;", start)
+    return body[start:end]
+
+
+def test_the_hardening_script_fails_on_a_null_rate_limit():
+    """It printed /api/config verbatim and certified "hardened" regardless.
+
+    Until 2026-08-28 the POST limiter was gated on DEMO_MODE, which the public
+    host runs unset -- so `"rate_limit":null` was the honest report of an inert
+    limiter, this script printed it, and then said "ok". The limiter is now
+    unconditional, so a null means something is wrong.
+
+    Asserts on the script's SOURCE, not by running it: reaching the null
+    branch needs a host whose limiter is off, and standing one up is more
+    machinery than the check is worth. So it verifies the branch exists AND
+    that it sets `fail=1` rather than merely printing -- a report that does not
+    change the exit code is how this script certified an unprotected host in
+    the first place.
+    """
+    body = (ROOT / "scripts" / "verify-demo-hardening.sh").read_text(
+        encoding="utf-8")
+    assert '"rate_limit":null' in body, (
+        "the script no longer checks rate_limit, so it would again certify a "
+        "host whose POST limiter is not running")
+    assert "fail=1" in _case_branch(body, '*\'"rate_limit":null\'*'), (
+        "the null case reports but does not fail, so the script still exits 0 "
+        "on an unprotected host")
+
+
+def test_that_assertion_can_actually_fail():
+    """The extraction must isolate the arm, or the test above is decorative.
+
+    Feeds a script shaped like the real one but with `fail=1` removed from the
+    null arm and left in the catch-all -- the precise mutation the `esac` slice
+    could not see.
+    """
+    mutated = """
+case "$cfg" in
+    *'"rate_limit":null'*)
+        echo "::error::rate_limit is null"
+        ;;
+    *'"rate_limit":{'*) say "POST rate limiter active" "ok" ;;
+    *)
+        echo "::error::could not read rate_limit"
+        fail=1 ;;
+esac
+"""
+    assert "fail=1" in mutated, "the mutation must keep a fail=1 elsewhere"
+    assert "fail=1" not in _case_branch(mutated, '*\'"rate_limit":null\'*'), (
+        "the branch extractor is reaching past this arm's `;;` again, so a "
+        "null rate_limit could stop failing the script without this test "
+        "noticing")
