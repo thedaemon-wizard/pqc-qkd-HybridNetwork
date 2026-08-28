@@ -6,7 +6,15 @@ dev-server entry. Neither could ever work:
 
   * `grep -c '@app.websocket' services/webui-backend/app/main.py` -> 0
   * `grep -rn 'new WebSocket' services/webui-frontend/src/` -> nothing
-  * live, before removal: `GET /ws/frames` -> 404
+  * live, before removal: `GET /ws/frames` -> 404 (JSON, from the backend)
+  * live, AFTER removal:   `GET /ws/frames` -> 200, the SPA shell, identical to
+    `GET /definitely-not-a-route` -- /ws/ now falls through to `try_files
+    ... /index.html` like any other unmatched path
+
+The removal was therefore NOT behaviour-preserving, and the pull request said it
+was. The status code changed. What did not change is that no WebSocket can be
+established either way; `/api/` still 404s as JSON, so an unknown API path still
+reports an error while an unknown UI path renders the app's not-found view.
 
 `/e2e` and `/paper-flow` moved to client-side simulation and the orchestrators
 that once served frames were deleted; the proxies outlived them.
