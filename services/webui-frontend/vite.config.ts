@@ -7,7 +7,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": "http://localhost:8000",
-      "/ws":  { target: "ws://localhost:8000", ws: true },
+      // The "/ws" dev-proxy entry was removed 2026-08-28 alongside the
+      // matching nginx location: webui-backend declares no websocket
+      // routes and nothing in src/ opens a socket, so this forwarded
+      // upgrades to a 404 in development exactly as nginx did in
+      // production. Keeping it would have made the dev server disagree
+      // with the deployed one about a route that works in neither.
     },
   },
 });
