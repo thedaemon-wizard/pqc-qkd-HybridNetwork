@@ -480,18 +480,41 @@ product name, so these survive every green CI run.
 
   The `[RCV]` lines prove the id WAS received, so the UDP exchange is fine. What
   fails is the subsequent ETSI 014 fetch, with a Go `net/http` response-body
-  lifecycle error -- the body is read after being closed. The BACKUP therefore
-  has an id it cannot resolve, holds different key material, and the
-  reauthentication MACs mismatch. That is the whole defect, and it is upstream
-  in arnika's HTTP client, not in this project's key delivery.
+  lifecycle error -- the body is read after being closed.
 
-  Reproduced five times on 2026-08-28 with an identical signature, including on
-  pull requests that touch only frontend TypeScript and so cannot affect the
-  IPsec lane -- which is itself evidence that it is not caused by anything here.
+  **Corrected 2026-08-29. This entry used to end: "That is the whole defect, and
+  it is upstream in arnika's HTTP client, not in this project's key delivery."
+  Both halves of that sentence were wrong.**
+
+  It is two defects, one on each side, and the trigger is ours.
+
+  *Ours.* `KeyPool.run` gated production on `len(self._buf)`, which counts peer
+  replicas that `pop_for_enc` may never dispense. A KME whose peer produces
+  faster fills with replicas, crosses the watermark on them alone and stops
+  producing -- the pool then reads FULL while every `enc_keys` request answers
+  503 "key pool empty". Sampled on the public demo over two minutes before the
+  fix: alice `rounds_total 7`, `pool_size 64` (capacity), zero rounds per
+  minute, against bob's 805 rounds at `pool_size 8`. alice had produced seven
+  keys in her entire lifetime and held sixty-four, so at least fifty-seven were
+  bob's. Fixed by gating on `dispensable()`.
+
+  *Upstream.* Given that 503, `kmsRequest` in `repositories/kms.go` closes the
+  response body inside its retry loop and reads it after the loop; a non-200
+  sets no error, so the nil-check falls through. Filed as
+  [arnika-project/arnika#43](https://github.com/arnika-project/arnika/issues/43)
+  with a minimal Go reproduction and a suggested fix. Still present on upstream
+  `main` at `9d44332`, which is also our pin.
+
+  Also corrected: the path. This entry describes BACKUP/`dec_keys`, but the CI
+  failure examined on 2026-08-28 is PRIMARY/`enc_keys`
+  (`failed to retrieve QKD key from .../api/v1/keys/BOB`). Both route through
+  the same `kmsRequest`, so the symptom is broader than recorded.
+
+  And the frequency: 1 failure in the last 20 runs of the `ipsec` job, not the
+  "five times" taken from a single day. It reproduced on pull requests touching
+  only frontend TypeScript, which is consistent with the trigger being a KME
+  that momentarily cannot serve a key rather than anything in the change.
   The 20 % threshold is deliberately unchanged: it is catching a real defect.
-
-  **Not yet reported upstream.** Filing it is a public action on someone else's
-  tracker and is awaiting the maintainer's decision.
 - **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
   (2014), arXiv:1311.7129.** This entry previously recorded that a paper was
   cited for a formula it does not contain, and proposed either implementing
