@@ -226,7 +226,7 @@ question about it could not be answered from this checklist.
 | 4.4b.1 | Controls present | Run, Pause, Resume, Reset, **Step**, five inject-failure buttons, clear |
 | 4.4b.2 | **Step** | `idle → 1 → 2`; disabled while running, enabled when paused |
 | 4.4b.3 | **Inject failure differs per layer** | Cascade stage count is **7 / 6 / 5 / 4 / 2** for qkd / arnika / wireguard / rosenpass / data. A lower layer must cascade through more layers above it (arXiv:2604.05599). Equal counts mean `injectFailure` stopped slicing `CASCADE_STAGES` from the injected layer |
-| 4.4b.4 | Banner names the layer and the cascade | e.g. `⚠ qkd failure — 7-stage cascade`. Identical text across layers is the symptom that prompted this row |
+| 4.4b.4 | Banner names the layer and the cascade | Reads `U+26A0 qkd failure -- 7-stage cascade` (`MultiHopTopologySvg.tsx:285`; U+26A0 is WARNING SIGN, written as a codepoint because the no-emoji rule applies to documents and not to the UI). Substitute the layer that is actually down and its stage count. Identical text across layers is the symptom that prompted this row |
 | 4.4b.5 | Injecting while stopped says so | banner appends `(armed; press Run)`; a red bar with no motion and no explanation is not acceptable feedback |
 | 4.4b.6 | `clear` | removes the banner and empties the cascade timeline |
 | 4.4b.7 | Hop slider | `aria-label="Trusted node hop count"`, range 1-8, topology redraws |
