@@ -151,3 +151,34 @@ describe("the hop slider does not fabricate traffic", () => {
 // start() calls window.setInterval (paperSim.ts:238) and this file runs in the
 // node environment. Pulling in jsdom to assert one guard would make the whole
 // accounting suite depend on a DOM it otherwise never touches.
+
+
+describe("the page states the budget once, not twice", () => {
+  it("the subtitle derives the totals rather than hardcoding them", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const page = readFileSync(
+      join(new URL(".", import.meta.url).pathname, "../../pages/PaperDataExchange.tsx"),
+      "utf8");
+    const subtitle = page.slice(page.indexOf("subtitle="), page.indexOf("subtitle=") + 1400);
+    expect(subtitle).toContain("total_handshake_packets");
+    expect(subtitle).toContain("total_handshake_bytes");
+    // Strip JSX comments before checking for the literal. The fix's own
+    // explanatory comment QUOTES the old wording in order to retract it, and a
+    // bare match flagged that as the offence -- the fourth time this
+    // self-reference trap has appeared in this suite.
+    const rendered = subtitle.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(rendered, "the subtitle hardcodes the totals again, so a phase-table "
+      + "edit would move the cards and leave the sentence asserting the old "
+      + "figure -- and the sentence is the one a reader quotes")
+      .not.toMatch(/9 packets \/ 5248 bytes/);
+  });
+
+  it("the phase table is still the single source of both", () => {
+    const s = driver().state;
+    const bytes = s.paper_budgets.phases.reduce((a, p) => a + p.bytes, 0);
+    const pkts = s.paper_budgets.phases.reduce((a, p) => a + p.packets, 0);
+    expect(s.paper_budgets.total_handshake_bytes).toBe(bytes);
+    expect(s.paper_budgets.total_handshake_packets).toBe(pkts);
+  });
+});
