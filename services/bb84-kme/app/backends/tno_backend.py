@@ -51,6 +51,44 @@ def _build_detector(cfg: BackendConfig):
     )
 
 
+_SOURCE = "tno.quantum.communication.qkd_key_rate v2.0.4 (Apache-2.0)"
+
+# TNO signals "I converged, and the answer is that no key is extractable" by
+# RAISING, not by returning a number:
+#
+#   bb84.py:593-595   if rate < 0:
+#                         error_msg = "Optimization resulted in a negative key rate."
+#                         raise ValueError(error_msg)
+#
+# That is a RESULT, not a failure. `compute_tno_rate` already clamps a negative
+# rate with `max(0.0, rate)` -- the clamp simply never sees one, because the
+# optimiser raises before returning.
+#
+# Measured on the live demo before this was fixed: at 254-300 km the decoy
+# estimate raised, the fully-asymptotic fallback raised too, the second raise
+# propagated to main.py's `except Exception`, and /verify reported
+#
+#   verdict: "engine_unavailable"   error: "Optimization resulted in a negative
+#                                           key rate."
+#
+# The engine was installed, ran, and answered. Calling that "unavailable" is
+# the same inversion that `neither_predicts_a_key` was introduced to remove,
+# one layer further down: the closed form said 0, TNO said 0, and the page
+# reported that the cross-check had not run.
+#
+# Matched on type AND message because ValueError is also what a genuinely bad
+# input raises, and those must keep propagating. The message is upstream
+# English and could change, so tests/test_tno_no_key_is_not_no_engine.py pins
+# it against the vendored source -- if TNO rewords it, that test fails rather
+# than this silently reverting to "engine_unavailable".
+_NO_KEY_MARKER = "negative key rate"
+
+
+def _is_converged_no_key(exc: BaseException) -> bool:
+    """True when TNO optimised successfully and found no extractable key."""
+    return isinstance(exc, ValueError) and _NO_KEY_MARKER in str(exc).lower()
+
+
 def compute_tno_rate(cfg: BackendConfig) -> dict[str, Any]:
     """Compute TNO's asymptotic decoy-state BB84 key rate for the given config.
 
@@ -68,26 +106,60 @@ def compute_tno_rate(cfg: BackendConfig) -> dict[str, Any]:
     rate = 0.0
     mu_opt: float | None = None
     protocol = "BB84 decoy (asymptotic)"
+    # Distinguishes "TNO says no key" from "TNO could not be asked". Both used
+    # to leave this function by the same route.
+    no_key = False
     try:
         est = BB84AsymptoticKeyRateEstimate(detector=detector, number_of_decoy=2)
         params, rate = est.optimize_rate(attenuation=attenuation_db)
         mu_opt = float(next(iter(params.values()))[0]) if params else None
     except Exception as e:
+        if _is_converged_no_key(e):
+            # Do NOT fall back here. The fallback is a DIFFERENT and more
+            # optimistic model -- fully-asymptotic assumes infinitely many decoy
+            # states -- so using it to second-guess a converged decoy answer
+            # would report a rate for a protocol we do not run. The decoy
+            # estimate is the one that matches the shipped source.
+            log.info("TNO decoy estimate: no extractable key at %.1f dB (%s)",
+                     attenuation_db, e)
+            return {
+                "rate_per_pulse": 0.0,
+                "skr_bps": 0.0,
+                "mu_opt": None,
+                "attenuation_db": attenuation_db,
+                "protocol": protocol,
+                # The caller must be able to tell a converged zero from a zero
+                # that came from somewhere else.
+                "no_key_reason": str(e),
+                "source": _SOURCE,
+            }
         log.warning("TNO decoy estimate failed (%s); trying fully-asymptotic", e)
         protocol = "BB84 (fully asymptotic)"
         est2 = BB84FullyAsymptoticKeyRateEstimate(detector=detector)
-        params, rate = est2.optimize_rate(attenuation=attenuation_db)
-        mu_opt = float(next(iter(params.values()))[0]) if params else None
+        try:
+            params, rate = est2.optimize_rate(attenuation=attenuation_db)
+            mu_opt = float(next(iter(params.values()))[0]) if params else None
+        except Exception as e2:
+            # The second raise used to propagate untouched, which is how a
+            # converged "no key" reached the UI as "engine_unavailable".
+            if not _is_converged_no_key(e2):
+                raise
+            log.info("TNO fully-asymptotic: no extractable key at %.1f dB (%s)",
+                     attenuation_db, e2)
+            rate, mu_opt, no_key = 0.0, None, str(e2)
 
     rate = max(0.0, float(rate))
-    return {
+    out = {
         "rate_per_pulse": rate,
         "skr_bps": rate * float(cfg.pulse_rate_hz),
         "mu_opt": mu_opt,
         "attenuation_db": attenuation_db,
         "protocol": protocol,
-        "source": "tno.quantum.communication.qkd_key_rate v2.0.4 (Apache-2.0)",
+        "source": _SOURCE,
     }
+    if no_key:
+        out["no_key_reason"] = no_key
+    return out
 
 
 class TNOBackend(KeyProducer):
