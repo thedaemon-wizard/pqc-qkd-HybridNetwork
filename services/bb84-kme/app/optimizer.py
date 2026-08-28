@@ -1,6 +1,8 @@
 """Bayesian-Optimization-driven WCP parameter selection.
 
-Objective: closed-form finite-key SKR (Lo-Ma 2005 + arXiv:2511.21253 — 2026).
+Objective: finite-key SKR (Lo-Ma 2005 decoy bound + Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129).
+The finite-key half was previously credited to arXiv:2511.21253, which
+contains no such formula; see services/bb84-kme/app/backends/_skr.py.
 Method:    scikit-optimize gp_minimize (Gaussian Process + Expected Improvement).
 
 Why BO?  Because the SKR is a smooth, non-convex function of (μ, ν1, ν2, pz),
@@ -12,7 +14,7 @@ Used from POST /api/optimize (WebUI button) and from CI parameter sweeps.
 References:
 - Snoek, Larochelle, Adams "Practical Bayesian Optimization" NeurIPS 2012
 - arXiv:2412.20265 (2024) Bayesian Optimisation for QKD intensity selection
-- arXiv:2511.21253 (2026) Closed-form finite-key SKR
+- Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129, finite-key key length (Eqs. 1-5)
 """
 from __future__ import annotations
 

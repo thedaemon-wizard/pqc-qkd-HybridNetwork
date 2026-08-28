@@ -13,7 +13,8 @@
 #   - fiber attenuation: ITU-T G.652 SMF spec (0.18-0.22 dB/km @1550nm)
 #   - detector η_d:      SNSPD typical 20-90 % (Hadfield Nature Photonics 2009)
 #   - dark count:        SNSPD typical 10-1000 Hz
-#   - decoy intensities: Lo-Ma-Chen PRL 94 230504 (2005), arXiv:2511.21253 (2026)
+#   - decoy intensities: Lo-Ma-Chen PRL 94 230504 (2005)
+#   - finite-key:        Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129
 #   - f_EC:              Cascade efficiency 1.10-1.20 (Brassard-Salvail 1994)
 #   - misalignment e_d:  typical 0.5-1.5 % polarisation drift
 # ================================================================
@@ -46,10 +47,34 @@ source:
   intensity_decoy_1_nu1: 0.1
   intensity_decoy_2_nu2: 0.0
   basis_bias_pz: 0.5                     # symmetric BB84
+  # Intensity-choice probabilities. Required by the Lim et al. finite-key
+  # analysis and NOT cosmetic: tau_n = sum_k p_k e^-k k^n / n! depends on them,
+  # and the Hoeffding deviation is divided by p_k, so a rare intensity is
+  # penalised in proportion to how rarely it is sent. Must sum to 1.
+  prob_signal_mu: 0.70
+  prob_decoy_1_nu1: 0.15
+  prob_decoy_2_nu2: 0.15
 
 protocol:
-  block_size_N: 1000000000               # finite-key block 1e9 symbols
-  security_epsilon: 1.0e-10              # composable security
+  # PULSES SENT by Alice, all bases and all intensities, detected or not.
+  #
+  # The name is kept for compatibility but the meaning is now pinned, because
+  # it was ambiguous and the ambiguity is worth 100+ km. In Lim et al. this N
+  # appears in exactly ONE place -- the final division rate = ell / N -- and in
+  # no bound. The statistics are driven by the DETECTION counts n_X, n_Z, m_Z,
+  # which are channel-dependent. Reading this as Bob's post-processing block
+  # (n_X) rather than Alice's pulses differs by ~550x at 50 km and moves the
+  # zero-crossing from ~98 km to ~205 km.
+  block_size_N: 1000000000               # pulses sent (1e9)
+  # eps_sec: the SECRECY parameter. Lim supp. Eq. (14) composes it from seven
+  # terms; setting them all equal gives eps_sec = 21 * eps, which is why the
+  # key length carries 6*log2(21/eps_sec).
+  security_epsilon: 1.0e-10              # eps_sec (composable secrecy)
+  # eps_cor: the CORRECTNESS parameter -- the error-verification hash collision
+  # probability. A distinct quantity from eps_sec, and previously absent
+  # entirely, which meant the protocol was eps_cor-correct for no stated value.
+  # Total protocol security is eps_sec + eps_cor.
+  correctness_epsilon: 1.0e-15
   ec_efficiency_f: 1.16                  # Cascade
   # NOT the Lo-Ma bound, which is what this line used to say. 0.11 is the
   # Shor-Preskill root of 1 - 2*h2(e) = 0 (computed: 11.003 %), which holds

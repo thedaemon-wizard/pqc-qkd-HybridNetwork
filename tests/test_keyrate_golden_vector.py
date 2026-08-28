@@ -156,10 +156,27 @@ def test_rate_is_zero_when_qber_exceeds_the_bound():
     assert rate == 0.0
 
 
-def test_finite_key_penalty_shrinks_with_block_size():
-    """The correction goes as sqrt(2/N), so it must fall as N grows."""
-    eps = 1e-10
-    p_small = _skr.finite_key_penalty(10**6, eps)
-    p_large = _skr.finite_key_penalty(10**9, eps)
-    assert p_small > p_large > 0.0
-    assert p_small / p_large == pytest.approx(math.sqrt(1000.0), rel=1e-6)
+def test_more_pulses_never_lowers_the_finite_key_rate():
+    """Replaces test_finite_key_penalty_shrinks_with_block_size.
+
+    `finite_key_penalty` no longer exists. It was a channel-independent
+    constant subtracted from a rate, and the shape it produced -- a straight
+    ~25 km per decade of N with no saturation -- would have claimed key past
+    500 km at N = 1e30, beyond the distance where the asymptotic GLLP rate is
+    identically zero. Its ratio-of-sqrt assertion could only ever have checked
+    that sqrt is sqrt.
+
+    The property worth keeping is monotonicity, which is physical: more data
+    can never reduce the extractable key. It now has to hold for the real Lim
+    et al. estimator, where N enters through the detection counts and the decoy
+    inversion rather than as a single additive term -- a much harder thing to
+    satisfy by accident.
+    """
+    eta = _skr.total_transmittance(0.2, 0.2, 50.0)
+    rates = [
+        _skr.skr_finite(Y0=1e-7, eta_total=eta, e_d=0.015, mu=0.5, nu1=0.1,
+                        nu2=0.0, f_EC=1.16, eps=1e-10, N=int(10 ** e))
+        for e in range(7, 14)
+    ]
+    assert rates == sorted(rates), rates
+    assert rates[-1] > rates[0], "the rate did not grow with N at all"
