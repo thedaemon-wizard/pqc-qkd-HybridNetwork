@@ -16,10 +16,21 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/../src/lib/sim/generated/bb84KernelWasm.ts"
 IMAGE="rust:1.88-alpine"
 
-docker run --rm -v "$HERE/bb84:/w" -w /w "$IMAGE" sh -c '
+# Read-only source mount, and cargo's scratch tree kept INSIDE the container.
+#
+# A first version mounted the crate read-write and let cargo write `target/`
+# into the host checkout. Two things went wrong: the container runs as root, so
+# the artefacts were root-owned and could not be cleaned without Docker, and
+# they were untracked-but-present, which made `git pull` abort on a clean
+# checkout. Thirteen of them reached `main` before this was noticed.
+#
+# CARGO_TARGET_DIR points at container-local scratch, so nothing is written to
+# the host except the wasm this script deliberately captures on stdout.
+docker run --rm -v "$HERE/bb84:/src:ro" -w /build "$IMAGE" sh -c '
+  cp -r /src/. /build/
   rustup target add wasm32-unknown-unknown >/dev/null 2>&1
-  cargo build --release --target wasm32-unknown-unknown >/dev/null
-  cat target/wasm32-unknown-unknown/release/bb84_kernel.wasm
+  CARGO_TARGET_DIR=/build/target cargo build --release --target wasm32-unknown-unknown >/dev/null
+  cat /build/target/wasm32-unknown-unknown/release/bb84_kernel.wasm
 ' > "$HERE/bb84_kernel.wasm"
 
 BYTES=$(wc -c < "$HERE/bb84_kernel.wasm")
