@@ -116,8 +116,25 @@ CONTAINER_CONTROL_ENABLED = (
 
 @app.middleware("http")
 async def demo_rate_limit(request, call_next):
-    """Per-IP token-bucket on POST requests, active only in DEMO_MODE."""
-    if DEMO_MODE and request.method == "POST":
+    """Per-IP token-bucket on POST requests. ALWAYS ON.
+
+    This was gated on DEMO_MODE. The public demo runs with DEMO_MODE unset --
+    `GET /api/config` returns `{"demo_mode": false, "rate_limit": null}` -- so
+    on the one host that faces the internet, the limiter was inert.
+
+    That is backwards. DEMO_MODE exists to REMOVE capability (container
+    control, privileged nodes); it is not a statement that a host is exposed.
+    A rate limit is cheap on a private host and essential on a public one, and
+    tying it to a variable that is off in production means the protection is
+    absent exactly where it is needed.
+
+    Measured before this change: `POST /api/sim/optimize` (now deleted) cost
+    14.6 s of server CPU per unauthenticated request with no throttle at all.
+
+    The name is kept because DEMO_RATE_MAX / DEMO_RATE_WINDOW_S are the
+    documented env vars and renaming them would break deployments for nothing.
+    """
+    if request.method == "POST":
         ip = request.client.host if request.client else "unknown"
         now = time.monotonic()
         tokens, last = _rate_state.get(ip, (float(DEMO_RATE_MAX), now))
@@ -126,7 +143,7 @@ async def demo_rate_limit(request, call_next):
         if tokens < 1.0:
             _rate_state[ip] = (tokens, now)
             return JSONResponse(
-                {"detail": "rate limit exceeded (demo mode)"}, status_code=429)
+                {"detail": "rate limit exceeded"}, status_code=429)
         _rate_state[ip] = (tokens - 1.0, now)
     return await call_next(request)
 
@@ -148,8 +165,14 @@ async def config() -> dict[str, Any]:
     return {
         "demo_mode": DEMO_MODE,
         "container_control": CONTAINER_CONTROL_ENABLED,
-        "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S}
-        if DEMO_MODE else None,
+        # Reported unconditionally, because the limiter now runs
+        # unconditionally. This was `... if DEMO_MODE else None`, which paired
+        # with the old DEMO_MODE-gated middleware -- both off together, so the
+        # field was at least honest. Leaving it gated after making the limiter
+        # always-on would have made /api/config report "no rate limit" on a
+        # host that has one, which is the shape of claim this project keeps
+        # removing. scripts/verify-demo-hardening.sh reads this field.
+        "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S},
     }
 
 
@@ -567,14 +590,16 @@ async def sim_params_reset_proxy():
     return _fanout_result(outcomes)
 
 
-@app.post("/api/sim/optimize")
-async def sim_optimize_proxy():
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{KME_A_URL}/sim/optimize")
-        return r.json()
-
-
-# ----------------------- PQC Validator proxy -----------------------
+# `POST /api/sim/optimize` was here. Deleted, not disabled.
+#
+# It proxied the KME's Bayesian optimiser (skopt gp_minimize, 50 evaluations).
+# Measured against the live public demo: 14.6 s of server CPU per request,
+# unauthenticated, and the per-IP limiter above was inert because the host runs
+# with DEMO_MODE unset. Nothing called it -- a repo-wide grep found only the two
+# route definitions and two ARCHITECTURE.md diagram lines -- and /physics does
+# its mu/nu optimisation as a client-side grid search (PhysicsParams.tsx).
+#
+# So: a dead endpoint that was also the cheapest way to exhaust the box.
 @app.get("/api/pqc/algorithms")
 async def pqc_algos():
     try:
