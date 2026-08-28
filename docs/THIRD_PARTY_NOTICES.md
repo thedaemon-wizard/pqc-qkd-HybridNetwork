@@ -37,6 +37,80 @@ Each retains its original copyright notice and license terms.
 | `qkd-kem-provider` (qursa-uc3m) | MIT | UC3M / Vigo (QURSA) | reference | 2025-06; oqs-provider fork hybridising PQ KEMs with QKD — listed for the crypto-agility roadmap |
 | `qkd-etsi-api-c-wrapper` (qursa-uc3m) | MIT | UC3M / Vigo (QURSA) | reference | 2024-11; C wrapper for ETSI 004/014 — listed for the crypto-agility roadmap |
 
+## Submodule currency, and how it was checked
+
+Verified 2026-08-28 by querying each upstream directly with
+`git ls-remote --tags`, not from memory or from a package index.
+
+**Five pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
+`liboqs` 0.16.0, `openQKDsecurity` v2.2.0, `rosenpass` v0.2.3,
+`tno-qkd-key-rate` v2.0.4. `strongswan` is on the annotated `6.0.7`.
+
+**Four upstreams publish no semver tags at all**, so "behind" has no meaning
+for them: `PQClean`, `qkd-pqc-paper-supplementary`, `qkd_kme_server`,
+`qkdnetsim`.
+
+### Three traps in reading this, each of which produced a wrong answer first
+
+**1. Sorting tags naively picks nonsense.** Filter to `vX.Y.Z` before
+comparing, or the "latest tag" comes out as `round3` for PQClean,
+`nist-branch-snapshot-2018-11` for liboqs, `ietf116` for oqs-provider and
+`6.0dr18` for strongSwan.
+
+**2. A newer tag can be an older tree.** `wgephemeralpeer` looks behind
+`v1.0.6`, and moving to it would go back **fifteen months**:
+
+| | commit | date |
+|---|---|---|
+| our pin | `0080bf8` | **2026-05-08** |
+| `v1.0.6` | `8795a5a` | **2025-02-03** |
+
+`git merge-base --is-ancestor` says v1.0.6 is **not** a descendant of the pin --
+they are divergent lines. Which means the third trap:
+
+**3. Commit counts across divergent lines do not tell you which is newer.**
+`git rev-list --left-right --count` reports 1 / 69 here, which reads as "the tag
+is 69 ahead" and is exactly backwards: those 69 are older commits on a line we
+are not on. **Use dates and ancestry, not counts.** An earlier audit of this
+same submodule reported "our pin is 45 commits ahead of v1.0.6" -- also derived
+from counts, also wrong in its number, and right only by accident in its
+conclusion.
+
+### The pins that are not on a tag, and why each stays
+
+Deliberately not on a tag, one paragraph each. (Written as prose rather than a
+table: `tests/test_notices_match_the_pins.py` keys off any row whose first cell
+is a submodule name, and a second table of the same shape silently overrode the
+canonical one above -- it caught that on the first run of this section.)
+
+- **oqs-provider**, pin `5fd81fb`. Tag `0.11.0` is a **downgrade in
+  substance**: `git rev-list --left-right --count` measures **23 / 2**, so
+  moving to it loses 23 commits and gains 2. The pin also carries the
+  `Using with LibOQS 0.16.0` section that 0.11.0 predates, and `Makefile`
+  builds it against exactly that liboqs pin.
+
+- **wgephemeralpeer**, pin `0080bf8`. Tag `v1.0.6` is fifteen months older --
+  see the dates above.
+
+- **strawberryfields**, pin `162125d8`. Upstream **archived**. The pin is the
+  final `master` commit, ahead of the last tag `v0.23.0`. Nothing newer exists.
+
+- **arnika**, pin `9d44332`, on `main`. The `v1.0.1` tag is a **divergent
+  line**, not a newer release. Both of its security fixes
+  (GHSA-rc6v-5rmx-w5mv, and removing `InsecureSkipVerify`) are present on
+  `main` as re-applied changes: `config/config.go` rejects a PSK file looser
+  than 0600, and `repositories/kms.go` carries the removal comment. No security
+  gap from staying.
+
+### One genuine candidate, deliberately not taken
+
+`SeQUeNCe` is pinned at `v1.0.0` and `v1.1.0` exists. It is an **incomplete
+release**: at that tag `pyproject.toml` still reads `version = "1.0.0"`, there
+is no GitHub Release object, `CHANGELOG.md` has no 1.1.0 entry, and PyPI still
+serves 1.0.0. The tag appears to be a semantic-release run that produced a tag
+without the version-bump commit. Pinning it would ship a tree that
+self-reports the version already pinned. Re-check once the release completes.
+
 ## License compatibility considerations
 
 - **SimQN (GPLv3)** is used as a Python-importable library inside `services/bb84-kme`.
