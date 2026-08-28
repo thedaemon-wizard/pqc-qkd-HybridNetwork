@@ -51,8 +51,21 @@ def asymptotic_skr_per_pulse(
     # why 301 tests passed: every case pinned nu2 = 0.0. The optimiser grid in
     # config/qkd_params.yaml does search nu2 = 0.01, and /physics exposes nu2
     # as an editable field.
+    # Ma et al. Eq. (13) is the validity condition for the Eq. (18) bound:
+    #
+    #     0 <= nu2 < nu1     and     nu1 + nu2 < mu
+    #
+    # Testing `denom <= 0` is NOT equivalent. denom factorises as
+    # (nu1 - nu2) * (mu - nu1 - nu2), so it is also POSITIVE when BOTH factors
+    # are negative -- i.e. when both halves of Eq. (13) are violated at once.
+    # Reachable through the editable nu2 field on /physics: mu = 0.5,
+    # nu1 = 0.1, nu2 = 0.45 gives denom = +0.0175, sails past the old guard,
+    # and returns 1.4912e-02 against a legitimate 1.2334e-02 -- a 21 %
+    # overestimate with no theorem behind it, displayed as a secret-key rate.
+    if not (0.0 <= nu2 < nu1 and nu1 + nu2 < mu):
+        return 0.0
     denom = mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2
-    if denom <= 0:
+    if denom <= 0:      # unreachable given Eq. (13) above; kept as a divisor guard
         return 0.0
     Y1_L = (mu / denom) * (
         Q_nu1 * math.exp(nu1) - Q_nu2 * math.exp(nu2)
@@ -61,7 +74,25 @@ def asymptotic_skr_per_pulse(
     Y1_L = max(Y1_L, 0.0)
     if Y1_L <= 0 or nu1 <= 0:
         return 0.0
-    e1_U = (E_nu1 * Q_nu1 * math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1)
+    # Ma et al. Eq. (22), the GENERAL two-decoy bound:
+    #
+    #     e1 <= (E_nu1 Q_nu1 e^nu1 - E_nu2 Q_nu2 e^nu2) / ((nu1 - nu2) Y1^L)
+    #
+    # This previously used the Vacuum+Weak form -- Eq. (33), which substitutes
+    # nu2 = 0 and e0 = 1/2 -- while Y1_L above had already been corrected to
+    # the general nu2 form. So the two halves of the same rate assumed
+    # different nu2, the mirror image of the defect fixed on the denominator.
+    # It errs OPTIMISTIC: at the optimiser's own grid point nu2 = 0.01 the rate
+    # came out +0.15 % high, and +0.70 % at nu2 = 0.05.
+    #
+    # At nu2 = 0 the two forms coincide exactly (E_nu2 Q_nu2 -> e0*Y0 = Y0/2),
+    # so the shipped default and the golden vector are unaffected.
+    if nu2 > 0:
+        E_nu2 = qber_Emu(Y0, eta_total, e_d, nu2)
+        e1_num = E_nu1 * Q_nu1 * math.exp(nu1) - E_nu2 * Q_nu2 * math.exp(nu2)
+        e1_U = e1_num / ((nu1 - nu2) * Y1_L)
+    else:
+        e1_U = (E_nu1 * Q_nu1 * math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1)
     e1_U = max(0.0, min(0.5, e1_U))
     Q1 = mu * math.exp(-mu) * Y1_L
     rate = 0.5 * (-Q_mu * f_EC * H2(E_mu) + Q1 * (1.0 - H2(e1_U)))
