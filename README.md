@@ -21,6 +21,10 @@ Reference papers:
   (Sanz et al., CC BY-NC-ND — cited only, not redistributed)
 
 Design documents:
+- [`docs/threat-model.md`](docs/threat-model.md) — **what this defends against
+  and why hybrid**: harvest-now-decrypt-later, Mosca's inequality, the 2026
+  CRQC probability estimates, and the CNSA 2.0 parameter gap this repository
+  does not close
 - [`docs/keyrate.md`](docs/keyrate.md) — the decoy-state BB84 key-rate model,
   derived, with the golden vector CI asserts against
 - [`docs/vici-ppk.md`](docs/vici-ppk.md) — how the QKD key reaches strongSwan
