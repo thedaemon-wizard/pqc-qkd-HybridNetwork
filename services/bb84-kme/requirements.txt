@@ -13,7 +13,16 @@ numpy>=1.26,<2.3
 qutip==5.1.1
 prometheus-client==0.21.1
 aiosqlite==0.20.0
-python-multipart==0.0.20
+# python-multipart was pinned here at 0.0.20 and REMOVED 2026-08-28.
+#
+# It parses multipart form bodies. Nothing in this service accepts one:
+# `grep -rn 'UploadFile\|Form(' services/` returns nothing, and every route
+# takes JSON. FastAPI declares it only under the `standard`, `all` and
+# `standard-no-fastapi-cloud-cli` extras, and this file installs plain
+# `fastapi==0.115.6` with no extra, so nothing pulls it in either.
+#
+# It was carrying two HIGH DoS advisories against 0.0.20
+# (GHSA-5rvq-cxj2-64vf, GHSA-pp6c-gr5w-3c5g) on a parser that never ran.
 pyyaml==6.0.2
 scikit-optimize==0.10.2
 # Strawberry Fields (cvqkd backend) still imports legacy pkg_resources, removed

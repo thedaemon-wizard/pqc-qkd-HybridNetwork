@@ -4,4 +4,19 @@ httpx==0.28.1
 pydantic==2.10.4
 docker==7.1.0
 websockets==13.1
-cryptography==44.0.0
+# cryptography was pinned here at 44.0.0 and REMOVED 2026-08-28.
+#
+# Nothing imported it -- `grep -rn 'from cryptography\|import cryptography'
+# services/` returns nothing -- and no other requirement declares it: checked
+# the published metadata of fastapi, uvicorn, httpx, pydantic, docker and
+# websockets, none of which lists cryptography in requires_dist.
+#
+# It was carrying four HIGH advisories against 44.0.0:
+#   GHSA-g6cj-pr64-35w5  PKCS#7 Bleichenbacher oracle   (patched 50.0.0)
+#   GHSA-jwv3-5hgf-82ww                                 (patched 49.0.0)
+#   GHSA-537c-gmf6-5ccf  vulnerable OpenSSL in wheels   (patched 48.0.1)
+#   GHSA-r6ph-v2qm-q3c2                                 (patched 46.0.5)
+#
+# Removing beats bumping: a six-major upgrade of a package nothing uses is
+# risk with no benefit, and the advisories go away entirely rather than being
+# chased. If a future change needs it, add it back with a reason.
