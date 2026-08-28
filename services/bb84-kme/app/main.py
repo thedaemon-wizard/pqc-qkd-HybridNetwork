@@ -27,7 +27,7 @@ from prometheus_client import (
 )
 from pydantic import BaseModel
 
-from . import config_loader, etsi014, logging_setup, optimizer
+from . import config_loader, etsi014, logging_setup
 from .keypool import KeyPool
 
 log = logging_setup.configure(os.environ.get("SAE_ID", "bb84-kme").lower())
@@ -377,19 +377,18 @@ async def keyrate_crosscheck():
     }
 
 
-@app.post("/sim/optimize")
-async def sim_optimize():
-    result = await asyncio.to_thread(optimizer.optimize_from_yaml)
-    return {
-        "method": result.method,
-        "mu": result.mu, "nu1": result.nu1, "nu2": result.nu2, "pz": result.pz,
-        "skr_per_pulse": result.skr_per_pulse,
-        "n_calls": result.n_calls,
-        "history_len": len(result.history),
-    }
-
-
-# ------------------------- WebSocket frames -------------------------
+# `POST /sim/optimize` was here. The ROUTE is deleted; `app/optimizer.py` is not.
+#
+# The DoS surface was the unauthenticated HTTP entry point, not the maths.
+# skopt gp_minimize with 50 evaluations, reachable through the webui-backend
+# proxy by any caller, 14.6 s of CPU per request measured on the live public
+# demo -- and no caller anywhere in the repository. /physics does the same job
+# as a client-side grid search.
+#
+# `optimize_from_yaml()` stays importable for offline use: it is exercised by
+# tests/test_backend_cross_qber.py and documented in docs/phases.md. Removing
+# the module too would have deleted a working research capability to fix an
+# exposure that deleting one route already fixes.
 @app.websocket("/ws/frames")
 async def ws_frames(ws: WebSocket) -> None:
     await ws.accept()
