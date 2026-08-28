@@ -106,3 +106,54 @@ one-variable change. Stated as available, not as done.
 | CRQC probability 28–49 % in 10 years, 51–70 % in 15; 34 % (2024) to 49 % (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
 | Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
 | CNSA 2.0 algorithms and dates | NSA CNSA 2.0 FAQ and transition guidance; see also [thequantuminsider.com, 2026-05-08](https://thequantuminsider.com/2026/05/08/post-quantum-migration-timelines-government-industry-impact/) |
+
+
+## 7. Relationship to QCI-CAT, and what this repository does not implement
+
+`submodules/arnika`'s README states that arnika was developed within the EU
+EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
+(<https://qci-cat.at/hsm-backup-using-qkd>). Because this repository vendors
+arnika and cites that lineage, a reader could reasonably assume it implements
+that use case. It does not, and the difference is worth stating precisely.
+
+**What QCI-CAT's use case is**, from its own page (reviewed 2026-08-28):
+cryptographic material is transferred from a Hardware Security Module to a
+**backup HSM** over a VPN whose link is QKD-protected. The specific link being
+protected is **HA partition synchronisation / cloning** between two HSMs, and a
+**Demo App** exercises typical operations — signing key material — through the
+HSMs' **PKCS#11** interface. The page names ETSI 014 integration into
+conventional VPN frameworks explicitly.
+
+**What this repository shares with it:**
+
+| Component | QCI-CAT use case | Here |
+|---|---|---|
+| ETSI GS QKD 014 key delivery | yes | `services/bb84-kme/app/etsi014.py` |
+| QKD-protected VPN link | yes | WireGuard and strongSwan IPsec lanes |
+| Key control fetching QKD material and installing it | yes (arnika) | same component, vendored |
+
+**What it does not:**
+
+| Component | QCI-CAT use case | Here |
+|---|---|---|
+| Hardware Security Modules | yes | **none** |
+| PKCS#11 interface | yes | **none** — `grep -rl 'pkcs11\|PKCS#11'` across the tree returns nothing |
+| HA partition synchronisation / cloning | yes, the actual payload | **none** |
+| Real QKD hardware | yes | **no** — simulated, see `docs/LIMITATIONS.md` |
+
+So the honest statement of scope is: **this project implements the transport
+half of that architecture and none of the HSM half.** Its claim is "a WireGuard
+or IPsec key was rotated from QKD-derived material". QCI-CAT's is "HSM key
+material crossed a QKD-protected link". The first does not imply the second.
+
+**A note on how not to close that gap.** SoftHSM2 emulates a PKCS#11 surface,
+which would make a Demo App runnable, but it does not implement HA partition
+cloning and has no cross-instance replication — the very thing the use case is
+about. Standing one up and calling the result "HSM backup over QKD" would
+manufacture exactly the overstatement this document exists to prevent.
+
+**Licence position.** qci-cat.at publishes no licence terms: the site's footer
+"LEGAL NOTICE" link returns 404 and only a privacy page exists (checked
+2026-08-28). Nothing from it is reproduced here — no text, no diagram. The use
+case is described in this project's own words and cited by URL, which is what
+the absence of stated terms permits.
