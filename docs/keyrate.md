@@ -239,8 +239,13 @@ Being explicit, since the WebUI presents these numbers as physics:
   no real leakage is measured. $f_{\mathrm{EC}}$ is an assumed constant.
 - **Privacy amplification** uses a Toeplitz hash, but the admission test is a
   fixed margin rather than a leftover-hash-lemma bound.
-- **Coherent attacks** are covered only insofar as the GLLP bound covers them
-  asymptotically; there is no composable security accounting.
+- **Coherent attacks** are covered by the GLLP bound asymptotically. The
+  finite-key half now DOES carry composable accounting -- Lim et al. track
+  $`\varepsilon_{\text{sec}}`$ and $`\varepsilon_{\text{cor}}`$ separately and
+  the key length subtracts both -- so the blanket "there is no composable
+  security accounting" that stood here is no longer true. What remains is that
+  the counts are expected rather than observed (section 5), which is a
+  different limitation and does not make the accounting absent.
 
 ---
 

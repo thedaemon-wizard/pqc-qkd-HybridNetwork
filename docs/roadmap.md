@@ -29,10 +29,10 @@ Implementation gaps are tracked separately, under "Status" below.
 | Gap | Consequence |
 |---|---|
 | No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. `f_EC` is an assumed constant, and no leakage is measured. |
-| First-order finite-key term only | Not a composable security proof. See [`keyrate.md`](keyrate.md) section 5. |
+| ~~First-order finite-key term only~~ **CLOSED 2026-08-28** | Was "not a composable security proof". It now is one: Lim et al. PRA 89, 022307 (2014) with eps_sec and eps_cor tracked separately and a key LENGTH in bits. See [`keyrate.md`](keyrate.md) section 5. The residual caveat is different in kind and is stated there -- the counts fed to the estimators are EXPECTED under the channel model, not observed, so the output is an expected key length and the eps_sec guarantee does not attach to a simulated number. |
 | Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
 | Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
-| RFC 9867 unavailable | **No open-source IKEv2 implementation has it** -- strongSwan marks it unsupported in its own features table, and Libreswan HEAD has no reference either, despite Libreswan 5.4 shipping ML-KEM in `IKE_SA_INIT` and `IKE_INTERMEDIATE`. Consuming fresh QKD material therefore needs a full reauthentication per rotation. Not a matter of waiting for one vendor. |
+| RFC 9867 not available on this lane | Stated as two reproducible observations rather than the flat "no open-source IKEv2 implementation has it" that stood here -- that claim is not checkable, and the supporting one ("strongSwan marks it unsupported in its own features table") pointed at a file that is **not in the pinned tree**: it lives in the separate `strongswan/strongswan-docs` repository. What can be established: (1) `USE_PPK_INT` (16445) and `PPK_IDENTITY_KEY` (16446) appear nowhere under `submodules/strongswan/src/`, and **16444 is the highest Status Type** in `notify_payload.h`, so they sit immediately above the top of the range; (2) the `IKE_SA_INIT` response on this lane carries `N(USE_PPK)`, and RFC 9867 §3.1 has a responder return either that or `USE_PPK_INT`, never both. Both are pinned by `tests/test_claims_about_the_pinned_strongswan_hold.py`. Consuming fresh QKD material therefore needs a full reauthentication per rotation. See [`vici-ppk.md`](vici-ppk.md). |
 | ETSI `key_ID` not bound to the ciphertext | arXiv:2607.06602 binds it into the AEAD AAD; neither arnika nor this project does. |
 
 ## A. Shor's Algorithm Attack Simulator
@@ -461,12 +461,32 @@ product name, so these survive every green CI run.
   ends on different QKD keys, which with the PQC halves identical is the whole
   defect.
 
-  **That is not yet demonstrated.** The 2026-08-23 run showed two ids on alice
-  absent from bob's list, which looks conclusive and is not: `tail` truncates,
-  so "bob never received it" and "the tail cut it off" produce the same output.
-  Only one id carried role context and that one was healthy. CI now captures
-  `SND`/`RCV`/`REQ` with the interval and role, so the next failing run
-  distinguishes the two. The 20 % threshold is deliberately unchanged.
+  **DEMONSTRATED 2026-08-28, and it is not a `key_id` delivery gap.** The
+  2026-08-23 run showed two ids on alice absent from bob's list, which looked
+  conclusive and was not: `tail` truncates, so "bob never received it" and "the
+  tail cut it off" produce the same output. With `SND`/`RCV`/`REQ` captured, the
+  failing runs since then carry the actual cause:
+
+  ```
+  [ERROR] failed to retrieve QKD key for key_id <uuid> from
+          http://bb84-kme-b:8080/api/v1/keys/ALICE,
+          http: read on closed response body
+  ```
+
+  The `[RCV]` lines prove the id WAS received, so the UDP exchange is fine. What
+  fails is the subsequent ETSI 014 fetch, with a Go `net/http` response-body
+  lifecycle error -- the body is read after being closed. The BACKUP therefore
+  has an id it cannot resolve, holds different key material, and the
+  reauthentication MACs mismatch. That is the whole defect, and it is upstream
+  in arnika's HTTP client, not in this project's key delivery.
+
+  Reproduced five times on 2026-08-28 with an identical signature, including on
+  pull requests that touch only frontend TypeScript and so cannot affect the
+  IPsec lane -- which is itself evidence that it is not caused by anything here.
+  The 20 % threshold is deliberately unchanged: it is catching a real defect.
+
+  **Not yet reported upstream.** Filing it is a public action on someone else's
+  tracker and is awaiting the maintainer's decision.
 - **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
   (2014), arXiv:1311.7129.** This entry previously recorded that a paper was
   cited for a formula it does not contain, and proposed either implementing
