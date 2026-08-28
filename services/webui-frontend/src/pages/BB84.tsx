@@ -173,7 +173,14 @@ export default function BB84() {
               annotations: [{
                 xref: "paper", x: 1, xanchor: "right",
                 y: qberThreshold, yanchor: "bottom", showarrow: false,
-                text: `abort threshold ${(qberThreshold * 100).toFixed(1)} %`,
+                // "hard abort ceiling", not "abort threshold". Crossing this line
+                // aborts, but staying under it does NOT mean a round is accepted:
+                // the backend also requires a positive modelled key rate, which
+                // vanishes at QBER 1.505 % (Lim finite-key, N = 1e9) -- far below.
+                // config/qkd_params.yaml states this; the chart did not, so a
+                // reader watching Eve push QBER to 0.257 with nothing happening
+                // had no way to know which of the two conditions this line is.
+                text: `hard abort ceiling ${(qberThreshold * 100).toFixed(1)} % (Shor-Preskill; not the accept criterion)`,
                 font: { color: "#9aa9d8", size: 10 },
               }],
             }}
