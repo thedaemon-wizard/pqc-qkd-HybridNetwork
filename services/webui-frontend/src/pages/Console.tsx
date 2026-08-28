@@ -14,6 +14,31 @@ const NAMES = [
   "alice", "bob", "bb84-kme-a", "bb84-kme-b", "alice-ipsec", "bob-ipsec",
 ];
 
+/**
+ * Remove SGR colour codes before the log reaches the screen or an export.
+ *
+ * arnika writes ANSI escapes, and `/api/logs/{name}` passes the container's
+ * stdout through verbatim -- the live endpoint returns, literally:
+ *
+ *   [INFO] \u001b[36mPRIMARY[1]\u001b[0m [OK] HKDF derivation completed
+ *
+ * This page's entire content is that string, so it rendered `[36mPRIMARY[1][0m`
+ * as visible text, and the exported log carried the escapes into a file
+ * offered as evidence. Stripping in ONE place would not have been enough: the
+ * render and the export read the same state, so both are fixed by cleaning it
+ * on arrival.
+ *
+ * Stripping rather than rendering as colour: the codes carry no information the
+ * text does not already have -- arnika prefixes every line with its role
+ * (PRIMARY/BACKUP) in plain text -- and a log offered as a citable artefact is
+ * better as plain text.
+ */
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+
+export function stripAnsi(s: string): string {
+  return s.replace(ANSI_SGR, "");
+}
+
 export default function Console() {
   const [active, setActive] = useState("alice");
   const [log, setLog] = useState("");
@@ -24,7 +49,7 @@ export default function Console() {
       while (!stop) {
         try {
           const r = await getLogs(active, 400);
-          setLog(r.log || "");
+          setLog(stripAnsi(r.log || ""));
         } catch (e) {
           setLog(`error: ${e}`);
         }

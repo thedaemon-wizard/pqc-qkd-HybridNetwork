@@ -6,6 +6,9 @@ import KPI from "../components/KPI";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 
+/** The KME this page reports. Named once, used everywhere, exported. */
+const BENCH_NODE = "alice" as const;
+
 export default function Benchmarks() {
   const [roundMsHist, setRoundMsHist] = useState<number[]>([]);
   const [qberHist, setQberHist] = useState<number[]>([]);
@@ -15,6 +18,17 @@ export default function Benchmarks() {
   // question this page answers.
   const [accepted, setAccepted] = useState<number | null>(null);
   const [aborted, setAborted] = useState<number | null>(null);
+  // Provenance, which /api/stats has published all along and this page threw
+  // away. The service says whether the last round was SIMULATED
+  // (`last_round_synthetic`), whether the rate is modelled rather than measured
+  // (`skr_provenance`), and since the config-generation change whether that
+  // rate still reflects the current parameters (`skr_reflects_current_config`).
+  // None of it reached the screen or the export, so the page laundered a
+  // synthetic, possibly stale model into what reads as a measurement.
+  const [prov, setProv] = useState<{
+    synthetic: boolean | null; current: boolean | null;
+    modelledBps: number | null; provenance: string | null;
+  }>({ synthetic: null, current: null, modelledBps: null, provenance: null });
 
   // Round counter of the sample already plotted, so a poll that brings no new
   // round adds no point.
@@ -28,9 +42,22 @@ export default function Benchmarks() {
       // `rounds_accepted` is simply absent. `?? 0` reported that absence as a
       // measurement of zero -- the very substitution the comment below rejects
       // for QBER. Same rule, same helper.
-      const a = s?.alice ?? {};
+      // NAMED, not implicit. The two KMEs diverge -- measured on the live demo
+      // 2026-08-28, alice had run 36 rounds and bob 6 -- so plotting one
+      // without saying which is a chart of an unidentified node.
+      const a = s?.[BENCH_NODE] ?? {};
       setAccepted(reading(a.rounds_accepted));
       setAborted(reading(a.rounds_aborted));
+      setProv({
+        synthetic: typeof a.last_round_synthetic === "boolean"
+          ? a.last_round_synthetic : null,
+        current: typeof a.skr_reflects_current_config === "boolean"
+          ? a.skr_reflects_current_config : null,
+        modelledBps: typeof a.modelled_skr_bps === "number"
+          ? a.modelled_skr_bps : null,
+        provenance: typeof a.skr_provenance === "string"
+          ? a.skr_provenance : null,
+      });
 
       // Append per ROUND, not per poll.
       //
@@ -72,12 +99,47 @@ export default function Benchmarks() {
         <ExportToolbar
           name="benchmarks"
           logService="alice"
-          jsonProvider={() => ({ accepted, aborted, roundMsHist, qberHist })}
+          jsonProvider={() => ({
+            // The node and the provenance travel WITH the numbers. An export
+            // of four arrays with no node, no backend and no synthetic flag is
+            // not citable evidence of anything.
+            node: BENCH_NODE,
+            accepted, aborted, roundMsHist, qberHist,
+            last_round_synthetic: prov.synthetic,
+            modelled_skr_bps: prov.modelledBps,
+            skr_provenance: prov.provenance,
+            skr_reflects_current_config: prov.current,
+          })}
           csvProvider={() => roundMsHist.map((ms, i) => ({
             i, round_ms: ms, qber: qberHist[i] ?? null,
           }))}
         />
       </div>
+
+      <p style={{ color: "#9aa9d8", fontSize: 12, maxWidth: 820, marginTop: 0 }}>
+        Counters for <b>{BENCH_NODE}</b>. The two KMEs run independently and
+        their round counts diverge, so this is one node, named, not a total.{" "}
+        {prov.synthetic === true && (
+          <b style={{ color: "#f5a623" }}>
+            The last round was SIMULATED, not measured — the backend
+            under-produced and the stream was synthesised from the configured
+            physics.{" "}
+          </b>
+        )}
+        {prov.modelledBps !== null && (
+          <>
+            The rate below it, {prov.modelledBps.toExponential(3)} bps, is{" "}
+            {prov.provenance ?? "modelled from config"}
+            {prov.current === false && (
+              <b style={{ color: "#f5a623" }}>
+                {" "}and predates the current parameters — no round has run
+                since they changed
+              </b>
+            )}
+            .
+          </>
+        )}
+      </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
         <KPI label="Rounds accepted" value={accepted ?? "—"} />
