@@ -44,13 +44,11 @@ end-to-end PQC handshake, and a final WireGuard data tunnel.
 
 Triggered by `POST /api/paper-flow/inject-failure {layer}`:
 
-> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
-> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
-> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
-> orchestrators and the REST/WebSocket surface described above have been
-> deleted. The paper budgets survive in
-> `services/webui-backend/app/paper_budgets.py`, which is what
-> `/api/verify/paper-budgets` now reads.
+> **Superseded.** The diagram above describes backend orchestrators and a
+> REST/WebSocket surface that no longer exist -- `/e2e` and `/paper-flow` moved
+> to client-side simulation. The full note, including where the paper budgets
+> went, is in [`ARCHITECTURE.md`](../ARCHITECTURE.md); it was duplicated here
+> word for word, which is two copies of one fact and two places for it to drift.
 
 
 | t (s) | Layer | Description |
