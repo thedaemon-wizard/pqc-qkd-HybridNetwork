@@ -18,9 +18,11 @@ from hashlib import shake_256
 import numpy as np
 
 from ._skr import (
+    accepts_round,
     asymptotic_skr_per_pulse,
     drop_rate_for_simulator,
     qber_Emu,
+    skr_bps_from_config,
     total_transmittance,
 )
 from .base import BackendConfig, KeyProducer, RoundOutcome
@@ -98,7 +100,8 @@ def _run_round_sync(cfg: BackendConfig) -> tuple[bytes, float, int, int]:
             errors += 1
     qber_obs = errors / sifted if sifted > 0 else 1.0
 
-    if sifted < 64 or qber_obs >= cfg.qber_threshold_abort:
+    # `skr_bps > 0` as well as the QBER threshold -- see accepts_round().
+    if sifted < 64 or not accepts_round(qber_obs, skr_bps_from_config(cfg), cfg):
         return b"", qber_obs, sifted, n_photons
 
     raw_bits = rng.integers(0, 2, size=sifted, dtype=np.uint8).tobytes()

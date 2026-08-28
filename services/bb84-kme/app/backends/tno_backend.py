@@ -20,7 +20,7 @@ import time
 from typing import Any
 
 from .. import config_loader as cl
-from ._skr import qber_Emu, total_transmittance
+from ._skr import accepts_round, qber_Emu, total_transmittance
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
@@ -114,7 +114,11 @@ class TNOBackend(KeyProducer):
         qber = float(qber_Emu(Y0, eta_total, self.cfg.misalignment_error_ed,
                               self.cfg.intensity_signal_mu))
 
-        accepted = res["rate_per_pulse"] > 0.0 and qber < self.cfg.qber_threshold_abort
+        # This backend already had the two-condition predicate right; it is now
+        # the shared one, so simqn and sequence cannot drift back to a
+        # threshold-only test. Multiplying by pulse_rate_hz changes no sign.
+        accepted = accepts_round(
+            qber, res["rate_per_pulse"] * self.cfg.pulse_rate_hz, self.cfg)
         key_bytes = os.urandom(self.cfg.out_bits_per_key // 8) if accepted else b""
         return RoundOutcome(
             accepted=accepted,

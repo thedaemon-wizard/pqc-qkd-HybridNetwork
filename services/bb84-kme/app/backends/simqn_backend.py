@@ -15,7 +15,12 @@ import os
 import sys
 import time
 
-from ._skr import drop_rate_for_simulator, skr_bps_from_config, total_transmittance
+from ._skr import (
+    accepts_round,
+    drop_rate_for_simulator,
+    skr_bps_from_config,
+    total_transmittance,
+)
 from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
@@ -176,12 +181,13 @@ class SimQNBackend(KeyProducer):
                 backend_meta={"backend": "simqn", "error": str(e)},
             )
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        accepted = bool(key) and qber < self.cfg.qber_threshold_abort
         # Was (sifted / batch_size) * pulse_rate -- a SIFTING fraction, which
         # omits error-correction leakage and privacy amplification entirely and
         # so overstates the rate by more than an order of magnitude. The shared
         # GLLP/Lo-Ma model is pinned by tests/test_keyrate_golden_vector.py.
         skr_bps = skr_bps_from_config(self.cfg)
+        # `skr_bps > 0`, not just the QBER threshold. See accepts_round() below.
+        accepted = bool(key) and accepts_round(qber, skr_bps, self.cfg)
         return RoundOutcome(
             accepted=accepted,
             qber=qber,
