@@ -14,7 +14,10 @@
  */
 import { Bb84Gpu, type Bb84Cfg } from "./bb84Gpu";
 import { Bb84Gl } from "./bb84Gl";
+import { Bb84Wasm } from "./bb84Wasm";
+import { bb84KernelWasm } from "./generated/bb84KernelWasm";
 import { bundledChannel } from "./keyrate";
+import { advanceKeyPool, framesFromGpuRound, type ChannelCfg } from "./bb84Channel";
 
 export interface Bb84Frame {
   i: number; alice_bit: number; alice_basis: number;
@@ -67,6 +70,8 @@ export class Bb84Engine {
   private worker: Worker | null = null;
   private gpu: Bb84Gpu | null = null;
   private gl: Bb84Gl | null = null;
+  private wasm: Bb84Wasm | null = null;
+  private wasmPool = 0;
   private running = false;
   private upgraded = false;
   /** Every tier tried, in order, with the rate it achieved. Surfaced. */
@@ -110,6 +115,7 @@ export class Bb84Engine {
     const target = Math.max(this.workerPps, 1) * UPGRADE_MARGIN;
     const GPU = "WebGPU (compute shader)";
     const GL = "WebGL2 (GPGPU)";
+    const WASM = "WASM (Rust, 907 B)";
 
     try {                                                 // ── WebGPU ──
       const gpu = new Bb84Gpu();
@@ -152,6 +158,35 @@ export class Bb84Engine {
       this.record({ tier: GL, pulsesPerSec: null, adopted: false, error: String(e) });
       console.warn("[bb84] WebGL init/bench failed — investigate before relying on fallback:", e);
     }
+
+    // ── WASM ──
+    //
+    // Last, not first. The GPU tiers can win by a large factor when they win at
+    // all; WASM competes with an already-JIT-compiled hot loop, so it is the
+    // least likely to clear the 15 % margin. Trying it last keeps the common
+    // case cheap. It is here because docs/roadmap.md rejected WASM on bundle
+    // cost without measuring, and the artefact turned out to be 907 bytes.
+    try {
+      const wasm = new Bb84Wasm();
+      if (await wasm.init(bb84KernelWasm())) {
+        const t0 = performance.now();
+        wasm.runRound((Math.random() * 0xffffffff) >>> 0, this.cfg);
+        const dt = Math.max(performance.now() - t0, 1e-3);
+        const pps = Math.round(this.cfg.pulsesPerRound / (dt / 1000));
+        if (pps >= target) {
+          this.record({ tier: WASM, pulsesPerSec: pps, adopted: true });
+          this.adoptWasm(wasm); return;
+        }
+        this.record({ tier: WASM, pulsesPerSec: pps, adopted: false });
+        console.info(`[bb84] WASM ${fmt(pps)} ≤ Worker ${fmt(this.workerPps)} — keeping Worker`);
+      } else {
+        this.record({ tier: WASM, pulsesPerSec: null, adopted: false,
+                      error: "WebAssembly not available in this browser" });
+      }
+    } catch (e) {
+      this.record({ tier: WASM, pulsesPerSec: null, adopted: false, error: String(e) });
+      console.warn("[bb84] WASM init/bench failed — investigate before relying on fallback:", e);
+    }
     // else: keep the CPU Worker (already running)
   }
 
@@ -181,12 +216,63 @@ export class Bb84Engine {
     }
   }
 
+  /**
+   * Adopt the WASM tier.
+   *
+   * Unlike the GPU tiers this one returns only counts, not frames -- the module
+   * allocates nothing and owns no memory, which is why it is 907 bytes. The
+   * frame strip is cosmetic (16 rows), so it keeps coming from the worker's
+   * last update rather than inventing rows the kernel did not produce.
+   */
+  private adoptWasm(wasm: Bb84Wasm) {
+    this.upgraded = true; this.wasm = wasm; this.stopWorker();
+    this.wasmLoop("WASM (Rust, 907 B)");
+  }
+
   private adoptGpu(gpu: Bb84Gpu) {
     this.upgraded = true; this.gpu = gpu; this.stopWorker(); this.gpuLoop("WebGPU (compute shader)");
   }
   private adoptGl(gl: Bb84Gl) {
     this.upgraded = true; this.gl = gl; this.stopWorker();
     this.glLoop("WebGL2 (GPGPU)");
+  }
+
+  /**
+   * The WASM round loop.
+   *
+   * Pool advance goes through the SAME `advanceKeyPool` the worker and both GPU
+   * tiers use, rather than a local accumulation. A first draft kept its own
+   * counter and would have made the key pool depend on which accelerator won a
+   * benchmark -- the one number on this page that must not.
+   *
+   * Frames come from `framesFromGpuRound`, the shared replay helper, for the
+   * same reason the GPU tier uses it: the kernel returns counts only (that is
+   * why it is 907 bytes and allocates nothing), and the 16-row strip is a
+   * cosmetic sample. Replaying it from the seed keeps the rows consistent with
+   * the round that was actually run instead of showing stale worker frames.
+   */
+  private wasmLoop(engine: string) {
+    if (!this.running || !this.wasm) return;
+    try {
+      const seed = (Math.random() * 0xffffffff) >>> 0;
+      const t0 = performance.now();
+      const r = this.wasm.runRound(seed, this.cfg);
+      const dt = Math.max(performance.now() - t0, 1e-3);
+      this.wasmPool = advanceKeyPool(this.wasmPool, r.sifted, r.qber);
+      this.emit({
+        qber: r.qber,
+        pool_size: this.wasmPool,
+        frames: framesFromGpuRound(this.cfg as ChannelCfg, seed,
+                                   this.cfg.pulsesPerRound, 16),
+        engine,
+        pulsesPerSec: Math.round(this.cfg.pulsesPerRound / (dt / 1000)),
+      });
+    } catch (e) {
+      console.warn("[bb84] WASM runRound failed — reverting to Worker:", e);
+      this.revertTier(engine, e);
+      this.wasm = null; this.upgraded = false; this.startWorker(); return;
+    }
+    if (this.running) this.gpuTimer = window.setTimeout(() => this.wasmLoop(engine), 250);
   }
 
   private async gpuLoop(engine: string) {

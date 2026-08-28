@@ -267,6 +267,20 @@ export default function QuantumSecureE2E() {
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
                      gap: 12, marginBottom: 16 }}>
+        {/*
+          These three keep `?? 0` while the rate below uses an em dash, and the
+          inconsistency is deliberate: they are COUNTERS and it is a RATE.
+
+          "No cycle has completed" and "zero cycles have completed" are the same
+          statement, so 0 is true before a run. A rate is a quotient over
+          elapsed time, and before a run there is no interval to divide by --
+          zero would assert a measurement that was never taken. Read together,
+          `0 packets` beside `Throughput —` says exactly what happened.
+
+          Do not "tidy" this into one convention. The rate card carried `?? 0`
+          until 2026-08-28 and that is what made a missing reading look like a
+          measured zero.
+        */}
         <KPI label="Completed cycles" value={state?.completed_cycles ?? 0} />
         <KPI label="Packets encrypted" value={state?.total_packets ?? 0} />
         <KPI label="Bytes encrypted (×10³)"

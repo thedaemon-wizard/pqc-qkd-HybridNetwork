@@ -1,0 +1,17 @@
+[package]
+name    = "bb84_kernel"
+version = "0.1.0"
+edition = "2021"
+# Apache-2.0, matching the repository. No dependencies: see src/lib.rs for why
+# this is `no_std` with a hand-written PRNG rather than `rand` + wasm-bindgen.
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level     = "z"      # size, not speed: the tier only wins if it is small
+lto           = true
+codegen-units = 1
+panic         = "abort"
+strip         = true

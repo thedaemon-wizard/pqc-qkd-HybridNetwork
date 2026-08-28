@@ -75,12 +75,26 @@ describe("the tier benchmark reaches the page", () => {
 
 describe("the record is produced and rendered, not just typed", () => {
   it("every tier outcome is recorded, including the unavailable branch", () => {
-    // Eight sites: WebGPU adopted / slower / unavailable / threw, and the same
-    // four for WebGL2. If any is dropped the panel silently omits a tier.
+    // Four sites per tier -- adopted / slower / unavailable / threw -- across
+    // WebGPU, WebGL2 and WASM. If any is dropped the panel silently omits a
+    // tier, which is the omission this whole file exists to prevent.
     const code = stripComments(SIM);
     const records = code.match(/this\.record\(\{/g) ?? [];
-    expect(records.length).toBe(8);
+    expect(records.length).toBe(12);
     expect(code).toContain('error: "not available in this browser"');
+    expect(code).toContain('error: "WebAssembly not available in this browser"');
+  });
+
+  it("all three accelerator tiers are named and benchmarked", () => {
+    const code = stripComments(SIM);
+    for (const tier of ["WebGPU (compute shader)", "WebGL2 (GPGPU)",
+                        "WASM (Rust, 907 B)"]) {
+      expect(code, `${tier} is not a benchmarked tier`).toContain(tier);
+    }
+    // Each must be compared against the SAME target, so no tier can be adopted
+    // on easier terms than the others.
+    const cmp = code.match(/>= target/g) ?? [];
+    expect(cmp.length).toBe(3);
   });
 
   it("a tier is recorded at most once, whatever throws", () => {

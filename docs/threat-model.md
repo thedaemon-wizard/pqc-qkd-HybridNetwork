@@ -47,8 +47,18 @@ averaged probability of a CRQC within **10 years at 28–49 %**, and within
 seven-year history: the averaged optimistic estimate rose from **34 % in 2024 to
 49 % in 2025**, the sharpest single-year shift the series has recorded, which
 the authors attribute to progress in error correction and logical-qubit storage.
+The pessimistic floor moved with it, from 14 % to 28 %.
 
-Read those as a distribution over expert belief, not a forecast. The honest
+**The panel is not the same panel.** It has shrunk each year — **37 experts in
+2023, 32 in 2024, 26 in 2025** — so a 15-point year-on-year jump is measured
+across a respondent set roughly a fifth smaller than the one it is compared
+against, with no guarantee the departures were random. That does not explain the
+shift away, and the movement is in the same direction on both the optimistic and
+pessimistic ends, which is harder to attribute to composition alone. But a
+year-on-year delta from a changing panel is weaker evidence than the same delta
+from a fixed one, and this document should not borrow strength it does not have.
+
+Read these as a distribution over expert belief, not a forecast. The honest
 statement is that the estimates have compressed, not that a year is known.
 
 ## 4. Why hybrid, specifically
@@ -103,7 +113,7 @@ one-variable change. Stated as available, not as done.
 
 | Claim | Source |
 |---|---|
-| CRQC probability 28–49 % in 10 years, 51–70 % in 15; 34 % (2024) to 49 % (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
+| CRQC probability 28–49 % in 10 years, 51–70 % in 15; optimistic 34 % (2024) to 49 % (2025), pessimistic 14 % to 28 %; panel 37 (2023) / 32 (2024) / 26 (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. Re-verified against the publishers 2026-08-28. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
 | Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
 | CNSA 2.0 algorithms and dates | NSA CNSA 2.0 FAQ and transition guidance; see also [thequantuminsider.com, 2026-05-08](https://thequantuminsider.com/2026/05/08/post-quantum-migration-timelines-government-industry-impact/) |
 
@@ -116,7 +126,7 @@ EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
 arnika and cites that lineage, a reader could reasonably assume it implements
 that use case. It does not, and the difference is worth stating precisely.
 
-**What QCI-CAT's use case is**, from its own page (reviewed 2026-08-28):
+**What QCI-CAT's use case is**, from its own page (re-verified in a browser 2026-08-28; the page's own text confirms HSM-to-backup-HSM over a QKD-protected VPN, ETSI 014 inside conventional VPN frameworks, PKCS#11, HA partition cloning and the Demo App):
 cryptographic material is transferred from a Hardware Security Module to a
 **backup HSM** over a VPN whose link is QKD-protected. The specific link being
 protected is **HA partition synchronisation / cloning** between two HSMs, and a
@@ -152,8 +162,26 @@ cloning and has no cross-instance replication — the very thing the use case is
 about. Standing one up and calling the result "HSM backup over QKD" would
 manufacture exactly the overstatement this document exists to prevent.
 
-**Licence position.** qci-cat.at publishes no licence terms: the site's footer
-"LEGAL NOTICE" link returns 404 and only a privacy page exists (checked
-2026-08-28). Nothing from it is reproduced here — no text, no diagram. The use
-case is described in this project's own words and cited by URL, which is what
-the absence of stated terms permits.
+**Licence position.** Nothing from qci-cat.at is reproduced here — no text, no
+diagram. The use case is described in this project's own words and cited by URL.
+
+That is the right posture regardless of terms, and it is deliberately not
+justified by a claim about what those terms are. An earlier version of this
+paragraph did make such a claim — that the footer "LEGAL NOTICE" link returns
+404 and only a privacy page exists — and it was **false**. Re-checked in a
+browser 2026-08-28:
+
+| link | result |
+|---|---|
+| footer *Legal Notice* → <https://www.ait.ac.at/en/imprint> | **200** |
+| footer *Privacy* → <https://qci-cat.at/privacy/> | 200 |
+| `qci-cat.at/legal-notice` | 404 — but this path is not linked from anywhere |
+
+The 404 came from a guessed path, not from the link the site actually
+publishes. The imprint resolves; its contents could not be read programmatically
+because AIT serves a bot-check to automated fetches, so this document does not
+characterise them either way.
+
+Which leaves the honest position: **the terms are unread, not absent.** Since
+nothing is reproduced, no permission is being relied on and none needs to be
+established.

@@ -4,7 +4,12 @@ Actionable work items beyond the current PoC. The code base must remain stable
 before starting any of these.
 
 Status is stated per item, and reviewed against the implemented tree rather
-than carried forward untouched. Reviewed 2026-08-20.
+than carried forward untouched. Reviewed 2026-08-28.
+
+A header date that trails the entries below it is its own small false
+claim: this line read 2026-08-20 while the file carried items dated the
+21st, 22nd, 23rd and 28th, so a reader checking whether the roadmap had
+kept up would have concluded it had not.
 
 ## Completed since this roadmap was written
 

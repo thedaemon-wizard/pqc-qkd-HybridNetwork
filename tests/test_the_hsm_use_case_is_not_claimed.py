@@ -89,7 +89,45 @@ def test_the_scope_boundary_is_written_down():
 
 
 def test_the_licence_position_is_recorded():
-    """qci-cat.at publishes no terms, so nothing may be reproduced from it."""
+    """The position must rest on what we DO, not on a claim about their terms.
+
+    This test used to require the words "no licence terms" or "publishes no
+    licence", and so pinned a statement that turned out to be false. Checked in
+    a browser 2026-08-28: the footer's *Legal Notice* link points at
+    <https://www.ait.ac.at/en/imprint> and returns **200**. The 404 the document
+    cited came from `qci-cat.at/legal-notice` -- a path the site does not link
+    anywhere, i.e. a guess.
+
+    So the guard was holding a wrong fact in place and would have failed the
+    correction. The invariant worth pinning is the one that needs no reading of
+    anyone else's terms: nothing is reproduced, the use case is in this
+    project's own words, and the source is cited by URL.
+    """
+    low = SCOPE.read_text(encoding="utf-8").lower()
+
+    assert "cited by url" in low, (
+        "the licence paragraph no longer says the source is cited by URL")
+    assert "nothing from qci-cat.at is reproduced" in low, (
+        "the paragraph must state plainly that nothing is reproduced -- that is "
+        "what the position rests on, and the only part under our control")
+
+    for forbidden in ("publishes no licence terms", "publishes no license terms"):
+        assert forbidden not in low, (
+            f"{forbidden!r} is a claim about someone else's site that was "
+            f"measured false once already -- the imprint link resolves. State "
+            f"that the terms are unread, not that they are absent.")
+
+
+def test_the_404_that_was_misattributed_is_recorded_as_such():
+    """Keep the correction, not merely the corrected text.
+
+    A reader who curls `qci-cat.at/legal-notice`, gets 404 and concludes "no
+    terms published" would repeat the original error exactly. The document has
+    to carry why that inference is wrong, not just avoid restating it.
+    """
     txt = SCOPE.read_text(encoding="utf-8")
-    assert "no licence terms" in txt.lower() or "publishes no licence" in txt.lower()
-    assert "cited by URL" in txt or "cited by url" in txt.lower()
+    assert "ait.ac.at/en/imprint" in txt, (
+        "the paragraph no longer names the link that actually resolves")
+    assert "guessed path" in txt.lower() or "not linked from anywhere" in txt.lower(), (
+        "the record of WHY the 404 was misleading is gone; without it the "
+        "correction reads as an unexplained change of mind")
