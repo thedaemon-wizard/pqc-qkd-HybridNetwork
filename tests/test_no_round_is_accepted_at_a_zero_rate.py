@@ -41,6 +41,7 @@ from app.backends._skr import (  # noqa: E402
     accepts_round,
     asymptotic_skr_per_pulse,
     qber_Emu,
+    skr_bps_from_config,
     total_transmittance,
 )
 
@@ -69,8 +70,43 @@ class _Cfg:
     qber_threshold_abort = ABORT
 
 
+class _FullCfg:
+    """The fields skr_bps_from_config reads. Values from the shipped YAML."""
+    detector_efficiency = ETA_DET
+    fiber_attenuation_db_per_km = ATT_DB_KM
+    dark_count_rate_hz = DARK_HZ
+    pulse_rate_hz = PULSE_HZ
+    misalignment_error_ed = E_D
+    intensity_signal_mu = MU
+    intensity_decoy_1_nu1 = ND1
+    intensity_decoy_2_nu2 = ND2
+    ec_efficiency_f = F_EC
+    block_size_N = int(_PROTO["block_size_N"])
+    security_epsilon = float(_PROTO["security_epsilon"])
+    qber_threshold_abort = ABORT
+
+
+def _shipped_bps(km: float) -> float:
+    """Exactly what the backends feed accepts_round.
+
+    THIS is the path production takes. An earlier version of this file called
+    `asymptotic_skr_per_pulse` directly, which is a DIFFERENT curve --
+    skr_bps_from_config uses skr_finite -- so the file passed while asserting a
+    band 160 km from the one the shipped predicate produces. Testing a function
+    production does not call is the defect class this whole suite exists to
+    remove, and it was reintroduced here.
+    """
+    cfg = _FullCfg()
+    cfg.link_length_km = km
+    return skr_bps_from_config(cfg)
+
+
 def _at(km: float) -> tuple[float, float]:
-    """(QBER, rate per pulse) at a link length, from the shipped model."""
+    """(QBER, ASYMPTOTIC rate per pulse) -- the curve the UI displays.
+
+    Kept for the two tests that are about the displayed curve. Anything about
+    ACCEPTANCE must use _shipped_bps.
+    """
     eta = total_transmittance(ETA_DET, ATT_DB_KM, km)
     Y0 = DARK_HZ / PULSE_HZ
     return (
@@ -117,24 +153,60 @@ def test_shor_preskill_is_11_percent_and_is_a_different_number():
 
 
 @pytest.mark.parametrize("km,expect_key", [
-    (10.0, True), (100.0, True), (253.0, True),
-    (254.0, False),      # the dead band: QBER 6.7 % < 11 %, rate exactly 0
-    (260.0, False),
+    (10.0, True), (90.0, True), (93.0, True),
+    (93.3, False),       # the dead band OPENS here, not at 254 km
+    (100.0, False),
+    (150.0, False),
+    (254.0, False),
     (270.0, False),      # past the abort threshold too
 ])
 def test_the_predicate_rejects_the_whole_dead_band(km, expect_key):
-    qber, rate = _at(km)
-    assert accepts_round(qber, rate * PULSE_HZ, _Cfg) is expect_key, (
-        f"L={km} km: QBER {qber:.5f}, rate {rate:.3e}/pulse")
+    """Driven through skr_bps_from_config -- the shipped path."""
+    qber, _ = _at(km)
+    bps = _shipped_bps(km)
+    assert accepts_round(qber, bps, _Cfg) is expect_key, (
+        f"L={km} km: QBER {qber:.5f}, shipped skr_bps {bps:.4e}")
 
 
 def test_qber_alone_would_have_accepted_the_band():
     """Show the old predicate failing, so this file is not vacuous."""
-    for km in (254.0, 256.0, 260.0):
-        qber, rate = _at(km)
-        assert qber < ABORT, "premise: the old QBER-only test passes here"
-        assert rate == 0.0, "premise: but the modelled rate is exactly zero"
-        assert accepts_round(qber, rate * PULSE_HZ, _Cfg) is False
+    for km in (100.0, 150.0, 200.0, 254.0):
+        qber = _at(km)[0]
+        bps = _shipped_bps(km)
+        assert qber < ABORT, f"premise: the old QBER-only test passes at {km} km"
+        assert bps == 0.0, f"premise: but the shipped rate is zero at {km} km"
+        assert accepts_round(qber, bps, _Cfg) is False
+
+
+def test_the_shipped_curve_is_not_the_displayed_curve():
+    """160 km apart, and conflating them is how this file first went wrong.
+
+    `/physics` and `/verify` show the asymptotic GLLP rate; `accepts_round` is
+    fed the finite-key one. Between 93.3 and 253.5 km the UI shows a positive
+    rate for a link the backend will not mint a key on.
+    """
+    qber, asym = _at(150.0)
+    assert asym > 0.0, "the displayed curve is positive at 150 km"
+    assert _shipped_bps(150.0) == 0.0, "the accepted curve is zero at 150 km"
+    assert qber < ABORT, "and the QBER test would have passed"
+
+
+def test_the_two_crossings_are_where_the_docs_say():
+    """Pin both, so neither number can drift without the other being checked."""
+    def crossing(f):
+        lo, hi = 1.0, 1000.0
+        for _ in range(200):
+            mid = (lo + hi) / 2
+            if f(mid) > 0.0:
+                lo = mid
+            else:
+                hi = mid
+        return hi
+    shipped = crossing(_shipped_bps)
+    displayed = crossing(lambda km: _at(km)[1])
+    assert shipped == pytest.approx(93.3, abs=0.5), f"shipped {shipped:.2f} km"
+    assert displayed == pytest.approx(253.51, abs=0.5), f"displayed {displayed:.2f} km"
+    assert displayed - shipped == pytest.approx(160.2, abs=1.0)
 
 
 def test_the_abort_ceiling_still_applies_on_its_own():

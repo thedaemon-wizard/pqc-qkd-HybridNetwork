@@ -51,8 +51,21 @@ def asymptotic_skr_per_pulse(
     # why 301 tests passed: every case pinned nu2 = 0.0. The optimiser grid in
     # config/qkd_params.yaml does search nu2 = 0.01, and /physics exposes nu2
     # as an editable field.
+    # Ma et al. Eq. (13) is the validity condition for the Eq. (18) bound:
+    #
+    #     0 <= nu2 < nu1     and     nu1 + nu2 < mu
+    #
+    # Testing `denom <= 0` is NOT equivalent. denom factorises as
+    # (nu1 - nu2) * (mu - nu1 - nu2), so it is also POSITIVE when BOTH factors
+    # are negative -- i.e. when both halves of Eq. (13) are violated at once.
+    # Reachable through the editable nu2 field on /physics: mu = 0.5,
+    # nu1 = 0.1, nu2 = 0.45 gives denom = +0.0175, sails past the old guard,
+    # and returns 1.4912e-02 against a legitimate 1.2334e-02 -- a 21 %
+    # overestimate with no theorem behind it, displayed as a secret-key rate.
+    if not (0.0 <= nu2 < nu1 and nu1 + nu2 < mu):
+        return 0.0
     denom = mu * nu1 - mu * nu2 - nu1 * nu1 + nu2 * nu2
-    if denom <= 0:
+    if denom <= 0:      # unreachable given Eq. (13) above; kept as a divisor guard
         return 0.0
     Y1_L = (mu / denom) * (
         Q_nu1 * math.exp(nu1) - Q_nu2 * math.exp(nu2)
@@ -61,7 +74,25 @@ def asymptotic_skr_per_pulse(
     Y1_L = max(Y1_L, 0.0)
     if Y1_L <= 0 or nu1 <= 0:
         return 0.0
-    e1_U = (E_nu1 * Q_nu1 * math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1)
+    # Ma et al. Eq. (22), the GENERAL two-decoy bound:
+    #
+    #     e1 <= (E_nu1 Q_nu1 e^nu1 - E_nu2 Q_nu2 e^nu2) / ((nu1 - nu2) Y1^L)
+    #
+    # This previously used the Vacuum+Weak form -- Eq. (33), which substitutes
+    # nu2 = 0 and e0 = 1/2 -- while Y1_L above had already been corrected to
+    # the general nu2 form. So the two halves of the same rate assumed
+    # different nu2, the mirror image of the defect fixed on the denominator.
+    # It errs OPTIMISTIC: at the optimiser's own grid point nu2 = 0.01 the rate
+    # came out +0.15 % high, and +0.70 % at nu2 = 0.05.
+    #
+    # At nu2 = 0 the two forms coincide exactly (E_nu2 Q_nu2 -> e0*Y0 = Y0/2),
+    # so the shipped default and the golden vector are unaffected.
+    if nu2 > 0:
+        E_nu2 = qber_Emu(Y0, eta_total, e_d, nu2)
+        e1_num = E_nu1 * Q_nu1 * math.exp(nu1) - E_nu2 * Q_nu2 * math.exp(nu2)
+        e1_U = e1_num / ((nu1 - nu2) * Y1_L)
+    else:
+        e1_U = (E_nu1 * Q_nu1 * math.exp(nu1) - 0.5 * Y0) / (Y1_L * nu1)
     e1_U = max(0.0, min(0.5, e1_U))
     Q1 = mu * math.exp(-mu) * Y1_L
     rate = 0.5 * (-Q_mu * f_EC * H2(E_mu) + Q1 * (1.0 - H2(e1_U)))
@@ -137,20 +168,34 @@ def accepts_round(qber: float, skr_bps: float, cfg) -> bool:
 
         R = q * { -Q_mu * f_EC * h2(E_mu) + Q_1 * [1 - h2(e_1)] }
 
-    reaches zero much earlier. With the shipped parameters (mu = 0.5,
-    e_d = 0.015, f_EC = 1.16) the crossing is at::
+    reaches zero much earlier.
 
-        L = 253.51 km,  QBER = 6.602 %
+    **`skr_bps` here is the FINITE-KEY rate, not the asymptotic one.** Callers
+    pass `skr_bps_from_config`, which calls `skr_finite`, so this predicate
+    crosses zero 160 km before the asymptotic GLLP curve that `/physics` and
+    `/verify` display. An earlier revision of this docstring quoted the
+    asymptotic band, and the test that was supposed to pin it called
+    `asymptotic_skr_per_pulse` directly -- so it passed while describing a band
+    production never reaches. Measured on the shipped config (mu = 0.5,
+    e_d = 0.015, f_EC = 1.16, N = 1e9, eps = 1e-10)::
 
-    So between roughly 254 km and 270 km the QBER sits under 0.11 while the
-    modelled secret-key rate is exactly 0. Measured on the shipped config::
+         L(km)     QBER    R_asym     R_finite   old pred   this pred
+            90  0.01503  3.04e-04   4.28e-05    accept     accept
+            93  0.01504  2.65e-04   3.44e-06    accept     accept
+          93.3  0.01504  2.61e-04   0.000000    accept     REJECT   <-- here
+           150  0.01548  1.90e-05   0.000000    accept     REJECT
+           253  0.06495  3.29e-09   0.000000    accept     REJECT
+           254  0.06705  0.000000   0.000000    accept     REJECT
+           270  0.11237  0.000000   0.000000    abort      REJECT
 
-           L(km)    QBER    rate/pulse   old predicate   new predicate
-             253  0.06495  3.29e-09      accept          accept
-             254  0.06705  0.000000      accept          REJECT
-             270  0.11237  0.000000      abort           REJECT
+    The band where the old QBER-only test accepted a zero-rate round is
+    **93.3 km to 270 km at QBER 1.504 % to 11.0 %**, not the 254-270 km the
+    earlier text claimed. The conclusion is unchanged and in fact stronger --
+    the QBER test alone admits a far wider dead band than first measured.
 
-    The middle row is the defect. `simqn` -- the default backend -- returned a
+    Note the two curves disagree by 160 km, which is itself worth knowing: the
+    rate the product SHOWS is not the rate it ACCEPTS on. See the finite-key
+    caveat on `skr_finite`. `simqn` -- the default backend -- returned a
     256-bit key there, `/verify` displayed `skr_bps: 0`, and both were reported
     as a healthy round. A key extracted at a rate the project's own model puts
     at zero carries no proven secrecy: privacy amplification has no entropy to
