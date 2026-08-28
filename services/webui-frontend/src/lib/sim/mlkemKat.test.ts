@@ -78,7 +78,15 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
  *
  * Cross-derived 2026-08-22: liboqs in the pqc-validator image and
  * @noble/post-quantum 0.7.0 in Node produced identical bytes for all three
- * parameter sets. Public-key lengths are FIPS 203 Table 2.
+ * parameter sets.
+ *
+ * Public-key lengths are FIPS 203 **Table 3**, "Sizes (in bytes) of keys and
+ * ciphertexts of ML-KEM" -- not Table 2, which is "Approved parameter sets"
+ * (n, q, k, eta1, eta2, du, dv, required RBG strength) and states no byte
+ * length at all. FIPS 203 introduces it that way itself: "The values of these
+ * variables in each parameter set are given in Table 2 of Section 8." The
+ * standard calls this key the encapsulation key; 800 / 1184 / 1568 is its row
+ * in Table 3.
  */
 const CROSS_DERIVED = [
   {

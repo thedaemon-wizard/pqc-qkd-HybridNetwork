@@ -57,7 +57,21 @@ export const PQC_PROVIDER = {
 export interface KemResult {
   algo: string;
   standard: string;
-  /** NIST security category (FIPS 203 Table 2). */
+  /**
+   * NIST security category.
+   *
+   * Was cited as "FIPS 203 Table 2", which states neither the categories nor
+   * the key sizes -- it is the parameter-set table (n, q, k, eta1, eta2, du,
+   * dv, required RBG strength), and FIPS 203 introduces it as exactly that:
+   * "The values of these variables in each parameter set are given in Table 2
+   * of Section 8."
+   *
+   * The categories are the bullet list in Section 3.2, "The ML-KEM Scheme" --
+   * ML-KEM-512 category 1, ML-KEM-768 category 3, ML-KEM-1024 category 5 --
+   * restated in Section 8 ("Concretely, ML-KEM-512 is claimed to be in
+   * security category 1..."). Categories 1-5 are defined in SP 800-57 Part 1,
+   * not in FIPS 203. Byte sizes are Table 3.
+   */
   category: number;
   publicKeyLen: number;
   secretKeyLen: number;
