@@ -50,6 +50,19 @@ MAPPING = {
     "misalignmentErrorEd": "physical.misalignment_error_ed",
     "pulseRateHz": "source.pulse_rate_hz",
     "qberThresholdAbort": "protocol.qber_threshold_abort",
+    # The eight added so /physics can render its form with no backend. They
+    # are here for the same reason as the seven above: a value compiled into
+    # the bundle that nothing compares to the YAML is a second source of
+    # truth, and the last time this repository had one, two engines carried
+    # conflicting copies of the channel.
+    "intensitySignalMu": "source.intensity_signal_mu",
+    "intensityDecoy1Nu1": "source.intensity_decoy_1_nu1",
+    "intensityDecoy2Nu2": "source.intensity_decoy_2_nu2",
+    "basisBiasPz": "source.basis_bias_pz",
+    "ecEfficiencyF": "protocol.ec_efficiency_f",
+    "bb84BatchSize": "simulator.bb84_batch_size",
+    "eveEnabled": "eve.enabled",
+    "eveInterceptProb": "eve.intercept_prob",
 }
 
 
@@ -95,6 +108,20 @@ def test_frontend_default_equals_the_configured_value(name, dotted):
     )
 
 
+# The seven channel fields BB84.tsx itself consumes. MAPPING grew past this
+# when /physics needed all fifteen for its offline form, and the check below
+# is about what BB84 READS, not about what BUNDLED_PARAMS contains -- asserting
+# BB84 reads `intensity_signal_mu` would fail on a page that has no use for it.
+BB84_CHANNEL_KEYS = [
+    "physical.detector_efficiency", "physical.fiber_attenuation_db_per_km",
+    "physical.link_length_km", "physical.dark_count_rate_hz",
+    "physical.misalignment_error_ed", "source.pulse_rate_hz",
+    "protocol.qber_threshold_abort",
+]
+
+PHYSICS_PAGE = ROOT / "services" / "webui-frontend" / "src" / "pages" / "PhysicsParams.tsx"
+
+
 def test_the_page_reads_the_backend_before_falling_back():
     """The literals are a fallback, not the primary source.
 
@@ -103,9 +130,38 @@ def test_the_page_reads_the_backend_before_falling_back():
     """
     src = BB84_PAGE.read_text(encoding="utf-8")
     assert "/api/sim/params" in src, "BB84.tsx no longer asks the backend at all"
-    for dotted in MAPPING.values():
+    for dotted in BB84_CHANNEL_KEYS:
         leaf = dotted.split(".")[-1]
         assert leaf in src, f"BB84.tsx never reads {leaf} from the API response"
+
+
+def test_the_channel_keys_are_a_subset_of_the_mapping():
+    """Guard against the split above drifting into two unrelated lists."""
+    missing = [k for k in BB84_CHANNEL_KEYS if k not in MAPPING.values()]
+    assert not missing, f"{missing} are checked against BB84 but not against the YAML"
+
+
+def test_physics_asks_the_backend_first_and_says_when_it_could_not():
+    """/physics hung on "Loading parameters..." forever with no backend.
+
+    `load()` caught the error and left `fields` null, so the render guard
+    returned a spinner that never resolved -- "the backend is down" and "the
+    request is in flight" were the same pixels. The fallback must therefore
+    exist AND be labelled: a value compiled into the bundle and a value read
+    from a running deployment are different claims.
+    """
+    src = PHYSICS_PAGE.read_text(encoding="utf-8")
+    assert "/api/sim/params/editable" in src, "it no longer asks the backend"
+    assert "bundledEditableFields()" in src, "no offline fallback; the form still hangs"
+    assert "setBundled(true)" in src and "setBundled(false)" in src, (
+        "the fallback flag is never cleared, so a later successful load would "
+        "keep showing the not-observed banner"
+    )
+    assert "{bundled &&" in src, "the fallback is silent; the banner is not rendered"
+    # And the banner must not be reachable when the data IS live.
+    assert src.index("setBundled(false)") < src.index("setBundled(true)"), (
+        "the success path must clear the flag before the catch sets it"
+    )
 
 
 def test_config_declares_itself_the_single_source_of_truth():

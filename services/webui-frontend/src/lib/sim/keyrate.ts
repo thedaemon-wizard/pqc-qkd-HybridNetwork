@@ -288,7 +288,61 @@ export const BUNDLED_PARAMS = {
   misalignmentErrorEd: 0.015,
   /** protocol.qber_threshold_abort */
   qberThresholdAbort: 0.11,
+
+  // The remaining eight editable fields, added so /physics can render its
+  // form when the backend is unreachable instead of hanging on
+  // "Loading parameters...". Every one of these is checked against
+  // config/qkd_params.yaml by tests/test_frontend_defaults_match_config.py --
+  // that is what stops this object from being a second, drifting source of
+  // truth, which is exactly what happened before BUNDLED_PARAMS existed and
+  // two engines carried conflicting copies.
+  intensitySignalMu: 0.5,
+  intensityDecoy1Nu1: 0.1,
+  intensityDecoy2Nu2: 0.0,
+  basisBiasPz: 0.5,
+  ecEfficiencyF: 1.16,
+  bb84BatchSize: 2048,
+  eveEnabled: false,
+  eveInterceptProb: 0.0,
 } as const;
+
+/**
+ * The editable-field list `/api/sim/params/editable` returns, rebuilt from the
+ * bundled defaults so the form still renders with no backend.
+ *
+ * Order and `path` match the endpoint, so the page's rendering code does not
+ * branch on where the fields came from. `overridden` is false by definition:
+ * an override is a runtime edit held by the backend, and there is no backend.
+ */
+export interface EditableField {
+  path: string;
+  type: "float" | "int" | "bool";
+  value: number | boolean;
+  overridden: boolean;
+}
+
+export function bundledEditableFields(): EditableField[] {
+  const B = BUNDLED_PARAMS;
+  const f = (path: string, value: number, type: "float" | "int" = "float"):
+    EditableField => ({ path, type, value, overridden: false });
+  return [
+    f("physical.fiber_attenuation_db_per_km", B.fiberAttenuationDbPerKm),
+    f("physical.link_length_km", B.linkLengthKm),
+    f("physical.detector_efficiency", B.detectorEfficiency),
+    f("physical.dark_count_rate_hz", B.darkCountRateHz),
+    f("physical.misalignment_error_ed", B.misalignmentErrorEd),
+    f("source.pulse_rate_hz", B.pulseRateHz),
+    f("source.intensity_signal_mu", B.intensitySignalMu),
+    f("source.intensity_decoy_1_nu1", B.intensityDecoy1Nu1),
+    f("source.intensity_decoy_2_nu2", B.intensityDecoy2Nu2),
+    f("source.basis_bias_pz", B.basisBiasPz),
+    f("protocol.ec_efficiency_f", B.ecEfficiencyF),
+    f("protocol.qber_threshold_abort", B.qberThresholdAbort),
+    f("simulator.bb84_batch_size", B.bb84BatchSize, "int"),
+    { path: "eve.enabled", type: "bool", value: B.eveEnabled, overridden: false },
+    f("eve.intercept_prob", B.eveInterceptProb),
+  ];
+}
 
 /** Channel implied by `BUNDLED_PARAMS`, for engines that need one before config lands. */
 export function bundledChannel(): { etaTotal: number; Y0: number; eD: number } {

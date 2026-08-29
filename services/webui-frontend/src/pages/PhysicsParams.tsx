@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+
+import { bundledEditableFields } from "../lib/sim/keyrate";
 import { asymptoticSkrPerPulse, channelFromParams, qberEmu } from "../lib/sim/keyrate";
 import { useDemoMode } from "../lib/useConfig";
 import ExportToolbar from "../components/ExportToolbar";
@@ -99,6 +101,9 @@ export default function PhysicsParams() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>("");
   const demo = useDemoMode();
+  /** True when `fields` came from BUNDLED_PARAMS rather than the running
+   *  stack. Drives the banner; never inferred from the values themselves. */
+  const [bundled, setBundled] = useState(false);
 
   async function load() {
     try {
@@ -115,7 +120,22 @@ export default function PhysicsParams() {
       } catch { /* stats unavailable → fall through to config default */ }
       const p = await fetch("/api/sim/params").then((x) => x.json());
       setBackend(p?.simulator?.backend ?? "");
-    } catch { /* backend may be down */ }
+      setBundled(false);
+    } catch {
+      // The backend is unreachable. This used to swallow the error and leave
+      // `fields` null, so the render returned "Loading parameters..." FOREVER
+      // -- "the backend is down" and "the request is in flight" were the same
+      // pixels and the first state never left. Same defect /topology had, in a
+      // page where the entire form sat behind it.
+      //
+      // Fall back to the bundled defaults so the form renders and the
+      // client-side rate model -- which needs no backend at all -- still runs.
+      // FLAGGED, not silently substituted: a value read from a running
+      // deployment and a value compiled into the bundle are different claims,
+      // and the banner says which is on screen.
+      if (!fields) setFields(bundledEditableFields());
+      setBundled(true);
+    }
   }
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
 
@@ -253,6 +273,17 @@ export default function PhysicsParams() {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Physics Parameters</h2>
+
+      {bundled && (
+        <p style={{ color: "#e0777d", fontSize: 12, margin: "0 0 12px" }}>
+          Not observed &mdash; <code>GET /api/sim/params/editable</code> failed.
+          The values below are the defaults compiled into this bundle from{" "}
+          <code>config/qkd_params.yaml</code>, not the running stack's current
+          configuration. The key-rate figures beneath them are still real: that
+          model runs entirely in this browser. Applying an edit needs the
+          backend and will fail.
+        </p>
+      )}
 
       {/* logProvider, not logService: the rate on this page is computed in the
           browser, so a server log would describe a different computation. */}
