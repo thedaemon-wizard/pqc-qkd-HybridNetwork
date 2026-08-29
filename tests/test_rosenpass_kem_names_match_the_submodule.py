@@ -45,7 +45,22 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-LABEL_FILE = ROOT / "submodules" / "rosenpass" / "rosenpass" / "src" / "labeled_prf.rs"
+# Upstream MOVED this file. `labeled_prf.rs` exists at the pinned v0.2.3 and is
+# GONE on upstream main, where the domain-separation labels now live in
+# `hash_domains.rs` (checked 2026-08-29). Searching one hardcoded path would
+# make a future submodule bump fail with "restore the checkout step", sending
+# the next person after a CI configuration problem that does not exist.
+_RP = ROOT / "submodules" / "rosenpass" / "rosenpass" / "src"
+LABEL_CANDIDATES = [_RP / "labeled_prf.rs", _RP / "hash_domains.rs"]
+
+
+def _label_file():
+    """The first candidate that exists, or None. Both are checked so the guard
+    survives the rename rather than reporting it as a missing submodule."""
+    return next((p for p in LABEL_CANDIDATES if p.is_file()), None)
+
+
+LABEL_FILE = LABEL_CANDIDATES[0]   # for messages that name the expected path
 LABEL = re.compile(r'"Rosenpass v1 ([^"]+)"')
 
 # Text that pairs Rosenpass with ML-KEM within a short window, in either order.
@@ -114,17 +129,25 @@ def _strip_comments(body: str, suffix: str) -> str:
 
 
 def _suite() -> str:
-    if not LABEL_FILE.is_file():
+    src = _label_file()
+    if src is None:
         if os.environ.get("CI"):
+            # Distinguish the two causes, because the fix differs completely.
+            checked_out = (ROOT / "submodules" / "rosenpass" / "Cargo.toml").is_file()
             pytest.fail(
-                f"{LABEL_FILE} is absent under CI, so the half of this guard that "
-                "derives the KEM names from the pinned submodule did not run. "
-                "Restore the `git submodule update --init --depth 1 "
-                "submodules/rosenpass` step in the `python` job rather than "
-                "letting this degrade to a skip."
+                "the rosenpass submodule IS checked out but none of "
+                f"{[p.name for p in LABEL_CANDIDATES]} exists -- upstream has "
+                "moved the domain-separation labels again. Find the new file "
+                "and add it to LABEL_CANDIDATES."
+                if checked_out else
+                "the rosenpass submodule is not checked out under CI, so the "
+                "half of this guard that derives the KEM names from the pin "
+                "did not run. Restore the `git submodule update --init "
+                "--depth 1 submodules/rosenpass` step in the `python` job "
+                "rather than letting this degrade to a skip."
             )
         pytest.skip("rosenpass submodule not checked out")
-    m = LABEL.search(LABEL_FILE.read_text(encoding="utf-8"))
+    m = LABEL.search(src.read_text(encoding="utf-8"))
     if not m:
         pytest.fail(
             f"no 'Rosenpass v1 ...' domain-separation label in {LABEL_FILE.name}. "
