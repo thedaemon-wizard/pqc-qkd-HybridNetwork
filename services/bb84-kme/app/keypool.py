@@ -180,12 +180,46 @@ class KeyPool:
         cl.subscribe(_on_change)
 
     # ------------------------------------------------------------------
+    def dispensable(self) -> int:
+        """Keys this KME may actually hand out through `enc_keys`.
+
+        `_buf` holds two kinds of key and only one of them can be dispensed.
+        Replicas arrive from the peer via `receive_synced` and are admitted so
+        that `dec_keys` can resolve the peer's key_IDs -- but `pop_for_enc`
+        skips them, because both KMEs holding the same key means only the
+        producer may hand it out as an encryption key.
+
+        So the producer must gate on THIS count, not on `len(self._buf)`.
+        """
+        return sum(1 for k in self._buf if not k.replicated)
+
     async def run(self) -> None:
         log.info("KeyPool producer starting (SAE=%s backend=%s peer=%s)",
                  self.sae_id, self._backend_name, self.peer_kme_url)
         idle_timeout_s = float(cl.get("simulator.idle_poll_s", 2.0))
         while not self._stopped.is_set():
-            if len(self._buf) >= self.low_watermark:
+            # Was `len(self._buf) >= self.low_watermark`, which counted the
+            # peer's replicas -- keys this node may never dispense. A KME whose
+            # peer produces faster fills with replicas, crosses the watermark
+            # on them alone, and stops producing: the pool then reads FULL
+            # while every `enc_keys` request answers 503 "key pool empty".
+            #
+            # Measured on the public demo before this change, over two minutes:
+            #
+            #   alice  rounds_total 7    pool_size 64 (capacity)  0 rounds/min
+            #   bob    rounds_total 805  pool_size  8 (watermark) ~3 rounds/min
+            #
+            # alice had produced seven keys in her lifetime and held sixty-four,
+            # so at least fifty-seven were bob's. Her producer had been asleep
+            # for the ~800 rounds bob ran in the meantime, and `pool_size: 64`
+            # -- the largest number on the dashboard -- was the symptom.
+            #
+            # That 503 is also what upstream arnika mishandles
+            # (arnika-project/arnika#43): it reads an already-closed response
+            # body, so the lane loses key material and IKEv2 reauth fails with
+            # AUTH_FAILED. Fixing the gate removes the trigger regardless of
+            # what upstream does.
+            if self.dispensable() >= self.low_watermark:
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=idle_timeout_s)
                 except TimeoutError:

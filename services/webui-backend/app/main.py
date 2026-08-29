@@ -133,8 +133,17 @@ async def demo_rate_limit(request, call_next):
 
     The name is kept because DEMO_RATE_MAX / DEMO_RATE_WINDOW_S are the
     documented env vars and renaming them would break deployments for nothing.
+
+    The method set is every mutating verb, not just POST. Ungating DEMO_MODE
+    closed one hole and left another: `DELETE /api/exports/{filename}` is the
+    project's only non-POST mutating route, and it sat outside the limiter
+    before and after that change. Measured on the public host: thirty
+    consecutive unauthenticated deletes, thirty 200s, no throttle.
+
+    PUT and PATCH are included although no route uses them today, so that
+    adding one is not silently adding an unthrottled mutation.
     """
-    if request.method == "POST":
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         ip = request.client.host if request.client else "unknown"
         now = time.monotonic()
         tokens, last = _rate_state.get(ip, (float(DEMO_RATE_MAX), now))
