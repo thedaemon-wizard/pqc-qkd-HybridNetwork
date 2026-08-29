@@ -355,7 +355,7 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
                     lineHeight: 1.5 }}>
           Zero is expected here, and it is worth saying why: <b>nothing on this
           host sends traffic through the tunnel.</b> No ping, no keepalive and
-          no health check traverses it, and <code>start_action = trap</code>
+          no health check traverses it, and <code>start_action = trap</code>{" "}
           installs the CHILD_SA on demand rather than generating packets. To
           make these non-zero, send something across it &mdash;
           <code> docker exec alice-ipsec ping -c3 10.30.0.21</code> &mdash; which
