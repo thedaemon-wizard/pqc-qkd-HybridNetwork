@@ -38,12 +38,22 @@ export interface VerdictDisplay {
 
 export const VERDICT_DISPLAY: Record<CrosscheckVerdict, VerdictDisplay> = {
   agree: {
-    label: "YES (independent agreement)",
+    // States the band, because the band is wide. This label used to read
+    // "YES (independent agreement)" while the row above it showed
+    // "Relative Delta 270.7 %" -- measured on the deployed build at the
+    // shipped config, where ours = 1.233e-2 and TNO = 4.573e-2, a ratio of
+    // 3.71. "Agreement" is a fair word for what the check establishes (both
+    // engines find a key, same order of magnitude) and an unfair one for what
+    // a reader takes from it (the two numbers matched). The `disagree` label
+    // below already names its threshold; this one hid the same threshold, so
+    // the pair was asymmetric in exactly the direction that flatters.
+    label: "YES (rates within 10x)",
     ok: true,
     detail:
       "Both implementations predict an extractable key and the two rates are "
-      + "within a factor of 10. They differ because TNO optimises the intensity "
-      + "mu while the closed form uses the configured mu.",
+      + "within a factor of 10. That is an order-of-magnitude check, not a "
+      + "numerical match: they differ because TNO optimises the intensity mu "
+      + "while the closed form uses the configured mu.",
   },
   disagree: {
     label: "NO (rates differ by more than 10x)",

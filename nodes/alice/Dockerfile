@@ -41,6 +41,26 @@ WORKDIR /src/arnika
 # bump to a revision WITHOUT the fix fail the build instead of quietly shipping
 # an image whose PSK installation breaks only on multi-peer interfaces.
 RUN grep -q "found := false" repositories/wireguard-netlink.go
+
+# arnika#44, still OPEN. `kmsRequest` closed the response body BEFORE deciding
+# whether to retry was the intent, but the close sat AFTER that decision while
+# `res` kept its value -- so a non-OK status on the final attempt carried a
+# CLOSED body out of the loop and `io.ReadAll` failed with "http: read on
+# closed response body". Compounding it, a 4xx/5xx is a successful HTTP
+# transaction, so `err` was nil and nothing distinguished "the KMS refused"
+# from a real fetch.
+#
+# Carried here exactly as the peer-lookup fix above was carried until arnika#42
+# merged. Delete the patch when #44 merges and the pin moves; keep the grep.
+COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.patch
+# `rm -f .git` first: a submodule's .git is a FILE pointing at
+# ../../.git/modules/..., which does not exist in the image, and `git apply`
+# fails with "not a git repository" before it looks at the patch. The pointer
+# is dangling here regardless. Measured -- the build failed on exactly this.
+RUN rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch
+# Asserts the patched property, so a submodule bump to a revision without the
+# fix fails the build instead of silently shipping the old behaviour.
+RUN grep -q "KMS did not return" repositories/kms.go
 RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
     go build -trimpath -ldflags "-w -s" -o /out/arnika .
 

@@ -6,10 +6,20 @@ const WIDTH = 760, HEIGHT = 460;
 
 export default function Topology() {
   const [topo, setTopo] = useState<Topo | null>(null);
+  // `null` while the request is in flight, a string once it has failed. Without
+  // this the page could only ever say "Loading...", so a backend that is down
+  // and a backend that is slow rendered identically -- and forever. Every other
+  // backend-dependent page already distinguishes the two: /vpn renders
+  // "-- not observed --", /benchmarks and /console catch and report. This was
+  // the last page without the path, and it also left the rejection unhandled,
+  // so the only trace was a console error nobody sees on a static deploy.
+  const [failed, setFailed] = useState<string | null>(null);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const simRef = useRef<any>(null);
 
-  useEffect(() => { getTopology().then(setTopo); }, []);
+  useEffect(() => {
+    getTopology().then(setTopo).catch((e) => setFailed(String(e?.message ?? e)));
+  }, []);
 
   useEffect(() => {
     if (!topo) return;
@@ -29,6 +39,24 @@ export default function Topology() {
     // cleanup must return void (a returned value is treated as a destructor).
     return () => { sim.stop(); };
   }, [topo]);
+
+  if (failed) {
+    return (
+      <div>
+        <h2 style={{ marginTop: 0 }}>Network Topology</h2>
+        <p style={{ color: "#e0777d" }}>
+          Topology not observed — <code>GET /api/topology</code> failed: {failed}
+        </p>
+        <p style={{ color: "#9aa9d8", fontSize: 13 }}>
+          This page reports the running stack, so there is nothing to draw
+          client-side. An invented four-node graph would look exactly like a
+          measured one, which is the failure this page must not have. See
+          <code> docs/deployment-economics.md</code> for which routes survive
+          without a backend.
+        </p>
+      </div>
+    );
+  }
 
   if (!topo) return <div>Loading…</div>;
 

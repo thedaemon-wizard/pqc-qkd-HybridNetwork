@@ -10,6 +10,28 @@ const STATUS_COLOR: Record<string, string> = {
   absent: "#445", unknown: "#445",
 };
 
+/** What the row should SAY, which is not always the raw docker status.
+ *
+ * `absent` means "no such container". For the three profile-gated services --
+ * qkdnetsim-kme (crossvalidate), alice-ipsec and bob-ipsec (ipsec) -- that is
+ * the expected state on the default stack, because the base compose file does
+ * not define them at all. Rendering it with the same grey chip as a container
+ * that died made three of ten rows read as failures on a healthy stack, and
+ * the page offered no way to tell which reading was correct.
+ *
+ * The backend now sends `optional`, `profile` and `compose_file`; this only
+ * decides how to show them. A row without those fields is unchanged. */
+function chip(s: StackItem): { label: string; color: string; title?: string } {
+  if (s.optional && s.status === "absent") {
+    return {
+      label: `not started (${s.profile})`,
+      color: "#3a4a6b",
+      title: s.note,
+    };
+  }
+  return { label: s.status, color: STATUS_COLOR[s.status] || "#445", title: s.note };
+}
+
 export default function Overview() {
   const [stack, setStack] = useState<StackItem[]>([]);
   // `useContainerControl`, not `useDemoMode`. Its own doc comment prescribes
@@ -70,11 +92,12 @@ export default function Overview() {
                 <tr key={s.name} style={{ borderTop: "1px solid #1d2741" }}>
                   <td style={{ padding: "8px 4px" }}>{s.name}</td>
                   <td>
-                    <span style={{
-                      display: "inline-block", padding: "2px 8px", borderRadius: 12,
-                      background: STATUS_COLOR[s.status] || "#445",
-                      color: "#fff", fontSize: 11,
-                    }}>{s.status}</span>
+                    {(() => { const c = chip(s); return (
+                      <span title={c.title} style={{
+                        display: "inline-block", padding: "2px 8px", borderRadius: 12,
+                        background: c.color, color: "#fff", fontSize: 11,
+                      }}>{c.label}</span>
+                    ); })()}
                   </td>
                   <td>
                     {canControl ? (

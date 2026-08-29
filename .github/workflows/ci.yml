@@ -355,6 +355,51 @@ jobs:
           sleep 3
           pytest tests/test_etsi014_contract.py -v
 
+      # SimQN and SeQUeNCe are listed as COMMENTS in
+      # services/bb84-kme/requirements.txt ("pulled in via submodule install in
+      # Dockerfile"), so `pip install -r` never gets them and the `python` job
+      # cannot run anything that imports them. No job ran pytest inside the
+      # bb84-kme image either, so five physics assertions executed nowhere:
+      #
+      #   test_backend_cross_qber.py::test_backend_keys_match_lo_ma_qber[simqn]
+      #   test_sequence_backend_actually_uses_sequence.py::test_the_noise_is_sampled_not_fixed
+      #   test_sequence_backend_actually_uses_sequence.py::test_the_mean_agrees_with_the_analytical_qber
+      #   test_skr_is_not_a_sifting_ratio.py::test_backend_reports_the_shared_rate[simqn]
+      #   test_skr_is_not_a_sifting_ratio.py::test_simqn_flags_synthesised_rounds
+      #
+      # Read out of the real `python` job log on main, not inferred. The cost
+      # is that test_backend_cross_qber.py calls itself "the canonical guard
+      # against backend drift" while only the qutip arm ran -- a cross-check
+      # between two independent models degenerating to one model against the
+      # analytic formula it is supposed to be independent of.
+      #
+      # This job already builds and starts that image, so running them here
+      # costs one `docker run`. Mirrors what `images` does for liboqs.
+      #
+      # A bare `git submodule update --init` would NOT lift the skip:
+      # simqn_backend.py resolves the package from $SIMQN_PATH or a
+      # container-absolute path, and the Dockerfile installs both with
+      # `pip install -e /opt/SimQN` and `-e /opt/SeQUeNCe`.
+      - name: Backend physics inside the image that has SimQN and SeQUeNCe
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            --entrypoint sh pqcqkd/bb84-kme:local -c '
+              pip install --quiet --no-cache-dir pytest pytest-asyncio || exit 1
+              cd /repo && python -m pytest \
+                tests/test_backend_cross_qber.py \
+                tests/test_sequence_backend_actually_uses_sequence.py \
+                tests/test_skr_is_not_a_sifting_ratio.py \
+                -v -p no:cacheprovider -o cache_dir=/tmp/pytest-cache \
+                2>&1 | tee /tmp/out
+              # A skip here means the image lost a dependency it is built to
+              # carry, which is the condition this step exists to detect. It
+              # must fail rather than report green on nothing.
+              if grep -qE "^SKIPPED|[0-9]+ skipped" /tmp/out; then
+                echo "::error::backend physics skipped INSIDE the image; SimQN or SeQUeNCe is missing from it"
+                exit 1
+              fi
+            '
+
       - name: Diagnostics on failure
         if: failure()
         run: docker compose logs --tail 200

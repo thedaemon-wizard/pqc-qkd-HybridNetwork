@@ -1,0 +1,71 @@
+Subject: kms: do not read a closed response body when the KMS answers non-200
+
+Carried downstream while arnika-project/arnika#44 is OPEN. Identical change to
+that PR (its test file is not carried; this repository asserts the property
+from its own build instead -- see the grep in the Dockerfiles that apply this).
+
+Two defects in one loop, and the second is what makes the first reachable.
+
+  1. The body was closed AFTER the retry decision while `res` kept its value,
+     so a non-OK status on the final attempt left a CLOSED body in `res`.
+     `io.ReadAll` below then fails with "http: read on closed response body".
+
+  2. A 4xx/5xx is a successful HTTP transaction, so `err` is nil and the
+     `if err != nil` check does not return. Nothing distinguished "the KMS
+     refused" from a successful fetch.
+
+Reproduced against Go 1.26.
+
+WHY DOWNSTREAM AND NOT WAITING. This repository has done exactly this before:
+the SetPSK peer-lookup fix was carried as a local patch until upstream merged
+it as arnika#42, after which the patch was deleted and a `grep -q` assertion
+kept in its place so a submodule bump backwards fails the build. The same
+lifecycle applies here. Delete this file when #44 merges and the pin moves,
+and leave the assertion behind.
+
+WHAT THIS DOES NOT CLAIM. It is NOT established that this fixes the
+intermittent PPK mismatch in the `ipsec` CI job. That failure was diagnosed as
+a BACKUP node running intervals behind, and whether a silently-failed KMS
+fetch is upstream of it is unverified. This patch is carried because the
+defect is real on its own terms; whether the failure rate moves is a
+measurement to run, not an assumption to state.
+
+diff --git a/repositories/kms.go b/repositories/kms.go
+index ac74910..5b6a7b9 100644
+--- a/repositories/kms.go
++++ b/repositories/kms.go
+@@ -111,18 +111,31 @@ func (r *HTTPKMSRepository) kmsRequest(path string) (id string, key []byte, err
+ 		if err == nil && res.StatusCode == http.StatusOK {
+ 			break
+ 		}
++		// Close and clear BEFORE deciding whether to retry, so a body is never
++		// carried out of the loop after being closed. Previously the close
++		// happened after the retry decision and res kept its value, so a
++		// non-OK status on the final attempt left a CLOSED body in res, and
++		// io.ReadAll below failed with "http: read on closed response body".
++		if res != nil {
++			_ = res.Body.Close()
++			res = nil
++		}
+ 		if attempt < r.maxRetries {
+ 			delay := r.backoffBaseDelay * time.Duration(1<<uint(attempt))
+ 			log.Printf("Attempt %d: Retrying in %s...", attempt+1, delay)
+ 			time.Sleep(delay)
+ 		}
+-		if res != nil {
+-			_ = res.Body.Close()
+-		}
+ 	}
+ 	if err != nil {
+ 		return "", nil, err
+ 	}
++	// A retry loop that never saw a 200 leaves res nil. Without this the caller
++	// cannot distinguish "the KMS refused" from a successful fetch, because a
++	// non-OK status is a successful HTTP transaction and sets no error.
++	if res == nil {
++		return "", nil, fmt.Errorf("KMS did not return %d after %d attempt(s)",
++			http.StatusOK, r.maxRetries+1)
++	}
+ 	defer func() { _ = res.Body.Close() }()
+ 
+ 	body, err := io.ReadAll(res.Body)

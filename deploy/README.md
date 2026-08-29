@@ -44,7 +44,7 @@ page-by-page breakdown and current hosting costs.
 failure is that **`bb84-kme-a` itself did not come up**. Two distinct causes, in likelihood order:
 
 1. **A QKD-backend submodule wasn't checked out before the build (most common, resource-independent).**
-   The KME default backend is **`simqn`** (`config/qkd_params.yaml`). The bb84-kme image installs SimQN /
+   The KME default backend is **`simqn`** in `config/qkd_params.yaml`, but **this deploy overrides it to `cvqkd`** at `deploy/.env.example:24`, and the env var wins (`docker-compose.yml` reads `${SIMULATOR_BACKEND:-}`). Diagnose against `cvqkd` unless you changed it. The bb84-kme image installs SimQN /
    SeQUeNCe / Strawberry Fields / TNO from `submodules/` at build time; if a submodule is empty (clone
    failed, or you cloned without `--recurse-submodules`), that install is silently skipped and the
    `simqn` backend can't import at runtime. **On a fresh clone this happens regardless of how much RAM

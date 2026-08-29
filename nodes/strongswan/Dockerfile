@@ -68,6 +68,17 @@ RUN test -f /usr/local/lib/ipsec/plugins/libstrongswan-ml.so \
 FROM golang:1.26-bookworm AS arnika-build
 COPY submodules/arnika /src/arnika
 COPY services/arnika-vici /src/arnika-vici
+# arnika#44 (OPEN), same patch and same reason as nodes/alice/Dockerfile.
+# Applied to the submodule copy BEFORE build.sh assembles its working tree,
+# because build.sh copies `$ARNIKA_SRC`/. wholesale -- patching afterwards
+# would be patching a tree that has already been consumed.
+COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.patch
+# `rm -f .git` first: a submodule's .git is a FILE pointing at
+# ../../.git/modules/..., which does not exist in the image, and `git apply`
+# fails with "not a git repository" before it looks at the patch. The pointer
+# is dangling here regardless. Measured -- the build failed on exactly this.
+RUN cd /src/arnika && rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch \
+    && grep -q "KMS did not return" repositories/kms.go
 RUN sh /src/arnika-vici/build.sh /src/arnika /src/arnika-vici /out/arnika
 
 # ---- Stage 3: runtime --------------------------------------------------

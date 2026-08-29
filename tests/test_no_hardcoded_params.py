@@ -1,10 +1,29 @@
 """AST-level guard: numeric literals must not appear in backend implementations.
 
-The "no hardcoded params" rule (see plan §Phase 8 design principle) says all
-tunables must come from config/qkd_params.yaml (via config_loader). This test
-walks the AST of every *.py under services/bb84-kme/app/backends/ and checks
-that no float literal is used as a magic number, except for a small whitelist
-of mathematically intrinsic constants (0, 1, 2, 0.5, etc.).
+SCOPE, STATED HONESTLY. This walks `services/bb84-kme/app/backends/` only. The
+"no hardcoded params" rule was written to cover `app/`, and this docstring used
+to claim "all tunables must come from config/qkd_params.yaml" -- which reads as
+a repository-wide guarantee it does not provide. `README.md` cites this test as
+what enforces the rule, so the overstatement travelled.
+
+The gap is concrete and was worth checking rather than assuming. Three of the
+literals the rule was written against still exist verbatim, outside the scanned
+tree, in `app/bb84/simulator.py`:
+
+    n_photons: int = 2048
+    channel_noise: float = 0.01
+    qber_threshold: float = 0.11
+
+They are DEAD DEFAULTS. `RoundConfig` has exactly one construction site in the
+whole application -- `backends/qutip_backend.py` -- and it passes every field
+explicitly from the YAML config, so those values are never the ones used. That
+is why this file does not simply widen its scan: flagging them would be a false
+positive, and deleting the defaults would break the dataclass.
+
+What was actually missing is a check that they STAY dead, which the second
+class below now provides. Widening the AST scan to `app/` is still worth doing;
+it needs a review of every literal in `simulator.py` and `keypool.py` first,
+and is deliberately not bundled with a documentation fix.
 """
 from __future__ import annotations
 
@@ -86,3 +105,79 @@ if __name__ == "__main__":
         _log.info("OK")
     except AssertionError as e:
         _log.error("%s", e); sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# The dead defaults must stay dead.
+#
+# `RoundConfig` in app/bb84/simulator.py carries literal defaults for exactly
+# the values the no-hardcoding rule exists to prevent. They are harmless only
+# because the single construction site supplies all of them from YAML. Nothing
+# enforced that: adding a seventh field, or dropping one argument at the call
+# site, would silently reintroduce a hardcoded physics parameter -- and the AST
+# scan above cannot see it, because simulator.py is outside its tree.
+# ---------------------------------------------------------------------------
+
+SIMULATOR = ROOT / "services" / "bb84-kme" / "app" / "bb84" / "simulator.py"
+QUTIP = TARGET / "qutip_backend.py"
+
+
+def _roundconfig_fields() -> list[str]:
+    tree = ast.parse(SIMULATOR.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "RoundConfig":
+            return [s.target.id for s in node.body
+                    if isinstance(s, ast.AnnAssign) and isinstance(s.target, ast.Name)]
+    raise AssertionError("RoundConfig not found in simulator.py")
+
+
+def _construction_sites() -> list[ast.Call]:
+    tree = ast.parse(QUTIP.read_text(encoding="utf-8"))
+    return [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            and n.func.id == "RoundConfig"]
+
+
+def test_roundconfig_has_exactly_one_construction_site():
+    """If a second appears, the argument below must be checked there too."""
+    sites = _construction_sites()
+    assert len(sites) == 1, (
+        f"{len(sites)} RoundConfig(...) calls in qutip_backend.py; this guard "
+        f"only inspects it because there has always been exactly one"
+    )
+    # And nowhere else in the application.
+    others = [p for p in (ROOT / "services" / "bb84-kme" / "app").rglob("*.py")
+              if p not in (SIMULATOR, QUTIP)
+              and "RoundConfig(" in p.read_text(encoding="utf-8")]
+    assert not others, f"RoundConfig is constructed elsewhere too: {others}"
+
+
+def test_every_defaulted_field_is_supplied_explicitly():
+    """The defaults must be unreachable, not merely usually overridden."""
+    fields = _roundconfig_fields()
+    assert len(fields) >= 6, f"RoundConfig shrank unexpectedly: {fields}"
+    supplied = {kw.arg for kw in _construction_sites()[0].keywords if kw.arg}
+    missing = sorted(set(fields) - supplied)
+    assert not missing, (
+        f"qutip_backend.py falls back to RoundConfig's literal defaults for "
+        f"{missing}. Those defaults are hardcoded physics parameters "
+        f"(n_photons=2048, channel_noise=0.01, qber_threshold=0.11) that the "
+        f"no-hardcoding rule exists to prevent, and the AST scan above cannot "
+        f"see them because simulator.py is outside its tree. Pass them from "
+        f"config_loader like the others."
+    )
+
+
+def test_those_values_come_from_config_not_from_more_literals():
+    """Supplying them explicitly is no good if the call site inlines numbers."""
+    site = _construction_sites()[0]
+    literal_args = [
+        kw.arg for kw in site.keywords
+        if kw.arg and isinstance(kw.value, ast.Constant)
+        and isinstance(kw.value.value, (int, float))
+        and not isinstance(kw.value.value, bool)
+    ]
+    assert not literal_args, (
+        f"RoundConfig(...) is passed numeric literals for {literal_args}; the "
+        f"value moved from the dataclass to the call site rather than to YAML"
+    )

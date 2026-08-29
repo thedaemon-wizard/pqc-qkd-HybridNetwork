@@ -13,7 +13,14 @@ When citing or releasing the PoC, **please always disclose the limitations below
   - `simqn` — Cascade error correction + Toeplitz privacy amplification + fibre attenuation (`submodules/SimQN`, 2026-05-25 active)
   - `sequence` — the SeQUeNCe physical-layer model (`submodules/SeQUeNCe`, 2026-05-12 active, Argonne National Lab)
   - `cvqkd` — Strawberry Fields GG02 continuous-variable QKD (`submodules/strawberryfields`)
-  - `composite_sim_to_net` — SimQN physical layer + qkdnetsim NS-3 v3.46 network layer
+  - `composite_sim_to_net` — SimQN physical layer feeding that same second
+    ETSI 014 server over REST. This line previously read "+ qkdnetsim NS-3
+    v3.46 network layer". **No NS-3 runs.** The image compiles NS-3 v3.46 and
+    qkdnetsim and copies the binaries into its runtime stage, but the
+    entrypoint is the Flask app named below, which fills a key buffer from a
+    CSPRNG at the rate SimQN computes. What this backend adds over `simqn`
+    alone is a second implementation of the REST contract, not a simulated
+    network layer
   - `tno_keyrate` — TNO-Quantum's independently developed decoy-state BB84/BBM92
     key-rate engine (`submodules/tno-qkd-key-rate`, Apache-2.0), used to
     cross-check this project's own rate model against a third-party one

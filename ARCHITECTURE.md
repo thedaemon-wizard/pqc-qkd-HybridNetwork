@@ -10,7 +10,7 @@
 +---------------------------------------------------------------------+
 | Layer 2 — Transport orchestration                                  |
 | arnika (Go, unmodified from submodules/arnika/)               |
-| - ETSI 014 client (HTTP/mTLS)                                    |
+| - ETSI 014 client (plain HTTP; mTLS not implemented)             |
 | - reads pqc.psk file                                             |
 | - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
 | - wgctrl netlink call -> writes PSK to wg0 peer entry            |
@@ -138,7 +138,7 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 - `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
 - `qkdnetsim_proxy.py` — pulls keys from `qkdnetsim-kme`, a second ETSI 014 server
   (a Flask facade, not the NS-3 C++ KMS); checks the REST contract, not key material
-- `composite_sim_to_net.py` — SimQN computes per-link SKR → injected into qkdnetsim
+- `composite_sim_to_net.py` — SimQN computes per-link SKR → POSTed to the second ETSI 014 server as a key-buffer fill rate. **Not** injected into an NS-3 simulation; nothing runs one
 - `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
   engine, used to cross-check this project's own rate model
 
@@ -165,6 +165,12 @@ Tests (host venv):
                 ┌──────────────▼──────────────────────────────────────────┐
                 │  webui-backend (FastAPI orchestrator)                   │
                 │   /api/vpn/protocols      — both lanes' live status     │
+                │   /api/vpn/ppk-rotations  — operator/curl only, no page │
+                │        calls it. Windowed (30 s..max), TTL-cached.      │
+                │        Reports distinct_ids beside count, so            │
+                │        reinstalling one credential cannot inflate the   │
+                │        total; count: null + error means "could not      │
+                │        look", which is not zero. See checklist 2.14     │
                 │   (mu/nu optimisation runs client-side on /physics)     │
                 │   /api/pqc/{algorithms,roundtrip}                       │
                 └──┬───────────────────────────────────────────────┬──────┘
@@ -327,3 +333,60 @@ Shared UI under `services/webui-frontend/src/components/`:
 > `/api/verify/paper-budgets` still serves. The diagram above is kept as the
 > record of Phase 14; it is not how the pages work now. See
 > [`docs/phases.md`](docs/phases.md).
+
+---
+
+## 6. Repository Layout
+
+Moved here from `README.md` section 3 on 2026-08-29. It is reference material
+-- you consult it when looking for a file, not when learning what the project
+is -- and at 47 lines it was longer than the README introduction and
+architecture sections together.
+
+
+```
+pqc-qkd-hybrid/
+├── README.md                          # ← you are here
+├── ARCHITECTURE.md                    # Detailed design & paper mapping
+├── docker-compose.yml                 # Main topology
+├── docker-compose.boringtun.yml       # WG kernel fallback (userspace)
+├── docker-compose.multihop.yml        # Adds Charlie relay (paper, 3.2 Routing and Composition)
+├── .env.example                       # Sample environment
+├── Makefile                           # build / up / smoke / bench
+├── references/                        # Reference papers (only where the licence permits)
+├── submodules/                        # Git submodules (unmodified)
+│   ├── arnika/                     # Go binary baked into node image
+│   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
+│   ├── oqs-provider/                  # OpenSSL 3.x provider for PQC TLS
+│   ├── rosenpass/                     # (after `make init`) PQC handshake daemon
+│   ├── SimQN/                         # (Phase 8) Python BB84 + Cascade + TPA (2026-05-25)
+│   ├── SeQUeNCe/                      # (Phase 8) Argonne photonic-realism DES (2026-05-12)
+│   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
+│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — vendored, not yet used
+│   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
+│   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
+│   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
+│   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
+│   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
+├── config/                            # (Phase 8) Central tunables
+│   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
+│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
+├── services/
+│   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
+│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
+│   ├── webui-backend/                 # FastAPI orchestrator
+│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
+│   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
+│   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
+│   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
+│   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
+├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
+├── nodes/{alice,strongswan}/          # Docker contexts. NOT per-node: bob and
+│                                      #   charlie reuse nodes/alice's image
+├── pki/                               # mTLS cert generation (`make pki`; nothing consumes the output yet)
+├── animations/                        # Manim scenes (.py)
+├── benchmarks/                        # Latency / throughput scripts
+├── tests/                             # pytest contract & unit tests
+└── docs/                              # keyrate, vici-ppk, references, roadmap,
+                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
+```

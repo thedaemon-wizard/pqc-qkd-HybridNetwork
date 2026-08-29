@@ -251,7 +251,13 @@ def test_the_header_table_matches_the_actual_row_counts():
     import re
 
     text = CHECKLIST.read_text(encoding="utf-8")
-    auto_pat = re.compile(r"pytest|npx vitest|CI `|CI job|`make ")
+    # `\bCI`, not `CI`. Without the boundary this matched the tail of **VICI**,
+    # and row 2.10's "VICI `get-shared`" was counted as CI coverage -- so the
+    # table reported 1 automated row in section 2 where the true number was 0,
+    # and the single row it named was not automated at all. The prose beside
+    # the table said seven. Both were wrong, in opposite directions, and the
+    # one false positive is what stopped anyone noticing the zero.
+    auto_pat = re.compile(r"pytest|npx vitest|\bCI `|\bCI job|`make ")
 
     actual: dict[str, dict[str, int]] = {}
     section = None
@@ -298,4 +304,58 @@ def test_the_header_table_matches_the_actual_row_counts():
     ), (
         f"totals sentence says {prose.group(1)}/{prose.group(2)}/{prose.group(3)}, "
         f"actual is {total_rows}/{total_auto}/{total_rows - total_auto}"
+    )
+
+
+def test_the_automation_heuristic_does_not_match_inside_vici():
+    """`CI ` used to match the last three characters of ``VICI ` ``.
+
+    Row 2.10 reads "`swanctl --list-conns` / VICI `get-shared` over several
+    rotations". It is a manual row. The heuristic above counted it, so the
+    header table reported section 2 as having one automated row -- naming, in
+    effect, the one row that is not -- while seven genuinely CI-asserted rows
+    went uncounted because their coverage lived in a paragraph rather than in
+    the rows. A single false positive is what made the zero look plausible.
+    """
+    import re
+
+    auto_pat = re.compile(r"pytest|npx vitest|\bCI `|\bCI job|`make ")
+
+    assert not auto_pat.search("VICI `get-shared` over several rotations")
+    assert not auto_pat.search("the strongSwan VICI `list-conns` call")
+    # Still matches the forms the checklist actually uses to claim coverage.
+    assert auto_pat.search("| Gate | CI `python` |")
+    assert auto_pat.search("**Asserted by CI job `ipsec`.**")
+    assert auto_pat.search("`pytest tests/test_keyrate_golden_vector.py`")
+
+
+def test_every_row_the_ipsec_prose_names_carries_the_marker():
+    """The paragraph and the rows must name the same seven rows.
+
+    Before this, the paragraph was the only record of which rows the `ipsec`
+    job covers, so a reader of row 2.6 had no way to know it was gated without
+    finding a sentence a hundred lines above. It also listed 2.7, which the job
+    does not check at all -- `intermediate` does not appear anywhere in it.
+    """
+    import re
+
+    text = CHECKLIST.read_text(encoding="utf-8")
+
+    prose = re.search(
+        r"the `ipsec` CI job asserts \*\*([^*]+)\*\* on every pull request", text)
+    assert prose, "the sentence naming the ipsec-covered rows is gone or reworded"
+    named = set(re.findall(r"\d+\.\d+b?", prose.group(1)))
+
+    marked = {
+        m.group(1)
+        for line in text.splitlines()
+        if "Asserted by CI job `ipsec`" in line
+        and (m := re.match(r"^\| (\d+\.\d+b?) \|", line))
+    }
+    assert named == marked, (
+        f"the prose names {sorted(named)} but the marked rows are "
+        f"{sorted(marked)}"
+    )
+    assert "2.7" not in marked, (
+        "2.7 (IKE_INTERMEDIATE actually runs) is not asserted by the ipsec job"
     )

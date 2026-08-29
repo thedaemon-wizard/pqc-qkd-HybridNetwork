@@ -55,7 +55,7 @@ Open `/e2e` in the WebUI. The Mode buttons map to the image's A / B / C labels;
 the operation buttons drive the state machine through the 4 phases at ~12-20 Hz on
 the reference Intel i5-13600K host.
 
-Idle, running and paused states were reviewed on screen. The committed captures are those in [`docs/images/screenshots/`](images/screenshots/).
+Idle, running and paused states were reviewed on screen. **No capture was committed.** This sentence pointed at `docs/images/screenshots/` as though the captures were there; that directory does not exist. It held 21 PNGs which nothing cited and which rendered claims this repository had since retracted, so removing them was correct -- but the pointer to them was left behind, and a link to a missing directory reads as evidence that was never there.
 
 ## Layout v2 (Phase 11)
 
@@ -80,7 +80,7 @@ with full 1:1 element parity to the reference image:
 | Quantum Channel row (purple dashed, y≈540) | independent SVG path at the very bottom |
 | Bottom-left A/B/C/E legend | `<LegendItem>` ×4 stacked |
 
-Verification was by inspection at the time. These specific captures were never committed; the files in `docs/images/screenshots/` are listed in the repository. Kept as a record of what was checked at the time, not as a pointer to an artefact.
+Verification was by inspection at the time, and **no capture was committed** -- neither these nor any others. The second half of this sentence used to say the files in `docs/images/screenshots/` are listed in the repository, which stopped being true when that directory was removed. Kept as a record of what was checked, not as a pointer to an artefact.
 
 ## Alternative PSK injection implementations (2026-active)
 

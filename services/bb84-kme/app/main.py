@@ -58,6 +58,9 @@ async def lifespan(app: FastAPI):
     )
     app.state.pool = pool
     app.state.frame_subs: set[asyncio.Queue] = set()
+    # Last totals seen by _metrics_loop, so cumulative stats can be turned into
+    # the monotonic deltas a Prometheus Counter needs.
+    app.state.metric_totals: dict[str, int] = {}
     task = asyncio.create_task(pool.run(), name="bb84-producer")
     metrics_task = asyncio.create_task(_metrics_loop(app), name="metrics-loop")
     log.info("BB84-KME started: SAE=%s peer=%s", sae_id, peer_url)
@@ -85,8 +88,47 @@ async def _metrics_loop(app: FastAPI) -> None:
             stats = app.state.pool.stats()
             M_QBER.set(stats.last_qber)
             M_POOL.set(stats.pool_size)
-            # Counters are set by inc(); we observe deltas via attribute snapshots
-            # (simplified: re-sync to current snapshot)
+
+            # The three counters below were declared and never incremented.
+            # The comment that used to sit here -- "Counters are set by inc();
+            # we observe deltas via attribute snapshots (simplified: re-sync to
+            # current snapshot)" -- described work no line performed, so
+            # /metrics published `qkd_intercepted_photons_total 0.0` with the
+            # HELP string "Photons intercepted by Eve" while rounds ran, and
+            # `qkd_rounds_total` emitted no sample at all.
+            #
+            # This loop only sees cumulative totals, so it advances the
+            # counters by the DELTA since the last tick rather than calling
+            # inc() per event. A Counter must never go backwards, so a total
+            # that shrinks (a restart, or a stats reset) re-baselines instead
+            # of subtracting.
+            prev = app.state.metric_totals
+            for name, label, total in (
+                ("rounds_accepted", "accepted", stats.rounds_accepted),
+                ("rounds_aborted", "aborted", stats.rounds_aborted),
+            ):
+                delta = total - prev.get(name, 0)
+                if delta < 0:            # counters restarted underneath us
+                    delta = total
+                if delta:
+                    M_ROUNDS.labels(outcome=label).inc(delta)
+                prev[name] = total
+
+            delta = stats.intercepted_total - prev.get("intercepted", 0)
+            if delta < 0:
+                delta = stats.intercepted_total
+            if delta:
+                M_INTERCEPT.inc(delta)
+            prev["intercepted"] = stats.intercepted_total
+
+            # A Histogram wants one observation per round, and only the most
+            # recent duration is available here. Observe it once per NEW round
+            # so an idle loop does not pile up repeat samples of the same value.
+            rounds_now = stats.rounds_total
+            if rounds_now > prev.get("rounds_total", 0) and stats.last_round_ms:
+                M_ROUND_MS.observe(stats.last_round_ms)
+            prev["rounds_total"] = rounds_now
+
             # Fan out frames to WS subscribers
             if stats.last_frames:
                 payload = {
@@ -146,10 +188,41 @@ class EveCtl(BaseModel):
 
 @app.post("/sim/eve")
 async def sim_eve(ctl: EveCtl):
+    """Enable or disable the simulated eavesdropper.
+
+    Reports whether the ACTIVE backend will act on it. This used to return
+    `{"ok": true}` unconditionally, including on `simqn` -- the shipped default
+    per config/qkd_params.yaml -- which never reads `eve_enabled` and hardcodes
+    `intercepted=0`. Driven with `prob=1.0` the round came back with the QBER
+    unchanged and `intercepted=0`, so a caller could not tell the control had
+    done nothing.
+
+    Deliberately NOT a 501. The flag is genuinely stored, `update_config`
+    propagates it, and switching `simulator.backend` to `qutip` afterwards
+    makes it take effect without re-posting. Refusing would be its own
+    inaccuracy. The response says what happened instead, and
+    `backend_meta.eve_ignored` says the same per round.
+    """
     if not 0.0 <= ctl.prob <= 1.0:
         raise HTTPException(status_code=400, detail="prob must be in [0,1]")
     app.state.pool.set_eve(ctl.enabled, ctl.prob)
-    return {"ok": True, "enabled": ctl.enabled, "prob": ctl.prob}
+    backend = app.state.pool.backend
+    effective = bool(getattr(backend, "models_eve", False))
+    out = {
+        "ok": True,
+        "enabled": ctl.enabled,
+        "prob": ctl.prob,
+        "backend": getattr(backend, "backend_name", type(backend).__name__),
+        "effective": effective,
+    }
+    if ctl.enabled and not effective:
+        out["note"] = (
+            f"{out['backend']} does not model an eavesdropper; the flag is "
+            f"stored but every round reports intercepted=0 because none is "
+            f"simulated, not because none was detected. Set "
+            f"simulator.backend=qutip for this control to change the physics."
+        )
+    return out
 
 
 @app.get("/sim/stats")

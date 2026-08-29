@@ -109,58 +109,43 @@ def qber(p: PhysParams, intensity: float) -> float:
     return (p.Y0 / 2 + p.e_d * (1 - math.exp(-eta * intensity))) / q
 
 
-def decoy_bounds(p: PhysParams) -> tuple[float, float]:
-    """Lower bound on Y1 (single-photon yield) and upper bound on e1 (s-photon QBER).
-
-    Two-decoy Lo-Ma analytical bounds (PRL 94 230504 eqs. 34-35):
-       Y1_L = (mu / (mu*nu1 - nu1^2)) * (Q_nu1 * exp(nu1) - Q_nu2 * exp(nu2)
-              - (nu1^2 - nu2^2)/mu^2 * (Q_mu * exp(mu) - Y0) )
-       e1_U = (E_nu1 * Q_nu1 * exp(nu1) - 0.5 * Y0) / (Y1_L * nu1)
-    """
-    Q_mu = gain(p, p.mu)
-    Q_nu1 = gain(p, p.nu1)
-    Q_nu2 = gain(p, p.nu2) if p.nu2 > 0 else p.Y0
-    E_nu1 = qber(p, p.nu1)
-
-    if p.nu1 <= 0 or p.mu - p.nu1 <= 0:
-        return 0.0, 0.5
-
-    # Ma et al. PRA 72, 012326 (2005), Eq. (18)/(34). The denominator is the
-    # GENERAL two-decoy form. It previously read `mu * nu1 - nu1 * nu1`, which
-    # is that expression with nu2 = 0 substituted -- while the numerator kept
-    # its (nu1^2 - nu2^2) term, so the two halves assumed different nu2. The
-    # paper's validity condition is nu1 + nu2 < mu, not nu2 == 0.
-    #
-    # Correct at the shipped default (nu2 = 0.0) and wrong above it, which is
-    # why 301 tests passed: every case pinned nu2 = 0.0. The optimiser grid in
-    # config/qkd_params.yaml does search nu2 = 0.01, and /physics exposes nu2
-    # as an editable field.
-    denom = p.mu * p.nu1 - p.mu * p.nu2 - p.nu1 * p.nu1 + p.nu2 * p.nu2
-    if denom <= 0:
-        return 0.0
-    Y1_L = (p.mu / denom) * (
-        Q_nu1 * math.exp(p.nu1) - Q_nu2 * math.exp(p.nu2)
-        - (p.nu1 ** 2 - p.nu2 ** 2) / (p.mu ** 2)
-          * (Q_mu * math.exp(p.mu) - p.Y0)
-    )
-    Y1_L = max(Y1_L, 0.0)
-
-    if Y1_L <= 0 or p.nu1 <= 0:
-        return 0.0, 0.5
-    e1_U = (E_nu1 * Q_nu1 * math.exp(p.nu1) - 0.5 * p.Y0) / (Y1_L * p.nu1)
-    e1_U = max(0.0, min(0.5, e1_U))
-    return Y1_L, e1_U
-
-
 def asymptotic_skr_per_pulse(p: PhysParams) -> float:
-    """GLLP rate: R ≥ q { -Q_mu · f · H2(E_mu) + Q1 · [1 - H2(e1)] }
-    with Q1 = mu · exp(-mu) · Y1_L  and q ≈ 1/2 (basis symmetrisation)."""
-    Q_mu = gain(p, p.mu)
-    E_mu = qber(p, p.mu)
-    Y1_L, e1_U = decoy_bounds(p)
-    Q1 = p.mu * math.exp(-p.mu) * Y1_L
-    rate = 0.5 * (-Q_mu * p.f_EC * H2(E_mu) + Q1 * (1 - H2(e1_U)))
-    return max(rate, 0.0)
+    """Asymptotic GLLP rate per pulse, delegated to the shipped implementation.
+
+    This file used to carry its own `decoy_bounds()` and its own GLLP
+    assembly -- a THIRD copy of the decoy model, alongside
+    `services/bb84-kme/app/backends/_skr.py` and
+    `services/webui-frontend/src/lib/sim/keyrate.ts`. It received half of the
+    corrections the other two got, and the half it missed had a hard failure
+    in it:
+
+        def decoy_bounds(p) -> tuple[float, float]:
+            ...
+            if denom <= 0:
+                return 0.0          # <-- a bare float from a tuple-annotated
+                                    #     function, and the only caller does
+                                    #     `Y1_L, e1_U = decoy_bounds(p)`
+
+    Reproduced before removing it, with mu=0.5, nu1=0.3, nu2=0.25 -- which
+    violates Ma et al. Eq. (15)'s `nu1 + nu2 < mu`, the very condition that
+    branch exists to enforce:
+
+        denom = -0.002500  ->  TypeError: cannot unpack non-iterable float
+
+    Reachable from the browser: `source.intensity_decoy_2_nu2` is an editable
+    field on /physics whose bound is `[0, null]`, so nu2 has no upper limit.
+
+    `_skr` already carries the Eq. (15) validity guard (`_skr.py:67`) and the
+    general Eq. (25) e1 that this copy never received. Delegating removes the
+    third implementation rather than repairing it, which is what
+    `finite_key_correction` below already does for the finite-key half -- and
+    for the reason its docstring gives: a duplicate is how the original defect
+    survived a fix in the other copy.
+    """
+    return _skr.asymptotic_skr_per_pulse(
+        Y0=p.Y0, eta_total=channel_transmittance(p), e_d=p.e_d,
+        mu=p.mu, nu1=p.nu1, nu2=p.nu2, f_EC=p.f_EC,
+    )
 
 
 def finite_key_correction(p: PhysParams, N: int, eps: float = 1e-10,

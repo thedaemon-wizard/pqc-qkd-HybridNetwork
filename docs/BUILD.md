@@ -124,3 +124,40 @@ bundled defaults; `/`, `/benchmarks`, `/console`, `/physics`, `/topology`,
 [`docs/deployment-economics.md`](deployment-economics.md).
 
 ---
+
+---
+
+## 6. Dev Environment
+
+Moved here from `README.md` section 11 on 2026-08-29: it describes the host
+this was built on, which belongs with the build instructions rather than in
+the first page a reader opens.
+
+
+Tested on:
+- **OS**: AlmaLinux 9.7
+- **CPU**: Intel i5-13600K (14C/20T)
+- **RAM**: 128 GB DDR5 5200
+- **GPU**: NVIDIA RTX 6000 PRO Blackwell 96GB (CUDA 13.0)
+  — *GPU is optional*; the BB84 simulator is CPU-bound by design for portability.
+  Future Shor-attack-simulator (roadmap A) will leverage CUDA-Q + cuQuantum.
+- **Python**: 3.12 in a `.venv` for host-side scripts (tests, benchmarks, manim)
+- **Docker**: 24+ with Compose v2
+- **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
+  `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
+  required. If `modprobe wireguard` fails on your host, the image ships
+  `wireguard-go` and `nodes/alice/entrypoint.sh` uses it automatically -- no
+  override needed. This previously said `wg-quick` arranges the fallback;
+  nothing in this repository invokes `wg-quick`, so until the entrypoint was
+  taught to fall back, a host without the module simply failed to start. See
+  section 5.3 above. (That sentence read "see `docs/BUILD.md` section 5.3"
+  while it lived in the README; here it is a self-reference, and the relative
+  path resolved to `docs/docs/BUILD.md`.)
+
+Host-side Python venv (for running `pytest` and Manim outside Docker):
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install httpx pytest qutip numpy manim matplotlib
+```

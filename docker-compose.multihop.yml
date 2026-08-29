@@ -14,7 +14,7 @@ services:
     environment:
       RP_EXTRA_PEERS: "charlie@charlie:9997"
       # name@wg-endpoint/tunnel-ip. charlie listens on 51822 and holds 10.0.0.3.
-      WG_EXTRA_PEERS: "charlie@charlie:51822/10.0.0.3"
+      WG_EXTRA_PEERS: "charlie@charlie:51822/${WG_CHARLIE_IP:-10.0.0.3}"
       # One arnika per neighbour: this one drives the charlie leg on :9998.
       ARNIKA_EXTRA_PEERS: "charlie@charlie:9998"
 
@@ -37,7 +37,7 @@ services:
       NODE_NAME: charlie
       WG_IFACE: wg0
       WG_LISTEN_PORT: 51822
-      WG_LOCAL_IP: 10.0.0.3
+      WG_LOCAL_IP: ${WG_CHARLIE_IP:-10.0.0.3}
       WG_PEER_IP: 10.0.0.1
       WG_PEER_ENDPOINT: alice:51820
       ARNIKA_MODE: AtLeastQkdRequired

@@ -16,7 +16,20 @@ export interface PhaseRec {
 }
 
 export interface E2EState {
-  status: "idle" | "running" | "paused";
+  /**
+   * `stepped` is a manual single-phase advance, distinct from `paused`.
+   *
+   * `paused` carries a second meaning in this machine: it is the FATALITY
+   * verdict. `e2eFailure.test.ts` distinguishes survived-from-halted by
+   * comparing against it in five places, so setting it on a manual step would
+   * make "the operator stepped" and "the run died" the same state.
+   *
+   * Before this value existed, `step()` left the badge reading `idle` while
+   * the machine advanced. Observed on the deployed build: one Step from idle
+   * moved `Active phase` to 2 and ticked phase 1 complete, with the badge
+   * still showing `idle`.
+   */
+  status: "idle" | "running" | "paused" | "stepped";
   /** Layer the operator has knocked out, or null. See `injectFailure`. */
   failed_layer: E2ELayer | null;
   /**
@@ -39,7 +52,22 @@ export interface E2EState {
   last_qkd_key_id: string;
   last_psk_prefix_hex: string;
   last_error: string;
-  rate_bps: number;
+  /**
+   * Measured throughput, or null when nothing has been measured yet.
+   *
+   * NULLABLE deliberately. This was a non-optional `number` initialised to 0,
+   * and `formatRate` renders a dash only for a non-finite value -- so a run
+   * that had encrypted nothing showed "Throughput (bps) 0" beside "Packets
+   * encrypted 0". Observed on the deployed build after a single Step from
+   * idle.
+   *
+   * A measured zero is unreachable: the assignment below divides a byte count
+   * that is only positive when packets were encrypted, by a positive elapsed
+   * time. So every 0 this field could show was an absence wearing the shape
+   * of a measurement -- the substitution this page's own comments reject for
+   * QBER.
+   */
+  rate_bps: number | null;
   /**
    * The cycle length the animation is paced to, in ms.
    *
@@ -158,7 +186,7 @@ export class E2ESim {
       failure_is_fatal: false,
       mode_label: MODE_LABEL[mode], completed_cycles: 0,
       total_bytes_encrypted: 0, total_packets: 0, last_qkd_key_id: "",
-      last_psk_prefix_hex: "", last_error: "", rate_bps: 0,
+      last_psk_prefix_hex: "", last_error: "", rate_bps: null,
       nominal_cycle_ms: 4 * NOMINAL_PHASE_DWELL_MS, history: [],
       engine: "client-side (JS + @noble)",
     };
@@ -221,23 +249,26 @@ export class E2ESim {
    */
   step() {
     if (this.s.status === "running") return;
-    // NOT `this.s.status = "paused"` here, though stepping from `idle` does
-    // leave the badge reading "idle" while the machine advances.
+    // `stepped`, NOT `paused`. `paused` is the fatality verdict in this
+    // machine (see the status field), and five assertions in
+    // e2eFailure.test.ts distinguish survived-from-halted by comparing
+    // against it, so reusing it here would make "the operator stepped" and
+    // "the run died" indistinguishable.
     //
-    // `paused` is already overloaded in this state machine: it is the FATALITY
-    // verdict. e2eFailure.test.ts:156 asserts `status === "paused"` equals
-    // whether the injected failure was fatal for the mode, and seven of its
-    // tests distinguish survived-vs-halted by exactly that comparison. Setting
-    // it on a manual step would make "the operator stepped" and "the run died"
-    // the same state.
-    //
-    // The badge really is wrong during a manual step, but fixing it needs a
-    // distinct status value and a pass over every consumer of the union type.
-    // Left as its own change rather than smuggled in behind a one-line edit
-    // that quietly redefines a value seven tests depend on.
+    // A fatal step is the one case that must NOT be relabelled: if the phase
+    // work below halts the run, `advance()` sets `paused` and that verdict
+    // has to survive. So this is set BEFORE the work and only kept if the
+    // work did not change it.
+    const before = this.s.status;
+    this.s.status = "stepped";
     if (this.s.current_phase === 0) this.enter(1);
     this.runPhaseWork();
     this.advance(true);
+    // If the work halted the run, `advance` has already set `paused` and that
+    // is the honest state. Only restore the manual label when nothing did.
+    if (this.s.status === "stepped" && before === "paused") {
+      this.s.status = "paused";
+    }
     this.emit();
   }
   setMode(m: Mode) {

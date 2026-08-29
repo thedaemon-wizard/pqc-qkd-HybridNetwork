@@ -132,13 +132,25 @@ Implementation gaps are tracked separately, under "Status" below.
 ## Decision record: client-side compute stack
 
 The public demo must not put simulation load on the server, so every simulation
-page computes in the browser. Four runtimes are routinely suggested for that and
-none of them is used here. Recording why, so the omission reads as a decision
-rather than an oversight.
+page computes in the browser. Several runtimes are routinely suggested for that.
+Recording which are used and which are not, so each reads as a decision rather
+than an oversight.
 
-**What is used.** Pure-TypeScript `@noble/*` for the cryptography, and a
-Web Worker for the BB84 Monte-Carlo with an optional WebGL2/WebGPU compute path
-for the pulse loop.
+**What is used.** Pure-TypeScript `@noble/*` for the cryptography, and a Web
+Worker for the BB84 Monte-Carlo with optional **WASM**, WebGL2 and WebGPU
+compute paths for the pulse loop.
+
+**WASM was rejected below and later adopted.** The rejection rested on bundle
+cost. That prior was then measured -- the Rust kernel compiles to **907 bytes**
+-- and the decision was reversed; `services/webui-frontend/src/lib/sim/bb84Sim.ts`
+ships an engine named `WASM (Rust, 907 B)` and `/bb84` offers it in the
+accelerator picker. This section's summary was not updated at the time, and
+neither was checklist row 4.6.5, which went on asserting "zero occurrences" of
+WASM in the frontend source until 2026-08-29 while row 4.5.14b twelve lines
+above pinned WASM as a measured tier. Both are corrected; the paragraph below
+is kept because the reasoning it records still applies to the ML runtimes, and
+because a reversal is more useful with its original argument visible than
+without.
 
 The tier is chosen by measurement rather than preference: each GPU rung is
 benchmarked against the Worker for one round and adopted only if it wins. On
@@ -510,10 +522,41 @@ product name, so these survive every green CI run.
   (`failed to retrieve QKD key from .../api/v1/keys/BOB`). Both route through
   the same `kmsRequest`, so the symptom is broader than recorded.
 
-  And the frequency: 1 failure in the last 20 runs of the `ipsec` job, not the
-  "five times" taken from a single day. It reproduced on pull requests touching
-  only frontend TypeScript, which is consistent with the trigger being a KME
-  that momentarily cannot serve a key rather than anything in the change.
+  And the frequency, **re-measured 2026-08-29 and materially worse than what
+  stood here**. This paragraph said "1 failure in the last 20 runs of the
+  `ipsec` job" (5% of runs) and `ci.yml` says "1 failure in 45 rotations" (2%
+  of rotations). Both are now stale by roughly an order of magnitude.
+
+  Observed across six `ipsec` runs on one branch in a single day:
+
+  | run | rotations | auth failures | rate |
+  |---|---|---|---|
+  | 33234515173 | -- | 0 | pass |
+  | 33235596471 | -- | 0 | pass |
+  | 33237084658 | -- | 0 | pass |
+  | (superseded) | 9 | **8** | **89%** |
+  | (rerun of the above) | -- | 0 | pass |
+  | 33238341982 | 13 | **4** | **31%** |
+
+  So **two of six runs failed**, and when a run fails the per-rotation rate is
+  31-89%, not 2%. The two failing runs also disagree with each other by a
+  factor of three, which is what a race looks like rather than a constant.
+
+  Ruled out as the cause: nothing on that branch touched the lane. The only
+  `ci.yml` change was a step added to the `live-stack` job, and `git diff
+  --name-only` over the branch returns no file under `nodes/strongswan/`,
+  `services/arnika-vici/`, or the `ipsec` job itself. GitHub gives each job its
+  own runner, so the added step cannot contend with it either.
+
+  What this means practically: **the 20% ceiling in `ci.yml` is now tripped
+  often enough to block merges**, and the honest reading is that the upstream
+  `kmsRequest` defect (arnika#43, unfixed at pin `9d44332`) has become more
+  frequent rather than that the gate is too tight. Raising the ceiling would
+  hide a real regression in the lane's reliability. The gate is doing its job.
+
+  It reproduced on pull requests touching only frontend TypeScript, which is
+  consistent with the trigger being a KME that momentarily cannot serve a key
+  rather than anything in the change.
   The 20 % threshold is deliberately unchanged: it is catching a real defect.
 - **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
   (2014), arXiv:1311.7129.** This entry previously recorded that a paper was

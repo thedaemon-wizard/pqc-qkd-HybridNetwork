@@ -2,7 +2,8 @@
  * Per-page export toolbar (Phase 12-C).
  *
  * Renders only the buttons whose handlers are passed in. Lazy-load of
- * html-to-image / gifshot keeps initial bundle slim.
+ * html-to-image / modern-gif keeps initial bundle slim. (This credited
+ * gifshot, which was replaced -- it was last released in 2017.)
  */
 import { useState } from "react";
 import {

@@ -202,5 +202,5 @@ class TNOBackend(KeyProducer):
             elapsed_ms=elapsed_ms,
             skr_bps=res["skr_bps"],
             sample_frames=[],
-            backend_meta={"backend": "tno", **res},
+            backend_meta={"backend": "tno", **res, **self.eve_meta()},
         )

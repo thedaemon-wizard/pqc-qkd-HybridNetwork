@@ -39,15 +39,15 @@ Design documents:
 ## Table of Contents
 1. [Introduction](#1-introduction)
 2. [Architecture](#2-architecture)
-3. [Repository Layout](#3-repository-layout)
+3. [Repository Layout](#3-repository-layout) → [`ARCHITECTURE.md`](ARCHITECTURE.md#6-repository-layout)
 4. [Quickstart](#4-quickstart)
 5. [Build details](#5-build-details)
 6. [Configuration](#6-configuration)
-7. [Running the WebUI](#7-running-the-webui)
+7. [Running the WebUI](#7-running-the-webui) → [`docs/webui-pages.md`](docs/webui-pages.md)
 8. [Verification & Tests](#8-verification--tests)
 9. [Benchmarks](#9-benchmarks)
 10. [Paper Mapping](#10-paper-mapping)
-11. [Dev Environment](#11-dev-environment)
+11. [Dev Environment](#11-dev-environment) → [`docs/BUILD.md`](docs/BUILD.md#6-dev-environment)
     - [Implementation phases](#115-implementation-phases)
 12. [Limitations](#12-limitations)
 13. [References](#13-references)
@@ -96,7 +96,7 @@ earlier version of this sentence claimed it did.)
         │  bb84-kme-a       │ /internal/sync│  bb84-kme-b      │
         │  BB84 sim + ETSI  │◄─────────────►│  BB84 sim + ETSI │
         └────────▲──────────┘               └──────────▲───────┘
-                 │ HTTP (mTLS opt.)                    │
+                 │ HTTP (mTLS NOT implemented)         │
         ┌────────┴───────────┐               ┌─────────┴────────┐
         │  alice (node)      │ WireGuard wg0 │  bob (node)      │
         │  - arnika (Go)     │◄─────────────►│  - arnika (Go)   │
@@ -111,51 +111,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the detailed design.
 
 ## 3. Repository Layout
 
-```
-pqc-qkd-hybrid/
-├── README.md                          # ← you are here
-├── ARCHITECTURE.md                    # Detailed design & paper mapping
-├── docker-compose.yml                 # Main topology
-├── docker-compose.boringtun.yml       # WG kernel fallback (userspace)
-├── docker-compose.multihop.yml        # Adds Charlie relay (paper, 3.2 Routing and Composition)
-├── .env.example                       # Sample environment
-├── Makefile                           # build / up / smoke / bench
-├── references/                        # Reference papers (only where the licence permits)
-├── submodules/                        # Git submodules (unmodified)
-│   ├── arnika/                     # Go binary baked into node image
-│   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
-│   ├── oqs-provider/                  # OpenSSL 3.x provider for PQC TLS
-│   ├── rosenpass/                     # (after `make init`) PQC handshake daemon
-│   ├── SimQN/                         # (Phase 8) Python BB84 + Cascade + TPA (2026-05-25)
-│   ├── SeQUeNCe/                      # (Phase 8) Argonne photonic-realism DES (2026-05-12)
-│   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
-│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — vendored, not yet used
-│   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
-│   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
-│   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
-│   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
-│   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
-├── config/                            # (Phase 8) Central tunables
-│   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
-│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
-├── services/
-│   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
-│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
-│   ├── webui-backend/                 # FastAPI orchestrator
-│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
-│   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
-│   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
-│   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
-│   └── qkdnetsim-kme/                 # (Phase 8) NS-3 ETSI 014 reference KME (separate container)
-├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
-├── nodes/{alice,bob,charlie}/         # Per-node Docker context
-├── pki/                               # mTLS cert generation
-├── animations/                        # Manim scenes (.py)
-├── benchmarks/                        # Latency / throughput scripts
-├── tests/                             # pytest contract & unit tests
-└── docs/                              # keyrate, vici-ppk, references, roadmap,
-                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
-```
+The annotated directory tree lives in
+[`ARCHITECTURE.md` section 6](ARCHITECTURE.md#6-repository-layout). It was
+here, at 47 lines, which is longer than this README's introduction and
+architecture sections combined and is reference material rather than
+orientation.
 
 ---
 
@@ -166,7 +126,7 @@ pqc-qkd-hybrid/
 git clone --recurse-submodules https://github.com/<you>/pqc-qkd-hybrid.git
 cd pqc-qkd-hybrid
 
-# 2) Initialise: writes .env, fetches submodules, generates mTLS certs
+# 2) Initialise: writes .env, fetches submodules (no certs -- see `make pki`)
 make init
 
 # 3) Build all images (≈3-5 min first time: arnika Go + Rosenpass Rust + Python)
@@ -222,28 +182,16 @@ All variables in `.env` (copy from `.env.example`):
 
 ## 7. Running the WebUI
 
-Open <http://localhost:5173>. Thirteen pages are available:
+Open <http://localhost:5173>. Thirteen pages are available; each one is
+described, with what it computes client-side and what it needs the backend
+for, in [`docs/webui-pages.md`](docs/webui-pages.md).
 
-1. **Overview** (`/`) — Layered architecture SVG + live container status badges
-2. **Quantum-Secure E2E** (`/e2e`) — **client-side** 4-phase orchestration (Quantum Plane → QKD Key IDs → PQC Handshake → Data Exchange) with **real in-browser HKDF-SHA3-256 + ChaCha20-Poly1305** (`@noble`), over the arnika architecture diagram, Run/Pause/Resume/Reset/Step + Mode A/B/C
-3. **Paper Data Exchange** (`/paper-flow`) — **client-side** multi-hop trusted-node Data Exchange (Spooren et al. arXiv:2604.05599): swimlane sequence, hop-count slider (1–8), layer-aware failure-cascade timeline, ChaCha20-Poly1305 payload
-4. **BB84 Live** (`/bb84`) — **client-side** Monte-Carlo photon simulation in a **Web Worker** (~70–100M pulses/s; optional WebGPU), real-time QBER chart, key-pool size, photon-frame table, **Eve toggle** + intercept-probability slider, live engine badge
-5. **Key Flow** (`/keyflow`) — Plotly Sankey of QKD raw → sifted → reconciled + Rosenpass → HKDF → WireGuard PSK
-6. **Topology** (`/topology`) — D3-force graph of alice, bob and the two KMEs. Charlie is **not** shown: `/api/topology` returns a fixed four-node graph with no multihop branch.
-7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms)
-8. **Console** (`/console`) — Live log tail of any container (alice / bob / KMEs)
-9. **Physics Params** (`/physics`) — **Editable** parameter inputs (Apply/Reset). `config/qkd_params.yaml` provides the defaults (best-effort synced to the KMEs); a **client-side** live key-rate (closed-form Lo-Ma) + **client-side** μ/ν optimiser recompute in-browser as you edit, plus the backend selector (incl. `tno`)
-10. **PQC Validator** (`/pqc`) — client-side ML-KEM / ML-DSA / SLH-DSA via @noble, cross-checked against liboqs by `POST /api/interop/mlkem`
-11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix across **two mathematical families** (ML-KEM 512/768/1024 and ML-DSA 44/65/87 on module lattices, SLH-DSA SHA2-128s/192s/256s hash-based), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
-12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
-13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
+Most pages carry an export toolbar below the description -- high-DPI PNG (2x),
+JSON, CSV, WebM and GIF (duration and frame rate both settable in-page), and
+logs.
 
-Most pages provide per-page export buttons below the description — **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation, and logs; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
-
-**Public-demo profile (`DEMO_MODE=1`).** For an unattended, multi-user public demo set `DEMO_MODE=1` on `webui-backend`. The demo is **functionally equivalent to full mode except the one genuinely dangerous operation** — **container lifecycle control** (`/api/stack/*`), which could take the shared demo offline and stays **403** (its restart buttons are hidden) — plus a per-IP rate limit (`DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S`, 429) for abuse protection. **Backend switching, parameter overrides, and server-side export saves are all allowed** (reversible / capacity-bounded by `EXPORT_MAX_FILES`+`EXPORT_MAX_BYTES` / rate-limited). Local full-stack and the `deploy/` cloud real-WG stack run with `DEMO_MODE` unset (unchanged).
-
-> Note: The WebUI Backend mounts `/var/run/docker.sock:ro` to query container state.
-> This is acceptable for a single-host PoC but should not be exposed in production.
+**Public-demo profile (`DEMO_MODE=1`)** and the note on the mounted Docker
+socket are in that document too, under "Demo mode".
 
 ---
 
@@ -300,31 +248,9 @@ Detailed claim-by-claim mapping is in [`docs/paper_mapping.md`](docs/paper_mappi
 
 ## 11. Dev Environment
 
-Tested on:
-- **OS**: AlmaLinux 9.7
-- **CPU**: Intel i5-13600K (14C/20T)
-- **RAM**: 128 GB DDR5 5200
-- **GPU**: NVIDIA RTX 6000 PRO Blackwell 96GB (CUDA 13.0)
-  — *GPU is optional*; the BB84 simulator is CPU-bound by design for portability.
-  Future Shor-attack-simulator (roadmap A) will leverage CUDA-Q + cuQuantum.
-- **Python**: 3.12 in a `.venv` for host-side scripts (tests, benchmarks, manim)
-- **Docker**: 24+ with Compose v2
-- **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
-  `wireguard-tools` userspace is installed. ELRepo's `kmod-wireguard` is not
-  required. If `modprobe wireguard` fails on your host, the image ships
-  `wireguard-go` and `nodes/alice/entrypoint.sh` uses it automatically -- no
-  override needed. This previously said `wg-quick` arranges the fallback;
-  nothing in this repository invokes `wg-quick`, so until the entrypoint was
-  taught to fall back, a host without the module simply failed to start. See
-  [`docs/BUILD.md`](docs/BUILD.md) section 5.3.
-
-Host-side Python venv (for running `pytest` and Manim outside Docker):
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install httpx pytest qutip numpy manim matplotlib
-```
+The tested host specification, the WireGuard kernel-module note and the
+host-side venv recipe are in
+[`docs/BUILD.md` section 6](docs/BUILD.md#6-dev-environment).
 
 ---
 

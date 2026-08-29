@@ -34,9 +34,23 @@ export default function Benchmarks() {
   // round adds no point.
   const lastPlottedRound = useRef<number | null>(null);
 
+  // Distinct from the per-field absence handling below. `reading()` covers
+  // "the backend answered but the KME did not"; this covers "the backend did
+  // not answer at all", which used to reject unhandled INSIDE a 1 s interval
+  // -- so a static deploy produced one console error per second and the page
+  // kept rendering its last values as though they were current.
+  const [unreachable, setUnreachable] = useState<string | null>(null);
+
   useEffect(() => {
     const t = setInterval(async () => {
-      const s = await getStats();
+      let s: Awaited<ReturnType<typeof getStats>>;
+      try {
+        s = await getStats();
+        setUnreachable(null);
+      } catch (e) {
+        setUnreachable(String((e as Error)?.message ?? e));
+        return;
+      }
       // `/api/stats` answers `{"alice": {"error": "..."}}` when the KME is
       // unreachable (see stats() in services/webui-backend/app/main.py), so
       // `rounds_accepted` is simply absent. `?? 0` reported that absence as a
@@ -95,6 +109,12 @@ export default function Benchmarks() {
         title="Benchmarks"
         subtitle="Live BB84 round latency and QBER history."
       />
+      {unreachable && (
+        <p style={{ color: "#e0777d", margin: "0 0 12px" }}>
+          Not observed &mdash; <code>GET /api/stats</code> failed: {unreachable}.
+          The figures below are the last successful poll, not current.
+        </p>
+      )}
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="benchmarks"
