@@ -57,7 +57,7 @@ export default function PaperDataExchange() {
       `# generated:   ${new Date().toISOString()}`,
       `# engine:      ${s.engine ?? "client-side"}`,
       `# status:      ${s.status}`,
-      `# hops:        ${s.hop_count}  dual_path: ${s.dual_path}`,
+      `# hops:        ${s.hop_count}`,
       `# cycles:      ${s.cycles_total} (${s.cycles_succeeded} accepted)`,
       `# packets:     ${s.packets_total}  bytes: ${s.bytes_total}`,
       s.failure.active_layer
@@ -262,6 +262,7 @@ export default function PaperDataExchange() {
                      gap: 16, marginTop: 16 }}>
         <PacketFlowTable budgets={budgets} currentPhase={phase} />
         <FailureCascadeTimeline
+          status={status}
           activeLayer={state?.failure.active_layer ?? null}
           startedAt={state?.failure.started_at ?? null}
           events={state?.failure.cascade ?? []}

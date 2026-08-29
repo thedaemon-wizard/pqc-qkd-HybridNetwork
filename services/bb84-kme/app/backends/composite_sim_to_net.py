@@ -1,18 +1,30 @@
-"""Composite backend: SimQN physical layer feeds qkdnetsim network layer.
+"""Composite backend: SimQN physical layer feeds a qkdnetsim-shaped KMS.
 
 Implements the "end-to-end pipeline" described in Phase 8-B-7 of the plan:
-    physical (SimQN) → KMS (qkdnetsim) → arnika consumes ETSI 014
+    physical (SimQN) → KMS (ETSI 014) → arnika consumes ETSI 014
 
 Architecture:
 1. SimQN computes a realistic per-link keyRate (bits/sec) using fiber loss,
    detector efficiency, dark counts, and the closed-form gain/QBER.
-2. We POST that keyRate to the qkdnetsim-kme container, which uses it as
-   the `DataRate` parameter for its NS-3 `QuantumChannel` and serves keys
-   over its ETSI 014 endpoint.
+2. We POST that keyRate to the qkdnetsim-kme container, which uses it as the
+   fill rate for the key material it serves over its ETSI 014 endpoint.
 3. This backend then pulls the served keys via the proxy.
 
-The composite gives us the most defensible "real-hardware-like" pipeline
-without owning real QKD hardware.
+WHAT IS AND IS NOT SIMULATED ON THE OTHER SIDE OF STEP 2.
+
+This docstring used to say the container "uses it as the `DataRate` parameter
+for its NS-3 `QuantumChannel`". No NS-3 runs. The container's entrypoint is
+`services/qkdnetsim-kme/kme_facade.py`, a Flask app whose own docstring says
+the keys "are produced by a small CSPRNG calibrated to a `keyRate_bps` value"
+-- it constructs no `QuantumChannel` and starts no simulator. The image does
+compile NS-3 and qkdnetsim, and the binaries are copied into the runtime
+stage, but nothing at runtime executes them.
+
+So what step 2 contributes is a SECOND, INDEPENDENTLY WRITTEN ETSI 014 server
+-- which is a real cross-check of the REST contract, and is the reason the
+backend exists. It is not a network-layer simulation, and the rate SimQN
+computes is honoured as a token fill rate rather than carried through a
+simulated channel.
 """
 from __future__ import annotations
 

@@ -26,6 +26,7 @@ that this catches.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,10 @@ def _corpus() -> str:
 
 
 CORPUS = _corpus()
+# Raw text of every compose file, for the interpolation check above. Read as
+# text rather than through the YAML loader on purpose: `${VAR}` is a string in
+# the document, and the loader would give back the substituted value.
+COMPOSE_TEXT = "\n".join(f.read_text(encoding="utf-8") for f in COMPOSE_FILES)
 COMPOSE_VARS = _compose_vars()
 
 
@@ -170,3 +175,96 @@ def test_the_yaml_is_still_the_declared_single_source():
         "of truth. If that decision changed, the BB84_* variables may belong "
         "again -- but then they need readers, and this test needs rewriting."
     )
+
+
+# ---------------------------------------------------------------------------
+# Orphans that live ONLY in an example file.
+#
+# Everything above enumerates variables SET IN a compose file, so a variable
+# that appears only in `.env.example` or `deploy/.env.example` is outside this
+# module's reach by construction. That gap was real: `deploy/.env.example`
+# carried a "BB84-KME tuning" block of five variables --
+#
+#     BB84_BATCH, BB84_CHANNEL_NOISE, BB84_QBER_THRESHOLD,
+#     BB84_POOL_LOW, BB84_POOL_MAX
+#
+# -- that appeared in no compose file and in no Python source. `deploy/README.md`
+# tells operators to copy that file, so the offer was to tune five values and
+# observe nothing. The real knobs are in `config/qkd_params.yaml`.
+#
+# An example file is a promise about the runtime, exactly like a compose
+# variable, so it gets the same check.
+# ---------------------------------------------------------------------------
+
+EXAMPLE_FILES = [p for p in (ROOT / ".env.example", ROOT / "deploy" / ".env.example")
+                 if p.is_file()]
+
+
+def _example_vars() -> dict[str, set[str]]:
+    """`NAME=value` assignments in the example files, ignoring comments."""
+    out: dict[str, set[str]] = {}
+    for f in EXAMPLE_FILES:
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.match(r"^([A-Z_][A-Z0-9_]*)=", line)
+            if m:
+                out.setdefault(m.group(1), set()).add(
+                    str(f.relative_to(ROOT)))
+    return out
+
+
+# Consumed by `docker compose` itself rather than by anything in this tree, so
+# "nothing reads it" is true of the repository and false of the runtime. Kept
+# as an explicit list of one, not a pattern, so a second entry needs a reason.
+COMPOSE_BUILTINS = {"COMPOSE_PROJECT_NAME"}
+
+EXAMPLE_VARS = _example_vars()
+
+
+def test_there_are_example_variables_to_check():
+    # Without this the parametrisation below can silently collapse to nothing.
+    assert len(EXAMPLE_VARS) >= 5, (
+        f"only {len(EXAMPLE_VARS)} variables parsed from {EXAMPLE_FILES}"
+    )
+
+
+@pytest.mark.parametrize("var", sorted(EXAMPLE_VARS))
+def test_every_example_variable_is_read_somewhere(var):
+    """An example file must not offer a knob nothing turns.
+
+    Reading counts if a compose file interpolates it OR any source file
+    mentions it -- the same corpus the compose check uses.
+    """
+    if var in COMPOSE_VARS:
+        return  # already covered, and covered more strictly, above
+    # Interpolation counts as reading. `_compose_vars()` collects the KEYS set
+    # in a service `environment:` block, so a variable used only as
+    # `${WG_ALICE_IP:-10.0.0.1}` on the VALUE side is invisible to it. The first
+    # version of this check omitted COMPOSE_TEXT and reported twelve orphans,
+    # eleven of which were interpolations -- WG_*, ARNIKA_ID_*, WEBUI_*_PORT and
+    # COMPOSE_PROJECT_NAME are all genuinely consumed that way.
+    if var in COMPOSE_BUILTINS:
+        return
+    assert var in CORPUS or var in COMPOSE_TEXT, (
+        f"{var} is offered in {sorted(EXAMPLE_VARS[var])} but is read by "
+        f"nothing: it appears in no docker-compose*.yml and nowhere in the "
+        f"source corpus. Either wire it up or delete it -- an operator who "
+        f"edits it will see no effect."
+    )
+
+
+def test_the_removed_bb84_block_stays_removed():
+    """Named explicitly, because it is the case that motivated the check."""
+    for f in EXAMPLE_FILES:
+        text = f.read_text(encoding="utf-8")
+        for var in ("BB84_BATCH", "BB84_CHANNEL_NOISE", "BB84_QBER_THRESHOLD",
+                    "BB84_POOL_LOW", "BB84_POOL_MAX"):
+            for line in text.splitlines():
+                s = line.strip()
+                if s.startswith("#"):
+                    continue    # the retraction note quotes the names on purpose
+                assert not s.startswith(f"{var}="), (
+                    f"{f.relative_to(ROOT)} offers {var} again; nothing reads it"
+                )

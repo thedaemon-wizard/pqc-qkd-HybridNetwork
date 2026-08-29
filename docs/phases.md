@@ -56,8 +56,8 @@ on the Benchmarks page).
 | `sequence` | `submodules/SeQUeNCe` | Photonic noise (depolarizing + measurement error) |
 | `cvqkd` | `submodules/strawberryfields` | GG02 continuous-variable QKD |
 | `tno` | `submodules/tno-qkd-key-rate` | TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0) |
-| `qkdnetsim_proxy` | `services/qkdnetsim-kme` | ETSI 014 reference (NS-3 v3.46) |
-| `composite_sim_to_net` | SimQN + qkdnetsim | Physical layer feeds network layer |
+| `qkdnetsim_proxy` | `services/qkdnetsim-kme` | 2nd ETSI 014 server. **Flask, not NS-3** -- the image compiles NS-3 v3.46 but the entrypoint never runs it; this file already said so 430 lines below while this row said otherwise |
+| `composite_sim_to_net` | SimQN + that same server | SimQN's rate feeds a REST key buffer. **No network layer is simulated** |
 
 ### Parameter optimisation
 The bb84-kme **backend** optimiser (scikit-optimize `gp_minimize`, Bayesian) is
@@ -83,7 +83,11 @@ QKD_PARAMS_FILE=config/qkd_params.yaml \
   python -m pytest tests/test_no_hardcoded_params.py \
                     tests/test_backend_cross_qber.py \
                     tests/test_bb84_simulator.py -v
-# Expected: 7 passed
+# Expected: 7 passed, 1 skipped
+#   The skip is the interesting half -- it fires when SimQN is absent from the
+#   host venv, which is the normal state outside the bb84-kme image. This line
+#   said only "7 passed", so a reader who saw the skip could not tell whether
+#   it was expected.
 ```
 
 ### Pre-computed key-rate table

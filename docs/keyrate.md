@@ -16,27 +16,37 @@ Implementations:
 §6, and `tests/test_keyrate_ports_agree.py` checks the browser port still
 matches the backend. Both run in CI.
 
+**Math delimiters.** Inline math in this repository's Markdown is written
+``$`x`$``, never bare `$x$`. GitHub renders both, but the bare form leaves
+LaTeX exposed to the Markdown parser first: an expression containing two
+underscores -- ``$\varepsilon_{\text{sec}} = 21\varepsilon$`` is one of many
+here -- can be consumed as emphasis before the math renderer ever sees it. The
+backtick form is a code span, so it cannot be. This file mixed the two (64
+bare against 23 backticked, and `references.md` used both in a single table
+row) until 2026-08-29. `tests/test_math_delimiters_are_uniform.py` keeps it
+uniform. Display math stays in ```` ```math ```` fences and is unaffected.
+
 ---
 
 ## 1. Notation
 
 | Symbol | Meaning | Config key |
 |---|---|---|
-| $\alpha$ | Fibre attenuation (dB/km) | `physical.fiber_attenuation_db_per_km` |
-| $L$ | Link length (km) | `physical.link_length_km` |
-| $\eta_d$ | Detector efficiency | `physical.detector_efficiency` |
-| $\eta$ | Total transmittance | derived |
-| $Y_0$ | Dark-count yield (per pulse) | derived from `physical.dark_count_rate_hz` |
-| $e_d$ | Detector misalignment error | `physical.misalignment_error_ed` |
-| $e_0$ | Error rate of background counts, $=\tfrac12$ | fixed by theory |
-| $\mu$ | Signal intensity (mean photon number) | `source.intensity_signal_mu` |
-| $\nu_1,\nu_2$ | Decoy intensities | `source.intensity_decoy_1_nu1`, `..._2_nu2` |
-| $f_{\mathrm{EC}}$ | Error-correction efficiency | `protocol.ec_efficiency_f` |
-| $q$ | Sifting factor in the ASYMPTOTIC rate, $=\tfrac12$ for symmetric BB84 | hard-coded `0.5` |
-| $q_x$ | Probability of choosing the KEY basis, in the finite-key analysis. **Not the same quantity as $q$** -- the sifted fraction is $q_x^2$. Both readings coincide at the shipped `0.5`, which is why one field served both; they differ by 106x at 0.9. | `source.basis_bias_pz` |
-| $p_{\mu}, p_{\nu_1}, p_{\nu_2}$ | Intensity-choice probabilities. Load-bearing: $\tau_n = \sum_k p_k e^{-k} k^n / n!$ and the Hoeffding deviation is divided by $p_k$. Must sum to 1. | `source.prob_signal_mu`, `source.prob_decoy_1_nu1`, `source.prob_decoy_2_nu2` |
-| $\varepsilon_{\text{sec}}$ | Secrecy parameter. Composed from seven terms; all equal gives $\varepsilon_{\text{sec}} = 21\varepsilon$. | `protocol.security_epsilon` |
-| $\varepsilon_{\text{cor}}$ | Correctness parameter -- the error-verification hash collision probability. A distinct quantity, previously absent entirely. | `protocol.correctness_epsilon` |
+| $`\alpha`$ | Fibre attenuation (dB/km) | `physical.fiber_attenuation_db_per_km` |
+| $`L`$ | Link length (km) | `physical.link_length_km` |
+| $`\eta_d`$ | Detector efficiency | `physical.detector_efficiency` |
+| $`\eta`$ | Total transmittance | derived |
+| $`Y_0`$ | Dark-count yield (per pulse) | derived from `physical.dark_count_rate_hz` |
+| $`e_d`$ | Detector misalignment error | `physical.misalignment_error_ed` |
+| $`e_0`$ | Error rate of background counts, $`=\tfrac12`$ | fixed by theory |
+| $`\mu`$ | Signal intensity (mean photon number) | `source.intensity_signal_mu` |
+| $`\nu_1,\nu_2`$ | Decoy intensities | `source.intensity_decoy_1_nu1`, `..._2_nu2` |
+| $`f_{\mathrm{EC}}`$ | Error-correction efficiency | `protocol.ec_efficiency_f` |
+| $`q`$ | Sifting factor in the ASYMPTOTIC rate, $`=\tfrac12`$ for symmetric BB84 | hard-coded `0.5` |
+| $`q_x`$ | Probability of choosing the KEY basis, in the finite-key analysis. **Not the same quantity as $`q`$** -- the sifted fraction is $`q_x^2`$. Both readings coincide at the shipped `0.5`, which is why one field served both; they differ by 106x at 0.9. | `source.basis_bias_pz` |
+| $`p_{\mu}, p_{\nu_1}, p_{\nu_2}`$ | Intensity-choice probabilities. Load-bearing: $`\tau_n = \sum_k p_k e^{-k} k^n / n!`$ and the Hoeffding deviation is divided by $`p_k`$. Must sum to 1. | `source.prob_signal_mu`, `source.prob_decoy_1_nu1`, `source.prob_decoy_2_nu2` |
+| $`\varepsilon_{\text{sec}}`$ | Secrecy parameter. Composed from seven terms; all equal gives $`\varepsilon_{\text{sec}} = 21\varepsilon`$. | `protocol.security_epsilon` |
+| $`\varepsilon_{\text{cor}}`$ | Correctness parameter -- the error-verification hash collision probability. A distinct quantity, previously absent entirely. | `protocol.correctness_epsilon` |
 
 ---
 
@@ -55,7 +65,7 @@ Y_0 \;=\; \frac{R_{\mathrm{dark}}}{R_{\mathrm{pulse}}}
 ```
 
 For a weak coherent source, the **gain** — the probability that a pulse of
-intensity $\mu$ produces a detection — is (Eq. 10):
+intensity $`\mu`$ produces a detection — is (Eq. 10):
 
 ```math
 Q_\mu \;=\; Y_0 + 1 - e^{-\eta\mu}
@@ -68,13 +78,13 @@ E_\mu \;=\; \frac{e_0 Y_0 + e_d\left(1 - e^{-\eta\mu}\right)}{Q_\mu}
 \qquad e_0 = \tfrac12
 ```
 
-Background counts are random, hence $e_0 = 1/2$: half of them land in the wrong
+Background counts are random, hence $`e_0 = 1/2`$: half of them land in the wrong
 detector.
 
-> **Note on the approximation.** These use the standard $Y_i \simeq Y_0 + \eta_i$
-> with $\eta_i = 1-(1-\eta)^i$. Carrying the exact $Y_i = Y_0 + \eta_i - Y_0\eta_i$
-> through the sum gives $Q_\mu^{\text{exact}} = 1-(1-Y_0)e^{-\eta\mu}$, which
-> differs by $\mathcal{O}(Y_0)$ — negligible for $Y_0 \lesssim 10^{-5}$, but the
+> **Note on the approximation.** These use the standard $`Y_i \simeq Y_0 + \eta_i`$
+> with $`\eta_i = 1-(1-\eta)^i`$. Carrying the exact $`Y_i = Y_0 + \eta_i - Y_0\eta_i`$
+> through the sum gives $`Q_\mu^{\text{exact}} = 1-(1-Y_0)e^{-\eta\mu}`$, which
+> differs by $`\mathcal{O}(Y_0)`$ — negligible for $`Y_0 \lesssim 10^{-5}`$, but the
 > reason two code paths should not be compared for exact equality.
 
 ---
@@ -88,15 +98,15 @@ With the single-photon contribution separated out
 R \;\geq\; q\left\{-Q_\mu f_{\mathrm{EC}}\,h_2(E_\mu) \;+\; Q_1\left[1 - h_2(e_1)\right]\right\}
 ```
 
-where $h_2$ is the binary entropy
+where $`h_2`$ is the binary entropy
 
 ```math
 h_2(x) \;=\; -x\log_2 x - (1-x)\log_2(1-x)
 ```
 
 Reading the two terms: the first is what error correction *costs* — it leaks
-$f_{\mathrm{EC}}h_2(E_\mu)$ bits per sifted bit. The second is what the
-single-photon pulses *earn*, after privacy amplification removes $h_2(e_1)$ bits
+$`f_{\mathrm{EC}}h_2(E_\mu)`$ bits per sifted bit. The second is what the
+single-photon pulses *earn*, after privacy amplification removes $`h_2(e_1)`$ bits
 to account for what an eavesdropper could know. Multi-photon pulses contribute
 nothing: they are assumed fully compromised (the photon-number-splitting attack).
 
@@ -104,11 +114,11 @@ nothing: they are assumed fully compromised (the photon-number-splitting attack)
 
 ## 4. Decoy-state estimation
 
-$Q_1$ and $e_1$ are not directly observable. Decoy states bound them by
-transmitting extra intensities $\nu_1 > \nu_2 \geq 0$ and comparing the
+$`Q_1`$ and $`e_1`$ are not directly observable. Decoy states bound them by
+transmitting extra intensities $`\nu_1 > \nu_2 \geq 0`$ and comparing the
 resulting gains.
 
-With $\mu > \nu_1 + \nu_2$, the single-photon yield is bounded below by:
+With $`\mu > \nu_1 + \nu_2`$, the single-photon yield is bounded below by:
 
 ```math
 Y_1^{L} \;=\; \frac{\mu}{\mu\nu_1 - \nu_1^{2}}
@@ -128,8 +138,8 @@ giving the single-photon gain
 Q_1 \;=\; \mu e^{-\mu} Y_1^{L}
 ```
 
-Both bounds are clamped to physical ranges ($Y_1^L \geq 0$,
-$0 \leq e_1^U \leq \tfrac12$); the rate is clamped at $0$, since a negative
+Both bounds are clamped to physical ranges ($`Y_1^L \geq 0`$,
+$`0 \leq e_1^U \leq \tfrac12`$); the rate is clamped at $`0`$, since a negative
 result means no secret key can be distilled.
 
 In the limit of infinitely many decoy states the bounds become exact:
@@ -202,25 +212,25 @@ i.i.d. variables.
 
 ## 6. Golden vector
 
-The GYS parameter set at $L=0$, worked through Ma *et al.* (2005). CI asserts
+The GYS parameter set at $`L=0`$, worked through Ma *et al.* (2005). CI asserts
 the implementation reproduces every line.
 
 | Quantity | Value |
 |---|---|
-| $\eta$ | $0.045$ |
-| $Y_0$ | $1.7\times10^{-6}$ |
-| $e_d$ | $0.033$ |
-| $\mu$ | $0.48$ |
-| $f_{\mathrm{EC}}$ | $1.22$ |
-| $Q_\mu$ | $2.13701\times10^{-2}$ |
-| $E_\mu$ | $3.3037\times10^{-2}$ |
-| $Q_1$ | $1.33670\times10^{-2}$ |
-| $e_1$ | $3.3017\times10^{-2}$ |
-| **$R$** | $\mathbf{2.555\times10^{-3}}$ bits/pulse |
+| $`\eta`$ | $`0.045`$ |
+| $`Y_0`$ | $`1.7\times10^{-6}`$ |
+| $`e_d`$ | $`0.033`$ |
+| $`\mu`$ | $`0.48`$ |
+| $`f_{\mathrm{EC}}`$ | $`1.22`$ |
+| $`Q_\mu`$ | $`2.13701\times10^{-2}`$ |
+| $`E_\mu`$ | $`3.3037\times10^{-2}`$ |
+| $`Q_1`$ | $`1.33670\times10^{-2}`$ |
+| $`e_1`$ | $`3.3017\times10^{-2}`$ |
+| **$`R`$** | $`\mathbf{2.555\times10^{-3}}`$ bits/pulse |
 
-At a 2 MHz repetition rate that is $\approx 5.1$ kbit/s.
+At a 2 MHz repetition rate that is $`\approx 5.1`$ kbit/s.
 
-**If an implementation does not reproduce $R = 2.555\times10^{-3}$ here, the
+**If an implementation does not reproduce $`R = 2.555\times10^{-3}`$ here, the
 error is in the asymptotic core, not the decoy estimator** — §6 bypasses the
 estimator entirely by using the infinite-decoy values.
 
@@ -236,7 +246,7 @@ Being explicit, since the WebUI presents these numbers as physics:
   efficiency** are not modelled at all.
 - **Error correction is not performed.** `reconciliation.py` hashes Alice's bits
   and applies a heuristic entropy margin; it does not run Cascade or LDPC, and
-  no real leakage is measured. $f_{\mathrm{EC}}$ is an assumed constant.
+  no real leakage is measured. $`f_{\mathrm{EC}}`$ is an assumed constant.
 - **Privacy amplification** uses a Toeplitz hash, but the admission test is a
   fixed margin rather than a leftover-hash-lemma bound.
 - **Coherent attacks** are covered by the GLLP bound asymptotically. The

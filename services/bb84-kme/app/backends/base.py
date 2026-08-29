@@ -92,9 +92,47 @@ class KeyProducer(abc.ABC):
         """Hot-reload hook called when qkd_params.yaml changes."""
         self.cfg = cfg
 
+    #: Whether `run_round` actually reads `cfg.eve_enabled`.
+    #:
+    #: Default False, so a backend that does nothing with Eve says so by
+    #: omission rather than by silence. Only `qutip_backend` overrides it to
+    #: True today -- it is the one backend that passes `eve_enabled` into its
+    #: channel model. `simqn`, `sequence`, `cvqkd` and `tno` all hardcode
+    #: `intercepted=0` and never look at the flag.
+    models_eve: bool = False
+
     def set_eve(self, enabled: bool, prob: float) -> None:
         self.cfg.eve_enabled = enabled
         self.cfg.eve_intercept_prob = max(0.0, min(1.0, prob))
+
+    def eve_meta(self) -> dict[str, Any]:
+        """Marker fields to merge into `backend_meta` when Eve is ineffective.
+
+        `POST /sim/eve` reported success on every backend, and the shipped
+        default (`simqn`, per config/qkd_params.yaml) ignores Eve entirely:
+        `intercepted=0` is a literal, and the flag is never read. Driven with
+        `intercept_prob=1.0` the round still returned the QBER unchanged and
+        `intercepted=0` -- so "Eve is not modelled here" and "Eve was modelled
+        and found nothing" produced byte-identical output.
+
+        `qkdnetsim_proxy` already solved this for itself. This lifts the same
+        marker to the base class so the other four stop being silent too,
+        rather than copying the block into four files.
+
+        Returns an empty dict when there is nothing to declare, so callers can
+        splat it unconditionally.
+        """
+        if self.models_eve or not self.cfg.eve_enabled:
+            return {}
+        return {
+            "eve_ignored": True,
+            "unmeasured": ["intercepted"],
+            "note": (
+                f"eve_enabled is set but {type(self).__name__} does not model "
+                f"an eavesdropper: intercepted is reported as 0 because none "
+                f"is simulated, not because none was detected"
+            ),
+        }
 
 
 def cfg_from_yaml() -> BackendConfig:

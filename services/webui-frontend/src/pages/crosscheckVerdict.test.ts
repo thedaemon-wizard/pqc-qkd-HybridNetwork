@@ -111,3 +111,47 @@ describe("an unknown verdict degrades safely", () => {
     }
   });
 });
+
+/**
+ * The pass and fail labels must state the same threshold.
+ *
+ * `disagree` read "NO (rates differ by more than 10x)" -- threshold named.
+ * `agree` read "YES (independent agreement)" -- threshold hidden, and the word
+ * "agreement" doing work the check does not support. Measured on the deployed
+ * build at the shipped config, the row directly above it showed
+ * "Relative Delta 270.7 %": ours 1.233e-2 vs TNO 4.573e-2, a ratio of 3.71.
+ * Both statements were true and the pair still misled, because the reader
+ * takes "agreement" to mean the numbers matched.
+ *
+ * The asymmetry ran in the flattering direction, which is the only direction
+ * worth a test.
+ */
+describe("the pass and fail labels are symmetric about the threshold", () => {
+  it("the passing label names the band it passed", () => {
+    expect(VERDICT_DISPLAY.agree.label).toMatch(/10x/);
+  });
+
+  it("the failing label still names it too", () => {
+    expect(VERDICT_DISPLAY.disagree.label).toMatch(/10x/);
+  });
+
+  it("the passing label does not claim the numbers matched", () => {
+    // "independent agreement" is the specific phrase that oversold a 3.7x gap.
+    expect(VERDICT_DISPLAY.agree.label.toLowerCase())
+      .not.toMatch(/independent agreement/);
+  });
+
+  it("the detail says this is an order-of-magnitude check, not a match", () => {
+    expect(VERDICT_DISPLAY.agree.detail).toMatch(/order.of.magnitude/i);
+    expect(VERDICT_DISPLAY.agree.detail).toMatch(/factor of 10/);
+  });
+
+  it("neither_predicts_a_key is still the one that is not painted green", () => {
+    // Unchanged by this edit, and the reason the file exists. Two engines
+    // agreeing that no key is extractable is agreement, but green would read
+    // as "all good" on a link that carries nothing.
+    expect(VERDICT_DISPLAY.neither_predicts_a_key.ok).toBeUndefined();
+    expect(VERDICT_DISPLAY.agree.ok).toBe(true);
+    expect(VERDICT_DISPLAY.disagree.ok).toBe(false);
+  });
+});

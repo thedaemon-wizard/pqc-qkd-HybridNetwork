@@ -20,9 +20,21 @@ help: ## Show this help
 # Lifecycle
 # -------------------------------------------------------------------
 .PHONY: init
-init: ## Initialize: env file, submodules, certs
+init: ## Initialize: env file, submodules
 	@test -f .env || cp .env.example .env
 	git submodule update --init --recursive
+	@echo "[init] mTLS certs NOT generated. Nothing consumes them: no compose"
+	@echo "[init] service or Dockerfile references pki/, and /hil says so on"
+	@echo "[init] screen. Run 'make pki' if you are building that lane."
+
+# Separated from `init` on 2026-08-29. It used to run unconditionally, so every
+# clone wrote a 4096-bit CA key plus four keypairs (chmod 600) into the working
+# tree for a lane that does not exist -- grep for `pki/` across
+# docker-compose*.yml, deploy/*.yml and every Dockerfile returns zero hits.
+# Generating unused private key material is not neutral: it is one more secret
+# on disk, in a repository whose own release gates scan for exactly that.
+.PHONY: pki
+pki: ## Generate self-signed mTLS certs (Phase 7 lane; not wired up yet)
 	./pki/gen-certs.sh
 
 .PHONY: build

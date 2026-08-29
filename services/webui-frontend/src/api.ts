@@ -1,6 +1,19 @@
 const BASE = "";
 
-export type StackItem = { name: string; status: string; image?: string; started_at?: string };
+export type StackItem = {
+  name: string; status: string; image?: string; started_at?: string;
+  /** Set by the backend for services defined only in a compose OVERLAY behind
+   *  a profile. For these, `status: "absent"` is the expected state unless the
+   *  overlay was started -- it does not mean anything failed. See PROFILE_GATED
+   *  in services/webui-backend/app/main.py. */
+  optional?: boolean;
+  /** The compose profile that would create it, e.g. "crossvalidate". */
+  profile?: string;
+  /** The compose file that defines it. */
+  compose_file?: string;
+  /** Human-readable form of the three fields above, from the backend. */
+  note?: string;
+};
 export type Stats = Record<string, any>;
 export type Topo = { nodes: { id: string; label: string; type: string }[]; edges: { source: string; target: string; label: string }[] };
 
