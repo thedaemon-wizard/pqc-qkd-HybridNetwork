@@ -77,13 +77,34 @@ the wrong way round; paying it to serve the handful of API calls is not.
 
 ### C. Everything on one VPS
 
-What `deploy/deploy-demo.sh` does today, and what the public demo runs. Simplest
-to reason about, one machine, one TLS certificate. Reasonable while the demo is
-small; the cost grows with traffic because the bundle is served from it.
+What the public demo runs. Simplest to reason about, one machine, one TLS
+certificate. Reasonable while the demo is small; the cost grows with traffic
+because the bundle is served from it.
 
-Requirements are in [`../deploy/README.md`](../deploy/README.md): roughly 2 GB
-RAM (swap is added automatically) and 8 GB disk, because `pqc-validator` builds
-liboqs and `bb84-kme` builds Python wheels.
+**It is the FULL stack, not the sim-only demo profile.** This section used to
+say it was "what `deploy/deploy-demo.sh` does today" and sized it accordingly.
+Measured against the running host: `/api/config` reports `demo_mode: false`, and
+`/api/stack` enumerates ten containers including both privileged WireGuard nodes
+(`alice`, `bob`) and both strongSwan nodes (`alice-ipsec`, `bob-ipsec`).
+
+Requirements are therefore the full-stack ones from
+[`../deploy/README.md`](../deploy/README.md): **≥4 GB RAM** (8 GB to build
+everything on-box) and **~15 GB free disk**, because `pqc-validator` builds
+liboqs and `bb84-kme` builds Python wheels. On a smaller box the first build is
+OOM-killed or fills the disk, leaving a broken image.
+
+The figures previously given here — 2 GB RAM and 8 GB disk — were attributed to
+`deploy/README.md`, which contains neither. They are `deploy/deploy-demo.sh`'s
+demo-profile numbers, so this section sized the deployed system at roughly half
+its documented requirement while citing a file that says otherwise.
+
+**One consequence worth stating.** The full profile mounts the Docker socket
+into `webui-backend`, which is reachable from an unauthenticated HTTP surface.
+Container *control* is disabled on the public host — `/api/config` reports
+`container_control: false` and `POST /api/stack/{action}/{name}` answers 403 —
+but container *enumeration* is not; `/api/stack` is the command used above.
+That is a deliberate choice for a demo whose purpose is to show the lanes
+running, and not a default to carry into a deployment where the host matters.
 
 ---
 

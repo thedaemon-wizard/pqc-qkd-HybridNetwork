@@ -155,15 +155,37 @@ def test_every_screenshot_a_document_names_actually_exists():
     ).stdout.split()
 
     missing = []
+    cited = 0
     for rel in tracked:
         if rel.startswith("submodules/"):
             continue
         text = (root / rel).read_text(encoding="utf-8", errors="replace")
-        for name in re.findall(r"docs/images/screenshots/([A-Za-z0-9_.-]+\.png)", text):
+        # Both spellings. Requiring the `docs/` prefix made this blind to the
+        # relative form a document INSIDE docs/ naturally writes -- which is
+        # most of them.
+        for name in re.findall(r"images/screenshots/([A-Za-z0-9_.-]+\.png)", text):
+            cited += 1
             if name not in present:
-                missing.append(f"{rel} names docs/images/screenshots/{name}")
+                missing.append(f"{rel} names images/screenshots/{name}")
 
     assert not missing, "documents cite screenshots that do not exist:\n  " + "\n  ".join(missing)
+
+    # A coverage floor, because the assertion above is over a list appended to
+    # only inside a loop that can iterate zero times -- and it did. Nothing
+    # cited any screenshot, so `missing` was empty by construction and this
+    # test passed while 21 committed PNGs went unexamined, with the checklist
+    # crediting it as the guard that they are "refreshed".
+    #
+    # There are deliberately none now: they were unreferenced, ~3 months stale,
+    # and rendered claims this repository had formally retracted. So the floor
+    # is the invariant that made deleting them correct -- a committed
+    # screenshot that nothing cites cannot be checked by anything.
+    if present:
+        assert cited, (
+            f"{len(present)} screenshot(s) are committed and no tracked "
+            f"document cites any of them. Either they are orphans and should "
+            f"go, or something should point at them: nothing can tell whether "
+            f"an uncited capture is current.")
 
 
 def test_no_markdown_table_anywhere_drops_cells():

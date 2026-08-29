@@ -8,7 +8,7 @@
 #
 # `set +e` disarms `set -e`, and a pipeline's status is its LAST command's, so
 # the script took `head`'s 0 whatever grep found. Measured 2026-08-27: planting
-# a file containing `-----BEGIN OPENSSH PRIVATE KEY-----` and running this
+# a file containing `-----BEGIN OPENSSH PRIVATE KEY-----` and running this  # PUBGUARD-ALLOW
 # script printed the file, the line number AND the matching line, then exited 0.
 # VERIFICATION_CHECKLIST row 6.12 cites it as one of the two things that "see
 # tracked files and commit messages", so a release check reported success while

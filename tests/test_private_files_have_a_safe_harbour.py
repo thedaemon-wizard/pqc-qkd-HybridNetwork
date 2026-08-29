@@ -33,8 +33,12 @@ plaintext name to exempt.
 It keeps the names out of the TIP TREE. That is all. It is not a confidentiality
 measure, and describing it as one would be false:
 
-  - The plaintext is in published history. Three commits reachable from `main`
-    contain it, and the diff of the commit that removes it prints it in full.
+  - The plaintext is in published history. **133 commits reachable from `main`
+    have it in their tree** -- an earlier version of this docstring said
+    "three", which counted only the commits that changed it rather than the
+    commits that contain it, and understated the cost of a history rewrite by
+    a factor of forty. The diff of the commit that removes it prints it in
+    full besides.
     GitHub renders and indexes blame, file history and commit diffs, so a reader
     still finds the names by clicking rather than by guessing.
   - The digests are unsalted, necessarily: the check must run from a fresh clone
@@ -56,9 +60,14 @@ the token), `<name>.md-old`, `private/<name>/` and `<name>*` -- one shape out of
 five, where the old `if "<name>.md" in body` caught all five.
 
 The fix is to store STEMS and to expand every candidate at each `.`, `-` and `_`
-boundary, which makes the check a superset of the substring test rather than a
-subset. A stem also matches the bare English word, which is a false positive in
-the loud direction and is the one to prefer.
+boundary. The first attempt at that emitted only PREFIXES, which fixed the
+right-hand cases and left every left-hand one (`notes-<name>.md`,
+`2026-08-<name>.md`, `my_<name>.md`) invisible -- all three of which the
+substring test had caught. The claim that prefixes made this "a superset" was
+therefore false; the two were incomparable. Spans now run in both directions.
+
+A stem also matches the bare English word, which is a false positive in the
+loud direction and is the one to prefer.
 """
 from __future__ import annotations
 
@@ -96,25 +105,39 @@ _SEPARATORS = "._-"
 def _tokens(text: str) -> set[str]:
     """Every candidate a private name could appear as.
 
-    For each filename-shaped run, emit the run and every prefix ending at a
-    `.`, `-` or `_` boundary. That is what makes this a SUPERSET of the
-    substring test it replaced rather than a subset of it:
+    For each filename-shaped run, emit every span that both STARTS and ENDS on
+    a `.`, `-` or `_` boundary (or the ends of the run):
 
-        <name>.md        -> <name>, <name>.md
-        <name>.md.       -> <name>, <name>.md            (trailing period)
-        <name>.md-old    -> <name>, <name>.md, ...       (suffixed)
-        private/<name>/  -> private, <name>              (already split on /)
-        <name>*          -> <name>                       (already split on *)
+        <name>.md            -> <name>, md, <name>.md
+        see <name>.md.       -> ...                       (trailing period)
+        <name>.md-old        -> ...                       (right-decorated)
+        notes-<name>.md      -> notes, <name>, md, ...    (LEFT-decorated)
+        2026-08-<name>.md    -> ...                       (date-prefixed)
+        private/<name>/      -> private, <name>           (already split on /)
+        <name>*              -> <name>                    (already split on *)
 
-    All five were checked against the previous implementation, which caught
-    only the first.
+    **Prefixes alone were not enough, and the previous docstring here claimed
+    otherwise.** It said this made the check "a SUPERSET of the substring test
+    it replaced". That was false: emitting only prefixes caught right-hand
+    decoration and missed every left-hand one, while the substring test it
+    replaced caught both. The two were incomparable, not ordered, and the three
+    left-decorated forms above were live misses.
+
+    The accurate property, now that spans run in both directions: a stored stem
+    is found wherever it appears as a separator-delimited component of a
+    filename-shaped token. It is still not literal substring matching -- a stem
+    buried inside a word with no separator (`xx<name>yy`) is not a filename
+    reference and is deliberately not matched.
     """
     out: set[str] = set()
     for run in _TOKEN.findall(text.lower()):
-        out.add(run)
-        for i, ch in enumerate(run):
-            if ch in _SEPARATORS and i:
-                out.add(run[:i])
+        cuts = [i for i, ch in enumerate(run) if ch in _SEPARATORS]
+        starts = [0] + [i + 1 for i in cuts]
+        ends = cuts + [len(run)]
+        for s in starts:
+            for e in ends:
+                if e > s:
+                    out.add(run[s:e])
     return out
 
 
@@ -156,17 +179,36 @@ def test_gitignore_does_not_name_the_private_files():
     )
 
 
+def _tracked() -> list[str]:
+    """`-z`, because `stdout.split()` shreds any path containing a space.
+
+    A shredded path yields fragments that are not files, so they are skipped --
+    and the count of things scanned goes UP while coverage goes down. No
+    tracked path contains a space today; this is so that stops being load
+    bearing.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True,
+        check=False).stdout
+    return [p for p in out.split("\0") if p]
+
+
 def test_no_tracked_file_names_the_private_files():
     """Same rule, applied to the whole repository rather than one file.
 
     No path is exempt, including this one. That is now possible because the
     names are not written here.
+
+    Both the BODY and the PATH are checked. Body-only was the original shape,
+    and it could not see the one case that matters most: committing the private
+    file itself. A file named for a private stem discloses it in `git ls-files`
+    whatever its contents are, and the body scan would have passed it.
     """
-    tracked = subprocess.run(
-        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False
-    ).stdout.split()
     offenders = []
-    for rel in tracked:
+    for rel in _tracked():
+        if _names_a_private_file(rel):
+            offenders.append(f"{rel} (path)")
+            continue
         p = ROOT / rel
         if not p.is_file():
             continue
@@ -213,12 +255,16 @@ def test_the_detector_catches_every_shape_a_filename_appears_in():
     for text in (
         f"see {_PROBE}.md",              # the plain reference
         f"see {_PROBE}.md.",             # trailing sentence period
-        f"see {_PROBE}.md-old",          # suffixed
+        f"see {_PROBE}.md-old",          # right-decorated
         f"see {_PROBE}.md.bak",          # second extension
         f"private/{_PROBE}/",            # a directory rule
         f"{_PROBE}*",                    # a glob
         f"/{_PROBE}.md",                 # a rooted gitignore entry
         f"'{_PROBE}.md'",                # quoted, as in a grep pattern
+        f"notes-{_PROBE}.md",            # LEFT-decorated -- missed by prefixes
+        f"2026-08-{_PROBE}.md",          # date-prefixed  -- missed by prefixes
+        f"my_{_PROBE}.md",               # underscore-prefixed
+        f"draft.{_PROBE}.md",            # dotted prefix
     ):
         assert _caught(text), f"missed: {text!r}"
 
@@ -232,11 +278,17 @@ def test_the_detector_does_not_fire_on_unrelated_text():
         assert not _caught(text), f"false positive on {text!r}"
 
 
-def test_the_boundary_expansion_is_what_makes_that_work():
-    """Pin the mechanism, so a 'simplification' has to argue with a test."""
+def test_the_boundary_expansion_runs_in_both_directions():
+    """Pin the mechanism, so a 'simplification' has to argue with a test.
+
+    Prefixes alone shipped once and missed every left-decorated reference, so
+    the suffix and interior spans are asserted explicitly rather than implied.
+    """
     toks = _tokens("aa.bb-cc_dd.md")
-    for expected in ("aa", "aa.bb", "aa.bb-cc", "aa.bb-cc_dd", "aa.bb-cc_dd.md"):
-        assert expected in toks, expected
+    for expected in ("aa", "aa.bb", "aa.bb-cc", "aa.bb-cc_dd",   # prefixes
+                     "md", "dd.md", "cc_dd.md",                   # suffixes
+                     "bb", "cc", "dd", "bb-cc", "cc_dd"):         # interior
+        assert expected in toks, f"span {expected!r} not emitted"
 
 
 def test_every_stored_digest_is_a_sha256_and_none_is_a_plaintext_token():

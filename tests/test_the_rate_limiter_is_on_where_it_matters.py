@@ -56,12 +56,47 @@ def test_the_limiter_does_not_test_demo_mode():
 
 
 def test_the_limiter_guard_is_the_method_alone():
+    """The guard is the METHOD SET, and it must cover every mutating verb.
+
+    This test previously asserted the literal `request.method == "POST"` with
+    the message "the limiter must still apply to state-changing requests". It
+    was green while the project's one non-POST mutating route --
+    `DELETE /api/exports/{filename}` -- sat outside the limiter entirely.
+
+    So the assertion did not merely fail to catch the gap. It pinned the exact
+    scope that created it, while its own message asserted the property it was
+    letting through. Measured on the public host before the fix: thirty
+    consecutive unauthenticated deletes, thirty 200s, no throttle.
+    """
     src = _src(BACKEND)
     i = src.index("async def demo_rate_limit")
     body = src[i:i + 2500]
-    assert 'if request.method == "POST":' in body, (
-        "the POST guard is gone or reworded; the limiter must still apply to "
-        "state-changing requests and not to GETs")
+    assert 'if request.method in ("POST", "PUT", "PATCH", "DELETE"):' in body, (
+        "the limiter's method set is gone or reworded; it must cover every "
+        "mutating verb, not POST alone")
+    assert 'if request.method == "POST":' not in body, (
+        "the limiter is POST-only again, which leaves DELETE unthrottled")
+
+
+def test_every_mutating_route_served_is_covered_by_that_set():
+    """Derived from the routes, so a new verb cannot slip past the set above.
+
+    The old guard was a string check with no relationship to what the app
+    actually serves, which is why adding a DELETE route never disturbed it.
+    """
+    src = _src(BACKEND)
+    verbs = set(re.findall(r"@app\.(get|post|put|patch|delete)\(", src))
+    mutating = sorted(verbs - {"get"})
+    i = src.index("async def demo_rate_limit")
+    guard = src[i:i + 2500]
+    uncovered = [v for v in mutating if v.upper() not in guard]
+    assert not uncovered, (
+        f"these mutating verbs are served but not rate limited: {uncovered}. "
+        f"Add them to the method set in demo_rate_limit.")
+    assert "delete" in mutating, (
+        "no DELETE route is served any more; if that is deliberate this "
+        "assertion and the DELETE arm of the limiter can both go, but the "
+        "removal should be noticed rather than assumed")
 
 
 def test_the_limiter_still_has_its_bucket_arithmetic():

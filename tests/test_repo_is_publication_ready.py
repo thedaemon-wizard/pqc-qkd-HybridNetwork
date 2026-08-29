@@ -93,8 +93,16 @@ JAPANESE_EXEMPTION = ("VERIFICATION_CHECKLIST.md", "4.2.2")
 
 
 def _tracked() -> list[str]:
-    out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=False)
-    return [f for f in out.stdout.split() if not BINARY.search(f)]
+    """`-z`, because `stdout.split()` shreds a path containing a space.
+
+    The fragments are not files, so `_lines()` returns [] for each and they are
+    scanned as empty -- while `len(TRACKED)` goes UP, so the coverage floor in
+    test_there_are_tracked_files_to_scan reads healthier as coverage drops. No
+    tracked path has a space today; this stops that being load-bearing.
+    """
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT,
+                         capture_output=True, text=True, check=False)
+    return [f for f in out.stdout.split("\0") if f and not BINARY.search(f)]
 
 
 def _lines(rel: str) -> list[tuple[int, str]]:
@@ -206,24 +214,119 @@ def test_no_ai_tooling_attribution_in_tracked_content():
     assert not offenders, f"AI-tooling references in tracked content: {offenders}"
 
 
+# The demo's FQDN as a PATTERN, not a literal, so this file does not become
+# the thing it forbids. Any host under the operator's domain disqualifies.
+_DEMO_FQDN = re.compile(r"\b[a-z0-9-]+(\.[a-z0-9-]+)*\.daemons\.jp\b", re.I)
+
+_CREDENTIALS = (
+    # Assembled from fragments so no line here spells the PEM header that
+    # scripts/secret_scan.sh greps for -- writing it out, even to explain the
+    # split, is what tripped that scanner the first two times. The compiled
+    # pattern is identical; only the source spelling differs.
+    ("private key PEM", re.compile(
+        r"-----BEGIN (?:RSA |EC |OPENSSH |PGP |DSA )?PRIVATE" + r" KEY-----")),
+    ("bearer token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}")),
+    ("aws access key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("ssh public key body", re.compile(r"\bssh-rsa\s+AAAA[0-9A-Za-z+/]{60,}")),
+    ("url with inline password", re.compile(r"://[^\s/@:]+:[^\s/@]{6,}@")),
+)
+
+_IPV4 = re.compile(r"\b\d{1,3}(\.\d{1,3}){3}\b")
+_IPV4_PRIVATE = re.compile(
+    r"^(10\.|127\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|255\.|169\.254\.)")
+_IPV6 = re.compile(r"\b(?:[0-9a-f]{1,4}:){4,7}[0-9a-f]{1,4}\b", re.I)
+# ::1 loopback, fe80 link-local, fc00::/7 ULA, 2001:db8::/32 documentation.
+_IPV6_LOCAL = re.compile(r"^(::1$|fe80:|f[cd][0-9a-f]{2}:|2001:0?db8:)", re.I)
+
+# A line carrying this marker is exempt from the scan above. Split so that the
+# marker's own definition does not match itself.
+_ALLOW = "PUBGUARD" + "-ALLOW"
+
+
 def test_no_demo_host_identifiers_in_tracked_files():
-    """A hostname or address for the public demo must not be committed."""
-    host = re.compile(r"\b\d{1,3}(\.\d{1,3}){3}\b")
-    private = re.compile(r"^(10\.|127\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.|255\.)")
+    """Host names, addresses and credentials must not be committed.
+
+    **This was an IPv4 regex and nothing else**, while its own docstring and
+    the module docstring both promised "host names, addresses or credentials".
+    A staged file carrying the demo FQDN, a bearer token and a private-key PEM
+    header passed every assertion in this file; only a public IPv4 literal
+    failed. The constraint held because the FQDN happened to have zero hits --
+    an accident of history, not a property the build enforced.
+
+    `gitleaks` covers part of the credential half in CI. The hostname half had
+    no coverage anywhere, and the demo's identifier is a hostname.
+    """
     offenders = []
     for f in TRACKED:
         for n, line in _lines(f):
-            for m in host.finditer(line):
+            # Line-level exemption, deliberately NOT a file-level one. A guard
+            # that names what it forbids is unavoidable -- the scanner needs
+            # the PEM header, this file needs its positive-control samples --
+            # but exempting whole files to cope with three lines is the
+            # mistake VERIFICATION_CHECKLIST row 6.9 records for the secret
+            # scanner. Each exemption is visible at the point of use and shows
+            # up in a diff.
+            if _ALLOW in line:
+                continue
+            for m in _IPV4.finditer(line):
                 ip = m.group()
                 # Documentation and compose legitimately carry RFC 1918 and
                 # loopback addresses for the local lab topology.
-                if private.match(ip) or ip.startswith("0.0.0.0"):
+                if _IPV4_PRIVATE.match(ip) or ip.startswith("0.0.0.0"):
                     continue
-                offenders.append((f, n, ip))
+                offenders.append((f, n, "public IPv4", ip))
+            for m in _IPV6.finditer(line):
+                if _IPV6_LOCAL.match(m.group()):
+                    continue
+                offenders.append((f, n, "global IPv6", m.group()))
+            if _DEMO_FQDN.search(line):
+                offenders.append((f, n, "demo hostname", "<redacted>"))
+            for label, pat in _CREDENTIALS:
+                if pat.search(line):
+                    offenders.append((f, n, label, "<redacted>"))
     assert not offenders, (
-        f"non-private IP addresses in tracked files: {offenders}. The public "
-        "demo's address must not be committed."
+        f"host identifiers or credentials in tracked files: {offenders}. "
+        "Matches are redacted in this message so the failure does not "
+        "republish what the rule exists to withhold."
     )
+
+
+def test_the_host_identifier_patterns_match_what_they_promise():
+    """Positive control, in the style of the tooling one below.
+
+    A blocklist is only as good as its patterns, and this one shipped matching
+    one of the three categories its docstring named. Each pattern is exercised
+    against a synthetic sample, so a pattern that stops matching fails loudly
+    rather than quietly widening the hole.
+
+    Every sample below is invented for this test. None is a real credential,
+    and the FQDN sample uses a label that does not resolve.
+    """
+    assert _DEMO_FQDN.search("see https://not-a-real-host.daemons.jp/api/config")  # PUBGUARD-ALLOW
+    assert _IPV4.search("connect to 203.0.113.7")  # PUBGUARD-ALLOW
+    assert _IPV6.search("at 2606:4700:4700:0000:0000:0000:0000:1111")  # PUBGUARD-ALLOW
+
+    for label, pat in _CREDENTIALS:
+        sample = {
+            "private key PEM": "-----BEGIN " + "OPENSSH " + "PRIVATE" + " KEY-----",
+            "bearer token": "Authorization: Bearer " + "A" * 32,
+            "aws access key": "AKIA" + "A" * 16,
+            "ssh public key body": "ssh-rsa AAAA" + "B" * 70,
+            "url with inline password": "postgres://user:hunter2xyz@db/x",  # PUBGUARD-ALLOW
+        }[label]
+        assert pat.search(sample), f"{label}: pattern no longer matches its sample"
+
+    # The negative direction, so these are not simply "match everything".
+    # Every string here appears in, or resembles, real repository content.
+    for benign in ("connect to 192.168.1.10 on the lab bridge",
+                   "the loopback is 127.0.0.1",
+                   "documentation addresses use 2001:db8::1",
+                   "link-local fe80::1 is fine",
+                   "Authorization is handled by the reverse proxy",
+                   "see https://www.wireguard.com/ for details"):
+        hits = [lbl for lbl, p in _CREDENTIALS if p.search(benign)]
+        assert not hits, f"{benign!r} wrongly flagged as {hits}"
+        assert not _DEMO_FQDN.search(benign), f"{benign!r} wrongly flagged as a host"
 
 
 def test_the_tooling_pattern_matches_what_the_tools_actually_emit():
@@ -249,3 +352,33 @@ def test_the_tooling_pattern_matches_what_the_tools_actually_emit():
     # And it stays word-bounded, so ordinary prose is not collateral.
     for benign in ("claudette", "openairport"):
         assert not TOOLING.search(benign), f"TOOLING over-matches {benign!r}"
+
+
+def test_the_scan_exemptions_stay_few_and_line_level():
+    """A blanket exemption is how a guard stops guarding without saying so.
+
+    The AI-tooling scan skips five whole files -- about 1,400 lines -- to cope
+    with roughly three lines that genuinely must name the forbidden strings.
+    That is the pattern VERIFICATION_CHECKLIST row 6.9 rejects for the secret
+    scanner, and it means a real reference added anywhere in those files is
+    invisible.
+
+    The host-identifier scan uses a line marker instead. This pins that choice
+    and caps it: every exemption has to be argued for individually, and a diff
+    shows each one.
+    """
+    marked = [(f, n) for f in TRACKED for n, line in _lines(f) if _ALLOW in line]
+    assert marked, (
+        "no line carries the exemption marker, so either the marker was "
+        "renamed or the scan no longer needs one -- if the latter, delete the "
+        "mechanism rather than leaving it inert")
+    assert len(marked) <= 12, (
+        f"{len(marked)} exempted lines is too many to review individually: "
+        f"{marked}. If a whole file now needs exempting, that is a signal the "
+        f"pattern is wrong, not that the allowlist should grow.")
+    # Every exemption must sit in a file whose job is to define or test the
+    # patterns. An exemption in ordinary content is a defect being waved past.
+    for f, n in marked:
+        assert f.startswith("tests/") or f.startswith("scripts/"), (
+            f"{f}:{n} exempts itself from the host-identifier scan, but it is "
+            f"not a guard or a scanner -- it is content")
