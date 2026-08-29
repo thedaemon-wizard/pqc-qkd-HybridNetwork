@@ -75,3 +75,14 @@ describe("an all-zero ESP reading explains itself", () => {
     expect(SRC).toMatch(/: "—";/);
   });
 });
+
+describe("the note reads as prose in the browser, not as run-together words", () => {
+  it("keeps a space where a code span abuts the next word", () => {
+    // Measured on the deployed build: the rendered text read
+    // "start_action = trapinstalls the CHILD_SA". JSX drops the newline
+    // between a closing element and the following text node, so the space has
+    // to be explicit. Nothing in typecheck or the assertions above could see
+    // this -- only reading the rendered page could.
+    expect(SRC).toMatch(/<code>start_action = trap<\/code>\{" "\}/);
+  });
+});
