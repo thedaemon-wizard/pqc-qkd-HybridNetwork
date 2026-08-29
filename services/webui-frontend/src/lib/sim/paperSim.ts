@@ -55,6 +55,46 @@ const CASCADE_STAGES: [number, Layer, string][] = [
   [540, "data", "Final data tunnel handshake fails (early cascade)"],
   [720, "data", "Full data-path interruption (worst case)"],
 ];
+// Abbreviations for the 187px legend column. Keyed by the same phase numbers
+// as PHASE_BUDGETS, and asserted against it by
+// src/lib/sim/phaseNamesAgree.test.ts so a phase cannot gain a name here and
+// keep a different one there.
+const PHASE_SHORT_NAMES: Record<number, string> = {
+  1: "Quantum Plane",
+  2: "QKD key_ID exchange",
+  3: "WireGuard hop",
+  4: "Rosenpass PQC",
+  5: "Data tunnel",
+};
+
+/**
+ * Phase numbers and names, for anything that needs to LABEL a phase without
+ * driving one.
+ *
+ * `MultiHopTopologySvg` used to carry its own copy of the labels, and it had
+ * copied them from the WRONG page: the four `/e2e` phase names, verbatim from
+ * `QuantumSecureE2E.tsx`, pasted into a figure driven by this five-phase
+ * counter. At phase 3 the legend read "PQC Handshake" while the inspector --
+ * reading `PHASE_BUDGETS` -- said "WireGuard hop handshake"; at phase 4 the
+ * figure drew the end-to-end data tunnel while the inspector said "Rosenpass
+ * PQC handshake"; and at phase 5 nothing lit at all, because the legend had
+ * no fifth entry.
+ *
+ * That SVG is the PNG and GIF export target, so the disagreement left the
+ * page and travelled.
+ *
+ * Exported from here so there is one source of phase names. `shortName` exists
+ * because the legend column is 187px wide and "Final data tunnel + Data
+ * Exchange" does not fit -- it is an abbreviation of `name`, not a second
+ * opinion about what the phase is.
+ */
+export const PHASE_NAMES: { phase: number; name: string; shortName: string }[] =
+  Object.entries(PHASE_BUDGETS).map(([p, info]) => ({
+    phase: +p,
+    name: info.name,
+    shortName: PHASE_SHORT_NAMES[+p],
+  }));
+
 const TOTAL_PACKETS = Object.values(PHASE_BUDGETS).reduce((a, p) => a + p.packets, 0);
 const TOTAL_BYTES = Object.values(PHASE_BUDGETS).reduce((a, p) => a + p.bytes, 0);
 const PHASE_FAIL: Record<Layer, number> = { qkd: 1, arnika: 2, wireguard: 3, rosenpass: 4, data: 5 };
@@ -79,7 +119,7 @@ interface CascadeSched { t_offset_s: number; layer: Layer; description: string; 
 export interface PaperFlowState {
   status: "idle" | "running" | "paused";
   current_phase: number; current_phase_name: string;
-  hop_count: number; dual_path: boolean;
+  hop_count: number;
   cycles_total: number; cycles_succeeded: number;
   packets_total: number; bytes_total: number;
   last_data_payload_b64: string;
@@ -128,7 +168,6 @@ export class PaperSim {
   private status: "idle" | "running" | "paused" = "idle";
   private phase = 0;
   private hop = 4;
-  private dual = false;
   private cyclesTotal = 0; private cyclesSucceeded = 0;
   private packetsTotal = 0; private bytesTotal = 0;
   private lastPayload = "";
@@ -155,7 +194,7 @@ export class PaperSim {
     return {
       status: this.status, current_phase: this.phase,
       current_phase_name: PHASE_BUDGETS[this.phase]?.name ?? "idle",
-      hop_count: this.hop, dual_path: this.dual,
+      hop_count: this.hop,
       cycles_total: this.cyclesTotal, cycles_succeeded: this.cyclesSucceeded,
       packets_total: this.packetsTotal, bytes_total: this.bytesTotal,
       last_data_payload_b64: this.lastPayload,
@@ -211,7 +250,18 @@ export class PaperSim {
     this.cascade = []; this.history = []; this.cycleAccepted = true; this.emit();
   }
   setHopCount(n: number) { this.hop = Math.max(1, Math.min(8, Math.round(n))); this.emit(); }
-  setDualPath(on: boolean) { this.dual = on; this.emit(); }
+  // `setDualPath` was here, with a `dual` field and a `dual_path` state
+  // field. It was reachable from no UI control, and `this.dual` appeared
+  // exactly twice in this file -- the setter and the state emission -- so it
+  // changed no packet count, no timing and no phase. It was reported into the
+  // citable run log as `dual_path: false`, which reads as "there is a second
+  // path and it is off" rather than "this concept is not modelled".
+  //
+  // Removed rather than wired to a control. Nothing in docs/, tests/ or the
+  // referenced paper asks for it (the only "dual" in the documentation is
+  // dual-KEM in paper_mapping.md, an unrelated idea), so a toggle would have
+  // been a new control that appears to do something and does nothing -- the
+  // same defect as `/sim/eve` reporting success on a backend that ignores it.
 
   injectFailure(layer: Layer) {
     const now = Date.now() / 1000;

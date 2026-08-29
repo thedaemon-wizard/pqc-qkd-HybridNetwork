@@ -201,5 +201,6 @@ class SimQNBackend(KeyProducer):
                           # True when SimQN under-produced and the stream was
                           # synthesised from the configured physics rather than
                           # measured. Consumers must not treat the two alike.
-                          "synthetic": synthetic},
+                          "synthetic": synthetic,
+                          **self.eve_meta()},
         )

@@ -293,5 +293,6 @@ class CVQKDBackend(KeyProducer):
                 "qber_is": "raw-slice sign disagreement, not a DV QBER",
                 "accepted_on": "GG02 null-key condition (skr > 0)",
                 **est,
+                **self.eve_meta(),
             },
         )

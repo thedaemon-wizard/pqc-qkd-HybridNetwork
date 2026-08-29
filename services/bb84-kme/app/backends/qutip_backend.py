@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 
 class QuTiPBackend(KeyProducer):
     backend_name = "qutip"
+    # The one backend that passes eve_enabled into its channel model (see the
+    # simulate_round call below). Every other backend leaves this False and
+    # declares the omission through KeyProducer.eve_meta().
+    models_eve = True
 
     def __init__(self, cfg: BackendConfig):
         super().__init__(cfg)

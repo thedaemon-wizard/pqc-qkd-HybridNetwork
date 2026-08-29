@@ -154,5 +154,5 @@ class SeQUeNCeBackend(KeyProducer):
             intercepted=0,
             elapsed_ms=elapsed_ms,
             skr_bps=skr_pp * self.cfg.pulse_rate_hz,
-            backend_meta={"backend": "sequence"},
+            backend_meta={"backend": "sequence", **self.eve_meta()},
         )

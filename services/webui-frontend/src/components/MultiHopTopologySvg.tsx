@@ -11,6 +11,7 @@
  * orchestrator phase prop.
  */
 import { colors } from "../lib/commonStyles";
+import { PHASE_NAMES } from "../lib/sim/paperSim";
 
 export interface MultiHopTopologyProps {
   hopCount: number;       // number of Trusted Nodes between Alice and Bob
@@ -21,6 +22,13 @@ export interface MultiHopTopologyProps {
   /** True when the simulation is not running, so the cascade is only armed. */
   idle?: boolean;
 }
+
+// U+2460.. as display glyphs for the legend bullets. A map rather than
+// arithmetic on the codepoint, so a phase count above nine fails visibly
+// instead of rendering an unrelated character.
+const CIRCLED: Record<number, string> = {
+  1: "\u2460", 2: "\u2461", 3: "\u2462", 4: "\u2463", 5: "\u2464",
+};
 
 export default function MultiHopTopologySvg({
   hopCount, currentPhase, failureLayer, cascadeStages, idle,
@@ -92,12 +100,12 @@ export default function MultiHopTopologySvg({
       <text x={24} y={42} fill={colors.textMute} fontSize={11} fontWeight={700}>
         Phases
       </text>
-      {[
-        { idx: 1, label: "①", title: "Quantum Plane" },
-        { idx: 2, label: "②", title: "QKD Key IDs" },
-        { idx: 3, label: "③", title: "PQC Handshake" },
-        { idx: 4, label: "④", title: "Data Exchange" },
-      ].map(({ idx, label, title }) => {
+      {/* Derived from paperSim's PHASE_BUDGETS, not restated. This block used
+          to hold the four /e2e phase names -- a different page's phases, in a
+          figure driven by this five-phase counter -- so the legend and the
+          inspector disagreed from phase 3 on and phase 5 never lit. */}
+      {PHASE_NAMES.map(({ phase: idx, shortName: title }) => {
+        const label = CIRCLED[idx] ?? String(idx);
         const cx = 26;
         const cy = 80 + (idx - 1) * 44;
         const active = currentPhase === idx;

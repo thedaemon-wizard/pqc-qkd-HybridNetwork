@@ -57,7 +57,7 @@ export default function PaperDataExchange() {
       `# generated:   ${new Date().toISOString()}`,
       `# engine:      ${s.engine ?? "client-side"}`,
       `# status:      ${s.status}`,
-      `# hops:        ${s.hop_count}  dual_path: ${s.dual_path}`,
+      `# hops:        ${s.hop_count}`,
       `# cycles:      ${s.cycles_total} (${s.cycles_succeeded} accepted)`,
       `# packets:     ${s.packets_total}  bytes: ${s.bytes_total}`,
       s.failure.active_layer
