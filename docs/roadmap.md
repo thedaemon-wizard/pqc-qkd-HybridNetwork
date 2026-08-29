@@ -129,6 +129,39 @@ Implementation gaps are tracked separately, under "Status" below.
 5. **E** (Compliance) — documentation
 6. **F**, **G**, **H** — longer-term
 
+## Decision record: the word "phase" appears in three unrelated schemes
+
+Recorded because the instruction "delete the Phase labels if they are not
+needed" was given four times across successive rounds and never actioned. The
+reason it was never actioned was never written down, so it kept coming back.
+It is written down now.
+
+There are three numbering schemes, all called "phase":
+
+| Scheme | Numbers | Owner |
+|---|---|---|
+| Build phases | 0, 2-4, 8-14 | this project's own milestones, `docs/phases.md` |
+| Protocol phases | 1-5 | **the paper's**, arXiv:2604.05599 Table 1 |
+| `/e2e` orchestration | 1-4 | this project's own invention |
+
+**The second cannot be deleted or renamed.** `services/webui-backend/app/paper_budgets.py`
+quotes "Table 1: per-phase handshake cost of one multi-hop cycle" -- "phase" is
+the paper's word for these, `/paper-flow` reproduces that table per phase, and
+`tests/test_paper_budgets.py` pins the totals. Renaming it would put this
+project's vocabulary between a reader and the source it claims to reproduce.
+
+**So the fix is disambiguation, not deletion.** `/e2e`'s scheme is ours alone,
+so it now says **step** -- "Active step", "Step history" -- which removes one
+of the three collisions at no cost to fidelity. `/paper-flow` keeps the word
+and qualifies it: "the paper's 5 protocol phases", "paper phase 5". A reader
+who sees `Phase 8` in the docs and `paper phase 5` in the UI can now tell they
+are unrelated, which was the actual complaint behind the instruction.
+
+The build phases keep the bare word because `docs/phases.md` is where a reader
+already expects project history.
+
+---
+
 ## Decision record: client-side compute stack
 
 The public demo must not put simulation load on the server, so every simulation
