@@ -198,6 +198,16 @@ the public demo that currently keeps the Worker, and the console records why --
 > round -- so the rungs are statistically equivalent, not identical, and no run
 > is reproducible.
 >
+> **Closed 2026-08-29 for the run, not for the rungs.** `?seed=1234` on `/bb84`
+> pins the per-round seeds through `lib/sim/runSeed.ts`, so the SAME rung
+> replays exactly and `/bb84`'s stats panel reports `seed` and
+> `reproducible: true`. Without the parameter the path is byte-for-byte what it
+> was, which matters because the demo's throughput figures were measured on it.
+> What is still NOT closed is cross-rung agreement: Worker mulberry32 and
+> shader xorshift32 give the same seed different samples, and making them
+> identical means one PRNG in three languages. The seed buys reproducibility,
+> not tier equivalence -- do not conflate them.
+>
 > What IS bit-exact is narrower and worth keeping straight: `Xorshift32` in
 > `bb84Channel.ts` reproduces the shader PRNG exactly, so the photon-frame
 > replay shows the pulses the shader actually computed rather than an unrelated

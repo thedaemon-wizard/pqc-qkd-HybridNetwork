@@ -3,6 +3,7 @@ import Plot from "react-plotly.js";
 import { Bb84Engine, type TierTrial, type Bb84Frame } from "../lib/sim/bb84Sim";
 import { engineChoiceSummary } from "../lib/sim/engineChoice";
 import { BUNDLED_PARAMS, channelFromParams } from "../lib/sim/keyrate";
+import { seedFromLocation } from "../lib/sim/runSeed";
 import ExportToolbar from "../components/ExportToolbar";
 
 /**
@@ -29,6 +30,8 @@ import ExportToolbar from "../components/ExportToolbar";
 const DEFAULT_PARAMS = BUNDLED_PARAMS;
 
 export default function BB84() {
+  // Read once; the URL does not change under the page.
+  const pinnedSeed = seedFromLocation();
   const [qberHistory, setQberHistory] = useState<number[]>([]);
   const [poolHistory, setPoolHistory] = useState<number[]>([]);
   const [frames, setFrames] = useState<Bb84Frame[]>([]);
@@ -268,6 +271,10 @@ export default function BB84() {
           <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5" }}>
 {JSON.stringify({
   engine: engineName,
+  // Present only when the run is reproducible. Absent is the honest value
+  // for an unpinned run: reporting `seed: null` beside real numbers invites
+  // the reading that a seed was used and happened to be null.
+  ...(pinnedSeed !== null ? { seed: pinnedSeed, reproducible: true } : {}),
   pulses_per_sec: pps,
   last_qber: Number(lastQber.toFixed(4)),
   key_pool: pool,
