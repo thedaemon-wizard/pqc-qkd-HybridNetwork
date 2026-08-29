@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { crossCheckAgility, type CrossCheckResult } from "../lib/sim/agilityCrossCheck";
+
 import { describeVerdict } from "./crosscheckVerdict";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
@@ -29,6 +31,27 @@ interface AgilityRow {
 
 export default function Verification() {
   const [agility, setAgility] = useState<any>(null);
+  // Cross-check, not replacement. Wiring agilityMatrix() in as a SUBSTITUTE
+  // would falsify the panel heading, which names liboqs; running both keeps
+  // the heading true and adds a second, independent implementation.
+  const [cross, setCross] = useState<CrossCheckResult | null>(null);
+  const [crossBusy, setCrossBusy] = useState(false);
+
+  /** Deliberately NOT run on mount. Measured at 5.9 s on a desktop -- the four
+   *  SLH-DSA parameter sets dominate it, and checklist row 4.6.11 records
+   *  SLH-DSA-SHA2-192s alone at ~2.2 s in-browser. Running that synchronously
+   *  when the page loads freezes the tab, and on a phone it is far worse. So
+   *  it is an explicit action with the cost on the button, which is also how
+   *  /pqc handles its own round-trips. */
+  async function runCross() {
+    setCrossBusy(true);
+    // Yield first so the button's disabled state paints before the main
+    // thread is taken; without this the UI shows nothing until it finishes.
+    await new Promise((r) => setTimeout(r, 0));
+    try {
+      setCross(crossCheckAgility(agility?.matrix ?? null));
+    } finally { setCrossBusy(false); }
+  }
   const [keyrate, setKeyrate] = useState<any>(null);
   const [budgets, setBudgets] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -190,6 +213,63 @@ export default function Verification() {
               interface does not care what the hardness assumption is.
             </p>
           </>
+        )}
+
+        <div style={{ marginTop: 14, borderTop: `1px solid ${colors.borderLt}`,
+                      paddingTop: 10 }}>
+          <button onClick={runCross} disabled={crossBusy}
+                  style={{ fontSize: 12 }}>
+            {crossBusy
+              ? "Running the matrix in this browser..."
+              : "Cross-check against @noble in this browser (~6 s)"}
+          </button>
+          {!cross && !crossBusy && (
+            <p style={{ fontSize: 11, color: colors.textMute, marginTop: 6 }}>
+              Not run automatically: the four SLH-DSA parameter sets take
+              seconds each in pure JavaScript, and doing that on page load
+              would freeze the tab.
+            </p>
+          )}
+        </div>
+
+        {cross && cross.compared.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: `1px solid ${colors.borderLt}`,
+                        paddingTop: 10 }}>
+            <b style={{ fontSize: 12 }}>
+              Independent cross-check &mdash; the same matrix in your browser
+              (@noble)
+            </b>
+            <Row k="Algorithms both implementations ran"
+                 v={`${cross.compared.length}`} />
+            <Row k="Round-trip passes in BOTH (strong)"
+                 v={cross.allBothPass ? "yes" : "no"}
+                 ok={cross.allBothPass} />
+            <Row k="Byte lengths agree (weak &mdash; both read the same FIPS table)"
+                 v={cross.allLengthsAgree ? "yes" : "no"}
+                 ok={cross.allLengthsAgree} />
+            {cross.serverOnly.length > 0 && (
+              <Row k="liboqs only, not exercised in-browser"
+                   v={cross.serverOnly.join(", ")} />
+            )}
+            {cross.clientOnly.length > 0 && (
+              <Row k="In-browser only, not in the liboqs matrix"
+                   v={cross.clientOnly.join(", ")} />
+            )}
+            {cross.compared.flatMap((c) => c.lengthNotes).map((n, i) => (
+              <Row key={i} k="Length mismatch" v={n} ok={false} />
+            ))}
+            <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
+              Two independently written implementations exercising the same
+              algorithm set. What is strong here is that both ran a real
+              round-trip and both passed &mdash; for signatures that means
+              verifying a good signature <i>and</i> rejecting a tampered one.
+              What is weak is length agreement: both read the same FIPS
+              203/204/205 parameter tables, so a wrong implementation produces
+              the right sizes too. The conclusive test &mdash; liboqs
+              encapsulating to a key this browser generated, and the two shared
+              secrets agreeing &mdash; runs on <code>/pqc</code>.
+            </p>
+          </div>
         )}
       </Panel>
 

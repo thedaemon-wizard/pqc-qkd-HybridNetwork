@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-229 rows, of which **57 are machine-checked and 172 are not**. Worth knowing
+230 rows, of which **58 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **140** | 11 | **129** |
+| 4 | Browser, every page | **141** | 12 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 57 automated /
+the prose beside it. The table is now 7, and the totals are 58 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -319,6 +319,7 @@ question about it could not be answered from this checklist.
 | 4.6.21 | **`/benchmarks` plots rounds, not polls** | `npx vitest run src/lib/sim/benchmarksHistory.test.ts` -> 6 pass. The page polls `/api/stats` every second and used to append `last_qber ?? 0` on every tick. With the pool full, rounds are infrequent -- measured on the demo, **4 rounds** against a 1 s poll -- so charts titled "round latency" and "QBER history" were histories of POLLS: mostly one round resampled, drawing a flat line that reads as a stuck sensor. "Avg QBER" averaged the duplicates, making it time-weighted while presenting as per-round. And `?? 0` recorded a MISSING reading as zero, which is indistinguishable from a real one -- simqn legitimately returns 0.0 sometimes (measured [0.0, 0.029412, 0.009804] over three rounds). Do not re-add `?? 0`. |
 | 4.6.22 | **`/bb84` numbers agree with Lo-Ma, and are distinct rounds** | Export JSON after ~30 s. Measured 2026-08-22: QBER mean over 29 samples **0.015013** against the analytical **0.015001** (0.08 %), stdev **0.000385**. The stdev is the load-bearing part -- a flat history means the page is resampling one round, which is exactly the defect found on `/benchmarks` (row 4.6.21). Also check the frame table is self-consistent: `basis_match == (alice_basis == bob_basis)` for every row, and matched-basis frames should disagree on the bit at roughly E_mu (5 frames -> expect ~0.08, so 0 is correct). `engine` may read `WebGPU (compute shader)` or `Worker (CPU)` -- the ladder benchmarks and picks, so both are valid; see row 4.5.14. |
 | 4.6.23 | **`/e2e` byte and packet counts are exact, and `rate_bps` is wall-clock** | Export JSON after ~2 cycles. Measured 2026-08-22: 64 packets and **4470 bytes** per cycle, which recomputes exactly -- `PING {{i}} Alice->Bob over Quantum-Secure VPN` is 41 B for i<10 and 42 B after, plus 16 B Poly1305 tag and 12 B nonce, so 10x69 + 54x70 = 4470. Phase order is 1,2,3,4 repeating; the PSK prefix is 16 hex chars; `key_id` is a real UUID. **`rate_bps` is correct arithmetic over MEASURED wall-clock** -- 8952 bps implied 3.995 s against a 1800 ms nominal cycle, i.e. a throttled hidden tab, not slow crypto. Compare it against `nominal_cycle_ms` in the same export before quoting it as throughput. |
+| 4.6.24 | **The agility matrix is cross-checked, not just fetched** | On `/verify`, press **"Cross-check against @noble in this browser (~6 s)"**. Expect `Round-trip passes in BOTH (strong)` = yes over 9-10 algorithms, and `Byte lengths agree` labelled **weak**. The distinction is the row: two implementations agreeing that ML-KEM-768 ciphertext is 1088 B shows both read FIPS 203 Table 2 -- a wrong implementation produces 1088 B too. What is strong is that liboqs (C) and @noble (TS) each ran a real round-trip, and for signatures that means verifying a good signature AND rejecting a tampered one. `agilityMatrix()` had **zero call sites** until 2026-08-29; it was never wired in because SUBSTITUTING it would falsify the panel heading, which names liboqs. Running both does not. **Not run on mount, by measurement**: the full matrix takes **5.9 s** on a desktop (four SLH-DSA sets dominate; row 4.6.11 has 192s alone at ~2.2 s), so loading it with the page freezes the tab. The vitest default 5 s timeout is what surfaced this. `npx vitest run src/lib/sim/agilityCrossCheck.test.ts` -> 8 pass, including that an unreachable backend does NOT render as agreement (`.every` on an empty array is true). |
 
 ### 4.7 Numbers match the model
 
