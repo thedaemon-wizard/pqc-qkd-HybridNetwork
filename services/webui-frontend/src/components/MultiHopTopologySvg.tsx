@@ -77,7 +77,25 @@ export default function MultiHopTopologySvg({
     <svg id="paper-flow-topology-svg" viewBox={`0 0 ${W} ${H}`}
          style={{ width: "100%" }}
          role="img"
-         aria-label="Multi-hop trusted-node topology (Spooren et al. arXiv:2604.05599)">
+         // The label carries the STATE, not just the subject. `role="img"`
+         // makes this element a leaf to assistive technology, so all 126 of
+         // the <text> nodes inside -- including the failure banner -- are
+         // invisible to it. Measured in the browser: with a qkd failure armed,
+         // the SVG rendered "qkd failure -- 7-stage cascade (armed; press
+         // Run)" and a screen reader was offered only the static subject.
+         //
+         // Checklist row 4.4b.5 asks for that banner because "a red bar with
+         // no motion and no explanation is not acceptable feedback". For a
+         // non-visual user there was no explanation at all, which is the same
+         // complaint one step further along.
+         aria-label={
+           "Multi-hop trusted-node topology (Spooren et al. arXiv:2604.05599)"
+           + (failureLayer
+               ? `. ${failureLayer} failure`
+                 + (cascadeStages ? `, ${cascadeStages}-stage cascade` : "")
+                 + (idle ? ", armed; press Run" : ", cascade running")
+               : "")
+         }>
       {/* Background columns */}
       {cols.map((c, i) => {
         const x = padL + i * (colW + colGap);

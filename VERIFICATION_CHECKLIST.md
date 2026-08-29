@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-233 rows, of which **61 are machine-checked and 172 are not**. Worth knowing
+234 rows, of which **62 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **144** | 15 | **129** |
+| 4 | Browser, every page | **145** | 16 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 61 automated /
+the prose beside it. The table is now 7, and the totals are 62 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -263,6 +263,7 @@ question about it could not be answered from this checklist.
 | 4.4b.11 | **The cascade head freezes when the run does** | Inject `qkd`, Run, then Pause and leave the page alone. The head under "Failure Cascade Timeline" must not move. Measured on the deployed build 2026-08-29 BEFORE the fix, `status: paused` throughout: `t = 14.4s -> 28.4s -> 57.4s`, then `t = 257.4s` with the **180s and 240s markers still `stroke-dasharray="2 3"`** -- unfired, because `fired` is recomputed only in `PaperSim.snapshot()` while the head ran off a bare wall-clock ticker. Note the wait is load-bearing: the first cascade event after t=0 is at **180s**, so any observation below that shows drift without showing the head overtake anything, and an earlier version of this row asserted the overtaking from a 7-second sample that could not support it. `npx vitest run src/components/cascadeHeadTracksTheRun.test.ts` -> 7 pass. |
 | 4.4b.12 | **JSON and CSV persist server-side; Logs does not** | Do not conclude the buttons are broken when no download appears. Measured 2026-08-29: overriding `URL.createObjectURL` catches exactly ONE blob, the Logs file (`text/plain`, 3029 B) -- JSON and CSV instead `POST /api/exports/save` and then follow `GET /api/exports/download/<name>`, confirmed from the anchor href. So the client-side claim in 4.6.2 covers the SIMULATION, not the artefact store: saving an export is a server call by design, and `GET /api/exports/list` returns the catalogue. A static deployment loses the Saved picker and keeps Logs. |
 | 4.4b.13 | **The exported JSON agrees with the paper AND with itself** | `curl -s https://<demo>/api/exports/download/<name>.json`. Measured 2026-08-29: phase byte budgets `0, 78, 398, 4772` sum to **5248** = Table 1's handshake total, and phase 5 adds the project's own **64 B** ChaCha20-Poly1305 record for `bytes_total: 5312`; packets `0+2+3+4+1` = `packets_total: 10`. Cascade offsets `0, 180, 240, 360, 420, ...` lie in the paper's 240-720 s window. `last_data_payload_b64` decodes to a real AEAD record, not a placeholder. Cross-check the two: with the head at 257.4s the JSON still reported `fired: true` for the 0s event ONLY -- the JSON was right and the on-screen head was the thing that had drifted (4.4b.11). |
+| 4.4b.14 | **The cascade state reaches a screen reader, not just the screen** | Inject `qkd` and read the SVG's accessible name: it must end `. qkd failure, 7-stage cascade, armed; press Run`. Found 2026-08-29 by driving the deployed page: `MultiHopTopologySvg` renders `role="img"`, which makes the element a LEAF to assistive technology, so all **126** `<text>` nodes inside it -- the failure banner among them -- were skipped and only the static subject was announced. Measured: the SVG read `qkd failure -- 7-stage cascade (armed; press Run)` while the accessible name offered `Multi-hop trusted-node topology (Spooren et al. arXiv:2604.05599)` alone. Row 4.4b.5 asks for that banner because "a red bar with no motion and no explanation is not acceptable feedback" -- for a non-visual user there was no explanation at all, which is the same complaint one step along. **`role="img"` is kept on purpose:** removing it exposes 126 unordered coordinate and abbreviation nodes, which is worse than a summary. `npx vitest run src/components/cascadeStateReachesAssistiveTech.test.ts` -> 5 pass, including that the failure clause stays conditional so a healthy diagram does not announce a failure. |
 
 ### 4.5 Export and animation
 
