@@ -103,13 +103,30 @@ export function takeExportNotice(): string {
   return n;
 }
 
-/** Upload a blob to the backend so it persists across browser sessions, then
- *  download it from the stable URL the backend returned. When the backend is
- *  absent the file is still delivered from memory, and the difference is
- *  reported through `takeExportNotice` rather than swallowed. */
+/** Deliver the file from memory, then ALSO offer it to the backend's catalogue.
+ *
+ *  The order used to be the other way round: upload first, then download from
+ *  the URL the backend returned. Two costs, and the second is the one the
+ *  project's own rule cares about.
+ *
+ *  1. The visitor waited on a network round trip for a file their browser
+ *     already held. A high-DPI PNG or a 10 s WebM is megabytes, base64 inflates
+ *     it by a third, and none of that work produced anything the file needed.
+ *  2. It put every export on the server. The standing rule for this demo is
+ *     that the browser computes and the server is not a compute or bandwidth
+ *     dependency; an upload-then-download of the browser's own output is the
+ *     clearest violation of that, precisely because it looks like storage
+ *     rather than load.
+ *
+ *  Delivering first also deletes a failure mode instead of reporting it: by
+ *  the time the POST can fail, the visitor has the file. The catalogue is a
+ *  convenience on top, so `takeExportNotice` now says the saved-exports list
+ *  did not get a copy rather than that the download fell back to local. */
 async function saveToBackendAndDownload(
   blob: Blob, name: string, ext: string, filenameFallback: string,
 ): Promise<void> {
+  // The file the visitor asked for, before anything can go wrong.
+  triggerDownload(blob, filenameFallback);
   try {
     const buf = await blob.arrayBuffer();
     // Chunked base64 — spreading a multi-MB byte array into String.fromCharCode
@@ -127,19 +144,16 @@ async function saveToBackendAndDownload(
       body: JSON.stringify({ name, ext, content_b64: b64 }),
     });
     if (!r.ok) throw new Error(`backend save HTTP ${r.status}`);
-    const body = await r.json();
-    // Trigger a navigation-style download via the stable backend URL
-    const a = document.createElement("a");
-    a.href = body.url;
-    a.download = body.filename;
-    a.style.display = "none";
-    document.body.appendChild(a); a.click();
-    setTimeout(() => document.body.removeChild(a), 500);
+    // The response is read, not discarded: a 200 with a body this code cannot
+    // parse means the catalogue did not get what it claims to have.
+    await r.json();
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    noteExportFallback(`downloaded to this device only -- not added to saved exports (${why})`);
-    console.warn("backend export save failed, delivering the file locally", e);
-    triggerDownload(blob, filenameFallback);
+    // NOT "downloaded to this device only" any more -- it always is, and that
+    // wording implied a lesser outcome that no longer happens. What is
+    // genuinely lost is the entry in the Saved exports picker.
+    noteExportFallback(`saved exports did not get a copy (${why})`);
+    console.warn("backend export catalogue save failed; the file was delivered locally", e);
   }
 }
 

@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-232 rows, of which **60 are machine-checked and 172 are not**. Worth knowing
+233 rows, of which **61 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **143** | 14 | **129** |
+| 4 | Browser, every page | **144** | 15 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 60 automated /
+the prose beside it. The table is now 7, and the totals are 61 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -321,6 +321,7 @@ question about it could not be answered from this checklist.
 | 4.6.23 | **`/e2e` byte and packet counts are exact, and `rate_bps` is wall-clock** | Export JSON after ~2 cycles. Measured 2026-08-22: 64 packets and **4470 bytes** per cycle, which recomputes exactly -- `PING {{i}} Alice->Bob over Quantum-Secure VPN` is 41 B for i<10 and 42 B after, plus 16 B Poly1305 tag and 12 B nonce, so 10x69 + 54x70 = 4470. Phase order is 1,2,3,4 repeating; the PSK prefix is 16 hex chars; `key_id` is a real UUID. **`rate_bps` is correct arithmetic over MEASURED wall-clock** -- 8952 bps implied 3.995 s against a 1800 ms nominal cycle, i.e. a throttled hidden tab, not slow crypto. Compare it against `nominal_cycle_ms` in the same export before quoting it as throughput. |
 | 4.6.24 | **The agility matrix is cross-checked, not just fetched** | On `/verify`, press **"Cross-check against @noble in this browser (~6 s)"**. Expect `Round-trip passes in BOTH (strong)` = yes over 9-10 algorithms, and `Byte lengths agree` labelled **weak**. The distinction is the row: two implementations agreeing that ML-KEM-768 ciphertext is 1088 B shows both read FIPS 203 Table 2 -- a wrong implementation produces 1088 B too. What is strong is that liboqs (C) and @noble (TS) each ran a real round-trip, and for signatures that means verifying a good signature AND rejecting a tampered one. `agilityMatrix()` had **zero call sites** until 2026-08-29; it was never wired in because SUBSTITUTING it would falsify the panel heading, which names liboqs. Running both does not. **Not run on mount, by measurement**: the full matrix takes **5.9 s** on a desktop (four SLH-DSA sets dominate; row 4.6.11 has 192s alone at ~2.2 s), so loading it with the page freezes the tab. The vitest default 5 s timeout is what surfaced this. `npx vitest run src/lib/sim/agilityCrossCheck.test.ts` -> 8 pass, including that an unreachable backend does NOT render as agreement (`.every` on an empty array is true). |
 | 4.6.25 | **A run is reproducible when asked, and says so** | Open `/bb84?seed=1234`, let it run, and read the `Live engine stats` panel: it must carry `"seed": 1234` and `"reproducible": true`. Reload and confirm the QBER history repeats. WITHOUT the parameter those two fields must be ABSENT, not null -- `seed: null` beside real numbers invites the reading that a seed was used and happened to be null. `docs/roadmap.md` recorded the gap this closes: "every rung reseeds from Math.random() each round ... no run is reproducible". **What this does NOT establish:** cross-tier agreement. The Worker runs mulberry32 and both shaders run xorshift32, so one seed gives each rung a different valid sample; making them identical means one PRNG in three languages. The benchmark probe deliberately draws from `Math.random()` and not the run sequence, because it fires a variable number of times depending on GPU support -- otherwise a pinned seed's output would depend on the machine. `npx vitest run src/lib/sim/runSeed.test.ts` -> 10 pass, including that junk like `?seed=abc` yields null rather than NaN>>>0 = 0, which would silently pin every malformed link to seed 0 and look like it worked. |
+| 4.6.26 | **An export reaches the visitor before it reaches the server** | On any export page press JSON: the file must arrive immediately, and `/api/exports/save` must be POSTed AFTER it, not before. Until 2026-08-29 the order was reversed -- upload, wait, then download from the URL the backend returned -- so a visitor waited on a round trip for bytes their browser already held, with base64 inflating a high-DPI PNG or a 10 s WebM by a third, and every export became server load on a demo whose rule is that the browser computes. Cross-check with row 4.4b.12, which measured that only Logs produced a client-side blob. **Stop `webui-backend` and press JSON again:** the file must still arrive, and the toolbar notice must read `saved exports did not get a copy` -- NOT the old `downloaded to this device only`, which implied a lesser outcome that no longer occurs. `npx vitest run src/lib/exportOrderIsLocalFirst.test.ts` -> 6 pass, including that the file is delivered exactly once (keeping the old catch-branch call would download it twice whenever the backend was down). |
 
 ### 4.7 Numbers match the model
 

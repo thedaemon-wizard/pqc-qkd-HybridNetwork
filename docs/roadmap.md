@@ -418,11 +418,26 @@ operator's:
 Four entries previously listed here have been closed and are recorded above
 instead; leaving them would have kept the roadmap arguing for work that exists.
 
-- **Exports still round-trip through the backend.** `saveToBackendAndDownload`
-  POSTs every JSON/PNG/CSV/GIF/WebM to `/api/exports/save` before handing it
-  over. It no longer fails silently -- a local-only save is now reported in the
-  toolbar -- but a static-only deployment still cannot populate the
-  saved-exports gallery. See [`deployment-economics.md`](deployment-economics.md).
+- **Exports no longer round-trip through the backend** (closed 2026-08-29).
+  `saveToBackendAndDownload` used to POST every JSON/PNG/CSV/GIF/WebM to
+  `/api/exports/save` and then download it from the URL that returned. The file
+  is now delivered from memory FIRST and offered to the catalogue afterwards,
+  which removes the visitor's wait on a round trip for bytes their browser
+  already held -- base64 inflates a high-DPI PNG or a 10 s WebM by a third --
+  and takes every export off the server, which is what the standing
+  browser-computes rule is about. It also deletes a failure mode instead of
+  reporting one: by the time the POST can fail the file is on disk, so the
+  toolbar notice now says the saved-exports list missed a copy rather than that
+  the download degraded. **Still true:** a static-only deployment cannot
+  populate the saved-exports gallery, because that gallery is the backend. See
+  [`deployment-economics.md`](deployment-economics.md).
+
+- **`/verify` is no longer server-only** (closed 2026-08-29). It still calls
+  `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`,
+  but the agility matrix can now also be run in the browser and compared --
+  see the cross-check button on that page. The panel labels which half of the
+  comparison is strong (both implementations ran a real round-trip) and which
+  is weak (byte lengths, where both are reading the same FIPS table).
 
 - **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
   rather than faked; wiring the two TLS lanes into compose behind a real switch
