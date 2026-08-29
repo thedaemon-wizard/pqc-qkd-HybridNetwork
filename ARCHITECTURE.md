@@ -165,6 +165,12 @@ Tests (host venv):
                 ┌──────────────▼──────────────────────────────────────────┐
                 │  webui-backend (FastAPI orchestrator)                   │
                 │   /api/vpn/protocols      — both lanes' live status     │
+                │   /api/vpn/ppk-rotations  — operator/curl only, no page │
+                │        calls it. Windowed (30 s..max), TTL-cached.      │
+                │        Reports distinct_ids beside count, so            │
+                │        reinstalling one credential cannot inflate the   │
+                │        total; count: null + error means "could not      │
+                │        look", which is not zero. See checklist 2.14     │
                 │   (mu/nu optimisation runs client-side on /physics)     │
                 │   /api/pqc/{algorithms,roundtrip}                       │
                 └──┬───────────────────────────────────────────────┬──────┘

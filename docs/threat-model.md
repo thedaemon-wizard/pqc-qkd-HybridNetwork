@@ -35,6 +35,36 @@ quantum-derived key material into a running IPsec or WireGuard tunnel, so that
 $`Y`$ is not itself measured in years. It does not shorten $`Z`$ and makes no
 claim about it.
 
+### 2.1 Why rotation cadence is a defence at all
+
+Mosca's inequality says *when* to migrate. It says nothing about *what to
+change*, and Blanco-Romero et al. (arXiv:2603.01091, 2026-03-01, CC BY 4.0)
+call it "deliberately abstract" for that reason, recasting HNDL as an
+adversary economics problem instead. Their observation is that the recording
+side of HNDL costs the adversary almost nothing — retaining intercepted
+traffic, in their phrasing, is economically trivial — so a defence that tries
+to raise the cost of *capture* has nothing to push against.
+
+What is left are two levers the defender actually controls: **key size** and
+**rekeying frequency**. Both act on the same quantity, the volume of traffic
+that a single future key recovery unlocks. Rotating the key every 30 s does
+not make any one recovery harder; it makes each recovery worth 30 s of
+traffic. That is the whole argument for the rotation cadence this PoC runs,
+and it is worth stating because "we rotate often" otherwise reads as hygiene
+rather than as the specific counter to a specific adversary model.
+
+The paper names **the absence of in-band ephemeral rekeying in TLS 1.3 and
+QUIC** as a critical protocol gap. That is a useful boundary marker for this
+project rather than a claim about it: the lanes built here are IPsec and
+WireGuard, both of which *do* have in-band rekeying, which is why an external
+key source can be fed into them at all. It also sharpens the RFC 8784
+limitation recorded on the `/vpn` page — PPK covers the initial IKE SA only,
+so consuming fresh QKD material needs a reauthentication rather than a rekey.
+Under this paper's framing that is not a cosmetic gap: reauthentication
+cadence *is* the defence, so the cost of the heavier operation is the price of
+the property, not overhead to be optimised away. RFC 9867 (Nov 2025) lifts the
+restriction and names QKD as its motivating case; see `docs/vici-ppk.md`.
+
 ## 3. What the estimates actually say — and what they do not
 
 **No date is defensible, and this document does not give one.** What exists are
