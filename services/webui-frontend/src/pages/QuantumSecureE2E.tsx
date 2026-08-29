@@ -316,7 +316,7 @@ export default function QuantumSecureE2E() {
       )}
 
       {/* Phase history (last 8) */}
-      <Panel title="Phase history (last 8)">
+      <Panel title="Step history (last 8)">
         <table style={{ width: "100%", fontSize: 12, color: "#cbd6f5" }}>
           <thead>
             <tr style={{ color: "#6b7796" }}>
@@ -549,7 +549,7 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
                       active={phase === 1} />
       </svg>
       <div style={{ marginTop: 6, fontSize: 11, color: "#6b7796" }}>
-        Active phase: <b style={{ color: "#e25555" }}>{phase || "idle"}</b>
+        Active step: <b style={{ color: "#e25555" }}>{phase || "idle"}</b>
         {" · "}Mode: <b style={{ color: MODE_COLOR[mode] }}>{mode}</b>
       </div>
     </div>

@@ -253,7 +253,7 @@ export default function PaperDataExchange() {
       </div>
 
       {/* Sequence diagram */}
-      <Panel title="5-Phase Sequence Diagram (paper, Evaluation Test 1, Table 1)">
+      <Panel title="Sequence Diagram -- the paper's 5 protocol phases (Evaluation Test 1, Table 1)">
         <PhaseSequenceSvg budgets={budgets} currentPhase={phase} />
       </Panel>
 
@@ -270,7 +270,7 @@ export default function PaperDataExchange() {
       </div>
 
       {/* Latest data payload (Phase 5 output) */}
-      <Panel title="Latest Data Exchange Payload (Phase 5, ChaCha20-Poly1305)">
+      <Panel title="Latest Data Exchange Payload (paper phase 5, ChaCha20-Poly1305)">
         <pre style={{
           margin: 0, fontSize: 11, lineHeight: 1.4,
           color: colors.textPri, fontFamily: "monospace",
