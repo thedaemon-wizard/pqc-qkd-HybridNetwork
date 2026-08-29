@@ -37,33 +37,47 @@ claim about it.
 
 ### 2.1 Why rotation cadence is a defence at all
 
-Mosca's inequality says *when* to migrate. It says nothing about *what to
-change*, and Blanco-Romero et al. (arXiv:2603.01091, 2026-03-01, CC BY 4.0)
-call it "deliberately abstract" for that reason, recasting HNDL as an
-adversary economics problem instead. Their observation is that the recording
-side of HNDL costs the adversary almost nothing — retaining intercepted
-traffic, in their phrasing, is economically trivial — so a defence that tries
-to raise the cost of *capture* has nothing to push against.
+Mosca's inequality says *when* to migrate. It says nothing about how much the
+attack costs the attacker, and Blanco-Romero et al., *On the Practical
+Feasibility of Harvest-Now, Decrypt-Later Attacks* (arXiv:2603.01091,
+2026-03-01, CC BY 4.0) call the framework "influential but deliberately
+abstract: it provides no mechanism for quantifying the adversary's operational
+cost during the harvest phase" (§2.1). They recast HNDL as an economic problem
+instead, with a testbed over TLS 1.2, TLS 1.3, QUIC and SSH. Their result is
+that the recording side costs the adversary almost nothing — "retaining
+intercepted traffic is economically trivial" — so a defence aimed at raising
+the cost of *capture* has nothing to push against.
 
-What is left are two levers the defender actually controls: **key size** and
-**rekeying frequency**. Both act on the same quantity, the volume of traffic
-that a single future key recovery unlocks. Rotating the key every 30 s does
-not make any one recovery harder; it makes each recovery worth 30 s of
-traffic. That is the whole argument for the rotation cadence this PoC runs,
-and it is worth stating because "we rotate often" otherwise reads as hygiene
-rather than as the specific counter to a specific adversary model.
+They separate two cost axes, and the distinction is the useful part:
 
-The paper names **the absence of in-band ephemeral rekeying in TLS 1.3 and
-QUIC** as a critical protocol gap. That is a useful boundary marker for this
-project rather than a claim about it: the lanes built here are IPsec and
-WireGuard, both of which *do* have in-band rekeying, which is why an external
-key source can be fed into them at all. It also sharpens the RFC 8784
-limitation recorded on the `/vpn` page — PPK covers the initial IKE SA only,
-so consuming fresh QKD material needs a reauthentication rather than a rekey.
-Under this paper's framing that is not a cosmetic gap: reauthentication
-cadence *is* the defence, so the cost of the heavier operation is the price of
-the property, not overhead to be optimised away. RFC 9867 (Nov 2025) lifts the
-restriction and names QKD as its motivating case; see `docs/vici-ppk.md`.
+- **Storage overhead** — Encrypted Client Hello forces indiscriminate bulk
+  collection, inflating the archive. But storage cost "penalizes both sides".
+- **Quantum workload** — aggressive rekeying and larger key-exchange
+  parameters multiply the computations needed to recover plaintext. This axis
+  "targets the adversary alone", which is why the paper concludes that
+  "rekeying and key size selection offer the strongest defensive levers".
+
+That second axis is the argument for this PoC's rotation cadence. Rotating
+every 30 s makes no single recovery harder; it makes each recovery worth 30 s
+of traffic. Worth stating explicitly, because "we rotate often" otherwise
+reads as hygiene rather than as the counter to a specific adversary model.
+
+**Where the paper stops, and where this project begins.** It names "the
+absence of in-band ephemeral rekeying in TLS 1.3 and QUIC" as a critical
+protocol gap (§1), and finds those two "locked at E=1" — one epoch, so
+recovering the handshake secret exposes every later epoch (§7). **It does not
+discuss IPsec, IKEv2 or WireGuard at all**; the following is this project's
+inference from its framework, not a claim the paper makes.
+
+Both lanes built here *do* have in-band rekeying, which is why an external key
+source can be fed to them. But the RFC 8784 limitation recorded on the `/vpn`
+page means the QKD material specifically reaches only the initial IKE SA, so
+consuming fresh material needs a reauthentication rather than a rekey. Read
+through this paper's cost model that is not cosmetic: cadence on the quantum
+axis *is* the defence, so the heavier operation buys the property rather than
+wasting effort. RFC 9867 (Nov 2025) lifts the restriction and names QKD as its
+motivating case; see [`vici-ppk.md`](vici-ppk.md) for what does and does not
+implement it.
 
 ## 3. What the estimates actually say — and what they do not
 
