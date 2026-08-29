@@ -25,12 +25,26 @@ stripped too, so a literal `$5` inside backticks is not a finding.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = sorted((ROOT / "docs").glob("*.md"))
+def _tracked_md() -> list[Path]:
+    """Every tracked Markdown file, not just docs/.
+
+    This scanned `docs/*.md` only, and the convention it enforces is
+    repository-wide -- VERIFICATION_CHECKLIST.md carried two bare inline
+    expressions (`$20 \\times 84$`, `$= 1680$`) that were outside its reach.
+    Submodules are excluded: their delimiter choices are not ours to police.
+    """
+    out = subprocess.run(["git", "ls-files", "*.md"], cwd=ROOT,
+                         capture_output=True, text=True, check=True)
+    return [ROOT / f for f in out.stdout.split() if not f.startswith("submodules/")]
+
+
+DOCS = _tracked_md()
 
 FENCE = re.compile(r"```.*?```", re.S)
 TICK_MATH = re.compile(r"\$`[^`]*`\$")
