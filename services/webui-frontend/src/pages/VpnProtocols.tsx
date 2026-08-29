@@ -311,6 +311,30 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
   }
   const dir = (d?: { spi: string; bytes: number; packets: number } | null) =>
     d ? `${d.spi}  ${d.bytes.toLocaleString()} B / ${d.packets.toLocaleString()} pkt` : "—";
+
+  // Every installed direction reporting zero. On this deployment that is the
+  // CORRECT steady state -- and it is indistinguishable, as rendered, from the
+  // one failure the ipsec CI job exists to catch. Its own comment reads:
+  //
+  //     A tunnel that is up but installs no ESP counters is passing traffic
+  //     in the clear past the policy.
+  //
+  // So a reader who knows that reasoning sees a green "established" over
+  // 0 B / 0 pkt and concludes the lane is leaking plaintext. It is not: nothing
+  // on this host sends anything through the tunnel. There is no ping, no
+  // keepalive and no health check that traverses it, and `start_action = trap`
+  // installs the CHILD_SA on demand rather than driving traffic -- which is why
+  // checklist row 2.11 and the CI step both `ping` FIRST and only then assert a
+  // non-zero count.
+  //
+  // Naming the precondition is the whole fix. No number is invented, no
+  // fallback is taken, and a genuine leak still shows as zero -- but now the
+  // reader is told what would have to be true for the zero to be alarming.
+  const installed = kids.filter((k) => k.in || k.out);
+  const allIdle = installed.length > 0 && installed.every(
+    (k) => (k.in?.bytes ?? 0) === 0 && (k.out?.bytes ?? 0) === 0
+          && (k.in?.packets ?? 0) === 0 && (k.out?.packets ?? 0) === 0);
+
   return (
     <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1d2741" }}>
       <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>
@@ -326,6 +350,22 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
           <Row k="out" v={dir(k.out)} />
         </div>
       ))}
+      {allIdle && (
+        <p style={{ fontSize: 11, color: "#9aa9d8", margin: "6px 0 0",
+                    lineHeight: 1.5 }}>
+          Zero is expected here, and it is worth saying why: <b>nothing on this
+          host sends traffic through the tunnel.</b> No ping, no keepalive and
+          no health check traverses it, and <code>start_action = trap</code>
+          installs the CHILD_SA on demand rather than generating packets. To
+          make these non-zero, send something across it &mdash;
+          <code> docker exec alice-ipsec ping -c3 10.30.0.21</code> &mdash; which
+          is exactly what checklist row 2.11 and the <code>ipsec</code> CI job
+          do before asserting a non-zero count. A tunnel that showed zero
+          <i> while traffic was flowing</i> would mean packets were bypassing
+          the policy in the clear; that is the case this line exists to
+          distinguish, not to explain away.
+        </p>
+      )}
     </div>
   );
 }
