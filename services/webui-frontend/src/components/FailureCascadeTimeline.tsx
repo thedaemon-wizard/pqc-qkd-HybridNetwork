@@ -8,11 +8,22 @@
  * QKD malfunction) is the paper's empirical check of it. NOT Table 1, which
  * gives packet and byte budgets and says nothing about timing.
  *
- * Shown when a layer failure has been injected. The current wall-clock
- * head moves along the timeline; events flip from "pending" to "fired" as the
- * head crosses them.
+ * Shown when a layer failure has been injected. The head moves along the
+ * timeline while the simulation runs; events flip from "pending" to "fired"
+ * as the head crosses them.
+ *
+ * The head is frozen whenever the simulation is not running. It used to be
+ * driven by a bare 500 ms wall-clock ticker with no reference to the run
+ * state, so it kept advancing while the page was paused or idle -- and the
+ * `fired` flags do NOT, because they are recomputed only in
+ * `PaperSim.snapshot()`. The head therefore walked past markers that stayed
+ * dashed grey, showing elapsed simulation time that had not elapsed.
+ *
+ * Measured on the deployed build before this change: with `status: paused`,
+ * the head read `t = 21.6s`, then `t = 28.6s` seven seconds of wall clock
+ * later, while every cascade marker remained unfired.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Panel from "./Panel";
 import { colors } from "../lib/commonStyles";
 
@@ -28,22 +39,44 @@ export interface FailureCascadeProps {
   activeLayer: string | null;
   startedAt: number | null;       // epoch seconds
   events: CascadeEvent[];
+  /** Simulation run state. The head only advances while this is "running". */
+  status: "idle" | "running" | "paused";
 }
 
 export default function FailureCascadeTimeline({
-  activeLayer, startedAt, events,
+  activeLayer, startedAt, events, status,
 }: FailureCascadeProps) {
-  const [now, setNow] = useState<number>(Date.now() / 1000);
+  // Elapsed time is ACCUMULATED while running rather than derived from
+  // `Date.now() - startedAt`, so a pause genuinely stops the clock instead of
+  // hiding time that passed while stopped.
+  const [elapsed, setElapsed] = useState(0);
+  const lastTick = useRef<number | null>(null);
+
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now() / 1000), 500);
-    return () => clearInterval(t);
-  }, []);
+    if (status !== "running" || startedAt === null) {
+      lastTick.current = null;      // resume must not count the paused gap
+      return;
+    }
+    const id = setInterval(() => {
+      const now = Date.now() / 1000;
+      const prev = lastTick.current ?? now;
+      lastTick.current = now;
+      setElapsed((e) => e + (now - prev));
+    }, 500);
+    return () => clearInterval(id);
+  }, [status, startedAt]);
+
+  // A new injection restarts the cascade clock.
+  useEffect(() => {
+    setElapsed(0);
+    lastTick.current = null;
+  }, [startedAt]);
 
   const max = 720;
   const W = 920, H = 130;
   const padL = 80, padR = 30, padT = 30, padB = 30;
   const innerW = W - padL - padR;
-  const tElapsed = startedAt ? Math.min(max, now - startedAt) : 0;
+  const tElapsed = startedAt ? Math.min(max, elapsed) : 0;
   const headX = padL + (tElapsed / max) * innerW;
 
   // The paper has no Roman-numeral headings: they are Arabic, and the 240-720 s

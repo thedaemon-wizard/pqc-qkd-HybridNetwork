@@ -262,6 +262,7 @@ export default function PaperDataExchange() {
                      gap: 16, marginTop: 16 }}>
         <PacketFlowTable budgets={budgets} currentPhase={phase} />
         <FailureCascadeTimeline
+          status={status}
           activeLayer={state?.failure.active_layer ?? null}
           startedAt={state?.failure.started_at ?? null}
           events={state?.failure.cascade ?? []}
