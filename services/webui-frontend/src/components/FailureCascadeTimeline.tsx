@@ -16,12 +16,21 @@
  * driven by a bare 500 ms wall-clock ticker with no reference to the run
  * state, so it kept advancing while the page was paused or idle -- and the
  * `fired` flags do NOT, because they are recomputed only in
- * `PaperSim.snapshot()`. The head therefore walked past markers that stayed
- * dashed grey, showing elapsed simulation time that had not elapsed.
+ * `PaperSim.snapshot()`.
  *
- * Measured on the deployed build before this change: with `status: paused`,
- * the head read `t = 21.6s`, then `t = 28.6s` seven seconds of wall clock
- * later, while every cascade marker remained unfired.
+ * Measured on the deployed build, /paper-flow, qkd failure injected then
+ * paused. Two observations, because the first one alone did not establish the
+ * consequence:
+ *
+ *   status: paused   t = 14.4s -> 28.4s -> 57.4s      (clock never stopped)
+ *   status: paused   t = 257.4s, markers 180s and 240s still stroke-dasharray
+ *                    "2 3" -- unfired. Only the 0s marker is solid.
+ *
+ * The second observation is the one that matters and it needed the wait. Up to
+ * 57.4s the head had passed nothing, because the first cascade event after
+ * t=0 is at 180s; "the head walks past markers that stay grey" was an
+ * inference at that point, not a measurement. Past 240s it is a measurement:
+ * the head is two markers ahead of a cascade that has not advanced.
  */
 import { useEffect, useRef, useState } from "react";
 import Panel from "./Panel";

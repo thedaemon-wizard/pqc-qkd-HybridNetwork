@@ -17,11 +17,18 @@
  * page showed the head walking past markers that stayed dashed grey: elapsed
  * simulation time that had not elapsed.
  *
- * Measured on the deployed build, /paper-flow, before this change:
+ * Measured on the deployed build, /paper-flow, qkd failure injected then
+ * paused, before this change:
  *
- *     status: paused   t = 21.6s
- *     ... 7 s of wall clock, no interaction ...
- *     status: paused   t = 28.6s
+ *     status: paused   t = 14.4s -> 28.4s -> 57.4s, no interaction
+ *     status: paused   t = 257.4s, and the 180s and 240s markers still carry
+ *                      stroke-dasharray "2 3" -- unfired. Only 0s is solid.
+ *
+ * The second line is the one that establishes the defect's consequence, and it
+ * needed the wait: the first cascade event after t=0 is at 180s, so every
+ * observation below that threshold shows a drifting clock without yet showing
+ * it overtake anything. An earlier version of this comment asserted the
+ * overtaking from the 21.6 -> 28.6 pair alone, which could not support it.
  *
  * This file asserts the source shape rather than mounting React, matching how
  * the other component guards in this suite work. The property it pins is
