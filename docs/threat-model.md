@@ -130,6 +130,45 @@ an argument for the hybrid construction, not an excuse for the parameter set.
 
 Dates matter here because they bound $`Y`$ for anyone deploying this.
 
+**Two 2026 policy documents point opposite ways about this design, and both
+are quoted rather than summarised because the disagreement is the point.**
+
+**Against, from the US.** OMB **M-26-15**, *Execution of the Migration to
+Post-Quantum Cryptography* (2026-06-24, executing EO 14412 of 2026-06-22),
+calls hybrid *"a useful tool for managing risk"* and *"defense-in-depth"* while
+also calling it *"an intricate and resource-intensive stopgap"* requiring *"a
+thorough evaluation of its tradeoffs"*. And Appendix A, immediately after the
+table of quantum-vulnerable **asymmetric** algorithms, states flatly:
+
+> "Symmetric-key-based protocols should also be avoided."
+
+Quoted verbatim and deliberately not interpreted. The sentence is terse and its
+scope is genuinely ambiguous -- AES-256 is not quantum-vulnerable, so it most
+plausibly targets pre-shared-key *distribution* schemes rather than symmetric
+primitives -- but **as written it is a headwind for an RFC 8784 / RFC 9867 PPK
+design**, which is exactly what this project builds. Recorded here rather than
+left out, because a reader who finds it independently should not find it as a
+surprise. Neither EO 14412 nor its companion EO 14413 mentions QKD at all; the
+EO anchors "key establishment" to FIPS 203.
+
+**For, from Singapore.** CSA's *Quantum-Safe Migration Handbook V1*
+(2026-07-16) is the one national instrument found that endorses this exact
+shape: it treats QKD substantively, says **"QKD should be considered for
+layered defence or niche use cases"**, endorses hybrid PQC + classical + QKD as
+a fail-safe, and states that **"PSK with AES-256 is among the strongest options
+for CII operators with existing secure distribution infrastructure"** -- which
+is the PPK lane described. It sets CII deadlines of 2027-03-31 (migration plan),
+2028-01-01 (procurement) and 2031-12-31 (complete). It self-describes as *"not
+mandatory, prescriptive or exhaustive"*; the enforcing instrument is the CCoP.
+
+**How to hold these together.** No authority surveyed endorses the whole
+construction. BSI recommends the McEliece parameter set this ships and does not
+recommend QKD ([`references.md`](references.md)); OMB is wary of both hybrid
+complexity and symmetric-key protocols; Singapore endorses layered QKD and
+AES-256 PSK. A proposal that quotes only the supportive one is overclaiming,
+and the honest framing is the **crypto-agility and implementation-gap** case --
+which no authority disputes -- rather than QKD advocacy.
+
 **CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** and
 **ML-DSA-87** — and only those. Every new NSS acquisition must support CNSA 2.0
 from **1 January 2027**; software and firmware signing and networking equipment

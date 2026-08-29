@@ -77,7 +77,48 @@ revision rather than being implemented here.
 | Paixão, Tomkelski, Freire *et al.*, *Real-Time VPN Traffic over ETSI GS QKD 014 Key Delivery* | [arXiv:2607.06602](https://arxiv.org/abs/2607.06602) (2026-07-07) | Binds the ETSI `key_ID` into the AES-GCM **AAD**, cryptographically tying the key identifier to the ciphertext. A concrete hardening this project does not yet do. |
 | Malik, Anwar, Raza, *Beyond the Quantum Promise: A Security Analysis of Classical Control in QKD* | [arXiv:2608.07626](https://arxiv.org/abs/2608.07626) (2026-08-07) | Tamarin analysis of 23 ETSI/ITU-T QKD documents. Its finding **V3 (message reflection: MAC inputs lack role binding)** is worth checking against any shared-PSK control channel — see the open question in [`vici-ppk.md`](vici-ppk.md). |
 | Blanco-Romero, Almenares Mendoza, García Rubio, Campo, Díaz Sánchez, *On the Practical Feasibility of Harvest-Now, Decrypt-Later Attacks* | [arXiv:2603.01091](https://arxiv.org/abs/2603.01091) (2026-03-01, **CC BY 4.0**) | Recasts HNDL as adversary economics rather than a date, with a testbed over TLS 1.2/1.3, QUIC and SSH. Because "retaining intercepted traffic is economically trivial", the levers that act on the adversary alone are **rekeying frequency and key size** — the argument this project's 30 s cadence rests on, previously unstated. Names the absence of in-band ephemeral rekeying in TLS 1.3 and QUIC as a critical protocol gap (§1). **It does not discuss IPsec, IKEv2 or WireGuard**, so applying it to these lanes is this project's inference, marked as such in [`threat-model.md` §2.1](threat-model.md). |
+| Anon., *A Scenario-Based Evaluation of CRQC+AI Vulnerability Spectrum for TLS 1.3 Cryptographic Dependencies* | [arXiv:2608.23785](https://arxiv.org/abs/2608.23785) (2026-08-24, **CC BY 4.0**) | Puts RSA risk crossing **50% between 2030-2032** and PQC risk non-zero only after 2032-2035, and argues explicitly that **"crypto-agility and hybrid cryptographic deployment be considered necessary complements"**. The closest thing published in 2026-07/08 to a revised timeline, and it supports the hybrid thesis directly rather than by analogy. **No revised expert-elicitation survey exists in that window**, and the canonical RSA-2048 resource estimate (arXiv:2505.15917, Gidney) is **still unrevised at v1** -- so this is what moved, not the qubit counts. |
+| Anon., *Mind the Gap: Policy vs Reality in Post-Quantum TLS Deployment* | [arXiv:2607.29005](https://arxiv.org/abs/2607.29005) (2026-07-31, **CC BY 4.0**) | 2 billion handshakes over 1M domains from 11 vantage points. Finds **"National timelines and sectoral priorities show limited correspondence with observed deployment patterns"** and no meaningful PQ-TLS latency penalty. Useful as feasibility evidence: the gap this project works in is measured, not asserted. |
 | Raubitzek, Strasser, Ramacher, Lebeth, **Neuhold**, Pacher, on national-scale QKD network planning | [arXiv:2604.06764](https://arxiv.org/abs/2604.06764) (2026-04-08, **CC BY 4.0**) | Monte-Carlo planning method giving **hop-length distributions and trusted-repeater counts** for a country-scale network. Shares an author with the paper this PoC reproduces. Relevant because `/paper-flow`'s hop-count control currently has no empirical basis for its range; this supplies one. **Not yet implemented** — recorded here as the source to use, not as something the UI reflects. |
+
+### European regulator position, and why it cuts both ways
+
+**BSI TR-02102-1** (Federal Office for Information Security, Germany),
+[primary PDF](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TG02102/BSI-TR-02102-1.pdf?__blob=publicationFile).
+Read directly 2026-08-29; both quotations are verbatim from the PDF text.
+
+**On QKD, BSI is against**, jointly with European partner authorities:
+
+> "the practical restrictions of QKD, such as limited transmission distances and
+> the need to use specialised hardware, are severely limiting compared to the use
+> of PQC mechanisms. Therefore, QKD is only suitable for specific use cases.
+> Furthermore, in the opinion of the BSI, **QKD is currently not ready for use
+> from a security point of view. For these reasons, the BSI does not recommend
+> QKD protocols at this time.**"
+
+**On the KEM this project actually ships, BSI is for it:**
+
+> "Classic McEliece with the following parameters is considered to be
+> cryptographically suitable for **the long-term protection of confidential
+> information** at the security level targeted in this Technical Guideline:
+> **mceliece460896**, mceliece6688128 and mceliece8192128"
+
+`mceliece460896` is the exact parameter set in the pinned Rosenpass v0.2.3, which
+`tests/test_rosenpass_kem_names_match_the_submodule.py` derives from the
+submodule's own domain-separation label.
+
+**What this changes, and what it does not.** The judgement recorded in
+[`vici-ppk.md`](vici-ppk.md) -- that the PQC half is not an approved KEM -- is a
+statement about **NIST SP 800-227**, and it stays true. It is not a statement
+about every authority: under BSI the same parameter set is recommended for
+long-term confidentiality. Both framings are correct about different standards
+and neither should be quoted as the other.
+
+**Do not read the McEliece endorsement as European support for QKD.** BSI is on
+record against QKD protocols in the same document. A project that mixes QKD with
+PQC has to say which half each authority is endorsing.
+
+---
 
 **Measured field values from arXiv:2608.18869**, useful for calibrating a
 simulator against reality rather than lab conditions:
