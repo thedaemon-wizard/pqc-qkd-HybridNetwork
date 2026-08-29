@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-230 rows, of which **58 are machine-checked and 172 are not**. Worth knowing
+231 rows, of which **59 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **141** | 12 | **129** |
+| 4 | Browser, every page | **142** | 13 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 58 automated /
+the prose beside it. The table is now 7, and the totals are 59 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -359,6 +359,7 @@ question about it could not be answered from this checklist.
 | 4.8.14 | **The agility matrix names every family it runs** | `/verify` panel 1 must name ML-KEM, ML-DSA **and SLH-DSA**. `pqc-validator` ships six signature algorithms (`DEFAULT_SIG_ALGOS`), three of them hash-based SLH-DSA, so the matrix is **nine rows**; the title read "ML-KEM + ML-DSA" over three families. Count the rows on screen and compare against that list. |
 | 4.8.15 | **A page that reports the running stack can say it cannot see it** | Stop `webui-backend`, then load `/topology`, `/benchmarks`, `/vpn`, `/console`. Each must NAME the failure, not spin. `/topology` used to render `<div>Loading...</div>` forever with an unhandled rejection -- "backend down" and "request in flight" were the same pixels and the first never left. `/benchmarks` had the same defect in a different shape: it handled "backend answered, KME did not" via `reading()` but not "backend did not answer", so a 1 s `setInterval` threw once per second while stale numbers rendered as live. **Deliberately NOT fixed by drawing a client-side graph:** `/api/topology` returns a fixed four-node list, so a bundled copy would be pixel-identical to a measurement. `npx vitest run src/pages/everyBackendPageSaysWhenItCannotLook.test.ts` -> 10 pass. |
 | 4.8.16 | **Optional containers do not read as failures** | On the default stack, `/` must show `qkdnetsim-kme`, `alice-ipsec` and `bob-ipsec` as **`not started (<profile>)`**, not grey `absent`. Those three exist only in overlay compose files behind `profiles: ["crossvalidate"]` and `["ipsec"]`; the base file does not define them, so absence is correct. Until 2026-08-29 `/api/stack` emitted the same word `absent` for "you did not start the overlay" and for "bb84-kme-a died", and the page painted both the same grey -- **three of ten rows read as failures on a healthy stack**. Confirm the tooltip names the compose file. `curl -s https://<demo>/api/stack \| jq '.[]\|select(.optional)'` -> `profile` and `compose_file` present. |
+| 4.8.17 | **`/physics` renders with no backend, and says the values are bundled** | Stop `webui-backend` and load `/physics`. The form must render all 15 editable fields with a red banner reading `Not observed -- GET /api/sim/params/editable failed`, and the client-side key-rate figures beneath must still compute. Until 2026-08-29 `load()` caught the error and left `fields` null, so the render guard returned `Loading parameters...` **forever** -- the same defect 4.8.15 records for `/topology`, in a page where the entire form sat behind it. The banner is the load-bearing half: a value compiled into the bundle and a value read from a running deployment are different claims, and substituting one silently is the defect this repository treats as a bug everywhere else. All 15 bundled values are checked against `config/qkd_params.yaml` by `pytest tests/test_frontend_defaults_match_config.py` -> 20 pass, so the fallback cannot become a second source of truth. Mutation-checked both ways: removing the fallback fails, and changing one value away from the YAML fails. |
 
 ---
 

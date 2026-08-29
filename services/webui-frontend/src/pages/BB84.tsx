@@ -63,7 +63,12 @@ export default function BB84() {
         const r = await fetch("/api/sim/params");
         if (r.ok) {
           const j = await r.json();
+          // Spread first: BB84 only needs the seven channel fields, but
+          // BUNDLED_PARAMS now carries all fifteen editable ones for
+          // /physics. Rebuilding the object from scratch would drop the other
+          // eight and change its type.
           p = {
+            ...p,
             detectorEfficiency: j.physical?.detector_efficiency ?? p.detectorEfficiency,
             fiberAttenuationDbPerKm: j.physical?.fiber_attenuation_db_per_km ?? p.fiberAttenuationDbPerKm,
             linkLengthKm: j.physical?.link_length_km ?? p.linkLengthKm,
