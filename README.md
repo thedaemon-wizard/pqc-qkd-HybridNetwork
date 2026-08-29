@@ -146,7 +146,7 @@ pqc-qkd-hybrid/
 │   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
 │   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
-│   └── qkdnetsim-kme/                 # (Phase 8) NS-3 ETSI 014 reference KME (separate container)
+│   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
 ├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
 ├── nodes/{alice,bob,charlie}/         # Per-node Docker context
 ├── pki/                               # mTLS cert generation
