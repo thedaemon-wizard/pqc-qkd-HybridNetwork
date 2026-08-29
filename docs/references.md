@@ -76,14 +76,16 @@ revision rather than being implemented here.
 | Dosan, **Spooren**, … **Hühn**, de Vries, *Secure Medical Data Transmission Using QKD and PQC in Real-World Fiber Networks* | [arXiv:2608.18869](https://arxiv.org/abs/2608.18869) (2026-08-19) | The field-deployment sequel to the paper this PoC reproduces, by overlapping authors, and it uses **arnika** for exactly the role it plays here. Gives measured link numbers (below) that bound how fast a PSK can honestly be rotated. |
 | Paixão, Tomkelski, Freire *et al.*, *Real-Time VPN Traffic over ETSI GS QKD 014 Key Delivery* | [arXiv:2607.06602](https://arxiv.org/abs/2607.06602) (2026-07-07) | Binds the ETSI `key_ID` into the AES-GCM **AAD**, cryptographically tying the key identifier to the ciphertext. A concrete hardening this project does not yet do. |
 | Malik, Anwar, Raza, *Beyond the Quantum Promise: A Security Analysis of Classical Control in QKD* | [arXiv:2608.07626](https://arxiv.org/abs/2608.07626) (2026-08-07) | Tamarin analysis of 23 ETSI/ITU-T QKD documents. Its finding **V3 (message reflection: MAC inputs lack role binding)** is worth checking against any shared-PSK control channel — see the open question in [`vici-ppk.md`](vici-ppk.md). |
+| Blanco-Romero *et al.*, on the economics of harvest-now-decrypt-later | [arXiv:2603.01091](https://arxiv.org/abs/2603.01091) (2026-03-01, **CC BY 4.0**) | Recasts HNDL as adversary economics rather than a date. Because retaining intercepted traffic costs the adversary almost nothing, the only levers the defender holds are **key size and rekeying frequency** — which is the argument this project's 30 s rotation cadence rests on, and it was previously unstated. Names the absence of in-band ephemeral rekeying in TLS 1.3 and QUIC as a critical protocol gap; IPsec and WireGuard have it, which is why an external key source can be fed to them at all. Applied in [`threat-model.md` §2.1](threat-model.md). |
+| Raubitzek, Strasser, Ramacher, Lebeth, **Neuhold**, Pacher, on national-scale QKD network planning | [arXiv:2604.06764](https://arxiv.org/abs/2604.06764) (2026-04-08, **CC BY 4.0**) | Monte-Carlo planning method giving **hop-length distributions and trusted-repeater counts** for a country-scale network. Shares an author with the paper this PoC reproduces. Relevant because `/paper-flow`'s hop-count control currently has no empirical basis for its range; this supplies one. **Not yet implemented** — recorded here as the source to use, not as something the UI reflects. |
 
 **Measured field values from arXiv:2608.18869**, useful for calibrating a
 simulator against reality rather than lab conditions:
 
 | Link | Length | Loss | Secret key rate | QBER |
 |---|---|---|---|---|
-| Sundhausen–Erfurt (mostly aerial) | 70 km | > 17 dB | $12.7 \pm 10.3$ bit/s | $`13.3 \pm 9.6\,\%`$ |
-| Jena–Erfurt (mostly buried) | 69 km | > 21 dB | $22.2 \pm 4.7$ bit/s | $`6.1 \pm 0.8\,\%`$ |
+| Sundhausen–Erfurt (mostly aerial) | 70 km | > 17 dB | $`12.7 \pm 10.3`$ bit/s | $`13.3 \pm 9.6\,\%`$ |
+| Jena–Erfurt (mostly buried) | 69 km | > 21 dB | $`22.2 \pm 4.7`$ bit/s | $`6.1 \pm 0.8\,\%`$ |
 
 Two things follow. The aerial link shows **twice the QBER of the buried link
 despite lower attenuation**, with variance tracking wind speed — so loss alone

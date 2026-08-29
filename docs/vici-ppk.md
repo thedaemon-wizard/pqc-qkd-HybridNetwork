@@ -126,7 +126,7 @@ RFC 8784 and RFC 9370 solve different problems and this project uses both.
 
 The connection proposes `ecp256-ke1_mlkem768`: classical ECP-256 in
 `IKE_SA_INIT`, then ML-KEM-768 as Additional Key Exchange 1 carried in an
-`IKE_INTERMEDIATE` exchange (RFC 9242). Round $n$ chains forward:
+`IKE_INTERMEDIATE` exchange (RFC 9242). Round $`n`$ chains forward:
 
 ```math
 \mathrm{SKEYSEED}(n) \;=\; \mathrm{prf}\big(\mathrm{SK\_d}(n-1),\ \mathrm{SK}(n)\ |\ N_i\ |\ N_r\big)
