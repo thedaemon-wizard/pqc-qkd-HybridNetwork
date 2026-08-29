@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-224 rows, of which **53 are machine-checked and 171 are not**. Worth knowing
+229 rows, of which **57 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,10 +17,10 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **138** | 10 | **128** |
+| 4 | Browser, every page | **140** | 11 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
-| 7 | Documentation | 16 | **5** | 11 |
+| 7 | Documentation | 19 | **8** | 11 |
 
 Section 4 is 59 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -58,8 +58,8 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 53 automated /
-171 manual.
+the prose beside it. The table is now 7, and the totals are 57 automated /
+172 manual.
 
 Everything CI can check, in one command:
 
@@ -356,6 +356,8 @@ question about it could not be answered from this checklist.
 | 4.8.12 | **`/physics` refuses values the physics has no meaning for** | Type `-50` into **Link length**, `2` into **Detector efficiency**, `0.9` into **EC efficiency f**. Each must be rejected -- the field keeps its previous value and the panel does not move. Before the fix one `<input type="number" step="any">` with no `min`/`max` served all fourteen parameters, five of them probabilities, and a negative link length rendered $`\eta_{total} > 1`$ and more than one secret bit per pulse in the same styling as a real figure. Note `min`/`max` alone are not sufficient: they style the field and block the spinner while a typed or pasted value still reaches the handler, so the bound is enforced in `onChange` too. |
 | 4.8.13 | **A caption naming "the current parameters" names the ones it reads** | `/physics` computes from **10** of the 14 editable fields. Editing basis bias, the QBER abort threshold, batch size or either Eve field must NOT move the panel -- and the caption must say so. They are not inert: the abort threshold gates the backend's accept decision (`accepts_round`) and the Eve settings drive the simulator. They act elsewhere, which is exactly what a reader cannot tell from a number that refuses to move. |
 | 4.8.14 | **The agility matrix names every family it runs** | `/verify` panel 1 must name ML-KEM, ML-DSA **and SLH-DSA**. `pqc-validator` ships six signature algorithms (`DEFAULT_SIG_ALGOS`), three of them hash-based SLH-DSA, so the matrix is **nine rows**; the title read "ML-KEM + ML-DSA" over three families. Count the rows on screen and compare against that list. |
+| 4.8.15 | **A page that reports the running stack can say it cannot see it** | Stop `webui-backend`, then load `/topology`, `/benchmarks`, `/vpn`, `/console`. Each must NAME the failure, not spin. `/topology` used to render `<div>Loading...</div>` forever with an unhandled rejection -- "backend down" and "request in flight" were the same pixels and the first never left. `/benchmarks` had the same defect in a different shape: it handled "backend answered, KME did not" via `reading()` but not "backend did not answer", so a 1 s `setInterval` threw once per second while stale numbers rendered as live. **Deliberately NOT fixed by drawing a client-side graph:** `/api/topology` returns a fixed four-node list, so a bundled copy would be pixel-identical to a measurement. `npx vitest run src/pages/everyBackendPageSaysWhenItCannotLook.test.ts` -> 10 pass. |
+| 4.8.16 | **Optional containers do not read as failures** | On the default stack, `/` must show `qkdnetsim-kme`, `alice-ipsec` and `bob-ipsec` as **`not started (<profile>)`**, not grey `absent`. Those three exist only in overlay compose files behind `profiles: ["crossvalidate"]` and `["ipsec"]`; the base file does not define them, so absence is correct. Until 2026-08-29 `/api/stack` emitted the same word `absent` for "you did not start the overlay" and for "bb84-kme-a died", and the page painted both the same grey -- **three of ten rows read as failures on a healthy stack**. Confirm the tooltip names the compose file. `curl -s https://<demo>/api/stack \| jq '.[]\|select(.optional)'` -> `profile` and `compose_file` present. |
 
 ---
 
@@ -422,3 +424,6 @@ question about it could not be answered from this checklist.
 | 7.14 | **A file the repository tells you to run exists** | `.venv/bin/python -m pytest tests/test_referenced_paths_exist.py` -> passes. `main.py:136` instructed readers to verify the deployment with `scripts/verify-demo-hardening.sh`, which was not in the tree. A reference inside a docstring costs nothing at import time and never shows up in a traceback, so nothing could contradict it. The guard covers `scripts/` and `tools/` -- the two directories whose purpose is "run this". Note the trap it documents: `git ls-files` lists submodule gitlinks as paths, so `git ls-files \| xargs grep -r` recurses into them and reports 27 upstream script names against the one real finding. Read each tracked path as a file and skip directories. |
 | 7.15 | **No document claims a simulator that does not run** | The `qkdnetsim-kme` image compiles NS-3 v3.46 and copies the binaries into its runtime stage, but the entrypoint is `kme_facade.py`, a Flask app drawing from a CSPRNG -- it starts no simulator. Three places said otherwise: `composite_sim_to_net.py` ("its NS-3 `QuantumChannel`"), `docs/LIMITATIONS.md` ("+ qkdnetsim NS-3 v3.46 network layer") and `README.md` ("NS-3 ETSI 014 reference KME"). The correction already existed in the Dockerfile header and three lines below the LIMITATIONS entry that contradicted it, so which paragraph a reader opened decided what they believed. `pytest tests/test_no_ns3_runs_in_the_composite_path.py` -> 10 pass; it also asserts the image still DOES build NS-3, so the correction cannot overshoot into "NS-3 is not involved". |
 | 7.16 | **Inline math uses one delimiter** | Bare `$x$` leaves LaTeX to the Markdown parser, which runs first and can read `_` as emphasis; ``$`x`$`` is a code span and cannot be. `docs/keyrate.md` held 64 bare against 23 backticked and `docs/references.md` used both in a single table row. `pytest tests/test_math_delimiters_are_uniform.py` -> 20 pass. |
+| 7.17 | **No document advertises mTLS, and /hil still says it is absent** | `grep -rE 'HTTP/mTLS\|mTLS opt\.\|generates mTLS certs' README.md ARCHITECTURE.md` -> 0. The lane is unwired: `pki/` appears in no compose file and no Dockerfile, and the KME passes no `ssl_certfile`. `/hil` says "mTLS is not implemented" on screen, and until 2026-08-29 the README said the opposite in the same build. **Two-sided:** the guard also fails if someone resolves the contradiction by deleting the honest sentence. `make init` no longer runs `pki/gen-certs.sh` -- it wrote a 4096-bit CA key plus four keypairs into the working tree on every clone for a lane nothing consumes. `pytest tests/test_mtls_is_not_claimed_where_it_does_not_exist.py` -> 11 pass, including that `pki/*.key` is gitignored. |
+| 7.18 | **An example env file offers no knob nothing turns** | `pytest tests/test_compose_env_is_read_by_something.py` -> 90 pass. `deploy/.env.example` carried five `BB84_*` tuning variables read by no compose file and no Python, while `deploy/README.md` tells operators to copy it -- the offer was to tune five values and observe nothing. The guard previously walked variables SET IN compose, so an orphan living only in an example file was out of reach by construction. Extending it found two more: `WG_SUBNET` (referenced nowhere) and `WG_CHARLIE_IP` (ignored because multihop hardcoded `10.0.0.3` while alice and bob honoured their variables -- charlie now honours it too). Note the first run reported twelve and eleven were wrong: it missed the VALUE side, so every `${WG_ALICE_IP:-...}` interpolation looked unread. |
+| 7.19 | **A guard's docstring does not promise more than it checks** | `pytest tests/test_no_hardcoded_params.py` -> 4 pass. It scans `services/bb84-kme/app/backends/` only, and opened by claiming "all tunables must come from config/qkd_params.yaml" -- README cites it as what enforces the rule, so the overstatement travelled. Three literals the rule targets still exist verbatim outside that tree (`n_photons=2048`, `channel_noise=0.01`, `qber_threshold=0.11` in `app/bb84/simulator.py`). They are DEAD: `RoundConfig` has exactly one construction site and it passes every field from YAML. What was missing is that nothing kept them dead -- three assertions now pin the single construction site, that every defaulted field is supplied there, and that what is supplied is not itself a numeric literal. |
