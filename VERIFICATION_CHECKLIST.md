@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-221 rows, of which **52 are machine-checked and 169 are not**. Worth knowing
+224 rows, of which **53 are machine-checked and 171 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **135** | 9 | **126** |
+| 4 | Browser, every page | **138** | 10 | **128** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 16 | **5** | 11 |
@@ -58,8 +58,8 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 52 automated /
-169 manual.
+the prose beside it. The table is now 7, and the totals are 53 automated /
+171 manual.
 
 Everything CI can check, in one command:
 
@@ -260,6 +260,9 @@ question about it could not be answered from this checklist.
 | 4.4b.8 | **Logs exports this run** | tooltip reads "Download this run's log (client-side)"; file contains the phase history, **not** backend HTTP request lines |
 | 4.4b.9 | **Run log reproduces Table 1 per phase** | Run, then export Logs and read the per-phase lines: phase 1 `pkts=0 bytes=0`, 2 `pkts=2 bytes=78`, 3 `pkts=3 bytes=398`, 4 `pkts=4 bytes=4772`. Handshake total **9 / 5248**, which is the paper figure. Phase 5 is application data and is deliberately not part of that total. Verified on the demo 2026-08-21. |
 | 4.4b.10 | **Step advances exactly one phase** | From `status: paused · phase: idle`, one Step gives `phase: 1` and marks Quantum Plane `active`, and the status stays `paused`. Diff the page text rather than trusting a status regex -- the badge is combined (`status: X · phase: Y`) and a naive match reads the wrong field. |
+| 4.4b.11 | **The cascade head freezes when the run does** | Inject `qkd`, Run, then Pause and leave the page alone. The head under "Failure Cascade Timeline" must not move. Measured on the deployed build 2026-08-29 BEFORE the fix, `status: paused` throughout: `t = 14.4s -> 28.4s -> 57.4s`, then `t = 257.4s` with the **180s and 240s markers still `stroke-dasharray="2 3"`** -- unfired, because `fired` is recomputed only in `PaperSim.snapshot()` while the head ran off a bare wall-clock ticker. Note the wait is load-bearing: the first cascade event after t=0 is at **180s**, so any observation below that shows drift without showing the head overtake anything, and an earlier version of this row asserted the overtaking from a 7-second sample that could not support it. `npx vitest run src/components/cascadeHeadTracksTheRun.test.ts` -> 7 pass. |
+| 4.4b.12 | **JSON and CSV persist server-side; Logs does not** | Do not conclude the buttons are broken when no download appears. Measured 2026-08-29: overriding `URL.createObjectURL` catches exactly ONE blob, the Logs file (`text/plain`, 3029 B) -- JSON and CSV instead `POST /api/exports/save` and then follow `GET /api/exports/download/<name>`, confirmed from the anchor href. So the client-side claim in 4.6.2 covers the SIMULATION, not the artefact store: saving an export is a server call by design, and `GET /api/exports/list` returns the catalogue. A static deployment loses the Saved picker and keeps Logs. |
+| 4.4b.13 | **The exported JSON agrees with the paper AND with itself** | `curl -s https://<demo>/api/exports/download/<name>.json`. Measured 2026-08-29: phase byte budgets `0, 78, 398, 4772` sum to **5248** = Table 1's handshake total, and phase 5 adds the project's own **64 B** ChaCha20-Poly1305 record for `bytes_total: 5312`; packets `0+2+3+4+1` = `packets_total: 10`. Cascade offsets `0, 180, 240, 360, 420, ...` lie in the paper's 240-720 s window. `last_data_payload_b64` decodes to a real AEAD record, not a placeholder. Cross-check the two: with the head at 257.4s the JSON still reported `fired: true` for the 0s event ONLY -- the JSON was right and the on-screen head was the thing that had drifted (4.4b.11). |
 
 ### 4.5 Export and animation
 
