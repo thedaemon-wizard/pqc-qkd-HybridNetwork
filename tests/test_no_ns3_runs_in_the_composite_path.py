@@ -152,10 +152,23 @@ class TestNoShippedTextPromisesARunningSimulator:
                 f"not run; the reader is back to guessing"
             )
 
-    def test_readme_does_not_call_the_service_an_ns3_kme(self) -> None:
-        line = next(
-            (ln for ln in _read(README).splitlines() if "qkdnetsim-kme/" in ln),
-            None,
-        )
-        assert line is not None, "the qkdnetsim-kme entry vanished from the README tree"
-        assert not re.search(r"NS-3 ETSI 014 reference KME", line), line
+    def test_the_layout_tree_does_not_call_the_service_an_ns3_kme(self) -> None:
+        """Follow the tree, do not assume which file holds it.
+
+        This asserted on README.md. The repository-layout tree moved to
+        ARCHITECTURE.md in the same round, and the test failed for the right
+        reason on the wrong premise: the entry had not vanished, the document
+        had. Pinning a filename made a documentation move look like a
+        regression.
+        """
+        hits = [
+            (path.relative_to(ROOT), ln)
+            for path in (README, ROOT / "ARCHITECTURE.md")
+            if path.is_file()
+            for ln in path.read_text(encoding="utf-8").splitlines()
+            if "qkdnetsim-kme/" in ln and ln.lstrip().startswith(("│", "├", "└"))
+        ]
+        assert hits, "the qkdnetsim-kme entry is in no repository-layout tree"
+        offending = [f"{p}: {ln.strip()}" for p, ln in hits
+                     if re.search(r"NS-3 ETSI 014 reference KME", ln)]
+        assert not offending, "\n  ".join(offending)

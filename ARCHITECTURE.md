@@ -333,3 +333,59 @@ Shared UI under `services/webui-frontend/src/components/`:
 > `/api/verify/paper-budgets` still serves. The diagram above is kept as the
 > record of Phase 14; it is not how the pages work now. See
 > [`docs/phases.md`](docs/phases.md).
+
+---
+
+## 6. Repository Layout
+
+Moved here from `README.md` section 3 on 2026-08-29. It is reference material
+-- you consult it when looking for a file, not when learning what the project
+is -- and at 47 lines it was longer than the README introduction and
+architecture sections together.
+
+
+```
+pqc-qkd-hybrid/
+├── README.md                          # ← you are here
+├── ARCHITECTURE.md                    # Detailed design & paper mapping
+├── docker-compose.yml                 # Main topology
+├── docker-compose.boringtun.yml       # WG kernel fallback (userspace)
+├── docker-compose.multihop.yml        # Adds Charlie relay (paper, 3.2 Routing and Composition)
+├── .env.example                       # Sample environment
+├── Makefile                           # build / up / smoke / bench
+├── references/                        # Reference papers (only where the licence permits)
+├── submodules/                        # Git submodules (unmodified)
+│   ├── arnika/                     # Go binary baked into node image
+│   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
+│   ├── oqs-provider/                  # OpenSSL 3.x provider for PQC TLS
+│   ├── rosenpass/                     # (after `make init`) PQC handshake daemon
+│   ├── SimQN/                         # (Phase 8) Python BB84 + Cascade + TPA (2026-05-25)
+│   ├── SeQUeNCe/                      # (Phase 8) Argonne photonic-realism DES (2026-05-12)
+│   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
+│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — vendored, not yet used
+│   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
+│   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
+│   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
+│   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
+│   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
+├── config/                            # (Phase 8) Central tunables
+│   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
+│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
+├── services/
+│   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
+│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
+│   ├── webui-backend/                 # FastAPI orchestrator
+│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
+│   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
+│   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
+│   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
+│   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
+├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
+├── nodes/{alice,bob,charlie}/         # Per-node Docker context
+├── pki/                               # mTLS cert generation
+├── animations/                        # Manim scenes (.py)
+├── benchmarks/                        # Latency / throughput scripts
+├── tests/                             # pytest contract & unit tests
+└── docs/                              # keyrate, vici-ppk, references, roadmap,
+                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
+```
