@@ -10,7 +10,7 @@
 +---------------------------------------------------------------------+
 | Layer 2 — Transport orchestration                                  |
 | arnika (Go, unmodified from submodules/arnika/)               |
-| - ETSI 014 client (HTTP/mTLS)                                    |
+| - ETSI 014 client (plain HTTP; mTLS not implemented)             |
 | - reads pqc.psk file                                             |
 | - HKDF-SHA3-256(qkd || pqc) -> 32B PSK                           |
 | - wgctrl netlink call -> writes PSK to wg0 peer entry            |
@@ -381,8 +381,9 @@ pqc-qkd-hybrid/
 │   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
 │   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
 ├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
-├── nodes/{alice,bob,charlie}/         # Per-node Docker context
-├── pki/                               # mTLS cert generation
+├── nodes/{alice,strongswan}/          # Docker contexts. NOT per-node: bob and
+│                                      #   charlie reuse nodes/alice's image
+├── pki/                               # mTLS cert generation (`make pki`; nothing consumes the output yet)
 ├── animations/                        # Manim scenes (.py)
 ├── benchmarks/                        # Latency / throughput scripts
 ├── tests/                             # pytest contract & unit tests

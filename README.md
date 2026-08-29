@@ -96,7 +96,7 @@ earlier version of this sentence claimed it did.)
         │  bb84-kme-a       │ /internal/sync│  bb84-kme-b      │
         │  BB84 sim + ETSI  │◄─────────────►│  BB84 sim + ETSI │
         └────────▲──────────┘               └──────────▲───────┘
-                 │ HTTP (mTLS opt.)                    │
+                 │ HTTP (mTLS NOT implemented)         │
         ┌────────┴───────────┐               ┌─────────┴────────┐
         │  alice (node)      │ WireGuard wg0 │  bob (node)      │
         │  - arnika (Go)     │◄─────────────►│  - arnika (Go)   │
@@ -126,7 +126,7 @@ orientation.
 git clone --recurse-submodules https://github.com/<you>/pqc-qkd-hybrid.git
 cd pqc-qkd-hybrid
 
-# 2) Initialise: writes .env, fetches submodules, generates mTLS certs
+# 2) Initialise: writes .env, fetches submodules (no certs -- see `make pki`)
 make init
 
 # 3) Build all images (≈3-5 min first time: arnika Go + Rosenpass Rust + Python)

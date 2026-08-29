@@ -83,7 +83,11 @@ QKD_PARAMS_FILE=config/qkd_params.yaml \
   python -m pytest tests/test_no_hardcoded_params.py \
                     tests/test_backend_cross_qber.py \
                     tests/test_bb84_simulator.py -v
-# Expected: 7 passed
+# Expected: 7 passed, 1 skipped
+#   The skip is the interesting half -- it fires when SimQN is absent from the
+#   host venv, which is the normal state outside the bb84-kme image. This line
+#   said only "7 passed", so a reader who saw the skip could not tell whether
+#   it was expected.
 ```
 
 ### Pre-computed key-rate table

@@ -9,7 +9,11 @@ Why BO?  Because the SKR is a smooth, non-convex function of (μ, ν1, ν2, pz),
 and BO is sample-efficient when each evaluation is cheap-but-not-free. The
 fallback `closed_form_only` simply scans μ on a coarse grid.
 
-Used from POST /api/optimize (WebUI button) and from CI parameter sweeps.
+NOT used from any route or CI job. `POST /api/optimize` was deleted (see
+`main.py`) after it was measured at 14.6 s server-side as an unauthenticated
+CPU sink, and no CI job references this module. `optimize_bayesian` and
+`optimize_from_yaml` have no caller; only `optimize_closed_form` is used, by
+one test. Kept because the closed-form path is still needed.
 
 References:
 - Snoek, Larochelle, Adams "Practical Bayesian Optimization" NeurIPS 2012
