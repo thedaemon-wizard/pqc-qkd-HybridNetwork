@@ -148,7 +148,14 @@ def test_the_committed_table_is_what_this_builder_produces(tmp_path):
     """The delegation was verified as a no-op on the shipped data: 1170/1170.
 
     If this fails, the table in git and the model in the code disagree, and
-    `config/qkd_keyrate_table.json` is shipped data -- /physics reads it.
+    `config/qkd_keyrate_table.json` is shipped data with **no runtime reader**.
+    This line used to say "/physics reads it". It does not: `git grep
+    keyrate_table -- services/` returns exactly one hit, and it is prose inside
+    a <p> in PhysicsParams.tsx. Nothing imports or fetches the file. The table
+    is generated, committed and guarded by this very test, and consumed by
+    nothing -- which is worth knowing before treating a regression here as
+    user-facing. What this test still protects is real: the builder must not
+    become a third implementation of the decoy model.
     """
     committed = ROOT / "config" / "qkd_keyrate_table.json"
     if not committed.is_file():

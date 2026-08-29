@@ -185,16 +185,64 @@ async def config() -> dict[str, Any]:
     }
 
 
+# Services that exist only in a compose OVERLAY behind a profile, mapped to the
+# profile that enables them. Absent is the correct state for these whenever the
+# profile is not active, and the base `docker-compose.yml` does not define them
+# at all -- so on a healthy default stack three of the ten rows below are
+# absent BY DESIGN.
+#
+# Without this table `/api/stack` reported `absent` for "you did not start the
+# crossvalidate overlay" and for "bb84-kme-a died" using the same word, and the
+# Overview page painted both the same grey. Three rows therefore read as
+# failures on a stack with nothing wrong with it, which is exactly the
+# absence-rendered-as-a-measurement defect this project treats as a bug
+# everywhere else.
+#
+# Derived from the compose files rather than asserted here; the values are
+# checked against them by tests/test_optional_services_are_labelled.py, so this
+# dict cannot drift from `profiles:` without the build noticing.
+PROFILE_GATED: dict[str, tuple[str, str]] = {
+    "qkdnetsim-kme": ("crossvalidate", "docker-compose.qkdnetsim.yml"),
+    "alice-ipsec": ("ipsec", "docker-compose.strongswan.yml"),
+    "bob-ipsec": ("ipsec", "docker-compose.strongswan.yml"),
+}
+
+
 @app.get("/api/stack")
 async def stack() -> list[dict[str, Any]]:
-    """Container status for the main services."""
+    """Container status for the main services.
+
+    `absent` means the container is not present. For a profile-gated service
+    that is the expected state unless its overlay was started, so those rows
+    carry `optional: true` plus the profile and compose file that would create
+    them. A consumer that ignores the flag renders exactly what it did before.
+    """
     names = ["alice", "bob", "bb84-kme-a", "bb84-kme-b", "webui-backend",
              "webui-frontend", "pqc-validator", "alice-ipsec", "bob-ipsec",
              "qkdnetsim-kme"]
+
+    def gating(n: str) -> dict[str, Any]:
+        """Why this row may legitimately be absent. Empty for required ones."""
+        if n not in PROFILE_GATED:
+            return {}
+        profile, compose = PROFILE_GATED[n]
+        return {
+            "optional": True,
+            "profile": profile,
+            "compose_file": compose,
+            "note": (
+                f"not in the default stack: defined only in {compose} behind "
+                f"`profiles: [\"{profile}\"]`. Absent here means the overlay "
+                f"was not started, not that anything failed."
+            ),
+        }
+
     out: list[dict[str, Any]] = []
     cli = app.state.docker
     if cli is None:
-        return [{"name": n, "status": "unknown"} for n in names]
+        # `unknown`, not `absent`: we could not look. Keep the gating metadata
+        # so the page can still explain the optional rows.
+        return [{"name": n, "status": "unknown", **gating(n)} for n in names]
     for n in names:
         try:
             c = cli.containers.get(n)
@@ -203,9 +251,10 @@ async def stack() -> list[dict[str, Any]]:
                 "status": c.status,
                 "image": c.image.tags[0] if c.image.tags else "",
                 "started_at": c.attrs.get("State", {}).get("StartedAt"),
+                **gating(n),
             })
         except Exception:
-            out.append({"name": n, "status": "absent"})
+            out.append({"name": n, "status": "absent", **gating(n)})
     return out
 
 

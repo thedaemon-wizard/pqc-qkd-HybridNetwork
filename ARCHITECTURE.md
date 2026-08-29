@@ -138,7 +138,7 @@ Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
 - `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
 - `qkdnetsim_proxy.py` — pulls keys from `qkdnetsim-kme`, a second ETSI 014 server
   (a Flask facade, not the NS-3 C++ KMS); checks the REST contract, not key material
-- `composite_sim_to_net.py` — SimQN computes per-link SKR → injected into qkdnetsim
+- `composite_sim_to_net.py` — SimQN computes per-link SKR → POSTed to the second ETSI 014 server as a key-buffer fill rate. **Not** injected into an NS-3 simulation; nothing runs one
 - `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
   engine, used to cross-check this project's own rate model
 

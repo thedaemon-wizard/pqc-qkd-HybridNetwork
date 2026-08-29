@@ -47,6 +47,16 @@ COMPOSITE = ROOT / "services" / "bb84-kme" / "app" / "backends" / "composite_sim
 LIMITATIONS = ROOT / "docs" / "LIMITATIONS.md"
 README = ROOT / "README.md"
 DOCKERFILE = ROOT / "services" / "qkdnetsim-kme" / "Dockerfile"
+PHASES = ROOT / "docs" / "phases.md"
+ARCHITECTURE = ROOT / "ARCHITECTURE.md"
+
+# The first version of this guard scanned three files, and the claim survived in
+# two more: docs/phases.md called the proxy "ETSI 014 reference (NS-3 v3.46)"
+# and the composite "Physical layer feeds network layer", while the SAME FILE
+# refuted both 430 lines later; ARCHITECTURE.md said the rate was "injected
+# into qkdnetsim". Picking the files by hand is how a claim moves rather than
+# dies, so the list now covers every document that mentions the service.
+SCANNED = [COMPOSITE, LIMITATIONS, README, PHASES, ARCHITECTURE]
 
 
 def _read(p: Path) -> str:
@@ -112,8 +122,7 @@ class TestNoShippedTextPromisesARunningSimulator:
         r"previously|used to say|this line previously|no longer", re.I)
     WINDOW = 400
 
-    @pytest.mark.parametrize("path", [COMPOSITE, LIMITATIONS, README],
-                             ids=lambda p: p.name)
+    @pytest.mark.parametrize("path", SCANNED, ids=lambda p: p.name)
     def test_no_ns3_runtime_api_is_claimed(self, path: Path) -> None:
         text = _read(path)
         offending = []
