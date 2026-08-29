@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-234 rows, of which **62 are machine-checked and 172 are not**. Worth knowing
+235 rows, of which **63 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 19 | **19** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **145** | 16 | **129** |
+| 4 | Browser, every page | **146** | 17 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 62 automated /
+the prose beside it. The table is now 7, and the totals are 63 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -339,6 +339,7 @@ question about it could not be answered from this checklist.
 | 4.7.9 | **Reported key rate is a rate, not a sifting fraction** | `/verify` `ours_closed_form.skr_bps` must sit far below `pulse_rate_hz / 2`. All three backends once reported the sifting fraction: 500 Mbps against an actual 12.07 Mbps. |
 | 4.7.10 | The cross-check names *which* of its five outcomes occurred | `curl -s -X POST https://<demo>/api/sim/params -H 'Content-Type: application/json' -d '{"patch":{"physical.link_length_km":300}}'` (the **dotted** path -- a bare `link_length_km` returns `param not editable`), then reload `/verify`. Reset with `POST /api/sim/params/reset`. The row reads **"Both predict no extractable key"**, not "review": closed form and TNO both return exactly 0, which is agreement. Also confirm `relative_delta` is reported as `n/a (no ratio defined)` in the TSV export rather than blank -- 0/0 has no ratio, and a blank cell used to be how a missing TNO engine looked too. **And check `tno` is an object, not `null`**: measured on the live demo 2026-08-28, TNO raises `ValueError("Optimization resulted in a negative key rate.")` rather than returning 0, both the decoy and the fully-asymptotic estimate raised it past 254 km, and the second raise reached `main.py`'s `except Exception` -- so the verdict read `engine_unavailable` while the same payload quoted the optimiser's own output in its `error` field. A converged no-key answer now returns `rate_per_pulse: 0.0` with a `no_key_reason` string. |
 | 4.7.11 | **A passing cross-check names the band it passed** | `/verify` row `Cross-check` must read `YES (rates within 10x)`. It read `YES (independent agreement)` until 2026-08-29, directly beneath `Relative Delta 270.7 %` -- both true, and the pair misleading, because "agreement" is taken to mean the numbers matched rather than that a factor-of-10 test passed. The `disagree` label already named its threshold, so the omission ran only in the flattering direction. `npx vitest run src/pages/crosscheckVerdict.test.ts` -> 19 pass. |
+| 4.7.12 | **An all-zero ESP reading on `/vpn` says why it is zero** | Open `/vpn` on the deployed demo with nothing else running. `ESP COUNTERS` reads `0 B / 0 pkt` in both directions under a green `established`, and **that is correct**: nothing on that host sends traffic through the tunnel -- no ping, no keepalive, no health check traverses it, and `start_action = trap` installs the CHILD_SA on demand rather than generating packets. Measured 2026-08-29: `child_sas[0].in.bytes = 0`, `out.bytes = 0`, state `INSTALLED`, last handshake 22 s. The 2026-08-27 observation of 1680 B / 20 pkt followed traffic being generated, which is why **this row and 2.11 both `ping` first**. **Why it needed a row:** the `ipsec` CI job's own comment says *"A tunnel that is up but installs no ESP counters is passing traffic in the clear past the policy"* -- so the page was rendering, permanently and without comment, the exact signature of the one failure that job exists to catch. The page now names the missing precondition and states that a zero *while traffic was flowing* would be a real leak. It invents no number: a missing direction is still an em dash, never 0. `npx vitest run src/pages/espZeroSaysWhyItIsZero.test.ts` -> 6 pass; mutation-checked by forcing the guard true and by deleting the leak sentence. |
 
 ### 4.8 Demo-mode hardening
 
