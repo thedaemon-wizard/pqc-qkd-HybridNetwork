@@ -17,6 +17,7 @@ import { Bb84Gl } from "./bb84Gl";
 import { Bb84Wasm } from "./bb84Wasm";
 import { bb84KernelWasm } from "./generated/bb84KernelWasm";
 import { bundledChannel } from "./keyrate";
+import { RunSeeds } from "./runSeed";
 import { advanceKeyPool, framesFromGpuRound, type ChannelCfg } from "./bb84Channel";
 
 export interface Bb84Frame {
@@ -72,6 +73,11 @@ export class Bb84Engine {
   private gl: Bb84Gl | null = null;
   private wasm: Bb84Wasm | null = null;
   private wasmPool = 0;
+  /** Per-round seeds. Deterministic when the page was opened with ?seed=,
+   *  Math.random() otherwise -- the default path is byte-for-byte what it was,
+   *  which matters because the demo's headline throughput figures were
+   *  measured on it. */
+  private seeds = RunSeeds.fromLocation();
   private running = false;
   private upgraded = false;
   /** Every tier tried, in order, with the rate it achieved. Surfaced. */
@@ -170,6 +176,10 @@ export class Bb84Engine {
       const wasm = new Bb84Wasm();
       if (await wasm.init(bb84KernelWasm())) {
         const t0 = performance.now();
+        // Benchmark probe, deliberately NOT from `seeds`: it runs a variable
+        // number of times depending on which tiers are probed, so drawing
+        // from the run sequence would make a pinned seed's output depend on
+        // the machine's GPU support.
         wasm.runRound((Math.random() * 0xffffffff) >>> 0, this.cfg);
         const dt = Math.max(performance.now() - t0, 1e-3);
         const pps = Math.round(this.cfg.pulsesPerRound / (dt / 1000));
@@ -254,7 +264,7 @@ export class Bb84Engine {
   private wasmLoop(engine: string) {
     if (!this.running || !this.wasm) return;
     try {
-      const seed = (Math.random() * 0xffffffff) >>> 0;
+      const seed = this.seeds.next();
       const t0 = performance.now();
       const r = this.wasm.runRound(seed, this.cfg);
       const dt = Math.max(performance.now() - t0, 1e-3);
