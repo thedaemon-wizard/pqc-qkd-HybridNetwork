@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-237 rows, of which **65 are machine-checked and 172 are not**. Worth knowing
+238 rows, of which **66 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 20 | **20** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **147** | 18 | **129** |
+| 4 | Browser, every page | **148** | 19 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 65 automated /
+the prose beside it. The table is now 7, and the totals are 66 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -196,6 +196,7 @@ Run against the local stack (`http://localhost:5173`) **and** the public demo.
 | 4.2.5 | **No text spills out of its box** | "Resize to 1280 and 1920" was this row for a long time and it caught nothing, because eyeballing a diagram is not a measurement. **Measure it.** On every route run: for each `<text>` in an `<svg>`, take `getComputedTextLength()`, derive its left edge from `x` and `textAnchor`, find the `<rect>` whose bounds contain the anchor, and report any text extending past that rect. Expected: **zero** on all 13 routes. Measured 2026-08-27: the Overview layer diagram rendered `End-to-End: Rosenpass handshake (McEliece 460896 + Kyber512)` at **420 px inside a 380 px box**, spilling 20 px past each border -- introduced by correcting the KEM name, since SVG text does not wrap. Split across two lines. **Read the result with care:** a naive `scrollWidth > clientWidth` sweep also flags Plotly and D3 tick labels (`0`, `-1`, `①`) on `/bb84`, `/benchmarks`, `/e2e` and `/paper-flow`, which are chart internals and not defects -- restrict the check to SVG text against a containing `<rect>`, which is what a bordered box actually is. |
 | 4.2.6 | SVG connectors meet box edges | endpoints on a border, not a centre (±2.5 px) |
 | 4.2.7 | No overlapping SVG text | visual |
+| 4.2.8 | **No route scrolls sideways** | At a 1280px viewport, on every route, `document.body.scrollWidth` must not exceed `window.innerWidth`. Measured on the deployed build 2026-09-02 **before** the fix: `/console` gave **1713 against 1280 -- 433px of horizontal scroll**, with a scrollbar across the whole page. Cause was one CSS default, and it was global: `App.tsx` lays the shell out as `gridTemplateColumns: "220px 1fr"`, a grid item's `min-width` defaults to `auto`, so the `1fr` track grew to the intrinsic width of its widest content -- the `<pre>` of container logs. That `<pre>` already had `overflow-x: auto` and could have scrolled itself, but the track widened first so it was never asked to. `<main>` is shared by all thirteen routes, so every page carried the defect; `/console` was just the one with content wide enough to expose it. **Found by measuring geometry in the browser, not by reading the page** -- nothing in the source looks wrong. `npx vitest run src/pages/theLayoutDoesNotScrollSideways.test.ts` -> 3 pass. |
 
 ### 4.3 Every control
 
