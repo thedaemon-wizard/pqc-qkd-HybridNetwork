@@ -157,9 +157,33 @@ async function saveToBackendAndDownload(
   }
 }
 
+/** Bumped when an exported field is REMOVED or changes meaning, not when one is
+ *  added. Adding is backward compatible for anyone reading an old file.
+ *
+ *  Why this exists: the export store is a rolling window and keeps artefacts
+ *  produced by older builds. A JSON saved in June 2026 still carries
+ *  `dual_path`, a `PaperSim` field that was deleted because nothing in the UI
+ *  could set it — so a reader who opens an old artefact sees a key the current
+ *  build never writes, with nothing in the file to say which build made it.
+ *  That is not a defect in the old artefact; it is history. The version makes
+ *  it legible as history rather than as a contradiction. */
+export const EXPORT_SCHEMA_VERSION = 2;
+
 export async function downloadJSON(name: string, data: unknown): Promise<void> {
+  // Stamped here rather than at each call site, so no page can forget it and
+  // no page can disagree with another about the number.
+  //
+  // Only object payloads are stamped. An array or a primitive is left exactly
+  // as the page produced it -- wrapping it would change the shape every
+  // existing consumer reads, which is a worse problem than the one being
+  // solved. No current provider returns a non-object; the guard is here so
+  // that a future one does not silently get restructured.
+  const stamped =
+    data !== null && typeof data === "object" && !Array.isArray(data)
+      ? { schema_version: EXPORT_SCHEMA_VERSION, ...(data as object) }
+      : data;
   const blob = new Blob(
-    [JSON.stringify(data, null, 2)],
+    [JSON.stringify(stamped, null, 2)],
     { type: "application/json" },
   );
   await saveToBackendAndDownload(blob, name, "json", `${name}-${timestamp()}.json`);

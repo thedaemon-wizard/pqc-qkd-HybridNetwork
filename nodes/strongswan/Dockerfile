@@ -78,7 +78,7 @@ COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.p
 # fails with "not a git repository" before it looks at the patch. The pointer
 # is dangling here regardless. Measured -- the build failed on exactly this.
 RUN cd /src/arnika && rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch \
-    && grep -q "KMS did not return" repositories/kms.go
+    && grep -q "ErrKMSUnavailable" repositories/kms.go
 RUN sh /src/arnika-vici/build.sh /src/arnika /src/arnika-vici /out/arnika
 
 # ---- Stage 3: runtime --------------------------------------------------

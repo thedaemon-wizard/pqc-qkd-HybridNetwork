@@ -58,9 +58,12 @@ COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.p
 # fails with "not a git repository" before it looks at the patch. The pointer
 # is dangling here regardless. Measured -- the build failed on exactly this.
 RUN rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch
-# Asserts the patched property, so a submodule bump to a revision without the
-# fix fails the build instead of silently shipping the old behaviour.
-RUN grep -q "KMS did not return" repositories/kms.go
+# Asserts the patched property. Targets the SENTINEL NAME, not the message
+# text: upstream may still rephrase the wording (arnika#49 is open and the
+# maintainer may prefer a plain message to a sentinel), but if the
+# identifier goes the whole mechanism has gone. A submodule bump to a
+# revision without the fix fails the build instead of shipping unpatched.
+RUN grep -q "ErrKMSUnavailable" repositories/kms.go
 RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
     go build -trimpath -ldflags "-w -s" -o /out/arnika .
 
