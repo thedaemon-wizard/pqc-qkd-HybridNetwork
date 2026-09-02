@@ -246,15 +246,42 @@ async def stack() -> list[dict[str, Any]]:
     for n in names:
         try:
             c = cli.containers.get(n)
-            out.append({
-                "name": n,
-                "status": c.status,
-                "image": c.image.tags[0] if c.image.tags else "",
-                "started_at": c.attrs.get("State", {}).get("StartedAt"),
-                **gating(n),
-            })
         except Exception:
+            # The container genuinely is not there. This is the only path that
+            # may say "absent".
             out.append({"name": n, "status": "absent", **gating(n)})
+            continue
+
+        # Reading the image is a SEPARATE failure from the container being
+        # absent, and it used to be inside the same try. `c.image` raises
+        # ImageNotFound whenever the image the container runs has lost its
+        # tag -- which happens routinely: rebuilding `pqcqkd/node-alice:local`
+        # leaves every other container still running the previous, now
+        # dangling, image ID.
+        #
+        # Measured on the deployed host: after rebuilding alice, `bob` was
+        # `Up 4 days` and rotating keys normally, `containers.get("bob")`
+        # returned status=running, and `bob.image` raised
+        # `ImageNotFound: 404 ... /images/1a2e95e58251`. The Overview page
+        # showed bob as ABSENT for a container that was working.
+        #
+        # A cosmetic field must not be able to erase an observed status.
+        image = ""
+        try:
+            tags = c.image.tags
+            image = tags[0] if tags else ""
+        except Exception:
+            # Untagged is a real, reportable state -- not an empty string,
+            # which would read as "no image information available".
+            image = "<untagged>"
+
+        out.append({
+            "name": n,
+            "status": c.status,
+            "image": image,
+            "started_at": c.attrs.get("State", {}).get("StartedAt"),
+            **gating(n),
+        })
     return out
 
 
