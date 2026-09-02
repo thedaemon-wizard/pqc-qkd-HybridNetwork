@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-239 rows, of which **67 are machine-checked and 172 are not**. Worth knowing
+240 rows, of which **67 are machine-checked and 173 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -18,7 +18,7 @@ before planning a release, because the manual share is not evenly spread:
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **149** | 20 | **129** |
-| 5 | Code quality | 12 | 4 | 8 |
+| 5 | Code quality | 13 | 4 | 9 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
 
@@ -59,7 +59,7 @@ The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
 the prose beside it. The table is now 7, and the totals are 67 automated /
-172 manual.
+173 manual.
 
 Everything CI can check, in one command:
 
@@ -387,6 +387,7 @@ question about it could not be answered from this checklist.
 | 5.10 | **Every compose env var is read by something** | `.venv/bin/python -m pytest tests/test_compose_env_is_read_by_something.py` -> passes. Seven `BB84_*` vars and `ETSI_MTLS_ENABLED` were set in compose, listed in `.env.example` and documented in the README with a "source of truth" column naming a Python file -- and read by no Python file at all. `config_loader.py` declares `config/qkd_params.yaml` the single source, so they were a second config surface wired on the outside and connected to nothing. Parse the YAML, do NOT regex the lines: a draft matched `build.args` too and reported `USE_BORINGTUN` as an env var. Skips must name an external consumer (OpenMP, OpenBLAS, wg-quick); an undocumented skip is the hole. |
 | 5.11 | **The userspace WireGuard fallback exists** | `docker run --rm --entrypoint wireguard-go pqcqkd/node-alice:local --version` -> `wireguard-go v0.0.20220316`. **Presence is not wiring.** This row checked only that the binary exists, which it did -- while nothing in the repository invoked it. `nodes/alice/entrypoint.sh` created the interface with a bare `ip link add ... type wireguard` under `set -euo pipefail`, so a host without the kernel module got a dead container, not a fallback. So also assert the caller: `grep -A3 'ip link add dev' nodes/alice/entrypoint.sh` must show the `if !` guard invoking `${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}`. That variable is now read in-tree, so `tests/test_compose_env_is_read_by_something.py` no longer exempts it, and `docker-compose.boringtun.yml` still works by overriding it. Until 2026-08 nothing provided one and that overlay named a `boringtun` binary the image lacked, so the documented recovery path could not work. Do NOT conclude a package is absent from `apt-cache policy` showing `Installed: (none)` -- that is the local system; read the `Candidate:` line. Concluding otherwise is what made this look like it needed a vendored submodule. |
 | 5.12 | **A backend that fails to install fails the build** | `docker build -f services/bb84-kme/Dockerfile .` -> the step prints `backend modules importable: ['qns', 'sequence', 'strawberryfields', 'tno.quantum.communication.qkd_key_rate']`. The four editable installs were chained `pip install ... \|\| echo "...failed; will use volume mount" && \\`, which cannot fail a build -- `A \|\| B && C` runs C either way -- so a broken simulator produced a green image that degraded to a logged warning at runtime. Verify the guard bites by pointing one install at a non-existent path; the build must exit non-zero. IMPORT the modules, do not probe names: SimQN provides `qns` and TNO provides `tno.quantum.communication.qkd_key_rate`, and guessing either reports a confident false absence (both mistakes were made while writing this row). |
+| 5.13 | **The manual rows in 2, 3, 5 and 6 were executed, not assumed** | Swept 2026-09-02 against the deployed demo, because these rows are the ones a green CI run does NOT cover. **IPsec:** 2.1 `ML_KEM_768[openssl]`; 2.2 `pqcqkd-vpn` loaded; 2.3 `ppk` on both ends; 2.4 `reauthentication every 300s, no rekeying` (reauth, not rekey, as RFC 8784 requires); 2.5 traffic selectors `10.30.0.20/32` and `10.30.0.21/32`; **2.7 `intermediate` appears 61,580 times in alice-ipsec's log** -- this is the one row the `ipsec` job does not assert, so it had never been executed before; 2.9 five explicit `failed to retrieve QKD key` lines during a deliberate KME stop, no silent fallback; 2.10 one PPK id; 2.12/2.14 **20 rotations, 0 auth failures, 1 concurrent SA on each node over 10 minutes**. **WireGuard:** `wg show wg0` carries both a preshared-key line and a handshake. **Code quality:** 5.3's sixteen `\|\| true` are all `grep -c` exit-1 absorption or idempotent teardown, none masking a failure; 5.6's seven generators are all `rng or default_rng()`, so a caller always overrides -- an earlier grep that excluded `seed` reported these as non-injectable and was wrong; 5.9 slowest test 2.18 s; 5.11 `wireguard-go v0.0.20220316` present in the image. **Release:** 6.1 zero unchecked boxes; 6.2 `references/` tracks only the CC BY 4.0 paper; 6.3 zero tracked binaries; 6.5 all 15 submodules on explicit commits. |
 
 ---
 
