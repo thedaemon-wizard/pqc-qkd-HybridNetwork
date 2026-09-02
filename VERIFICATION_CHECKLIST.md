@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-238 rows, of which **66 are machine-checked and 172 are not**. Worth knowing
+239 rows, of which **67 are machine-checked and 172 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 20 | **20** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **148** | 19 | **129** |
+| 4 | Browser, every page | **149** | 20 | **129** |
 | 5 | Code quality | 12 | 4 | 8 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 19 | **8** | 11 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 66 automated /
+the prose beside it. The table is now 7, and the totals are 67 automated /
 172 manual.
 
 Everything CI can check, in one command:
@@ -197,6 +197,7 @@ Run against the local stack (`http://localhost:5173`) **and** the public demo.
 | 4.2.6 | SVG connectors meet box edges | endpoints on a border, not a centre (±2.5 px) |
 | 4.2.7 | No overlapping SVG text | visual |
 | 4.2.8 | **No route scrolls sideways** | At a 1280px viewport, on every route, `document.body.scrollWidth` must not exceed `window.innerWidth`. Measured on the deployed build 2026-09-02 **before** the fix: `/console` gave **1713 against 1280 -- 433px of horizontal scroll**, with a scrollbar across the whole page. Cause was one CSS default, and it was global: `App.tsx` lays the shell out as `gridTemplateColumns: "220px 1fr"`, a grid item's `min-width` defaults to `auto`, so the `1fr` track grew to the intrinsic width of its widest content -- the `<pre>` of container logs. That `<pre>` already had `overflow-x: auto` and could have scrolled itself, but the track widened first so it was never asked to. `<main>` is shared by all thirteen routes, so every page carried the defect; `/console` was just the one with content wide enough to expose it. **Found by measuring geometry in the browser, not by reading the page** -- nothing in the source looks wrong. `npx vitest run src/pages/theLayoutDoesNotScrollSideways.test.ts` -> 3 pass. |
+| 4.2.9 | **A running container is never reported absent** | On Overview, cross-check every row against `docker ps` on the host. Measured 2026-09-02 **before** the fix: `bob` showed **absent** while `docker ps` had it `Up 4 days` and its log showed `[OK] PSK configured` every interval. Three consecutive polls of `/api/stack`, so not transient. Cause: `/api/stack` wrapped the container lookup AND the image read in one `try`, and `c.image` raises `ImageNotFound` whenever the image a container runs has lost its tag -- which happens routinely, because rebuilding one node image leaves every other container on the previous, now dangling, ID (`bob.image` -> `404 .../images/1a2e95e58251`). A cosmetic field could therefore erase an observed status. **This is worse than the reverse:** reporting a working service as down invites someone to fix what is fine. Only a failed lookup may now say `absent`; a failed image read gives `<untagged>`, a real state rather than an empty string that reads as "no information". `pytest tests/test_a_running_container_is_never_called_absent.py` -> 5 pass, mutation-checked. |
 
 ### 4.3 Every control
 
