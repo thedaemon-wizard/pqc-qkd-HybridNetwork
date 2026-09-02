@@ -70,7 +70,24 @@ export default function App() {
           arnika · liboqs · rosenpass
         </div>
       </aside>
-      <main style={{ padding: "1.5rem 2rem" }}>
+      {/* minWidth: 0 is load bearing, not cosmetic.
+        *
+        * A grid item's min-width defaults to `auto`, which means "do not
+        * shrink below the intrinsic width of my content". The `1fr` track
+        * therefore grew to fit the widest thing inside it, and on /console
+        * that is a <pre> of container logs whose lines run past 1400px. The
+        * <pre> sets overflow-x: auto and could have scrolled internally, but
+        * it was never asked to: the track had already widened to accommodate
+        * it, so the WHOLE PAGE scrolled sideways instead.
+        *
+        * Measured on the deployed build at a 1280px viewport: body.scrollWidth
+        * 1713 against innerWidth 1280 -- 433px of horizontal scroll, on every
+        * page, because <main> is shared. /console was simply the page with
+        * content wide enough to trigger it.
+        *
+        * With minWidth: 0 the track may shrink and the <pre> scrolls itself,
+        * which is what its overflow-x was for. */}
+      <main style={{ padding: "1.5rem 2rem", minWidth: 0 }}>
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/bb84" element={<BB84 />} />
