@@ -169,6 +169,29 @@ AES-256 PSK. A proposal that quotes only the supportive one is overclaiming,
 and the honest framing is the **crypto-agility and implementation-gap** case --
 which no authority disputes -- rather than QKD advocacy.
 
+**NSA does not recommend QKD for National Security Systems**, and says so on
+the same page that announces its PQC selections. Read in a browser 2026-09-02
+(`nsa.gov` returns 403 to scripted fetches and to the Internet Archive, so
+earlier rounds recorded this as unverifiable; it is reachable interactively):
+
+> "NSA continues to evaluate the usage of cryptography solutions to secure the
+> transmission of data in National Security Systems. **NSA does not recommend
+> the usage of quantum key distribution and quantum cryptography for securing
+> the transmission of data in National Security Systems (NSS) unless the
+> limitations below are overcome.**"
+
+The page's PQC section points at **CNSS Policy 15, released 4 March 2025**, and
+the CNSA 2.0 FAQ. Nothing dated after that appears on it, so the CNSA 2.0
+timeline is unchanged as far as this page shows -- which is the question three
+earlier rounds could not answer.
+
+That makes **three of the four authorities surveyed sceptical of QKD** and none
+endorsing the whole construction: NSA does not recommend it for NSS, BSI does
+not recommend it at all, OMB's stack never mentions it, and only Singapore's
+CSA endorses it for layered defence. The conditional matters -- NSA's objection
+is "unless the limitations are overcome", not "never" -- but a proposal that
+cites Singapore without citing these three is selecting its evidence.
+
 **CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** and
 **ML-DSA-87** — and only those. Every new NSS acquisition must support CNSA 2.0
 from **1 January 2027**; software and firmware signing and networking equipment
