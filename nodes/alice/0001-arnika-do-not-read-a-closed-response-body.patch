@@ -1,55 +1,104 @@
-Subject: kms: do not read a closed response body when the KMS answers non-200
+Subject: kms: do not read a closed response body, and keep the observed status
 
-Carried downstream while arnika-project/arnika#44 is OPEN. Identical change to
-that PR (its test file is not carried; this repository asserts the property
-from its own build instead -- see the grep in the Dockerfiles that apply this).
+Carried downstream while arnika-project/arnika#44 and #49 are OPEN. The two
+upstream PRs squashed into one patch, because this repository needs the end
+state and cannot apply a stack.
 
-Two defects in one loop, and the second is what makes the first reachable.
+  #44  a non-OK status on the final attempt left a CLOSED body in `res`, so
+       io.ReadAll failed with "http: read on closed response body". And a
+       4xx/5xx is a successful HTTP transaction, so err was nil and nothing
+       distinguished "the KMS refused" from a real fetch.
 
-  1. The body was closed AFTER the retry decision while `res` kept its value,
-     so a non-OK status on the final attempt left a CLOSED body in `res`.
-     `io.ReadAll` below then fails with "http: read on closed response body".
+  #49  clearing `res` also discarded the STATUS, so the exhausted-loop error
+       read the same for 503 (key pool momentarily empty, self-heals) and
+       401/403/404 (cert or SAE user rejected, will never rotate again). The
+       second group means the tunnel is coasting on a stale PSK with no fresh
+       QKD material coming -- which arnika's own SECURITY.md asks operators to
+       watch for, with nothing to alert on. Requested in review on #44 by the
+       maintainer.
 
-  2. A 4xx/5xx is a successful HTTP transaction, so `err` is nil and the
-     `if err != nil` check does not return. Nothing distinguished "the KMS
-     refused" from a successful fetch.
+Constraints held, both from that review: status code only, never the response
+body; and no request path in the message, because dec_keys carries key_ID in
+its query string.
 
-Reproduced against Go 1.26.
+`ErrKMSUnavailable` is a sentinel so callers can use errors.Is rather than
+match wording. New for the module: `errors` was not imported anywhere, and
+while `%w` appears in about twenty places nothing calls errors.Is on the
+result. Upstream may yet ask for a plain message instead -- if #49 merges in a
+different shape, this patch and the Dockerfile assertions move with it.
 
-WHY DOWNSTREAM AND NOT WAITING. This repository has done exactly this before:
-the SetPSK peer-lookup fix was carried as a local patch until upstream merged
-it as arnika#42, after which the patch was deleted and a `grep -q` assertion
-kept in its place so a submodule bump backwards fails the build. The same
-lifecycle applies here. Delete this file when #44 merges and the pin moves,
-and leave the assertion behind.
+LIFECYCLE. Delete this file when both merge and the pin moves. Keep the
+`grep -q` in nodes/alice/Dockerfile and nodes/strongswan/Dockerfile, and make
+sure the string it looks for matches whatever upstream actually merged -- a
+grep left behind searching for a string that no longer exists passes nothing
+and protects nothing. The assertion targets the SENTINEL NAME rather than the
+message text for that reason: wording can change, the identifier is load
+bearing.
 
-WHAT THIS DOES NOT CLAIM. It is NOT established that this fixes the
-intermittent PPK mismatch in the `ipsec` CI job. That failure was diagnosed as
-a BACKUP node running intervals behind, and whether a silently-failed KMS
-fetch is upstream of it is unverified. This patch is carried because the
-defect is real on its own terms; whether the failure rate moves is a
-measurement to run, not an assumption to state.
+The upstream tests are not carried; this repository asserts the property from
+its own build instead.
 
 diff --git a/repositories/kms.go b/repositories/kms.go
-index ac74910..5b6a7b9 100644
+index ac74910..ee90e24 100644
 --- a/repositories/kms.go
 +++ b/repositories/kms.go
-@@ -111,18 +111,31 @@ func (r *HTTPKMSRepository) kmsRequest(path string) (id string, key []byte, err
+@@ -6,6 +6,7 @@ import (
+ 	"crypto/x509"
+ 	"encoding/base64"
+ 	"encoding/json"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"log"
+@@ -102,27 +103,67 @@ func (r *HTTPKMSRepository) GetKeyByID(keyID *string) (key []byte, err error) {
+ 	return key, err
+ }
+ 
++var ErrKMSUnavailable = errors.New("KMS did not deliver a key")
++
+ func (r *HTTPKMSRepository) kmsRequest(path string) (id string, key []byte, err error) {
+ 	var kmsResp kmsResponse
+ 	var res *http.Response
++	// The last HTTP status actually observed. Clearing res below is what makes
++	// the post-loop nil-check work, but it also discards the status, and the
++	// three cases that reach here need different responses from an operator:
++	// 503 is a momentarily empty key pool that the next interval recovers from,
++	// while 401, 403 and 404 mean the tunnel is coasting on a stale PSK with no
++	// fresh QKD material coming. Reporting them identically leaves nothing to
++	// alert on. Zero means no HTTP response was ever received.
++	var lastStatus int
+ 
+ 	for attempt := 0; attempt <= r.maxRetries; attempt++ {
+ 		res, err = r.conn.Get(r.baseURL + path)
  		if err == nil && res.StatusCode == http.StatusOK {
  			break
  		}
-+		// Close and clear BEFORE deciding whether to retry, so a body is never
-+		// carried out of the loop after being closed. Previously the close
-+		// happened after the retry decision and res kept its value, so a
-+		// non-OK status on the final attempt left a CLOSED body in res, and
-+		// io.ReadAll below failed with "http: read on closed response body".
++		// Close and clear before deciding whether to retry, so that a body is
++		// never carried out of the loop after being closed. Previously the
++		// close happened after the retry decision and res kept its value, so
++		// a non-OK status on the final attempt left a closed body in res --
++		// and because a 4xx/5xx is a successful HTTP transaction, err was nil
++		// and the check below did not return. io.ReadAll then failed with
++		// "http: read on closed response body".
 +		if res != nil {
++			lastStatus = res.StatusCode
 +			_ = res.Body.Close()
 +			res = nil
 +		}
  		if attempt < r.maxRetries {
  			delay := r.backoffBaseDelay * time.Duration(1<<uint(attempt))
- 			log.Printf("Attempt %d: Retrying in %s...", attempt+1, delay)
+-			log.Printf("Attempt %d: Retrying in %s...", attempt+1, delay)
++			// The status goes in the per-attempt line as well as the final
++			// error, because this one fires every time rather than only at
++			// exhaustion. Status code only: the response body is never logged,
++			// and neither is the path -- dec_keys carries key_ID in its query
++			// string.
++			if lastStatus != 0 {
++				log.Printf("Attempt %d: KMS returned %d, retrying in %s...",
++					attempt+1, lastStatus, delay)
++			} else {
++				log.Printf("Attempt %d: Retrying in %s...", attempt+1, delay)
++			}
  			time.Sleep(delay)
  		}
 -		if res != nil {
@@ -59,12 +108,16 @@ index ac74910..5b6a7b9 100644
  	if err != nil {
  		return "", nil, err
  	}
-+	// A retry loop that never saw a 200 leaves res nil. Without this the caller
-+	// cannot distinguish "the KMS refused" from a successful fetch, because a
-+	// non-OK status is a successful HTTP transaction and sets no error.
++	// A retry loop that never saw a 200 leaves res nil. Without this the
++	// caller could not distinguish "the KMS refused" from a successful fetch,
++	// because a non-OK status sets no error of its own.
++	//
++	// lastStatus is always set here. A transport error on the final attempt
++	// returns above, so reaching this line means at least one attempt received
++	// an HTTP response -- there is no path that reports "status 0".
 +	if res == nil {
-+		return "", nil, fmt.Errorf("KMS did not return %d after %d attempt(s)",
-+			http.StatusOK, r.maxRetries+1)
++		return "", nil, fmt.Errorf("%w: status %d after %d attempt(s)",
++			ErrKMSUnavailable, lastStatus, r.maxRetries+1)
 +	}
  	defer func() { _ = res.Body.Close() }()
  

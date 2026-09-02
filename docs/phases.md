@@ -318,7 +318,7 @@ webui-frontend, all healthy):
 
 ### Layout v2 (Phase 11)
 
-The initial SVG (880×280, ~30 elements) was rewritten to **1240×620 with 145 SVG
+The initial SVG (880×280, ~30 elements) was rewritten to **1240×600 with 145 SVG
 elements** so the on-screen architecture is now 1:1 faithful to the reference image:
 
 - Three dashed boundary boxes — VPN scope (red), Secure Application Entity (purple,
@@ -473,7 +473,7 @@ Frontend (`services/webui-frontend/src/pages/PaperDataExchange.tsx`):
 ### `/e2e` SVG polish (Phase 11 v2 unchanged in spirit)
 
 Four coordinate fixes to remove subtle text-to-box collisions. Element count
-145 and viewBox `1240×620` are preserved:
+145 and viewBox `1240×600` are preserved (this said `1240×620` until 2026-08-30; 620 is `GEO.divider`, the centre-line **x** coordinate at `W/2`, not the height. `QuantumSecureE2E.tsx:355` reads `W: 1240, H: 600, divider: 620` and the SVG's viewBox is built from those two fields. Line 412 of this same file already recorded the right figure -- `GIF = 1240×600 (full-res)`, and `PNG = 2480×1200` at 2x -- so the document disagreed with itself):
 
 | Element | Before | After |
 |---|---|---|
