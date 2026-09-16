@@ -126,6 +126,58 @@ damage is that Classic McEliece is a *different* hardness assumption — code
 based, not lattice based — so the composite survives a Kyber512 break. That is
 an argument for the hybrid construction, not an excuse for the parameter set.
 
+### 4.1 The code-based half is under active analysis, as of September 2026
+
+**What the numbers are.** A line of preprints beginning August 2026 gives
+conditional, heuristic cost estimates for recovering a Classic McEliece private
+key that fall below the claimed level. For the set this ships, mceliece460896 —
+claimed Category 3, $`2^{207}`$ classical gates:
+
+| Source | Estimate for mceliece460896 | Stated basis |
+|---|---|---|
+| Saarinen, [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) (7 revisions, latest 2026-09-15) | $`2^{145.22}`$ bit operations, working memory $`2^{59.10}`$ bits | *"conditional arithmetic estimate"*; the model *"excludes address generation and memory traffic and uses budget estimates for some stages"* |
+| Weis, [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) (2026-09-11) | $`2^{94}`$–$`2^{102}`$ in the GIJS cost model, or $`2^{114}`$–$`2^{124}`$ with GIJS's conditions unchanged — against information-set decoding at $`2^{151}`$–$`2^{287}`$ | extends the Ghoshal-Ishai-Jain-Sun hold-out distinguisher ([2026/1630](https://eprint.iacr.org/2026/1630)) to key recovery |
+
+**What they do not say, stated first because the numbers invite the wrong
+reading.** Weis's abstract is explicit: *"None of the Classic McEliece
+computations is close to practical, and several ingredients are heuristic."* The
+demonstrations are on toy challenge instances, not parameter sets — Weis solved
+TII label 253 ($`m=8`$, $`t=9`$, $`n=214`$); Saarinen solved TII-254 ($`m=8`$,
+$`t=12`$, $`n=223`$, a $`[223,127]`$ code) using 27.2 GPU-hours on GH200s
+([2026/1986](https://eprint.iacr.org/2026/1986), a separate paper that makes **no
+claim about any NIST parameter set**). No key has been recovered at any NIST
+size, and nothing in this deployment is broken.
+
+**The line is contested, and the scope of the objection matters.** Apon
+([ePrint 2026/1810](https://eprint.iacr.org/2026/1810)) proves an
+algebraic-geometry lower bound forcing $`c_{\text{need}} > 2t + 3`$, which for
+mceliece8192128 puts that attack *"in excess of $`2^{1500}`$ bit operations"*.
+But it is aimed at **Vedenev's route** ([2026/1747](https://eprint.iacr.org/2026/1747))
+specifically and predates Weis's extraction, so it is not a refutation of the
+whole line. Citing it as one would be the mirror image of citing the cost
+estimates as a break.
+
+**What this changes here, precisely.** The hybrid argument in the table above is
+untouched: code-based and lattice-based remain different assumptions, and a
+composite still requires breaking both. What is being re-estimated is the stated
+*reason* for the choice. The pinned `rosenpass/src/pqkem.rs` says: *"Classic
+McEliece is chosen because of its high security margin and its small
+ciphertexts."* The margin is the thing under scrutiny.
+
+**Two dates belong together.** BSI TR-02102-1 recommends mceliece460896
+([`references.md`](references.md)) and its current version is dated 2026-01-23 —
+seven months before this line began. It has not been revisited since.
+
+**The team's silence is informative because responding is their habit.**
+`classic.mceliece.org/nist.html` (page version 2026.06.23) carries dated
+responses to exactly this class of claim three times over: 2025-04-17 on a
+distinguisher cost claim, 2025-06-23 on a key-recovery cost claim, and
+2025-11-20 on *"You Only Decapsulate Once"* — all three concerning
+mceliece348864. The latest posting is still 2025-11-20; nothing addresses the
+2026 line. Checked 2026-09-16. An absence of comment from a team that has
+commented three times is worth more than an absence from a silent one, and it is
+the reason this section reports estimates rather than conclusions.
+
 ## 5. Migration mandates in force
 
 Dates matter here because they bound $`Y`$ for anyone deploying this.
