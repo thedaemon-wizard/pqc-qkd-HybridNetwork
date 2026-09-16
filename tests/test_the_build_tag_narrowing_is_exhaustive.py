@@ -44,12 +44,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SH = ROOT / "services" / "arnika-vici" / "build.sh"
 ARNIKA = ROOT / "submodules" / "arnika"
+# The FILE, not the directory. `submodules/arnika/` exists as an empty
+# directory whenever the submodule is not checked out, so `ARNIKA.is_dir()` is
+# true in the `python` job and the read below then fails instead of skipping.
+# Measured in CI: test_the_guard_expects_what_upstream_currently_has failed
+# there while passing locally and in `go`.
+DEFAULT_WRITER = ARNIKA / "wireguardnetlink.go"
 
 # Every root-level file that defines getKeyWriterService is a writer, and every
 # writer except the default must be named in the default's negation.
 def _writers() -> dict[str, str]:
     out = {}
-    if not ARNIKA.is_dir():
+    if not DEFAULT_WRITER.is_file():
         return out
     for p in ARNIKA.glob("wireguard*.go"):
         text = p.read_text(encoding="utf-8", errors="replace")
@@ -111,10 +117,10 @@ def test_the_guard_expects_what_upstream_currently_has():
     sh = BUILD_SH.read_text(encoding="utf-8")
     m = re.search(r"EXPECTED='(//go:build [^']+)'", sh)
     assert m, "build.sh no longer pins an expected upstream tag"
-    if not ARNIKA.is_dir():
+    if not DEFAULT_WRITER.is_file():
         import pytest
         pytest.skip("arnika submodule not checked out")
-    actual = (ARNIKA / "wireguardnetlink.go").read_text(encoding="utf-8").splitlines()[0]
+    actual = DEFAULT_WRITER.read_text(encoding="utf-8").splitlines()[0]
     assert m.group(1) == actual, (
         f"build.sh expects\n  {m.group(1)}\nbut the pin has\n  {actual}"
     )
