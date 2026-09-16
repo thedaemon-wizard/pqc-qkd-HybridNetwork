@@ -173,6 +173,18 @@ jobs:
           ARNIKA_VICI_VET_AND_TEST: "1"
         run: sh services/arnika-vici/build.sh submodules/arnika services/arnika-vici /tmp/arnika-vici
 
+      # Runs HERE and not in `python` because it needs the arnika tree: it
+      # derives the set of writers from the files that actually define
+      # getKeyWriterService, rather than hardcoding a list that would go stale
+      # the next time upstream adds an adapter. In `python` it would self-skip
+      # and go green having asserted nothing -- which
+      # tests/test_no_guard_is_inert_in_ci.py reported when this file was first
+      # added, before it was placed here.
+      - name: The build-tag narrowing excludes every writer, not just the known ones
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest tests/test_the_build_tag_narrowing_is_exhaustive.py -q
+
       # This guard derives its claims from two pinned trees -- strongSwan's
       # notify_payload.h (which Status Types exist, and that 16444 is still the
       # highest) and arnika's kdf.go (the exact HKDF call the SP 800-227
