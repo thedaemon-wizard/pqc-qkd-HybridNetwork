@@ -23,7 +23,10 @@
  * the other had lost. If a future change teaches one of them a new state, this
  * asks why the other did not get it.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { PaperSim } from "./paperSim";
+import type { PaperFlowState } from "./paperSim";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -86,5 +89,92 @@ describe("the two simulators agree on the states they can be in", () => {
 
   it("the head only advances while running, so stepped freezes it", () => {
     expect(CASCADE).toMatch(/if \(status !== "running"/);
+  });
+});
+
+/**
+ * Everything above reads paperSim.ts as TEXT. That is worth keeping -- it is how
+ * the symmetry between the two simulators is pinned, and a source match survives
+ * refactors that a behavioural test would have to be rewritten for.
+ *
+ * But it is not sufficient, and the docstring at the top of this file says why
+ * without noticing: the defect was "measured on the deployed build". None of the
+ * nine assertions above runs a single line of the simulator. `step()` could set
+ * `this.status = "stepped"` exactly as matched, and a regression in
+ * `beginCycle()`, `emit()` or `snapshot()` could still leave the badge reading
+ * `idle` -- with every check in this file green.
+ *
+ * These drive the class instead. They assert on what `onState` RECEIVES rather
+ * than on a private field, because that snapshot is what the page renders:
+ * PaperDataExchange.tsx does `state?.status ?? "idle"`, so a status that never
+ * reaches the snapshot is indistinguishable from no status at all.
+ */
+describe("stepping actually produces the state the page reads", () => {
+  // `ensureLoop()` calls `window.setInterval`; `stopLoop()` calls the bare
+  // `clearInterval`. Nothing else in the simulator touches the DOM, and no other
+  // test in this suite needs a document -- so stub the two functions the loop
+  // actually uses rather than switching the whole file to jsdom for four
+  // assertions. The stub is scoped to this file: vitest isolates per file.
+  const realWindow = (globalThis as { window?: unknown }).window;
+  beforeAll(() => {
+    (globalThis as { window?: unknown }).window = {
+      setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
+      clearInterval: (id: number) => clearInterval(id),
+    };
+  });
+  afterAll(() => {
+    if (realWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = realWindow;
+  });
+
+  function driven() {
+    const seen: PaperFlowState[] = [];
+    const sim = new PaperSim((s) => seen.push(s));
+    return { sim, seen, last: () => seen[seen.length - 1] };
+  }
+
+  it("a step from idle emits stepped, and advances the phase with it", () => {
+    const { sim, last } = driven();
+    expect(last().status).toBe("idle");
+    expect(last().current_phase).toBe(0);
+
+    sim.step();
+
+    // Both halves matter. The phase moving with the badge still reading `idle`
+    // IS the original defect, so neither assertion alone reproduces it.
+    expect(last().current_phase).toBe(1);
+    expect(last().status).toBe("stepped");
+  });
+
+  it("a step from paused emits paused, not stepped", () => {
+    const { sim, last } = driven();
+    sim.start();
+    sim.pause();
+    expect(last().status).toBe("paused");
+
+    sim.step();
+
+    expect(last().status).toBe("paused");
+  });
+
+  it("a step while running emits nothing at all", () => {
+    const { sim, seen } = driven();
+    sim.start();
+    const before = seen.length;
+
+    sim.step();
+
+    expect(seen.length).toBe(before);
+  });
+
+  it("reset returns the emitted state to idle", () => {
+    const { sim, last } = driven();
+    sim.step();
+    expect(last().status).toBe("stepped");
+
+    sim.reset();
+
+    expect(last().status).toBe("idle");
+    expect(last().current_phase).toBe(0);
   });
 });
