@@ -68,17 +68,21 @@ RUN test -f /usr/local/lib/ipsec/plugins/libstrongswan-ml.so \
 FROM golang:1.26-bookworm AS arnika-build
 COPY submodules/arnika /src/arnika
 COPY services/arnika-vici /src/arnika-vici
-# arnika#44 (OPEN), same patch and same reason as nodes/alice/Dockerfile.
-# Applied to the submodule copy BEFORE build.sh assembles its working tree,
-# because build.sh copies `$ARNIKA_SRC`/. wholesale -- patching afterwards
-# would be patching a tree that has already been consumed.
-COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.patch
-# `rm -f .git` first: a submodule's .git is a FILE pointing at
-# ../../.git/modules/..., which does not exist in the image, and `git apply`
-# fails with "not a git repository" before it looks at the patch. The pointer
-# is dangling here regardless. Measured -- the build failed on exactly this.
-RUN cd /src/arnika && rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch \
-    && grep -q "ErrKMSUnavailable" repositories/kms.go
+
+# arnika#44 and #49, both MERGED 2026-09-02, and the pin now contains them.
+# The local patch that carried them is gone; this assertion is what the
+# lifecycle note in that patch said to keep.
+#
+# It targets the SENTINEL NAME rather than the message text on purpose. The
+# wording changed once between the PR and the merge, and the identifier is what
+# callers branch on -- errors.Is(err, ErrKMSUnavailable) is the point of the
+# change. A submodule bump to a revision without it fails the build instead of
+# silently shipping an arnika whose exhausted retry loop reports 503 and 403
+# identically.
+#
+# Asserted BEFORE build.sh runs, because build.sh copies $ARNIKA_SRC/.
+# wholesale -- checking afterwards would be checking a tree already consumed.
+RUN grep -q "ErrKMSUnavailable" /src/arnika/repositories/kms.go
 RUN sh /src/arnika-vici/build.sh /src/arnika /src/arnika-vici /out/arnika
 
 # ---- Stage 3: runtime --------------------------------------------------

@@ -42,27 +42,16 @@ WORKDIR /src/arnika
 # an image whose PSK installation breaks only on multi-peer interfaces.
 RUN grep -q "found := false" repositories/wireguard-netlink.go
 
-# arnika#44, still OPEN. `kmsRequest` closed the response body BEFORE deciding
-# whether to retry was the intent, but the close sat AFTER that decision while
-# `res` kept its value -- so a non-OK status on the final attempt carried a
-# CLOSED body out of the loop and `io.ReadAll` failed with "http: read on
-# closed response body". Compounding it, a 4xx/5xx is a successful HTTP
-# transaction, so `err` was nil and nothing distinguished "the KMS refused"
-# from a real fetch.
+# arnika#44 and #49, both MERGED 2026-09-02, and the pin now contains them.
+# The local patch that carried them is gone; this assertion is what the
+# lifecycle note in that patch said to keep.
 #
-# Carried here exactly as the peer-lookup fix above was carried until arnika#42
-# merged. Delete the patch when #44 merges and the pin moves; keep the grep.
-COPY nodes/alice/0001-arnika-do-not-read-a-closed-response-body.patch /tmp/kms.patch
-# `rm -f .git` first: a submodule's .git is a FILE pointing at
-# ../../.git/modules/..., which does not exist in the image, and `git apply`
-# fails with "not a git repository" before it looks at the patch. The pointer
-# is dangling here regardless. Measured -- the build failed on exactly this.
-RUN rm -f .git && git apply /tmp/kms.patch && rm /tmp/kms.patch
-# Asserts the patched property. Targets the SENTINEL NAME, not the message
-# text: upstream may still rephrase the wording (arnika#49 is open and the
-# maintainer may prefer a plain message to a sentinel), but if the
-# identifier goes the whole mechanism has gone. A submodule bump to a
-# revision without the fix fails the build instead of shipping unpatched.
+# It targets the SENTINEL NAME rather than the message text on purpose.
+# The wording changed once already between the PR and the merge, and the
+# identifier is what callers branch on -- `errors.Is(err, ErrKMSUnavailable)`
+# is the point of the change. A submodule bump to a revision without it
+# fails the build instead of silently shipping an arnika whose exhausted
+# retry loop reports 503 and 403 identically.
 RUN grep -q "ErrKMSUnavailable" repositories/kms.go
 RUN CGO_ENABLED=0 GOEXPERIMENT=runtimesecret \
     go build -trimpath -ldflags "-w -s" -o /out/arnika .
