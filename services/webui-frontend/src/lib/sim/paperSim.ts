@@ -117,7 +117,7 @@ export const NOMINAL_PHASE_DWELL_MS = 350;
 interface CascadeSched { t_offset_s: number; layer: Layer; description: string; triggered_at: number; }
 
 export interface PaperFlowState {
-  status: "idle" | "running" | "paused";
+  status: "idle" | "running" | "paused" | "stepped";
   current_phase: number; current_phase_name: string;
   hop_count: number;
   cycles_total: number; cycles_succeeded: number;
@@ -165,7 +165,7 @@ function b64(bytes: Uint8Array): string {
 }
 
 export class PaperSim {
-  private status: "idle" | "running" | "paused" = "idle";
+  private status: "idle" | "running" | "paused" | "stepped" = "idle";
   private phase = 0;
   private hop = 4;
   private cyclesTotal = 0; private cyclesSucceeded = 0;
@@ -239,8 +239,24 @@ export class PaperSim {
    */
   step() {
     if (this.status === "running") return;
+    // `stepped`, NOT `paused`, and not left at `idle` either.
+    //
+    // Measured on the deployed build: one press of Step from a fresh page
+    // moved `phase` from idle to 1 while the badge still read
+    // `status: idle`. The machine had advanced and the page said nothing had
+    // happened -- the same defect already fixed in e2eSim, which this file
+    // never received.
+    //
+    // Reusing `paused` is not available: it is the halted verdict here too,
+    // so an operator stepping and a run dying would read identically.
+    const before = this.status;
+    this.status = "stepped";
     if (this.phase === 0) { this.beginCycle(); this.emit(); return; }
     this.runPhase();
+    // A step from a paused run leaves it paused: the operator asked for one
+    // phase, not for a resume.
+    if (before === "paused") this.status = "paused";
+    this.emit();
   }
   reset() {
     this.status = "idle"; this.phase = 0;
