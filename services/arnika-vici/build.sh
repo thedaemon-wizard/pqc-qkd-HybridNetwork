@@ -47,15 +47,26 @@ cd "$WORK"
 cp "$ADAPTER_SRC"/repositories/*.go repositories/
 cp "$ADAPTER_SRC/strongswanvici.go" ./
 
-# Upstream selects the netlink writer with
-#     //go:build wireguard_netlink || !wireguard_mikrotik
-# The trailing negation means the file is also compiled in for any NEW adapter
-# tag, so without this change -tags strongswan_vici yields two definitions of
-# getKeyWriterService. Narrow it so each adapter tag deselects the default.
+# Upstream selects the netlink writer with a trailing NEGATION, so the default
+# writer is also compiled in for any adapter tag it has not been taught about:
 #
-# See 0001-make-key-writer-adapters-mutually-exclusive.patch -- the same change,
-# formatted for submission upstream.
-EXPECTED='//go:build wireguard_netlink || !wireguard_mikrotik'
+#   pin 9d44332   //go:build wireguard_netlink || !wireguard_mikrotik
+#   main 3a8cc13  //go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)
+#
+# Upstream added `&& !wireguard_netlink_netns` when it landed the netns writer
+# (PR #48). That fixes netns and leaves the shape intact: each new adapter has
+# to be enumerated here or it collides. `strongswan_vici` is not enumerated, so
+# `-tags strongswan_vici` still satisfies the negation and still yields two
+# definitions of getKeyWriterService -- one from wireguardnetlink.go and one
+# from the adapter. Confirmed against main: all three of wireguardnetlink.go,
+# wireguardmikrotik.go and wireguardnetlinknetns.go define that function.
+#
+# So this rewrite is still needed, for the same reason as before. What changed
+# is only the string being rewritten. See
+# 0001-make-key-writer-adapters-mutually-exclusive.patch -- the same change,
+# formatted for submission upstream, and still not submitted: the maintainer
+# has not been asked, and it affects writer selection for every build.
+EXPECTED='//go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)'
 ACTUAL=$(head -1 wireguardnetlink.go)
 if [ "$ACTUAL" != "$EXPECTED" ]; then
     echo "FATAL: upstream changed wireguardnetlink.go's build tag." >&2
@@ -65,7 +76,10 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
     exit 1
 fi
 {
-    printf '%s\n' '//go:build wireguard_netlink || (!wireguard_mikrotik && !strongswan_vici)'
+    # Keeps upstream's own exclusion of the netns writer and adds ours.
+    # Dropping `!wireguard_netlink_netns` here would silently re-break the
+    # case upstream just fixed, in a tree upstream never sees.
+    printf '%s\n' '//go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns && !strongswan_vici)'
     tail -n +2 wireguardnetlink.go
 } > wireguardnetlink.go.new
 mv wireguardnetlink.go.new wireguardnetlink.go
