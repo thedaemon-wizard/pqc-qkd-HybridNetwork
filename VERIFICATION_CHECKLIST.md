@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-242 rows, of which **68 are machine-checked and 174 are not**. Worth knowing
+243 rows, of which **69 are machine-checked and 174 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -17,7 +17,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 21 | **21** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
-| 4 | Browser, every page | **149** | 20 | **129** |
+| 4 | Browser, every page | **150** | 21 | **129** |
 | 5 | Code quality | 13 | 4 | 9 |
 | 6 | Release | 19 | **7** | 12 |
 | 7 | Documentation | 20 | **8** | 12 |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 68 automated /
+the prose beside it. The table is now 7, and the totals are 69 automated /
 174 manual.
 
 Everything CI can check, in one command:
@@ -268,6 +268,7 @@ question about it could not be answered from this checklist.
 | 4.4b.12 | **JSON and CSV persist server-side; Logs does not** | Do not conclude the buttons are broken when no download appears. Measured 2026-08-29: overriding `URL.createObjectURL` catches exactly ONE blob, the Logs file (`text/plain`, 3029 B) -- JSON and CSV instead `POST /api/exports/save` and then follow `GET /api/exports/download/<name>`, confirmed from the anchor href. So the client-side claim in 4.6.2 covers the SIMULATION, not the artefact store: saving an export is a server call by design, and `GET /api/exports/list` returns the catalogue. A static deployment loses the Saved picker and keeps Logs. |
 | 4.4b.13 | **The exported JSON agrees with the paper AND with itself** | `curl -s https://<demo>/api/exports/download/<name>.json`. Measured 2026-08-29: phase byte budgets `0, 78, 398, 4772` sum to **5248** = Table 1's handshake total, and phase 5 adds the project's own **64 B** ChaCha20-Poly1305 record for `bytes_total: 5312`; packets `0+2+3+4+1` = `packets_total: 10`. Cascade offsets `0, 180, 240, 360, 420, ...` lie in the paper's 240-720 s window. `last_data_payload_b64` decodes to a real AEAD record, not a placeholder. Cross-check the two: with the head at 257.4s the JSON still reported `fired: true` for the 0s event ONLY -- the JSON was right and the on-screen head was the thing that had drifted (4.4b.11). |
 | 4.4b.14 | **The cascade state reaches a screen reader, not just the screen** | Inject `qkd` and read the SVG's accessible name: it must end `. qkd failure, 7-stage cascade, armed; press Run`. Found 2026-08-29 by driving the deployed page: `MultiHopTopologySvg` renders `role="img"`, which makes the element a LEAF to assistive technology, so all **126** `<text>` nodes inside it -- the failure banner among them -- were skipped and only the static subject was announced. Measured: the SVG read `qkd failure -- 7-stage cascade (armed; press Run)` while the accessible name offered `Multi-hop trusted-node topology (Spooren et al. arXiv:2604.05599)` alone. Row 4.4b.5 asks for that banner because "a red bar with no motion and no explanation is not acceptable feedback" -- for a non-visual user there was no explanation at all, which is the same complaint one step along. **`role="img"` is kept on purpose:** removing it exposes 126 unordered coordinate and abbreviation nodes, which is worse than a summary. `npx vitest run src/components/cascadeStateReachesAssistiveTech.test.ts` -> 5 pass, including that the failure clause stays conditional so a healthy diagram does not announce a failure. |
+| 4.4b.15 | **Step on `/paper-flow` reports that it stepped** | From a fresh page press Step once: `phase` must leave idle AND `status` must stop reading `idle`. Measured on the deployed build 2026-09-16, BEFORE the fix: `phase: 1` with `status: idle` -- the machine had advanced and the page said nothing had happened. **This is the defect 4.4.x already records for `/e2e`**, which `paperSim` never received: the two simulators are separate classes with separate status unions, and that is how one kept a bug the other had lost. `paperSim.step()` set no state at all. It now sets `stepped` -- not `paused`, which is the halted verdict here too, so reusing it would make an operator stepping and a run dying read identically -- and a step from a paused run leaves it paused, because the operator asked for one phase and not for a resume. `npx vitest run src/lib/sim/paperStepIsNotIdle.test.ts` -> 8 pass, including an assertion that the two simulators expose the SAME status union and that `FailureCascadeTimeline` accepts every state either can report. Mutation-checked. |
 
 ### 4.5 Export and animation
 
