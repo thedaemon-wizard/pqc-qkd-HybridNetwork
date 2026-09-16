@@ -9,12 +9,12 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-241 rows, of which **67 are machine-checked and 174 are not**. Worth knowing
+242 rows, of which **68 are machine-checked and 174 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
 |---|---|---|---|---|
-| 1 | Build and unit gates | 20 | **20** | 0 |
+| 1 | Build and unit gates | 21 | **21** | 0 |
 | 2 | IPsec lane | 15 | **7** | 8 |
 | 3 | WireGuard lane | 5 | 1 | 4 |
 | 4 | Browser, every page | **149** | 20 | **129** |
@@ -58,7 +58,7 @@ might now assume is covered.
 The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
-the prose beside it. The table is now 7, and the totals are 67 automated /
+the prose beside it. The table is now 7, and the totals are 68 automated /
 174 manual.
 
 Everything CI can check, in one command:
@@ -96,6 +96,7 @@ Everything CI can check, in one command:
 | 1.18 | **The agility matrix spans two mathematical families** | `pytest tests/test_agility_matrix_spans_two_families.py` in the pqc-validator image -> 6 pass. `/verify` calls its matrix independent evidence of crypto agility; until 2026-08 it listed six algorithms all resting on module lattices, which is parameter agility, not algorithm agility -- one structural break takes the whole table. SLH-DSA (FIPS 205, hash-based) is the destination RFC 7696 is about; the pinned liboqs exposes 156 of them, so the omission was a default list, not a capability gap. Signature sizes are checked against FIPS 205 Table 2 (7856 / 16224 / 29792 B), the same values the browser test pins. Watch the spelling: liboqs uses `SLH_DSA_PURE_SHA2_128S`, @noble uses `SLH-DSA-SHA2-128s`, and the wrong one returns `enabled: false` rather than raising. | CI `images` |
 | 1.19 | **The release gates can actually fail** | `.venv/bin/python -m pytest tests/test_release_gates_can_actually_fail.py` -> 8 pass. Two gates could only exit 0. `scripts/secret_scan.sh`: `set +e` then `grep \| head` takes `head`'s status, so a planted private key was printed and the scan passed. `scripts/check_env_example.sh` (the CI `env-example` gate): grep's errors went to `/dev/null`, so a missing or renamed compose file yielded an EMPTY mandatory-variable set and the loop over it found nothing missing -- measured output `ok: ... satisfies all 0 mandatory variable(s)`, exit 0. Each is now pinned in BOTH directions, because "always fail" is the same defect wearing the other sign. Note the fixture trap recorded in that file: a first draft planted its marker on a line the scanner's pattern did NOT match, so the "does not echo the secret" test passed against the echoing script. | CI `python` |
 | 1.21 | **The arnika patch reaches the shipped binary, not just the source tree** | `docker build --target arnika-build` for **both** `nodes/alice` and `nodes/strongswan`, then `docker run --rm --entrypoint sh <img> -c 'strings /out/arnika \| grep -c "KMS did not deliver a key"'` -> **1 in each**. Source-tree equality is not enough: the two lanes build arnika differently (alice runs `go build` directly, strongswan goes through `arnika-vici/build.sh`, which copies `$ARNIKA_SRC`/. wholesale so the patch must be applied BEFORE it runs). The Dockerfile assertion targets the **sentinel name** `ErrKMSUnavailable` rather than the message text, because upstream may still rephrase the wording -- arnika#49 is open and the maintainer may prefer a plain message -- but if the identifier goes the mechanism has gone. Mutation-checked: removing the `git apply` line fails the build at the grep. | CI `images` |
+| 1.22 | **A submodule bump re-verifies the contracts the patches used to hold** | Three fixes reported from this project are upstream as of 2026-09-02 (#42, #44, #49), so both local patches are deleted and only assertions remain: `grep -q "found := false"` and `grep -q "ErrKMSUnavailable"` in each node Dockerfile. Bump the pin, then build **both** `--target arnika-build` images and check the ARTEFACT, not the tree: `docker run --rm --entrypoint sh <img> -c 'strings /out/arnika \| grep -c "KMS did not deliver a key"'` -> **1 each**. Then `ARNIKA_VICI_VET_AND_TEST=1 sh services/arnika-vici/build.sh ...` -> all pass. **What this catches, measured on the 2026-09-02 bump:** upstream changed `wireguardnetlink.go`'s build tag when it landed the netns writer (#48), adding `&& !wireguard_netlink_netns`. `build.sh` asserts on that string and **failed the build**, which is the design -- the default writer is selected by a trailing negation, so every new adapter must be enumerated or two definitions of `getKeyWriterService` compile. `strongswan_vici` is still not enumerated upstream, so the local narrowing is still required; only the string it rewrites changed. Also caught in the same pass: staging the notices row without staging the gitlink, which `tests/test_notices_match_the_pins.py` reported as "the row says `3a8cc13`, but the index pins 9d4433200d85". | CI `images`, `go` |
 
 ---
 
