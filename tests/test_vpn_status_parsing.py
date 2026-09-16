@@ -5,8 +5,13 @@ to return a hardcoded proposal string and a literal "via swanctl" handshake
 time, so the WebUI advertised an RFC 9370 ML-KEM hybrid tunnel regardless of
 what charon had actually negotiated -- including when charon was not running.
 
-The fixtures below are verbatim `swanctl` output from the pinned strongSwan
-6.0.7 image (nodes/strongswan/Dockerfile).
+The fixtures below are verbatim `swanctl` output captured from a strongSwan
+**6.0.7** image. The pin has since moved to 6.1.0 (nodes/strongswan/Dockerfile)
+and the fixtures were NOT recaptured, so the version is stated as the one they
+came from rather than the one that is built today. They still hold: the two
+files that produce this output, `src/swanctl/commands/list_sas.c` and
+`src/libcharon/plugins/vici/vici_query.c`, are byte-identical between the two
+tags -- `git diff 6.0.7 6.1.0 --` reports no change to either.
 """
 
 from __future__ import annotations
@@ -463,11 +468,11 @@ def test_an_absent_direction_is_none_not_zero():
 def test_ppk_use_is_read_from_the_sa_not_from_the_config():
     """/PPK on the proposal line is per-SA proof the PPK was applied.
 
-    strongSwan 6.0.7:
-      sa/ike_sa.h:258        COND_PPK -- "A Postquantum Preshared Key was used
+    strongSwan 6.1.0:
+      sa/ike_sa.h:261        COND_PPK -- "A Postquantum Preshared Key was used
                              when this IKE_SA was created"
       vici/vici_query.c:640  add_condition(b, ike_sa, "ppk", COND_PPK)
-      swanctl/list_sas.c:322 if ppk == yes -> printf("/PPK")
+      swanctl/list_sas.c:325 if ppk == yes -> printf("/PPK")
       ikev2/tasks/ike_auth.c:1187  set inside apply_ppk(), only AFTER
                              derive_ike_keys_ppk() succeeded
 
