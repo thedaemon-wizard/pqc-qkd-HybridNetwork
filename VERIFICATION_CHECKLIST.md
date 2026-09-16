@@ -9,7 +9,7 @@ Order: **local build → local browser → PR + CI → demo redeploy → demo br
 
 ## Where the work is
 
-244 rows, of which **70 are machine-checked and 174 are not**. Worth knowing
+245 rows, of which **70 are machine-checked and 175 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -20,7 +20,7 @@ before planning a release, because the manual share is not evenly spread:
 | 4 | Browser, every page | **150** | 21 | **129** |
 | 5 | Code quality | 13 | 4 | 9 |
 | 6 | Release | 19 | **7** | 12 |
-| 7 | Documentation | 20 | **8** | 12 |
+| 7 | Documentation | 21 | **8** | 13 |
 
 Section 4 is 59 % of the checklist and almost entirely manual. That is partly
 irreducible -- layout, legibility and whether a control does what its label
@@ -59,7 +59,7 @@ The `Automated` figure for section 2 in the table above read **1** while this
 paragraph claimed seven, three lines apart, and the column summed to the
 stated 43 total -- so the table was self-consistent and simply disagreed with
 the prose beside it. The table is now 7, and the totals are 70 automated /
-174 manual.
+175 manual.
 
 Everything CI can check, in one command:
 
@@ -442,3 +442,4 @@ question about it could not be answered from this checklist.
 | 7.18 | **An example env file offers no knob nothing turns** | `pytest tests/test_compose_env_is_read_by_something.py` -> 90 pass. `deploy/.env.example` carried five `BB84_*` tuning variables read by no compose file and no Python, while `deploy/README.md` tells operators to copy it -- the offer was to tune five values and observe nothing. The guard previously walked variables SET IN compose, so an orphan living only in an example file was out of reach by construction. Extending it found two more: `WG_SUBNET` (referenced nowhere) and `WG_CHARLIE_IP` (ignored because multihop hardcoded `10.0.0.3` while alice and bob honoured their variables -- charlie now honours it too). Note the first run reported twelve and eleven were wrong: it missed the VALUE side, so every `${WG_ALICE_IP:-...}` interpolation looked unread. |
 | 7.19 | **A guard's docstring does not promise more than it checks** | `pytest tests/test_no_hardcoded_params.py` -> 4 pass. It scans `services/bb84-kme/app/backends/` only, and opened by claiming "all tunables must come from config/qkd_params.yaml" -- README cites it as what enforces the rule, so the overstatement travelled. Three literals the rule targets still exist verbatim outside that tree (`n_photons=2048`, `channel_noise=0.01`, `qber_threshold=0.11` in `app/bb84/simulator.py`). They are DEAD: `RoundConfig` has exactly one construction site and it passes every field from YAML. What was missing is that nothing kept them dead -- three assertions now pin the single construction site, that every defaulted field is supplied there, and that what is supplied is not itself a numeric literal. |
 | 7.20 | **Agency positions are read from the agency, not from a summary** | Each authority cited in `docs/threat-model.md` §5 must be quoted from its own page or PDF. Verified 2026-09-02: **NSA** -- `nsa.gov/Cybersecurity/Post-Quantum-Cybersecurity-Resources/` read **in a browser**, because it returns 403 to scripted fetches AND to the Internet Archive, so three earlier rounds recorded it as unverifiable. It is reachable interactively, and says *"NSA does not recommend the usage of quantum key distribution and quantum cryptography for securing the transmission of data in National Security Systems (NSS) unless the limitations below are overcome"*, pointing at CNSS Policy 15 (4 March 2025) for its PQC selections. **BSI** TR-02102-1 PDF text. **OMB** M-26-15 PDF. **Singapore CSA** handbook PDF. **The lesson is the method:** a 403 to `curl` is not evidence a page is gone, and treating it as such left an authority's position unread for three rounds. |
+| 7.21 | **A dependency with a stated end of life is recorded as one** | `docs/roadmap.md` names the upstream statement that the file-based PQC handover will be removed. Verified against the branch rather than the message: on `feat/pqc-hpke` (`b4a832e`, 2026-09-16) `PQC_PSK_FILE` is **gone from `config/` entirely**, and the branch is +10,400/-1,249 across 68 files including a rename of every writer-selection file to `wire_*.go`. This PoC's PQC half IS that handover -- Rosenpass writes `/var/lib/rosenpass/pqc.psk`, arnika reads it, six references in `nodes/alice/entrypoint.sh` plus an assertion in the `ipsec` job. **Not urgent:** `main` still has `PQC_PSK_FILE` and the pin is on `main`. What changed is the planning assumption, and the `wire_*.go` rename will move the same build-tag surface `build.sh` asserts on (row 1.23) -- so both need re-reading before the next bump rather than after it. |
