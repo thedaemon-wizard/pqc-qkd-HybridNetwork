@@ -59,6 +59,15 @@ def test_nothing_in_the_tree_implements_pkcs11():
         f"section 7, which states the tree contains none")
 
 
+# A markdown link TARGET is not a sentence, and upstream filenames are not ours
+# to rename. `QCICAT-D6.1-Report-on-HSM-key-wrapping-via-QKD-based-VPN...pdf` put
+# "HSM" on a line that could never carry a disclaimer, because the word is inside
+# the URL. Strip the target and keep the link TEXT, which is prose and stays
+# governed. Scoped deliberately: only `](...)` is removed, so a bare sentence is
+# untouched and the guard is no weaker for anything it was written to catch.
+_LINK_TARGET = re.compile(r"\]\([^)]*\)")
+
+
 def test_no_document_claims_this_project_backs_up_an_hsm():
     """A sentence putting HSM and this project's own verb together."""
     offenders = []
@@ -66,7 +75,7 @@ def test_no_document_claims_this_project_backs_up_an_hsm():
         if f == SCOPE:
             continue           # the scope statement names it in order to deny it
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-            low = line.lower()
+            low = _LINK_TARGET.sub("]", line.lower())
             if "hsm" not in low:
                 continue
             # "out of scope", "not implemented" and the like are the honest uses.

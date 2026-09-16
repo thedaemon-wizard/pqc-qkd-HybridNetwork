@@ -279,6 +279,59 @@ XBC Digital GmbH** -- the maintainer moved with the people, and
 `submodules/arnika/README.md:345-352` records both. Neither is an NLnet-funded
 project today.
 
+### arnika's own design document, and what it settles
+
+[**QCI-CAT D6.1**](https://qci-cat.at/wp-content/uploads/2026/03/QCICAT-D6.1-Report-on-HSM-key-wrapping-via-QKD-based-VPN_v1.0-2025-02-27.pdf)
+(v1.0, 2025-02-27, 42 pp; document owner CANCOM / A. Neuhold, the arnika
+maintainer) is the deliverable arnika was built for.
+
+**Their use case is not this one**, and the distinction matters before anything
+below is quoted: their subject is key-wrapping between a pair of hardware
+security modules, and this repository implements no HSM, no PKCS#11 and no
+partition cloning. The deliverable is cited here for what it records about
+arnika, which this project does use.
+
+The **project web page** for that use case is three paragraphs of summary and
+carries none of the detail below -- a site-wide search for `strongSwan`,
+`IPsec`, `WireGuard`, `Rosenpass`, `arnika`, `rekey` and `rotation` returns
+**zero hits**. Read the PDF, not the page.
+
+Three things in it bear directly on this repository:
+
+1. **Rotation cadence.** *"it is recommended to set it to 120 seconds (default
+   value) to align with the WireGuard rekey process"*, WireGuard rekeying
+   *"after 120 seconds or after 260 messages"*. This deployment runs
+   `ARNIKA_INTERVAL=30s` -- a deviation, now recorded at the setting itself in
+   `docker-compose.strongswan.yml`.
+2. **The mismatch is a designed property, in upstream's words.** On the
+   master/backup rule that decides which peer resolves a `key_id`: *"whichever
+   peer receives a key_id first becomes the passive backup peer for the
+   configured interval"*, and *"**Ultimately, any event that causes a rule to
+   fail will automatically result in a different pre-shared key and thus a
+   non-working WireGuard VPN connection.**"* That is a primary source for the
+   lane this project's unresolved intermittent PPK mismatch has been localised
+   to, and it is worth more than any inference from logs.
+3. **IPsec was evaluated and rejected, partly over patents.** *"in the use-case
+   we favored WireGuard over IPSEC due to its simplicity, efficiency, and modern
+   cryptographic design"*, and *"a number of methodologies for the
+   implementation of post-quantum encryption for IPSEC have been patented"*,
+   naming US7602919B2 and CN101142779A. Two consequences, opposite in sign: the
+   IPsec/VICI lane here is **not** duplicated work relative to QCI-CAT, and a
+   patent landscape flagged by a partner in that consortium is a risk item any
+   QKD-over-IPsec plan should read before relying on it.
+
+D6.1 also states the licence split this repository has to respect:
+*"This 'key management function' has given the name Arnika and has been
+published on Github ... **under open-source license Apache 2.0**"*, while the
+document itself carries *"This document and its content are the property of the
+QCI-CAT Consortium ... Access to this document does not grant any right or
+license on the document or its contents."* **The code is Apache-2.0 and
+unencumbered; the deliverable is not.** Cite and link it, paraphrase it, do not
+reproduce its figures or long passages. The qci-cat.at site carries no copyright
+notice and no terms of use at all, and its "Legal Notice" resolves to AIT's
+imprint, which has neither -- so no licence is granted there either. Verified
+2026-09-16.
+
 ---
 
 ## 4. Positions worth reading against this work

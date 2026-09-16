@@ -43,6 +43,22 @@ x-ipsec-crypto: &ipsec-crypto
   VICI_PPK_ID: ppk-qkd@pqcqkd.local
   VICI_REAUTH_TIMEOUT: ${VICI_REAUTH_TIMEOUT:-10s}
   ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+  # 30s is a DEVIATION from the reference design, recorded here because it is a
+  # candidate variable in the unresolved intermittent PPK mismatch rather than a
+  # value that was reasoned about when it was chosen.
+  #
+  # QCI-CAT deliverable D6.1 -- arnika's own design document, authored by its
+  # maintainer -- recommends 120s and gives the reason: "it is recommended to set
+  # it to 120 seconds (default value) to align with the WireGuard rekey process",
+  # WireGuard rekeying "after 120 seconds or after 260 messages". That rationale
+  # is specific to the WireGuard lane. This lane reauthenticates IKEv2 instead,
+  # so the alignment argument does not transfer unchanged -- but it does not
+  # obviously fail to apply either, and at 30s the master/backup role D6.1
+  # assigns "for the configured interval" flips four times as often.
+  #
+  # Do NOT read this as a diagnosis. The measured rotation gaps here are 30, 90,
+  # 90, 60, 241, 120 and 120 seconds, which match neither 30s nor 120s, so the
+  # interval is not the only thing setting the cadence. See docs/vici-ppk.md.
   ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
   ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
   PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
