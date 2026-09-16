@@ -26,6 +26,13 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[1]
 HEADER = (REPO / "submodules" / "strongswan" / "src" / "libcharon" / "encoding"
           / "payloads" / "notify_payload.h")
+IKE_AUTH = (REPO / "submodules" / "strongswan" / "src" / "libcharon" / "sa"
+            / "ikev2" / "tasks" / "ike_auth.c")
+
+# The log line 50177b40 introduces. The other "PPK required but ..." messages in
+# that file read "peer does not support PPK" and belong to the request-build
+# path, so matching the full phrase keeps them out.
+_ENFORCED = "PPK required but peer didn't use PPK for PPK_ID"
 
 # Status Types occupy 16384-40959 in the IKEv2 registry; the Error Types sit
 # below. The claim is about the top of the Status Type range.
@@ -146,3 +153,63 @@ def test_the_salt_claim_matches_what_arnika_actually_passes():
         "the analysis says arnika supplies neither salt nor FixedInfo. RFC 5869 "
         "2.2 defines a nil HKDF salt as HashLen zero bytes, which is the "
         "default salt SP 800-56C permits -- only FixedInfo is genuinely absent")
+
+
+def _ike_auth() -> str:
+    if not IKE_AUTH.is_file():
+        # The FILE, not the directory: `submodules/strongswan/` exists as an
+        # empty directory when the submodule is not checked out, so an
+        # `exists()` on the directory would read as present and the read would
+        # raise instead of skipping.
+        pytest.skip("strongswan submodule not checked out")
+    return IKE_AUTH.read_text(encoding="utf-8", errors="replace")
+
+
+def test_the_initiator_enforces_ppk_required():
+    """`ppk_required = yes` has to be able to fail the initiator's handshake.
+
+    For most of strongSwan's history it could not. In `process_i()`, when the
+    initiator handled the IKE_AUTH response and the responder had used no PPK,
+    the code logged `peer didn't use PPK for PPK_ID`, called `clear_ppk()` and
+    carried on. The same constraint WAS checked when building the request and on
+    the responder -- five call sites -- so the gap was invisible unless you read
+    that one branch. The tunnel came up, reported success, and the QKD key was
+    not in it.
+
+    Upstream closed it in 6.1.0 with 50177b40, whose `Fixes:` trailer names the
+    commit that first added PPK support, so every earlier release carried it.
+
+    It matters on this deployment specifically: `alice-ipsec` is the initiator
+    (`VICI_IKE_ROLE`), and a responder stops supplying a PPK exactly when its
+    arnika fails to install one -- the fail-open shape of the peer-lookup and
+    KMS-retry bugs fixed upstream in arnika. Two fail-open paths in series give a
+    tunnel that looks healthy from both ends.
+    """
+    src = _ike_auth()
+    assert _ENFORCED in src, (
+        "the strongSwan pin predates 50177b40: the initiator logs "
+        "\"peer didn't use PPK for PPK_ID\" and continues when the peer used no "
+        "PPK, so `ppk_required = yes` is not enforced on this node's role. "
+        "Bump submodules/strongswan to 6.1.0 or later.")
+
+    # The log alone is not the guarantee -- the branch has to leave the success
+    # path. Look only at what follows the message, inside the branch.
+    tail = src[src.index(_ENFORCED):][:400]
+    assert "goto peer_auth_failed" in tail, (
+        "the enforcement log is present but the branch does not fail the "
+        "authentication; check what 50177b40 looks like in this tree")
+
+
+def test_the_enforcement_sits_in_the_response_handler():
+    """Anchored on `process_i()`, because counting call sites would not catch it.
+
+    The broken tree already contained five `OPT_PPK_REQUIRED` checks and none of
+    them helped, so any assertion that merely counted occurrences, or searched
+    the file as a whole, would have passed against it.
+    """
+    src = _ike_auth()
+    m = re.search(r"METHOD\(task_t,\s*process_i\s*,", src)
+    assert m, "process_i() not found -- upstream restructured ike_auth.c"
+    assert _ENFORCED in src[m.start():], (
+        "the enforcement exists somewhere in ike_auth.c but not inside "
+        "process_i(), which is the path the initiator actually takes")

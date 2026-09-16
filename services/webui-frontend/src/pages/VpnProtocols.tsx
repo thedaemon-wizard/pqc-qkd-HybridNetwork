@@ -238,7 +238,7 @@ Known limits, stated plainly:
     unimplemented -- a build option we do not know about would make a flat
     claim wrong, and both of these are reproducible in a minute:
       1. RFC 9867 needs USE_PPK_INT (16445) and PPK_IDENTITY_KEY (16446).
-         Neither appears anywhere under strongSwan 6.0.7's src/, so neither
+         Neither appears anywhere under strongSwan 6.1.0's src/, so neither
          can be sent or parsed. Note where they would sit: notify_payload.h
          carries USE_PPK (16435), PPK_IDENTITY (16436), NO_PPK_AUTH (16437),
          INTERMEDIATE_EXCHANGE_SUPPORTED (16438), ADDITIONAL_KEY_EXCHANGE

@@ -15,7 +15,7 @@ Each retains its original copyright notice and license terms.
 | `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | pinned to `f952c355`. active; pinned submodule **v2.2.0** (2026-06-17). This row previously claimed the pin was "3 commits ahead of v2.2.0, so it already includes that release" -- the comparison was inverted. `git describe` read `v2.1.0-2-g6ffeed8`, i.e. 3 commits BEHIND, and v2.2.0 was not an ancestor. Bumped, and `tests/test_notices_match_the_pins.py` now checks every row: the backticked pin against `git ls-tree HEAD` (the index, which is correct even for the submodules not checked out), and a bolded tag against `git ls-remote --tags`. It deliberately does NOT use `git submodule status`, which reports the working tree. |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | pinned to `162125d8`. **ARCHIVED on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
 | `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned to `4cac9df0`. pinned submodule **v2.0.4**, 2026-02 (active); `tno` backend + key-rate cross-check |
-| `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; blowfish/des/md4/md5 plugins differ) | strongSwan project | 9 | pinned to `5973ff8e`, the annotated tag **6.0.7** (tagged 2026-06-07, released 2026-06-08). The date previously given here, 2026-05-28, matched neither the tag nor the release. |
+| `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; des/md4/md5 plugins differ) | strongSwan project | 9 | pinned to `b43f6bfe`, the annotated tag **6.1.0** (tagged 2026-09-06, released 2026-09-07). Moved up from 6.0.7 for [`50177b40`](https://github.com/strongswan/strongswan/commit/50177b4004d1fec4299cd7bed4a3c7fb0f4208d7), which enforces `ppk_required` on the initiator -- see [`vici-ppk.md`](vici-ppk.md). **`blowfish` was dropped from this cell with the bump**: 6.1.0 removes that plugin, so it can no longer be a license caveat here. `des`, `md4` and `md5` remain. |
 | `PQClean` | per-algorithm (mostly Public Domain / MIT) | PQClean consortium | 8 | pinned to `202a8f96`. **ARCHIVED on GitHub** (read-only; last push 2026-08-04). Previously listed here as "active", which was wrong. Reference implementations only; nothing is built from it today. |
 | `qkd-pqc-paper-supplementary` | **NONE — no licence file of any kind** | aparcar / Spooren et al. | 9 | pinned to `712e4b36`. Reference only: not redistributed, not built into any image, and not to be vendored into a derived work without the authors' permission. Absent from this table until now, which is the omission that matters most here. |
 | `cryptography` (PyPI) | Apache-2.0 / BSD-3-Clause dual | Python Cryptographic Authority | 10 | v44.0.0. Was used by the deleted `e2e_orchestrator`; the shipped HKDF-SHA3-256 and ChaCha20-Poly1305 now run in the browser via `@noble/hashes` and `@noble/ciphers` (rows below). Retained for other backend uses. |
@@ -44,7 +44,7 @@ Verified 2026-08-28 by querying each upstream directly with
 
 **Five pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
 `liboqs` 0.16.0, `openQKDsecurity` v2.2.0, `rosenpass` v0.2.3,
-`tno-qkd-key-rate` v2.0.4. `strongswan` is on the annotated `6.0.7`.
+`tno-qkd-key-rate` v2.0.4. `strongswan` is on the annotated `6.1.0`.
 
 **Four upstreams publish no semver tags at all**, so "behind" has no meaning
 for them: `PQClean`, `qkd-pqc-paper-supplementary`, `qkd_kme_server`,

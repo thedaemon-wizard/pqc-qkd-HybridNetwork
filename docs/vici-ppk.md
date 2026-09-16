@@ -77,6 +77,34 @@ Stated plainly, because it is easy to overclaim:
 - RFC 8784 applies to the **initial IKE SA only**. The RFC forbids reapplying
   the PPK on rekey, resumption or similar. Fresh QKD material therefore requires
   a full reauthentication, not a rekey (§4).
+- `ppk_required = yes` is a statement of configuration, and whether it is
+  *enforced* has depended on the strongSwan version and on which role the node
+  plays. Two different failures get conflated here, so separate them:
+
+  - **The two peers hold different PPKs.** Authentication fails on its own —
+    the MAC does not verify — and no `ppk_required` check is involved. That is
+    the case traced under "the sub-millisecond rotation race" below.
+  - **The peer used no PPK at all.** This is the one that needed the flag. In
+    `process_i()`, the initiator handling of the IKE_AUTH response checked
+    `OPT_PPK_REQUIRED` when *building* its request and on the responder side,
+    but not here: it logged `peer didn't use PPK for PPK_ID`, called
+    `clear_ppk()` and continued. The tunnel came up, reported success, and the
+    QKD key was simply absent. Upstream closed it in **6.1.0** with
+    [`50177b40`](https://github.com/strongswan/strongswan/commit/50177b4004d1fec4299cd7bed4a3c7fb0f4208d7),
+    whose `Fixes:` trailer names the commit that first added PPK support — so
+    every release before 6.1.0 carried it.
+
+  This node is the initiator (`VICI_IKE_ROLE`), so it sat on the affected side,
+  and the composition is what makes it worth recording: a responder stops
+  supplying a PPK exactly when its arnika fails to install one, which is the
+  same fail-open shape as the peer-lookup and KMS-retry bugs fixed upstream in
+  arnika. Two fail-open paths in series produce a tunnel that looks healthy from
+  both ends. The pin is 6.1.0 for this reason, and
+  `tests/test_claims_about_the_pinned_strongswan_hold.py` asserts the fix is in
+  the tree that actually gets built -- anchored on `process_i()`, because the
+  affected tree already carried five `OPT_PPK_REQUIRED` checks elsewhere in the
+  same file and a weaker assertion would have passed against it.
+
 - **RFC 9867** (November 2025) lifts both limits — PPKs in `IKE_INTERMEDIATE`
   and `CREATE_CHILD_SA`, so every rekey can consume fresh material, plus
   `PPK_IDENTITY_KEY` for offering several PPK candidates. The RFC names QKD as
