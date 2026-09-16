@@ -48,8 +48,10 @@ export interface FailureCascadeProps {
   activeLayer: string | null;
   startedAt: number | null;       // epoch seconds
   events: CascadeEvent[];
-  /** Simulation run state. The head only advances while this is "running". */
-  status: "idle" | "running" | "paused";
+  /** Simulation run state. The head only advances while this is "running",
+   *  so `stepped` freezes it exactly like `paused` and `idle` do -- a manual
+   *  step advances the machine by one phase, not by wall-clock time. */
+  status: "idle" | "running" | "paused" | "stepped";
 }
 
 export default function FailureCascadeTimeline({
