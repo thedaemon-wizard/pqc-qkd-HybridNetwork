@@ -40,9 +40,23 @@ RUN set -eu; \
     fi; \
     echo "OpenSSL $v provides ML-KEM"
 
-# Pinned to 6.0.7 (2026-06-08), which fixes CVE-2026-47895 -- a double-free in
-# identity cloning, reachable through exactly the load-shared `owners` path this
-# node uses on every key rotation.
+# Pinned to 6.1.0 (2026-09-07). Two fixes matter to this node specifically.
+#
+# CVE-2026-47895 (fixed in 6.0.7) is a double-free in identity cloning,
+# reachable through exactly the load-shared `owners` path this node uses on
+# every key rotation.
+#
+# 50177b40 ("ike-auth: Enforce PPK required constraint on the initiator", first
+# released in 6.1.0) closes a fail-open that this deployment sits directly on
+# top of. Before it, when the initiator processed the IKE_AUTH response and the
+# responder had not used the PPK, `process_i()` logged "peer didn't use PPK for
+# PPK_ID" and carried on -- `ppk_required = yes` was checked when building the
+# request and on the responder, but not there. `alice-ipsec` is the initiator
+# (docker-compose.strongswan.yml), so a responder that stopped supplying a PPK
+# -- which is what an arnika PSK-install failure looks like from here -- left a
+# tunnel that reported success with the QKD key silently absent. Its `Fixes:`
+# trailer points at the commit that introduced PPK support, so every earlier
+# release carried it.
 COPY submodules/strongswan /src/strongswan
 WORKDIR /src/strongswan
 RUN ./autogen.sh && \

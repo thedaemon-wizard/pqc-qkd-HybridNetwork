@@ -1391,13 +1391,13 @@ def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
         # This comment used to read: "charon does not report per-SA PPK use over
         # VICI, so this is honestly labelled as configuration, not as proof of
         # use." That is wrong, and the evidence was already in the output this
-        # function is given. strongSwan 6.0.7, three files:
+        # function is given. strongSwan 6.1.0, three files:
         #
-        #   sa/ike_sa.h:258      /** A Postquantum Preshared Key was used when
+        #   sa/ike_sa.h:261      /** A Postquantum Preshared Key was used when
         #                            this IKE_SA was created */
         #                        COND_PPK = (1<<13),
         #   vici/vici_query.c:640   add_condition(b, ike_sa, "ppk", COND_PPK);
-        #   swanctl/list_sas.c:322  if (streq(ike->get(ike, "ppk"), "yes"))
+        #   swanctl/list_sas.c:325  if (streq(ike->get(ike, "ppk"), "yes"))
         #                               printf("/PPK");
         #
         # and the condition is set in ikev2/tasks/ike_auth.c:1187, inside

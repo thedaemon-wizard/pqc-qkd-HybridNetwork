@@ -187,13 +187,15 @@ jobs:
 
       # This guard derives its claims from two pinned trees -- strongSwan's
       # notify_payload.h (which Status Types exist, and that 16444 is still the
-      # highest) and arnika's kdf.go (the exact HKDF call the SP 800-227
-      # analysis is written against). Without them it self-skips, and the
-      # `python` job that runs the rest of tests/ checks out neither.
+      # highest) plus ike_auth.c (that `ppk_required` is enforced on the
+      # INITIATOR, which it was not before 6.1.0), and arnika's kdf.go (the exact
+      # HKDF call the SP 800-227 analysis is written against). Without them it
+      # self-skips, and the `python` job that runs the rest of tests/ checks out
+      # neither.
       #
       # It lives here rather than there because this job has already paid for
       # `submodules: recursive`; adding 183 MB of strongSwan to the Python job
-      # to run five assertions would cost every push far more than a pip
+      # to run six assertions would cost every push far more than a pip
       # install of pytest costs this one.
       # setup-python rather than the runner's system interpreter: Ubuntu 24.04
       # marks that one externally-managed (PEP 668), so a bare `pip install`
