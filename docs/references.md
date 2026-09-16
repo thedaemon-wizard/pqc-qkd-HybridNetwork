@@ -107,6 +107,28 @@ Read directly 2026-08-29; both quotations are verbatim from the PDF text.
 `tests/test_rosenpass_kem_names_match_the_submodule.py` derives from the
 submodule's own domain-separation label.
 
+**Read that endorsement with its date attached.** The current TR-02102-1 is
+dated **2026-01-23**, and a line of cryptanalysis preprints on Classic McEliece
+began in **August 2026** — seven months later. BSI has not revisited the
+Technical Guideline since, so the recommendation above is not a response to that
+work; it predates it. The estimates, their explicit "not close to practical"
+qualifiers, the objection to part of the line, and the designers' posting record
+are set out in [`threat-model.md`](threat-model.md) section 4.1 rather than
+summarised here, because the numbers are easy to quote without the conditions
+they depend on.
+
+| Source | Date | What it is |
+|---|---|---|
+| [ePrint 2026/1630](https://eprint.iacr.org/2026/1630) | recv. 2026-08-07 | Ghoshal, Ishai, Jain, Sun — the hold-out distinguisher the line starts from |
+| [ePrint 2026/1747](https://eprint.iacr.org/2026/1747) | 2026-08 | Vedenev — turns the relations into key recovery |
+| [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) | recv. 2026-08-24, rev. 7 on 2026-09-15 | Saarinen — per-parameter-set conditional arithmetic estimates, incl. `mceliece460896` |
+| [ePrint 2026/1810](https://eprint.iacr.org/2026/1810) | 2026-08-26 | Apon — algebraic-geometry lower bound **against** the Vedenev route |
+| [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) | 2026-09-11 | Weis — key recovery from the distinguisher, with the "not close to practical" qualifier |
+| [ePrint 2026/1986](https://eprint.iacr.org/2026/1986) | 2026-09-11 | Saarinen — solves the TII-254 **toy challenge**; makes no claim about any NIST parameter set |
+
+All six are Creative Commons Attribution. IACR ePrint has had no default licence
+since 2022, so each was checked on its own page rather than assumed.
+
 **What this changes, and what it does not.** The judgement recorded in
 [`vici-ppk.md`](vici-ppk.md) -- that the PQC half is not an approved KEM -- is a
 statement about **NIST SP 800-227**, and it stays true. It is not a statement

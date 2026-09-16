@@ -234,3 +234,78 @@ def test_a_bolded_tag_really_is_the_pin(name):
         "in this file. If the pin is deliberately untagged, drop the bold and "
         "say so."
     )
+
+
+# --- Drift the checks above cannot see -------------------------------------
+#
+# Added 2026-09-16 after an audit found eleven stale or wrong statements in
+# THIRD_PARTY_NOTICES.md while this file passed. Everything above verifies that
+# a row names the right COMMIT. Nothing verified the prose around it, and that
+# is where the drift was: a pin date nine days off, a tag count that stayed at
+# "four" after one of the four started publishing tags, and a header still
+# claiming a verification date three weeks old.
+#
+# These two checks are local-only on purpose. Currency against upstream needs
+# the network and already self-skips offline, so it cannot be the thing that
+# holds the line.
+
+_PIN_DATE = re.compile(r"pinned to `([0-9a-f]{7,40})`\s*\((\d{4}-\d{2}-\d{2})\)")
+
+
+@pytest.mark.parametrize("name", sorted(_submodules()), ids=lambda n: n)
+def test_a_stated_pin_date_is_the_commits_own_date(name):
+    """`pinned to `sha` (DATE)` must be that commit's date, not a guess.
+
+    The arnika row read 2026-09-11 as 2026-09-02 for two weeks. A wrong date
+    here is worse than none, because it is the field a reader uses to decide
+    whether a pin is stale without cloning anything.
+    """
+    for line in NOTICES.read_text(encoding="utf-8").splitlines():
+        m = ROW.match(line)
+        if not m or m.group(1) != name:
+            continue
+        d = _PIN_DATE.search(line)
+        if not d:
+            pytest.skip(f"{name}: row states no pin date")
+        sha, claimed = d.group(1), d.group(2)
+        path = ROOT / "submodules" / name
+        if not (path / ".git").exists():
+            pytest.skip(f"{name}: submodule not checked out")
+        try:
+            actual = _run(["git", "log", "-1", "--format=%cd", "--date=short", sha],
+                          cwd=path).strip()
+        except Exception:
+            pytest.skip(f"{name}: {sha[:8]} not present in a shallow clone")
+        if not actual:
+            pytest.skip(f"{name}: {sha[:8]} unresolvable here")
+        assert actual == claimed, (
+            f"{name}: the row says the pin {sha[:8]} is dated {claimed}, but "
+            f"the commit's own date is {actual}. Read it from the tree rather "
+            f"than carrying it forward by hand."
+        )
+        return
+
+
+def test_the_untagged_count_matches_the_list_beside_it():
+    """"N upstreams publish no semver tags" must equal the names that follow.
+
+    This said "Four" while listing four, and stayed at "Four" after qkdnetsim
+    published v3.1.3 -- the sentence and its own list drifted apart silently.
+    """
+    text = NOTICES.read_text(encoding="utf-8")
+    m = re.search(
+        r"\*\*(\w+) upstreams publish no semver tags at all\*\*.*?:((?:[^.]|\.\w)*)\.",
+        text,
+        re.S,
+    )
+    assert m, "the untagged-upstreams sentence is gone; drop this test with it"
+
+    words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+    claimed = words.get(m.group(1).lower())
+    assert claimed is not None, f"unhandled number word {m.group(1)!r}"
+
+    listed = re.findall(r"`([A-Za-z0-9_.-]+)`", m.group(2))
+    assert len(listed) == claimed, (
+        f"the sentence says {m.group(1)} ({claimed}) but lists {len(listed)}: "
+        f"{listed}. One of the two was edited without the other."
+    )
