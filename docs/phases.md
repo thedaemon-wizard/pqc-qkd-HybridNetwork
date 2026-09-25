@@ -525,3 +525,74 @@ above was added.
 
 ---
 
+
+## 11.10 2026-09-25 — Log redaction, Protocol Lab, ETSI GS QKD 004 on the KME
+
+One batch (PR #130, `44a4bd1`), deployed the same day, then a follow-up for
+three defects the browser pass found.
+
+### What went in
+
+- **`/api/logs` stops serving key material.** The pinned arnika prints
+  `Arnika PSK: <value>` at startup; the route returned container logs
+  unredacted and with no cap on `tail`. It now redacts secret lines and caps
+  `tail` at 2000. `ARNIKA_PSK` was rotated at deploy, since redaction does not
+  un-serve what was already served.
+- **Dependencies**: fastapi 0.141.1 / starlette 1.7.0, liboqs-python
+  0.16.0.1, plotly.js 4.1.1 (send-to-cloud off), react-router-dom 6.30.6,
+  vite 6.4.3. nginx serves `index.html` `no-cache` and hashed assets
+  immutable.
+- **`/protocol-lab`** (route 14), a client-side simulation over five published
+  networks, and the **ETSI GS QKD 004 V2.1.1 endpoint** in `bb84-kme` over this
+  project's own HTTP binding, off by default -- see
+  [`etsi004-binding.md`](etsi004-binding.md).
+- `.dockerignore` for every build context: a host `__pycache__` had put
+  bytecode older than its source into the KME image.
+
+### Deploy (2026-09-25)
+
+- Built on the host: webui-frontend, webui-backend, bb84-kme, pqc-validator
+  (`web stack OK: starlette 1.7.0`, `etsi004 spec V2.1.1 22 transitions`,
+  `liboqs 0.16.0 / liboqs-python 0.16.0.1`).
+- Recreated with all three compose files. The previous deploy had used only
+  two, and seven services were running with restart policy `no`; all ten now
+  carry `unless-stopped`.
+- `ARNIKA_PSK` rotated (new value, 44 characters; checked by length only).
+  Both lanes re-established on it: `PSK configured` on alice (PRIMARY) and
+  bob (BACKUP), and the IPsec lane `.../KE1_ML_KEM_768/PPK` with
+  `ppk_required` and `ppk_used` on both ends and paired SPIs.
+
+### Browser verification (Chrome, deployed build)
+
+- Loaded bundle `index-Cf9lQqsz.js` = the origin's = the local build's;
+  `index.html` `no-cache`, assets `public, max-age=31536000, immutable`.
+- **14/14 routes** render with no error boundary, no failure banner, no
+  Japanese text; control inventory in checklist row 4.6.18b.
+- `GET /api/logs/alice?tail=200000` -> **422**; `?tail=2000` -> 200 with
+  `Arnika PSK: (redacted)` on alice, bob, alice-ipsec and bob-ipsec; the
+  download route carries no PSK line.
+- `/vpn`: established, `/PPK`, ESP counters **non-zero without a manual
+  ping** (336 B / 4 pkt, later 168 B / 2 pkt after a rekey) -- the new
+  healthcheck ping.
+- `/protocol-lab`: Run / Pause / Resume / Step (from idle and paused) / Reset
+  change the state as labelled; failing CAPE-TREL moves the TREL-CAPE demand to
+  two hops via ENGI with one route change; all five presets and the SECOQC
+  replay load; Logs, PNG, JSON, CSV and WebM export valid files.
+- `/e2e` and `/paper-flow`: same controls; `/e2e` Abort shows
+  `status: idle (aborted)`.
+
+### Found by the browser pass, fixed in the follow-up
+
+- **Every exported GIF had zero frames.** 801 bytes -- header, colour table,
+  loop extension, no image. modern-gif's `encode({frames})` does not await
+  frames given as URLs, and every frame here is a data URL. `encodeGifFrames`
+  now awaits each one; a local build exported 13 frames for 3 s at 4 fps.
+  This predates the batch (modern-gif 2.1.0 on both sides of it) and no
+  earlier check had parsed the file.
+- **A page opened in a background tab never loaded.** `usePoll` skipped its
+  first call while the tab was hidden, so `/physics` sat on
+  `Loading parameters...`. It now always loads once on mount.
+- **`Requests ok / failed` read `0 / 0` in stores accounting**, where requests
+  are not counted at all. It now says `not counted (stores accounting)`.
+
+---

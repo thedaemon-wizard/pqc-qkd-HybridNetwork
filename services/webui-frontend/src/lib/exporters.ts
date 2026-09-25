@@ -342,18 +342,47 @@ export async function downloadGif(
   if (!frames.length) throw new Error("no frames captured");
   if (!frameW || !frameH) throw new Error("target has zero size; nothing to record");
 
-  const { encode } = await import("modern-gif");
+  const { Encoder } = await import("modern-gif");
   const delays = gifFrameDelays(captureTimes, endedAt);
-  const output = await encode({
-    width: frameW,
-    height: frameH,
-    frames: frames.map((src, i) => ({ data: src, delay: delays[i] })),
-  });
+  const output = await encodeGifFrames(Encoder, frameW, frameH, frames, delays);
 
   await saveToBackendAndDownload(
     new Blob([output as BlobPart], { type: "image/gif" }),
     name, "gif", `${name}-${timestamp()}.gif`,
   );
+}
+
+/** The slice of modern-gif's `Encoder` that `encodeGifFrames` uses. */
+export interface GifEncoderLike {
+  encode(frame: { data: string; delay: number }): Promise<unknown>;
+  flush(): Promise<ArrayBuffer | Blob>;
+}
+export type GifEncoderClass = new (opts: { width: number; height: number }) => GifEncoderLike;
+
+/**
+ * Encode captured frames into one GIF, awaiting every frame before the flush.
+ *
+ * modern-gif's convenience `encode({frames})` is `new Encoder(opts).flush()`:
+ * the constructor starts `encode(frame)` for each frame WITHOUT awaiting it,
+ * and a frame given as a URL -- every frame here is a PNG data URL -- is only
+ * queued after its image has loaded. `flush()` therefore ran on an empty
+ * queue, and every GIF this project exported was a header, a colour table and
+ * a loop extension with no image in it: 801 bytes, zero frames, found on the
+ * live demo on 2026-09-25 by parsing the file rather than checking that a
+ * download happened.
+ */
+export async function encodeGifFrames(
+  EncoderClass: GifEncoderClass, width: number, height: number,
+  frames: string[], delays: number[],
+): Promise<ArrayBuffer | Blob> {
+  if (frames.length !== delays.length) {
+    throw new Error(`${frames.length} frames but ${delays.length} delays`);
+  }
+  const encoder = new EncoderClass({ width, height });
+  for (let i = 0; i < frames.length; i++) {
+    await encoder.encode({ data: frames[i], delay: delays[i] });
+  }
+  return encoder.flush();
 }
 
 /**

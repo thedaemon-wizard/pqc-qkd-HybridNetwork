@@ -57,6 +57,11 @@ export const PREFIX_HEX = 16;
 export type Accounting = "keys" | "stores" | "service-buffer" | "route-only";
 export type SimStatus = ProtocolLabState["status"];
 
+/** Whether an accounting mode counts discrete key requests at all. */
+export function countsRequests(a: Accounting): boolean {
+  return a === "keys" || a === "service-buffer";
+}
+
 export interface LinkState {
   id: string;
   a: string;
@@ -126,8 +131,13 @@ export interface ProtocolLabState {
   reroutes: Reroute[];
   delivered_bits: number;
   unmet_bits: number;
-  requests_ok: number;
-  requests_failed: number;
+  /**
+   * Key requests served / refused. `null` under "stores" and "route-only"
+   * accounting, which count delivered bits and route choices, not discrete
+   * requests: a `0 / 0` there read as "nothing was asked" while bits flowed.
+   */
+  requests_ok: number | null;
+  requests_failed: number | null;
   service: { stored: number; capacity: number; refillAt: number; refillTo: number;
              refills: number; failedRefills: number; readingNote: string } | null;
   stream: { ksid: string | null; state: string; next_index: number; undelivered: number;
@@ -254,7 +264,8 @@ export class ProtocolLabSim {
       alternatives: this.alternatives, rejected: this.rejected,
       reroutes: [...this.reroutes],
       delivered_bits: this.delivered, unmet_bits: this.unmet,
-      requests_ok: this.ok, requests_failed: this.failed,
+      requests_ok: countsRequests(this.accounting) ? this.ok : null,
+      requests_failed: countsRequests(this.accounting) ? this.failed : null,
       service: this.service ? { ...this.service } : null,
       stream,
       messages: [...this.messages],
