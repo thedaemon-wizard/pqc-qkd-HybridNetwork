@@ -15,9 +15,7 @@
  * unrelated Math.random() sample it used to display.
  */
 import type { Bb84Cfg, RoundResult } from "./bb84Gpu";
-import {
-  advanceKeyPool, framesFromGlRound, type ChannelCfg,
-} from "./bb84Channel";
+import { advanceKeyPool, framesFromGlRound, type ChannelCfg, roundQber } from "./bb84Channel";
 
 const GRID = 256;                 // 256×256 = 65 536 accumulation bins
 const VS = `#version 300 es
@@ -129,7 +127,7 @@ export class Bb84Gl {
       sifted += this.readBuf[i]; errors += this.readBuf[i + 1];
     }
     const dt = Math.max(performance.now() - t0, 1e-3);
-    const qber = sifted > 0 ? errors / sifted : 0;
+    const qber = roundQber(sifted, errors);
     this.pool = advanceKeyPool(this.pool, sifted, qber, cfg.qberAbort);
     return {
       qber, pool_size: this.pool,
@@ -137,6 +135,9 @@ export class Bb84Gl {
       frames: framesFromGlRound(cfg as ChannelCfg, seed, cfg.pulsesPerRound, 16),
     };
   }
+
+  /** Continue from the pool the previous tier reached, so adoption does not reset it. */
+  seedPool(bits: number) { this.pool = bits; }
 
   dispose() {
     const gl = this.gl; if (!gl) return;

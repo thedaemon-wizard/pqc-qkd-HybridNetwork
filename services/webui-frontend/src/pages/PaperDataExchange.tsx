@@ -5,21 +5,28 @@ import KPI from "../components/KPI";
 import Panel from "../components/Panel";
 import Button from "../components/Button";
 import MultiHopTopologySvg from "../components/MultiHopTopologySvg";
-import PhaseSequenceSvg, { type PhaseBudget } from "../components/PhaseSequenceSvg";
+import PhaseSequenceSvg from "../components/PhaseSequenceSvg";
 import PacketFlowTable from "../components/PacketFlowTable";
-import FailureCascadeTimeline, { type CascadeEvent } from "../components/FailureCascadeTimeline";
+import FailureCascadeTimeline from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
-import { DEFAULT_HOP_COUNT, paperCsvRows, PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
+import {
+  DEFAULT_HOP_COUNT, MAX_HOP_COUNT, paperCsvRows, PaperSim, type PaperFlowState,
+} from "../lib/sim/paperSim";
 
 /**
  * Paper Data Exchange page.
  *
  * Implements the multi-hop trusted-node Data Exchange described in
- * references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf and matches the
- * arnika-project/arnika multi-hop image (provided by the user) showing:
+ * references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf (4.2 Integration
+ * Workflow, 4.3 Fail-Safe Mechanism, Table 1) and matches the
+ * arnika-project/arnika multi-hop image:
  *
  *   End Node Alice | Trusted Node | End Node Bob
- *      ① Quantum Plane  ② QKD Key IDs  ③ PQC Handshake  ④ Data Exchange
+ *
+ * The paper numbers four stages, (1) quantum plane to (4) data tunnel. This
+ * page runs five phases -- paperSim's PHASE_NAMES -- because stage (3) is split
+ * into the WireGuard hop handshake and the Rosenpass handshake it carries, so
+ * each of Table 1's rows is its own phase.
  *
  * The page is intentionally distinct from /e2e (single-tunnel concept) — it
  * shows the daisy chain, paper-quoted packet budgets, and the 240-720s
@@ -61,8 +68,11 @@ export default function PaperDataExchange() {
       `# cycles:      ${s.cycles_total} (${s.cycles_succeeded} accepted)`,
       `# packets:     ${s.packets_total}  bytes: ${s.bytes_total}`,
       s.failure.active_layer
-        ? `# failure:     ${s.failure.active_layer} (${s.failure.cascade.length}-stage cascade)`
+        ? `# failure:     ${s.failure.active_layer} (${s.failure.cascade.length}-stage cascade, `
+          + `${s.failure.elapsed_s.toFixed(1)} s of cascade time run)`
         : "",
+      // The header counters cover the whole run; the phase lines below do not.
+      `# phases:      last ${s.history.length} of ${s.phases_total} shown`,
       "",
     ].filter(Boolean);
     const body = (s.history ?? []).map((h) => {
@@ -74,8 +84,16 @@ export default function PaperDataExchange() {
     });
     const cascade = (s.failure.cascade ?? []).map((c) =>
       `  +${c.t_offset_s}s  ${c.layer}: ${c.description}${c.fired ? "  [fired]" : ""}`);
+    // What was done to the run: a cascade or a stalled cycle reads differently
+    // once the reader can see the inject, pause or step that caused it.
+    const actions = (s.operator_actions ?? []).map((a) =>
+      `  ${new Date(a.at * 1000).toISOString()}  ${a.action}`);
     return [...head, ...body,
-            ...(cascade.length ? ["", "# cascade schedule", ...cascade] : []), ""].join("\n");
+            ...(cascade.length ? ["", "# cascade schedule", ...cascade] : []),
+            ...(actions.length
+              ? ["", `# operator actions (last ${actions.length} of ${s.actions_total})`, ...actions]
+              : []),
+            ""].join("\n");
   }
 
   function ctl(action: "start" | "pause" | "resume" | "reset" | "step") {
@@ -100,7 +118,7 @@ export default function PaperDataExchange() {
   return (
     <div>
       <PageHeader
-        title="Paper Data Exchange (Spooren et al. arXiv:2604.05599, 3.2 Routing and Composition)"
+        title="Paper Data Exchange (Spooren et al. arXiv:2604.05599, 4.2 Integration Workflow and 4.3 Fail-Safe Mechanism)"
         subtitle={
           <>
             Multi-hop trusted-node Data Exchange faithful to the
@@ -180,7 +198,7 @@ export default function PaperDataExchange() {
         5248 per completed cycle, the figure the <code>Paper bytes / handshake</code>
         card quotes. The only bytes this page itself produces are the ~64-byte
         ChaCha20-Poly1305 record phase 5 seals each cycle. Moving the
-        trusted-node slider from 1 to 8 changes the total by zero, because no
+        trusted-node slider from 1 to {MAX_HOP_COUNT} changes the total by zero, because no
         per-hop traffic is being counted.
       </div>
 
@@ -198,7 +216,7 @@ export default function PaperDataExchange() {
           <span style={{ color: colors.textSec, fontSize: 12 }}>
             Trusted Nodes (hop count): {state?.hop_count ?? hopCount}
           </span>
-          <input type="range" min={1} max={8}
+          <input type="range" min={1} max={MAX_HOP_COUNT}
                  aria-label="Trusted node hop count"
                  value={state?.hop_count ?? hopCount}
                  onChange={(e) => configHopCount(parseInt(e.target.value, 10))}
@@ -253,7 +271,7 @@ export default function PaperDataExchange() {
       </div>
 
       {/* Sequence diagram */}
-      <Panel title="Sequence Diagram -- the paper's 5 protocol phases (Evaluation Test 1, Table 1)">
+      <Panel title="Sequence Diagram -- this page's 5 phases, splitting the paper's stages (1)-(4); budgets from Evaluation Test 1, Table 1">
         <PhaseSequenceSvg budgets={budgets} currentPhase={phase} />
       </Panel>
 
@@ -265,12 +283,13 @@ export default function PaperDataExchange() {
           status={status}
           activeLayer={state?.failure.active_layer ?? null}
           startedAt={state?.failure.started_at ?? null}
+          elapsedS={state?.failure.elapsed_s ?? 0}
           events={state?.failure.cascade ?? []}
         />
       </div>
 
-      {/* Latest data payload (Phase 5 output) */}
-      <Panel title="Latest Data Exchange Payload (paper phase 5, ChaCha20-Poly1305)">
+      {/* Latest data payload (phase 5 output) */}
+      <Panel title="Latest Data Exchange Payload (phase 5 = paper stage (4), ChaCha20-Poly1305)">
         <pre style={{
           margin: 0, fontSize: 11, lineHeight: 1.4,
           color: colors.textPri, fontFamily: "monospace",

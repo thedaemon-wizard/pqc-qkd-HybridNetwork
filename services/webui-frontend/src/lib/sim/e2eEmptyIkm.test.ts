@@ -48,7 +48,7 @@ function cycle(mode: Mode, inject: E2ELayer | null) {
   if (inject) sim.injectFailure(inject);
   for (let i = 0; i < PHASES_PER_CYCLE; i++) sim.step();
   const state = last as unknown as E2EState;
-  const p3 = state.history.find((h) => h.phase === 3);
+  const p3 = state.history.find((h) => h.step === 3);
   return { state, detail: (p3?.detail ?? {}) as Record<string, unknown> };
 }
 

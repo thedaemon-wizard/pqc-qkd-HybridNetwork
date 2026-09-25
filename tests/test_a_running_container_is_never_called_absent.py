@@ -29,11 +29,21 @@ container as absent, which is worse than the reverse: it invites someone to
 The two failures are now separate. Only a failed lookup may say `absent`; a
 failed image read yields `<untagged>`, which is a real state rather than an
 empty string that would read as "no information".
+
+And only ONE KIND of failed lookup. The lookup's handler was `except
+Exception:`, so a Docker API error or a socket timeout -- "we could not look"
+-- was reported as "not there", and for qkdnetsim-kme annotated "not that
+anything failed". `docker.errors.NotFound` (Docker's 404) is now the only
+exception that yields `absent`; anything else yields `unknown` with the error.
 """
 from __future__ import annotations
 
+import importlib
 import re
 from pathlib import Path
+
+import pytest
+from conftest import load_service_app
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = (ROOT / "services" / "webui-backend" / "app" / "main.py").read_text(encoding="utf-8")
@@ -56,8 +66,10 @@ def test_the_lookup_and_the_image_read_are_separate_blocks():
     h = _stack_handler()
     # The lookup's except must `continue`, so nothing after it can fall into
     # the same handler.
-    assert re.search(r"c = cli\.containers\.get\(n\)\s*\n\s*except Exception:", h), (
-        "the container lookup is no longer in a try of its own"
+    assert re.search(
+        r"c = cli\.containers\.get\(n\)\s*\n\s*except docker\.errors\.NotFound:", h), (
+        "the container lookup is no longer in a try of its own, or its absent "
+        "branch catches more than Docker's 404"
     )
     assert "continue" in h, "the absent branch does not short-circuit"
 
@@ -99,3 +111,73 @@ def test_the_measurement_is_recorded_where_the_next_reader_will_be():
     h = _stack_handler()
     assert "ImageNotFound" in h
     assert "dangling" in h
+
+
+# ---- behaviour, not only source text ------------------------------------------
+docker = pytest.importorskip("docker")
+load_service_app("webui-backend", "webui_backend_app")
+_main = importlib.import_module("webui_backend_app.main")
+
+
+class _Running:
+    status = "running"
+    attrs = {"State": {"StartedAt": "2026-09-25T00:00:00Z"}}
+
+    class image:  # noqa: N801 - mimics the SDK attribute
+        tags = ["pqcqkd/example:local"]
+
+
+class _Docker:
+    """Answers per name: a container, NotFound, or some other failure."""
+
+    def __init__(self, behaviour):
+        outer = self
+        self.behaviour = behaviour
+
+        class _C:
+            def get(self, name):
+                out = outer.behaviour(name)
+                if isinstance(out, Exception):
+                    raise out
+                return out
+
+        self.containers = _C()
+
+
+def _stack_with(monkeypatch, behaviour):
+    monkeypatch.setattr(_main.app.state, "docker", _Docker(behaviour), raising=False)
+    return {row["name"]: row for row in _main._stack_uncached()}
+
+
+def test_a_docker_404_is_absent(monkeypatch):
+    rows = _stack_with(monkeypatch, lambda n: docker.errors.NotFound(f"no {n}"))
+    assert rows["bb84-kme-a"]["status"] == "absent"
+    assert rows["qkdnetsim-kme"]["status"] == "absent"
+
+
+@pytest.mark.parametrize("error", [
+    TimeoutError("read timed out"),
+    ConnectionError("docker socket unreachable"),
+    docker.errors.APIError("500 Server Error: daemon restarting"),
+])
+def test_any_other_lookup_failure_is_unknown_never_absent(monkeypatch, error):
+    rows = _stack_with(monkeypatch, lambda n: error)
+    for name, row in rows.items():
+        assert row["status"] == "unknown", (
+            f"{name}: a {type(error).__name__} was reported as {row['status']!r}; "
+            "we could not look, which is not the same fact as 'not there'")
+        assert row["error"], "the reason we could not look is not reported"
+    note = rows["qkdnetsim-kme"]["note"]
+    assert "not that anything failed" not in note, (
+        "an optional row whose lookup FAILED still says nothing failed")
+
+
+def test_the_absence_note_rides_only_on_absent_rows(monkeypatch):
+    """A running optional container must not carry 'Absent here means...'."""
+    rows = _stack_with(
+        monkeypatch,
+        lambda n: _Running() if n == "alice-ipsec" else docker.errors.NotFound(n))
+    assert rows["alice-ipsec"]["status"] == "running"
+    assert rows["alice-ipsec"]["optional"] is True
+    assert "Absent here" not in rows["alice-ipsec"]["note"]
+    assert "Absent here" in rows["bob-ipsec"]["note"]

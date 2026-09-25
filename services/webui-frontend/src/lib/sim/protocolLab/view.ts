@@ -26,7 +26,9 @@ export function boxesFit(p: TopologyPreset): boolean {
 
 /** Short edge label: length (with a dagger when the source gives others) and loss. */
 export function edgeLabel(l: PresetLink): string {
-  if (l.kind === "non-qkd-keystore") return "keystore (not QKD)";
+  // "not live QKD", not "not QKD": the source says the keys were previously
+  // generated and stored, not that they were not QKD output.
+  if (l.kind === "non-qkd-keystore") return "keystore (not live QKD)";
   const len = l.length ? `${l.length.printed} ${l.length.unit}${l.lengthAlt.length ? "†" : ""}` : "";
   const loss = l.loss
     ? `${l.loss.qualifier && ["~", ">", "<"].includes(l.loss.qualifier) ? l.loss.qualifier : ""}${l.loss.printed} dB`

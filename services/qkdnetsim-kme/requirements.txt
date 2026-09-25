@@ -1,0 +1,8 @@
+# Runtime of services/qkdnetsim-kme/kme_facade.py, the only process the image
+# runs. Kept in a requirements file rather than inline in the Dockerfile so
+# dependency scanners that read requirements files see it.
+#
+# 3.1.3 is the first release outside GHSA-68rp-wp8r-4726 (LOW; session
+# handling, which the facade never uses). PyYAML was installed beside it and
+# imported by nothing, so it was dropped rather than bumped.
+flask==3.1.3

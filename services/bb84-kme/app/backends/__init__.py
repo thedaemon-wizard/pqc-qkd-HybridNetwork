@@ -10,8 +10,16 @@ Backends:
     simqn      — submodules/SimQN BB84SendApp/RecvApp (Cascade + Toeplitz PA)
     sequence   — submodules/SeQUeNCe photonic realism (SPDC noise, detector dark)
     cvqkd      — submodules/strawberryfields GG02 (continuous variable)
-    composite  — SimQN physical + qkdnetsim network (most realistic)
-    qkdnetsim_proxy — proxy to external NS-3 KME (cross-validation)
+    composite  — SimQN's closed-form key rate pushed to the qkdnetsim-kme
+                 container as a token fill rate, keys pulled back over ETSI 014.
+                 That container is a Flask facade minting CSPRNG keys; the NS-3
+                 build in its image is never executed, so there is no simulated
+                 network layer here
+    qkdnetsim_proxy — pulls keys from the same qkdnetsim-kme facade over ETSI
+                 014: a second, independently written ETSI 014 server, not a
+                 simulator
+    (Both need the `crossvalidate` compose overlay. POST /sim/backend refuses
+    them with 503 when qkdnetsim-kme's /health does not answer.)
     tno        — TNO-Quantum qkd_key_rate (Apache-2.0, decoy-state BB84/BBM92;
                  independent key-rate cross-check)
 

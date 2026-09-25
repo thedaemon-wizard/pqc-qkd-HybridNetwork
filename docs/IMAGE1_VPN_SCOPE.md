@@ -1,101 +1,104 @@
-# Reference Image 1 (VPN scope) → code mapping
+# Reference image 1 (VPN scope) → code mapping
 
-The reference architecture image distributed with this PoC shows two sites (Site A,
-Site B) inside the VPN scope with three operational modes (A: QKD-only, B: PQC-only,
-C: Hybrid QKD+PQC) plus the ETSI 014 interface (E). This file documents how every
-labelled element in that image is realised by the Phase 10 implementation.
+The reference image is Figure 3 of the arnika README,
+`submodules/arnika/img/QKD-PQC-functions_post-quantum-secure-VPN.png`
+("QKD | PQC functions post-quantum secure VPN"): two sites inside the VPN
+scope, three operational modes (A: QKD-only, B: PQC-only, C: hybrid QKD+PQC)
+and the ETSI 014 interface (E). This file maps each labelled element to the
+`/e2e` page, and separately to the running component it stands for.
+
+## What `/e2e` is
+
+A client-side simulation. `services/webui-frontend/src/lib/sim/e2eSim.ts`
+runs four steps in the browser with real `@noble` HKDF-SHA3-256 and
+ChaCha20-Poly1305, over **random surrogate keys**: the QKD key and the PQC
+secret are each `randomBytes(32)`, and a run makes no HTTP request (exports
+aside: the toolbar can post an optional copy to the shared gallery, see
+[`deployment-economics.md`](deployment-economics.md)). It reads no KME, no
+Rosenpass output and no arnika state. The running lanes -- arnika, Rosenpass
+and WireGuard in the `alice`/`bob` containers -- are a separate thing,
+observed on `/`, `/vpn` and `/console`. The backend orchestrator the page once
+used is recorded in [`phases.md`](phases.md), Phase 10.
 
 ## Element-by-element mapping
 
-> **Superseded implementation paths.** The rows below were written when
-> `/e2e` was driven by a backend orchestrator. That page now runs entirely
-> in the browser and `services/webui-backend/app/lib/sim/e2eSim.ts` has
-> been deleted; the equivalent logic lives in
-> `services/webui-frontend/src/lib/sim/e2eSim.ts`. Module references have
-> been repointed, and `POST /api/e2e/mode` is now a direct
-> `simRef.current.setMode(...)` call with no HTTP involved.
+The page numbers its scheme in **steps**, not phases; see the decision record
+in [`roadmap.md`](roadmap.md) on the three "phase" schemes.
 
-| Image element | Code | Notes |
+| Image element | On `/e2e` (`e2eSim.ts`, `QuantumSecureE2E.tsx`) | Running counterpart, outside `/e2e` |
 |---|---|---|
-| Site A / Site B boundary | `services/webui-frontend/src/pages/QuantumSecureE2E.tsx::ArchSvg` (vertical centre divider line) | Pure SVG, no per-site backend split |
-| **KEY-CONTROL function** "ARNIKA" | `submodules/arnika` (Go binary, unmodified) — modelled in `lib/sim/e2eSim.ts` phase 2 | Real arnika container runs in WireGuard lane (Phase 0-7); orchestrator emulates the KEY-CONTROL semantics |
-| **PQC function** "ROSENPASS" | `submodules/rosenpass` (Phase 0) — modelled in `lib/sim/e2eSim.ts` phase 3 (`secrets.token_bytes(32)` as Rosenpass surrogate) | Real Rosenpass sidecar runs in alice/bob node containers |
-| **VPN function** "WIREGUARD" | `nodes/alice/entrypoint.sh` (Phase 0) — modelled in `lib/sim/e2eSim.ts` phase 4 (`ChaCha20Poly1305(derived_psk)`) | Real kernel wg0 runs in alice/bob; orchestrator uses the same AEAD that WireGuard uses internally |
-| **KMS Keystore [ETSI 014]** | `services/bb84-kme/app/etsi014.py` (Phase 1) | Live ETSI 014 server; orchestrator phase 1 polls `/api/v1/keys/ALICE/status` |
-| **QKD KEY** (yellow, label A) | `lib/sim/e2eSim.ts` phase 2 → `qkd_key_b` (base64-decoded from KME-A `/enc_keys`) | 256-bit material from SimQN backend |
-| **PQC KEY** (pink, label B) | `lib/sim/e2eSim.ts` phase 3 → `pqc_secret` (random 32 B) | Mock Rosenpass output; mode B / C only |
-| **QKD+PQC KEY** (red, label C) | `lib/sim/e2eSim.ts` phase 3 → `derived` (HKDF-SHA3-256 of qkd ‖ pqc) | 32 B WireGuard-style PSK |
-| **HKDF (SHA3)** (red circle inside ARNIKA) | `lib/sim/e2eSim.ts` → `HKDF(algorithm=hashes.SHA3_256(), ...)` from `cryptography==44.0.0` | Surrogates `submodules/arnika/kdf/kdf.go:17-28` (same SHA-3-256 primitive) |
-| **QKD key_ID exchange** (green dashed line) | Phase 2 internal step (`GET /dec_keys?key_ID=…` at KME-B) + SVG dashed arc on `phase===2` | Mirror of arnika's enc_keys → dec_keys handshake |
-| **PQC KEY exchange** (pink curve) | Phase 3 active path + SVG curve with `mode B/C` highlight | Conceptual; orchestrator uses local random as Rosenpass surrogate |
-| **Quantum channel** (purple dashed top arc) | Phase 1 active path + SVG curve with `phase===1` highlight | Implicit in SimQN's `QubitLossChannel` model |
-| **Mode A** label | `QuantumSecureE2E.tsx` `setMode("A")` → `simRef.current.setMode("A")` (no HTTP) → `state.mode = "A"` (mode_label = "QKD-only") | Skips PQC in Phase 3 |
-| **Mode B** label | Same flow with `mode="B"` (mode_label = "PQC-only") | Skips QKD in Phase 2 |
-| **Mode C** label | Same flow with `mode="C"` (mode_label = "Hybrid (QKD ‖ PQC)") | Default; both Phase 2 and Phase 3 active |
-| **ETSI interface E** | `services/bb84-kme/app/etsi014.py` (`/api/v1/keys/{SAE}/{enc,dec}_keys`) | Serves the contract that `submodules/arnika/repositories/kms.go:43-101` consumes. **Not** a byte-for-byte match -- that comparison is not well-formed: `kms.go` is an HTTP *client* (`HTTPKMSRepository`, `http.Client`) and `etsi014.py` is a FastAPI *server*, and no code path compares them. What is checkable is the wire format: the Go structs pin `key_ID`, `key` and `keys`, `models.py:45,66` emit exactly those names, and CI job *ETSI GS QKD 014 contract tests (live KMEs)* drives the real endpoints. |
-| **Secure Application Entity** (purple dashed box) | The combination of bb84-kme + webui-backend orchestrator | The "application" boundary of the PoC |
+| Site A / Site B boundary | `ArchSvg`, centre divider line | Two containers on one host; see [`LIMITATIONS.md`](LIMITATIONS.md) |
+| **KEY-CONTROL function** "ARNIKA" | Step 2 draws the QKD surrogate; step 3 runs the HKDF | `submodules/arnika` (Go, unmodified) in `alice`/`bob` |
+| **PQC function** "ROSENPASS" | Step 3: `pqcSecret = randomBytes(32)` in modes B and C; nothing is exchanged | Rosenpass sidecar in `alice`/`bob` (Classic McEliece 460896 + Kyber512) |
+| **VPN function** "WIREGUARD" | Step 4: ChaCha20-Poly1305 over 64 ping-sized payloads keyed by the derived value | Kernel WireGuard in `alice`/`bob`, or `wireguard-go` when the kernel module is absent |
+| **KMS Keystore [ETSI 014]** | A key-pool counter: step 1 adds one key, step 2 draws one in modes A and C | `services/bb84-kme/app/etsi014.py` |
+| **QKD KEY** (label A) | Step 2: `qkdKey = randomBytes(32)` and `keyId = crypto.randomUUID()`, modes A and C | ETSI 014 `enc_keys` / `dec_keys` between arnika and `bb84-kme` |
+| **PQC KEY** (label B) | Step 3: `pqcSecret = randomBytes(32)`, modes B and C | The Rosenpass output file arnika reads through `PQC_PSK_FILE` |
+| **QKD+PQC KEY** (label C) | Step 3: `deriveHkdfSha3(qkdKey, pqcSecret, mode)` in `lib/sim/crypto.ts`, 32 bytes | arnika `DeriveKey`, `submodules/arnika/kdf/kdf.go:17-39` |
+| **HKDF (SHA3)** (circle inside ARNIKA) | HKDF-SHA3-256 over `qkd ‖ pqc`, salt `pqcqkd-e2e`, info `mode-A`/`mode-B`/`mode-C` | Same hash, different parameters: arnika passes a nil salt and nil info, so the page's value is **not** the PSK arnika would derive from the same inputs |
+| **QKD key_ID exchange** (green dashed line) | SVG animation during step 2 only; no `dec_keys` request is made | arnika peers send the `key_ID` over UDP and the BACKUP resolves it with `dec_keys` |
+| **PQC KEY exchange** (pink curve) | SVG animation during step 3, modes B and C only | The Rosenpass handshake between the two sidecars |
+| **Quantum channel** (purple dashed arc) | SVG animation during step 1 only | The BB84 simulation inside `bb84-kme`, which depends on the selected backend |
+| **Mode A / B / C** labels | `setMode(...)` calls `simRef.current.setMode(...)`, no HTTP. A omits the PQC secret, B omits the QKD key, C uses both | arnika's `MODE` is a fallback policy, not a fixed key set; compose defaults `ARNIKA_MODE` to `QkdAndPqcRequired` |
+| **ETSI interface E** | Badge animation during step 2 | `etsi014.py` serves `/api/v1/keys/{SAE}/{enc,dec}_keys`; wire format below |
+| **Secure Application Entity** (purple dashed box) | SVG only | arnika's README defines the SAE as WireGuard + PQC + arnika, i.e. each node container |
+
+**The ETSI 014 wire format** is the part that can be checked. A byte-for-byte
+comparison of `kms.go` against `etsi014.py` is not well-formed -- the first is
+an HTTP *client*, the second a FastAPI *server*, and no code path compares
+them. What arnika depends on is the field names: its `kmsKey` and
+`kmsResponse` structs (`submodules/arnika/repositories/kms.go:43-50`) read
+`key_ID`, `key` and `keys`, `etsi014.py` (`KeyDTO`, `KeysResponse`) emits
+exactly those, and the CI job `live-stack` drives the real endpoints with
+`tests/test_etsi014_contract.py`.
 
 ## Active-element highlighting rules
 
-The SVG glow on each element follows these rules (see `QuantumSecureE2E.tsx::ArchSvg`):
+The glow on each element follows these rules (`QuantumSecureE2E.tsx::ArchSvg`):
 
 ```
-phase 1 → Quantum-channel curve glows (purple)
-phase 2 → ARNIKA boxes glow (orange), KMS↔ARNIKA key-line glows (red),
-          green dashed QKD key_ID exchange curve glows
-phase 3 → ROSENPASS boxes glow (pink) when mode ∈ {B, C},
-          HKDF (SHA3) circles glow inside ARNIKA when mode === "C"
-phase 4 → WIREGUARD boxes glow (purple),
-          VPN tunnel line across the divider glows (red)
+step 1 → Quantum-channel lane glows
+step 2 → KMS keystores, the "E" badges, both KMS↔ARNIKA arrows and the
+         QKD key_ID exchange lane glow; ARNIKA boxes glow
+step 3 → ARNIKA boxes stay lit; ROSENPASS boxes and the PQC KEY exchange
+         lane glow when mode ∈ {B, C}; the HKDF (SHA3) badges glow when
+         mode === "C"
+step 4 → WIREGUARD boxes, the VPN lock and the tunnel line across the
+         divider glow
 ```
 
 ## Live verification
 
-Open `/e2e` in the WebUI. The Mode buttons map to the image's A / B / C labels;
-the operation buttons drive the state machine through the 4 phases at ~12-20 Hz on
-the reference Intel i5-13600K host.
+Open `/e2e` in the WebUI. The Mode buttons map to the image's A / B / C labels,
+and Run / Pause / Resume / Step / Reset drive the four steps; each step dwells
+500 ms nominally (`NOMINAL_STEP_DWELL_MS` in `e2eSim.ts`, five ticks of the
+100 ms loop in `lib/sim/pacing.ts`), so a full cycle is about 2 s unless the
+tab is in the background and the browser throttles timers.
 
-Idle, running and paused states were reviewed on screen. **No capture was committed.** This sentence pointed at `docs/images/screenshots/` as though the captures were there; that directory does not exist. It held 21 PNGs which nothing cited and which rendered claims this repository had since retracted, so removing them was correct -- but the pointer to them was left behind, and a link to a missing directory reads as evidence that was never there.
+Idle, running and paused states were reviewed on screen. **No capture was committed.**
 
-## Layout v2 (Phase 11)
+## Layout
 
-The Phase 10 SVG was 880×280 and missed three dashed boundary boxes, the top key-color
-legend, the centre VPN lock icon, the ETSI Interface "E" badges, and the bottom-left
-A/B/C/E legend. Phase 11 rewrites it to **1240×620** (145 SVG elements vs ~30 before)
-with full 1:1 element parity to the reference image:
+The SVG is geometry-driven (`GEO` in `QuantumSecureE2E.tsx`), with a
+`1240×600` viewBox, and Site B mirrors Site A about the divider. The A/B/C/E
+legend is an HTML strip (`ArchLegend`) below the SVG rather than part of it.
+The earlier 880×280 layout and its Phase 11 and Phase 14 revisions are
+recorded in [`phases.md`](phases.md).
 
-| Reference image element | v2 implementation |
-|---|---|
-| VPN scope (red dashed outer) | `<rect>` at 150,60 size 940×440, stroke-dasharray="6 4" |
-| Secure Application Entity (purple dashed) | two `<rect>` per site at x=180/640, y=160, 420×220 |
-| Quantum Key Distribution Infrastructure (blue dashed) | `<rect>` at x=10 and x=1100, 130×380 |
-| Top key-colour legend (A/B/C with key icons) | `<KeyLegend>` per site, mirrored on Site B |
-| KMS Keystore [ETSI 014] + QKD sub-box (green) | `<KmsKeystore>` at x=40 / x=1100 |
-| ETSI Interface "E" badge (orange circle) | `<ETSIBadge>` at KMS↔ARNIKA boundary |
-| Centre "VPN" lock icon (red) | `<g>` with circle + rect + shackle path |
-| ARNIKA / ROSENPASS / WIREGUARD boxes | `<SiteBox>` 108×80 |
-| HKDF (SHA3) red circle inside ARNIKA | `<HkdfBadge>` |
-| PQC KEY exchange row (pink curve, y≈420) | independent SVG path |
-| QKD key_ID exchange row (green dashed, y≈470) | independent SVG path, vertically separated |
-| Quantum Channel row (purple dashed, y≈540) | independent SVG path at the very bottom |
-| Bottom-left A/B/C/E legend | `<LegendItem>` ×4 stacked |
+## Alternative PSK injection implementations
 
-Verification was by inspection at the time, and **no capture was committed** -- neither these nor any others. The second half of this sentence used to say the files in `docs/images/screenshots/` are listed in the repository, which stopped being true when that directory was removed. Kept as a record of what was checked, not as a pointer to an artefact.
+`submodules/arnika` is not the only maintained OSS that feeds post-quantum
+secrets into the WireGuard PSK channel. The closest alternative is
+**`mullvad/wgephemeralpeer`**, vendored as a submodule in Phase 11.
 
-## Alternative PSK injection implementations (2026-active)
-
-`submodules/arnika` is not the only 2026-maintained OSS that wires post-quantum
-secrets into the WireGuard PSK channel. The closest live alternative is
-**`mullvad/wgephemeralpeer`** (added as a submodule in Phase 11).
-
-| | `arnika` (this PoC, default) | `mullvad/wgephemeralpeer` |
+| | `arnika` (this PoC) | `mullvad/wgephemeralpeer` |
 |---|---|---|
-| Origin | CANCOM / EU EUROQCI / QCI-CAT | Mullvad VPN |
+| Origin | Originally CANCOM Converged Services GmbH (v1.x under EU EUROQCI / QCI-CAT); maintained at XBC Digital GmbH since Q2 2026. The pin is on `main`, which has diverged from `v1.x` | Mullvad VPN |
 | Language | Go | Go |
 | License | Apache-2.0 | GPL-3.0 |
-| Last commit | 2026-04-07 | 2026-05-08 |
-| Key sources | QKD (ETSI 014) ‖ PQC (Rosenpass file) | PQC handshake (Classic McEliece 460896 + Kyber512 -- the pinned Rosenpass suite; neither ML-KEM-1024 nor Kyber1024 is used) |
-| KDF | HKDF-SHA3-256 (`submodules/arnika/kdf/kdf.go:17-28`) | embedded in `mullvad-upgrade-tunnel` |
+| Pinned revision | `3a8cc13` (2026-09-11) | `0080bf8` (2026-05-08) |
+| Key sources | QKD (ETSI 014) ‖ PQC (Rosenpass file) | PQC handshake: Classic McEliece 460896 Round3 + ML-KEM-1024 (default `-kem cme-mlkem`; the Kyber1024 variants are listed as obsolete) |
+| KDF | HKDF-SHA3-256 (`submodules/arnika/kdf/kdf.go:17-39`) | embedded in `mullvad-upgrade-tunnel` |
 | WireGuard hook | `wgctrl` netlink, write `preshared-key` | `PostUp = mullvad-upgrade-tunnel -wg-interface %i` |
 | QKD support | Yes (ETSI 014 native) | No (PQC-only) |
 | Production deployment | research / PoC | live commercial VPN at Mullvad |
@@ -104,6 +107,5 @@ secrets into the WireGuard PSK channel. The closest live alternative is
 Both are architectural cousins (PSK injection) but solve different problem shapes:
 arnika targets **QKD + PQC hybrid for regulated infrastructure**, while
 wgephemeralpeer targets **commercial consumer VPN with PQC-only PSK rotation**.
-Having both available makes this PoC a credible benchmarking testbed for either
-deployment mode.
-
+In this repository `wgephemeralpeer` is vendored as a reference for comparison
+only: no Dockerfile, compose file or script builds or runs it.

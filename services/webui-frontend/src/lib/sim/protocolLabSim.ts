@@ -39,13 +39,16 @@ import {
   type CallResult, type StatusId,
 } from "./protocolLab/etsi004";
 import { ETSI014_THIS_REPO } from "./protocolLab/etsi014Shapes";
+import { dwellDone, dwellMs, LOOP_TICK_MS } from "./pacing";
 
 /**
- * UI dwell per simulated tick. Distinct from /e2e (450) and /paper-flow (350),
- * and exported in the CSV as `nominal_dwell_ms` for the same reason as theirs:
- * the measured dwell is wall-clock and a hidden tab throttles it.
+ * UI dwell per simulated tick: three loop ticks (pacing.ts says why a dwell is
+ * a whole number of them; this was 250 ms, which a 100 ms loop honoured at
+ * 300). Distinct from /e2e (500) and /paper-flow (400), and exported in the
+ * CSV as `nominal_dwell_ms` for the same reason as theirs: the measured dwell
+ * is wall-clock and a hidden tab throttles it.
  */
-export const NOMINAL_TICK_DWELL_MS = 250;
+export const NOMINAL_TICK_DWELL_MS = dwellMs(3);
 /** Free play's tick: a resolution, not physics. */
 export const FREE_PLAY_TICK_S = 1;
 /** Covers the 180-tick SECOQC replay with room to spare. */
@@ -253,7 +256,9 @@ export class ProtocolLabSim {
       tick: this.tickN, tick_s: this.tickS, sim_time_s: this.tickN * this.tickS,
       demand: {
         from: this.demandFrom, to: this.demandTo,
-        label: d ? `${d.rate.qualifier ? d.rate.qualifier + " " : ""}${d.rate.printed} ${d.rate.unit}` : `${this.keysPerS ?? 0} key requests/s`,
+        // A missing rate is said to be missing, not labelled "0 key requests/s".
+        label: d ? `${d.rate.qualifier ? d.rate.qualifier + " " : ""}${d.rate.printed} ${d.rate.unit}`
+          : this.keysPerS === null ? "no key-request rate set" : `${this.keysPerS} key requests/s`,
         source: d ? d.rate.ref : "set on this page; not from the source",
         bps: d && d.rate.unit !== "keys/s" ? quantityValue(d.rate) : null,
         keysPerS: d && d.rate.unit === "keys/s" ? quantityValue(d.rate) : (d ? null : this.keysPerS),
@@ -404,7 +409,7 @@ export class ProtocolLabSim {
         id: l.id, a: l.a, b: l.b, kind: l.kind, down: false, downReason: null,
         notInRun: notInRun.has(l.id),
         genBps,
-        genNote: l.kind !== "qkd" ? "keystore hop, not QKD: never routed"
+        genNote: l.kind !== "qkd" ? "keystore hop (pre-shared keys, not live QKD): never routed"
           : genBps === null ? "no single reported rate: generates nothing here" : null,
         storedKeys: null, fillToKeys: null, maxKeys: null, storedBits: null, thresholdBits: null,
       };
@@ -765,7 +770,7 @@ export class ProtocolLabSim {
   private ensureLoop() {
     if (this.timer !== null) return;
     this.lastAdvance = performance.now();
-    this.timer = window.setInterval(() => this.onTimer(), 100);
+    this.timer = window.setInterval(() => this.onTimer(), LOOP_TICK_MS);
   }
 
   private stopLoop() {
@@ -774,7 +779,7 @@ export class ProtocolLabSim {
 
   private onTimer() {
     if (this.status !== "running") return;
-    if (performance.now() - this.lastAdvance < NOMINAL_TICK_DWELL_MS) return;
+    if (!dwellDone(performance.now() - this.lastAdvance, NOMINAL_TICK_DWELL_MS)) return;
     this.lastAdvance = performance.now();
     this.advance();
     this.emit();

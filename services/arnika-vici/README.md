@@ -187,51 +187,15 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   ESTABLISHED. `rekey` returns once charon has queued the reauthentication.
   This is tolerable because both generations stay loaded across the gap, but
   closing it properly means subscribing to the `ike-updown` event stream.
-- **arnika's KDF does not meet the SP 800-227 combiner requirement.** This was
-  previously recorded as a vague "gap against section 4.6.3"; the specific
-  position is:
-
-  SP 800-227 §4.6.2 says an approved key combiner **shall** be used, and points
-  at SP 800-56C, whose two-step form is
-  `K <- Expand(Extract(salt, Z), FixedInfo)`. arnika's HKDF IS that form; what
-  it omits is FixedInfo. This previously read "neither salt nor FixedInfo",
-  which is wrong on the salt: `kdf.go` passes nil, and RFC 5869 §2.2 defines a
-  nil HKDF salt as HashLen zero bytes — the default salt SP 800-56C permits.
-  The full analysis now lives in [`docs/vici-ppk.md`](../../docs/vici-ppk.md),
-  where `docs/references.md` already promised it.
-
-  A second point in the same section is worth recording because it is the one
-  that turns out to be satisfied: SP 800-227 warns that concatenating inputs is
-  ambiguous when their lengths can vary, since `x‖y` may equal `x'‖y'` for a
-  different pair. Here both inputs are **fixed 32-byte keys**, so the encoding
-  is unambiguous. `HKDF(QKD ‖ PQC)` is therefore sound *because the lengths are
-  fixed*, not because bare concatenation is generally safe — a distinction that
-  disappears the moment anyone makes an input variable-length.
-
-  A third point, now quoted rather than paraphrased, because the earlier note
-  reached for §4.6.3 and then retreated from it. §4.6.3 says:
-
-  > "the straightforward key combiner K <- KDF(K1, K2) that only uses the two
-  > shared secret keys K1 and K2 does not preserve IND-CCA security, regardless
-  > of the properties of the KDF."
-
-  It then encourages combiners that "generically preserve IND-CCA security",
-  giving `H(K1, K2, c1, c2, ek1, ek2, domain_sep)` as an example -- binding the
-  ciphertexts is what carries the proof; binding the encapsulation keys is an
-  optional extra that NIST justifies on other grounds.
-
-  How much of that bites here is a real question and should not be overstated.
-  §4.6.3 is about composite schemes built from **two KEMs**, where the argument
-  turns on an attacker mauling the second KEM's ciphertext. The QKD side of this
-  construction has no ciphertext to bind: it is a symmetric key fetched over
-  ETSI 014, not an encapsulation. So the specific IND-CCA counterexample does
-  not transfer directly. What does transfer is the shape of the requirement --
-  a combiner should bind the context that produced each input, and
-  `HKDF(QKD || PQC)` binds none of it.
-
-  Kept bit-compatible with upstream deliberately. Adding salt and FixedInfo is
-  the change to propose upstream, and it is a wire-format break.
+- **arnika's KDF does not meet the SP 800-227 combiner requirement.** SP 800-227
+  §4.6.1 requires ("shall") an approved key combiner of the kinds described in
+  §4.6.2 (SP 800-56C or SP 800-133). The gaps -- no FixedInfo, and a PQC input
+  that does not come from an approved KEM -- are analysed in one place,
+  [`docs/vici-ppk.md`, "Appendix: SP 800-227"](../../docs/vici-ppk.md#appendix-sp-800-227-and-this-projects-key-combiner),
+  rather than in a second copy here that could drift from it. The adapter
+  stays bit-compatible with upstream's KDF; changing it is a wire-format break
+  for upstream to decide on.
 - `WIREGUARD_INTERFACE` and `WIREGUARD_PEER_PUBLIC_KEY` must still be set even
   though this adapter ignores them; upstream's config parser requires them
-  unconditionally. Making them conditional on the selected adapter is the
-  natural follow-up to the build-tag patch.
+  unconditionally. Making them conditional on the selected adapter is a
+  follow-up for the adapter PR.

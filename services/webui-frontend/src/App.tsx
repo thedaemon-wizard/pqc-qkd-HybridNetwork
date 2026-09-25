@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
 import Overview from "./pages/Overview";
@@ -34,8 +35,17 @@ const nav = [
   { to: "/protocol-lab", label: "Protocol Lab" },
 ];
 
+/** The site name, suffixed to each route's title. */
+const SITE_TITLE = "PQC-QKD Hybrid PoC";
+
 export default function App() {
   const location = useLocation();
+  // One title per route. index.html carried "PQC-QKD Hybrid PoC — Console" on
+  // every page, naming one route's page for all fourteen.
+  useEffect(() => {
+    const page = nav.find((n) => n.to === location.pathname)?.label;
+    document.title = page ? `${page} — ${SITE_TITLE}` : SITE_TITLE;
+  }, [location.pathname]);
   return (
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "#0d1320", padding: "1.5rem 1rem", borderRight: "1px solid #1d2741" }}>

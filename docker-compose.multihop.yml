@@ -41,7 +41,10 @@ services:
       WG_PEER_IP: 10.0.0.1
       WG_PEER_ENDPOINT: alice:51820
       ARNIKA_MODE: AtLeastQkdRequired
-      ARNIKA_INTERVAL: 30s
+      # Same variable as alice, whose second arnika instance is charlie's peer:
+      # arnika requires the interval to be identical on both ends, and a literal
+      # here silently diverged from alice whenever .env set another value.
+      ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
       # Both are required-or-exit in nodes/alice/entrypoint.sh, so charlie exited
       # before arnika started without them. ARNIKA_ID must differ in PARITY
       # from its peer's: the election uses only bit 0 of (HMAC byte XOR ID), so

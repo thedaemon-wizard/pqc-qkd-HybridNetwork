@@ -16,13 +16,28 @@ concurrency:
 permissions:
   contents: read
 
+# Runner and action versions are pinned on purpose.
+#
+# `runs-on` names ubuntu-24.04 rather than ubuntu-latest: the `latest` label is
+# scheduled to move to Ubuntu 26 from 2026-10-19, which would change the system
+# Python, the Docker engine and dash under every job without a commit here to
+# show for it. Moving to a newer image should be a reviewed diff.
+#
+# The actions are on their current majors (checkout, setup-python, setup-node
+# and setup-go v7, gitleaks-action v3), all of which run on Node 24. The Node 20
+# majors printed a deprecation annotation on every run, and Node 20 has been
+# removed from GitHub-hosted runners. Release notes were checked for removed
+# inputs before the bump: setup-python v7 drops `pip-install` and setup-node v6
+# limits automatic caching to npm; neither input is used here, and every
+# setup-node step names `cache: npm` explicitly.
+
 jobs:
   python:
     name: Python — lint and unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -44,7 +59,7 @@ jobs:
       - name: Lint
         run: ruff check services/ tests/ tools/ benchmarks/
 
-      # Three of the fifteen submodules, shallowly -- not `submodules:
+      # Three of the fourteen submodules, shallowly -- not `submodules:
       # recursive`. Each is here because a guard DERIVES a claim from it and
       # self-skips without it, which meant the guard was silent in the only job
       # that runs it:
@@ -82,6 +97,15 @@ jobs:
       - name: Generate the paper comparison the units guards read
         run: python tools/compare_to_paper.py
 
+      # tests/test_paper_budgets.py reads the redistributed paper PDF with
+      # `pdftotext` and skips its two PDF assertions (one table, numbered 1;
+      # the budgets printed in it) when the binary is absent. Installed here
+      # rather than assumed from the runner image, so those two run.
+      - name: Install pdftotext for the paper PDF guards
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y poppler-utils
+
       # Contract tests self-skip without a live KME; the `live-stack` job runs
       # them for real.
       - name: Unit tests
@@ -89,13 +113,13 @@ jobs:
 
   keyrate:
     name: Key-rate model — golden vector and port parity
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -114,10 +138,10 @@ jobs:
 
   frontend:
     name: Frontend — typecheck, test and build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -145,15 +169,31 @@ jobs:
 
   go:
     name: arnika VICI adapter — vet, build, test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # arnika hardens key material with runtime/secret, which needs 1.26.
           go-version: "1.26"
+          # The module cache is keyed on a go.sum, and by default setup-go looks
+          # for one at the repository root. There is none -- the only Go module
+          # built here is the pinned arnika tree -- so the cache restore failed
+          # with a warning on every run and never saved anything. arnika's own
+          # go.sum is the right key: build.sh builds that module, adding only
+          # govici on top.
+          cache-dependency-path: submodules/arnika/go.sum
+
+      # setup-python rather than the runner's system interpreter: Ubuntu 24.04
+      # marks that one externally-managed (PEP 668), so a bare `pip install`
+      # into it exits non-zero. It sits before the FIRST Python step of this
+      # job, so every guard below runs on the same interpreter; it used to sit
+      # before the last one, leaving the first two on the runner's own.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       # Builds the adapter against the pinned upstream arnika tree exactly as
       # nodes/strongswan/Dockerfile does, so the image build cannot be the
@@ -193,6 +233,12 @@ jobs:
         run: |
           python3 -m pytest tests/test_pqc_psk_file_is_read_by_the_pinned_arnika.py -q
 
+      # Same tree again: /keyflow quotes arnika's HKDF call as code, and this
+      # fails when a quoted line is no longer in the pinned kdf/kdf.go.
+      - name: The /keyflow page quotes the pinned arnika KDF verbatim
+        run: |
+          python3 -m pytest tests/test_keyflow_quotes_the_pinned_kdf.py -q
+
       # This guard derives its claims from two pinned trees -- strongSwan's
       # notify_payload.h (which Status Types exist, and that 16444 is still the
       # highest) plus ike_auth.c (that `ppk_required` is enforced on the
@@ -205,13 +251,7 @@ jobs:
       # `submodules: recursive`; adding 183 MB of strongSwan to the Python job
       # to run six assertions would cost every push far more than a pip
       # install of pytest costs this one.
-      # setup-python rather than the runner's system interpreter: Ubuntu 24.04
-      # marks that one externally-managed (PEP 668), so a bare `pip install`
-      # into it exits non-zero.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
+      #
       # pytest-asyncio is not used by this file. It is installed because
       # pytest.ini sets asyncio_mode and asyncio_default_fixture_loop_scope for
       # the suite as a whole, and without the plugin pytest prints two
@@ -226,9 +266,9 @@ jobs:
 
   env-example:
     name: Example env files satisfy the compose set
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Compose interpolates the ENTIRE file before selecting services, so a
       # missing ${VAR:?} aborts an `up` that names only unrelated ones. A
       # mandatory variable absent from the example file operators are told to
@@ -240,23 +280,36 @@ jobs:
 
   secrets:
     name: Secret scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      # Promised in the README pre-release checklist since before publication.
-      - uses: gitleaks/gitleaks-action@v2
+      # Scans committed content for credentials (keys, tokens, private keys).
+      # gitleaks reads the git history, not only the checked-out tree, which is
+      # why the checkout above fetches it in full (`fetch-depth: 0`, as the
+      # action's own example sets it).
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Commit MESSAGES are published alongside the tree, and gitleaks does not
-      # read them. This repository has already shipped a commit whose message
-      # named the assistant tooling used to drive a browser check -- in the very
-      # commit that removed those references from the files. Messages cannot be
-      # edited after the fact without rewriting history, so the check belongs on
-      # the way in.
-      - name: Commit messages are free of tooling references
+      # read them. Once pushed they cannot be corrected without rewriting a
+      # published branch, so the check belongs on the way in rather than in a
+      # later audit that can only report what is already public.
+      #
+      # The patterns are not restated here. scripts/scan_published_text.py
+      # applies the matchers the tracked-content guards already use -- tooling
+      # words, the demo host and public addresses, and the hashed private-file
+      # names, which cannot be written into this file without disclosing them
+      # -- plus the operator's numbered working notes, matched by digest in the
+      # same way. It refuses every Co-authored-by trailer on purpose (this
+      # repository has one author). It prints the commit and the category,
+      # never the matched text, because this log is public too.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Commit messages disclose no tooling, private file or host
         run: |
           set -eu
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -267,21 +320,15 @@ jobs:
           # A first push to a new branch reports an all-zero "before".
           case "${range}" in 0000000*) range="HEAD~1..HEAD" ;; esac
 
-          bad=$(git log --format='%H %s%n%b' "${range}" \
-                | grep -inE 'claude|anthropic|copilot|chatgpt|\bLLM\b|devtools mcp|co-authored-by: *claude' \
-                || true)
-          if [ -n "${bad}" ]; then
-            echo "::error::commit message(s) in ${range} reference assistant tooling:"
-            printf '%s\n' "${bad}"
-            exit 1
-          fi
-          echo "ok: no tooling references in ${range}"
+          # pytest only because the shared pattern module is a test module.
+          python -m pip install --quiet pytest
+          python scripts/scan_published_text.py --git-range "${range}"
 
   images:
     name: Container images build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -334,12 +381,12 @@ jobs:
 
   live-stack:
     name: ETSI GS QKD 014 and 004 contract tests (live KMEs)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pytest pytest-asyncio httpx
@@ -438,13 +485,13 @@ jobs:
 
   ipsec:
     name: strongSwan lane — two-node IKEv2 with ML-KEM and RFC 8784 PPK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Every assertion here corresponds to a defect that shipped because the lane
     # had only ever been exercised on a single node in isolation. A one-node
     # check can confirm that the config renders, the proposal parses and the PPK
     # loads -- and all three passed while the tunnel could not come up at all.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -472,15 +519,23 @@ jobs:
       # A tunnel can be ESTABLISHED with neither the post-quantum key exchange
       # nor the PPK: without ppk_required charon silently falls back to
       # NO_PPK_AUTH, which is the whole thing this project exists to prevent.
-      - name: Assert ML-KEM-768 and the PPK are in the negotiated proposal
+      # The expected ML-KEM parameter set is read from the IKE proposal the
+      # overlay configures rather than written here a second time, so a change
+      # of parameter set is asserted against what was configured instead of
+      # failing on a stale literal. The sed must match exactly one token; an
+      # empty result fails the step rather than asserting on nothing.
+      - name: Assert the configured ML-KEM and the PPK are in the negotiated proposal
         run: |
           set -eu
+          size=$(sed -n 's/^  IKE_PROPOSALS: .*-ke1_mlkem\([0-9][0-9]*\)$/\1/p' docker-compose.strongswan.yml)
+          [ -n "$size" ] || { echo "::error::no ke1_mlkem<N> in IKE_PROPOSALS of docker-compose.strongswan.yml"; exit 1; }
+          want="KE1_ML_KEM_${size}"
           for node in alice-ipsec bob-ipsec; do
             line=$(docker exec "$node" swanctl --list-sas | grep -m1 'ESTABLISHED' -A3 | grep -m1 'ML_KEM' || true)
             echo "$node: ${line:-<no proposal line>}"
             case "$line" in
-              *KE1_ML_KEM_768*) ;;
-              *) echo "::error::$node negotiated no ML-KEM-768"; exit 1 ;;
+              *"$want"*) ;;
+              *) echo "::error::$node negotiated no ${want}"; exit 1 ;;
             esac
             case "$line" in
               *"/PPK"*) ;;

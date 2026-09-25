@@ -1,14 +1,34 @@
 # =====================================================================
-# OpenSSL 3.4 + oqs-provider PQC TLS demo (algorithm agility lane).
+# oqs-provider PQC TLS demo on Debian trixie's OpenSSL 3.5 (agility lane).
 #
-# Crypto agility lane: maintains the broadest possible NIST PQC algorithm
-# space — ML-KEM/ML-DSA/SLH-DSA/Falcon/HQC/Classic McEliece — plus future
-# NIST round 4 candidates via the provider plugin mechanism.
+# What this lane adds over the native one (Dockerfile.openssl35-native) is the
+# provider mechanism: TLS groups that OpenSSL does not ship, loaded as a plugin
+# without rebuilding OpenSSL. On OpenSSL 3.5 the default provider already
+# offers MLKEM768, X25519MLKEM768 and SecP256r1MLKEM768; the provider adds the
+# rest of the list below, such as p384_mlkem768 and FrodoKEM (measured with
+# `openssl list -tls-groups` with and without it). It exposes no HQC group and
+# no Classic McEliece group, although the architecture notes once listed both
+# for this lane.
 #
-# Standards reference: RFC 7696 (Cryptographic Algorithm Agility),
-#                      NIST SP 800-131A Rev.3.
+# The server certificate is RSA-2048, so no post-quantum signature takes part
+# in the handshake; only key exchange is post-quantum here.
+#
+# Standards reference: RFC 7696 (Cryptographic Algorithm Agility).
+#
+# The oqs-provider pin (5fd81fb, 2026-05-12) predates four upstream fixes
+# merged since: a heap overflow in RSA-hybrid public-key reconstruction (#810,
+# GHSA-2g5g-3c4v-v8pw), a double free in oqsx_key_new (#816), a use-after-free
+# in hybrid KEM decapsulation (#829, GHSA-g63q-c378-wphj), and missing length
+# checks on hybrid KEM public keys (#814). No final release carries them yet
+# (0.12.0 is at release candidate), so this demo lane is for a local handshake,
+# not for peers you do not control. The pin is left where it is on purpose;
+# moving it is a separate, tested change.
+#
+# This lane was built on bookworm (OpenSSL 3.0.x) under a header that said
+# "OpenSSL 3.4". 3.0 reached upstream end of life on 2026-09-07, and the sibling
+# native lane was already on trixie, so both lanes now share one OpenSSL.
 # =====================================================================
-FROM debian:bookworm-slim AS oqs-builder
+FROM debian:trixie-slim AS oqs-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,29 +37,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY submodules/liboqs /src/liboqs
 WORKDIR /src/liboqs
+# The pinned liboqs 0.16.0 is inside the affected range of GHSA-wh5q-mpc8-67wf
+# (out-of-bounds read in LMS/HSS verification; fixed in 0.17.0). LMS is a
+# stateful signature that liboqs leaves OFF by default and this build does not
+# enable, so the check after the install asserts it stayed off rather than
+# assuming it: an upstream default flip would otherwise ship the flaw silently.
 RUN cmake -S . -B build -GNinja \
         -DCMAKE_INSTALL_PREFIX=/opt/oqs \
         -DBUILD_SHARED_LIBS=ON -DOQS_USE_OPENSSL=ON && \
-    cmake --build build --parallel && cmake --install build
+    cmake --build build --parallel && cmake --install build && \
+    test -f /opt/oqs/include/oqs/oqsconfig.h && \
+    ! grep -q "^#define OQS_ENABLE_SIG_STFL_LMS" /opt/oqs/include/oqs/oqsconfig.h
 
+# OPENSSL_MODULES_PATH is required, not tidy-up. Without it oqs-provider
+# installs its module into the SYSTEM OpenSSL's module directory
+# (/usr/lib/x86_64-linux-gnu/ossl-modules), outside /opt/oqs -- so the runtime
+# stage, which copies only /opt/oqs, never received oqsprovider.so. That was
+# true of every earlier build of this image, and nothing noticed because no
+# compose file runs it and no step ever loaded the provider.
 COPY submodules/oqs-provider /src/oqs-provider
 WORKDIR /src/oqs-provider
 RUN cmake -S . -B build -GNinja \
         -DCMAKE_PREFIX_PATH=/opt/oqs \
-        -DCMAKE_INSTALL_PREFIX=/opt/oqs && \
-    cmake --build build --parallel && cmake --install build
+        -DCMAKE_INSTALL_PREFIX=/opt/oqs \
+        -DOPENSSL_MODULES_PATH=/opt/oqs/lib/ossl-modules && \
+    cmake --build build --parallel && cmake --install build && \
+    test -f /opt/oqs/lib/ossl-modules/oqsprovider.so
 
 # ---------- runtime ----------
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        openssl libssl3 ca-certificates curl iproute2 jq && \
+        openssl libssl3t64 ca-certificates curl iproute2 jq && \
     rm -rf /var/lib/apt/lists/*
 
+# Same floor as the native lane: the group list below relies on OpenSSL's own
+# ML-KEM groups, which exist from 3.5.
+RUN openssl version | grep -E "OpenSSL [3-9]\.[5-9]" || \
+    (echo "ERROR: OpenSSL >= 3.5 required" >&2; exit 1)
+
 COPY --from=oqs-builder /opt/oqs /opt/oqs
-ENV OPENSSL_MODULES=/opt/oqs/lib64/ossl-modules:/opt/oqs/lib/ossl-modules
-ENV LD_LIBRARY_PATH=/opt/oqs/lib:/opt/oqs/lib64
+# One directory. OPENSSL_MODULES is not a search path: the colon-separated
+# `lib64/ossl-modules:lib/ossl-modules` this used to hold was taken as a single
+# directory name, so the provider could not have loaded even had it been copied.
+ENV OPENSSL_MODULES=/opt/oqs/lib/ossl-modules
+ENV LD_LIBRARY_PATH=/opt/oqs/lib
 
 # Self-signed cert
 RUN openssl req -x509 -newkey rsa:2048 -keyout /etc/ssl/private/server.key \
@@ -48,16 +91,36 @@ RUN openssl req -x509 -newkey rsa:2048 -keyout /etc/ssl/private/server.key \
 
 EXPOSE 4433
 
-# Algorithm agility lane: includes both NIST standards and experimental
-# algorithms (HQC, Falcon, SLH-DSA variants, etc.)
-# p384_kyber768 was listed here and does NOT exist in the pinned oqs-provider:
-# ALGORITHMS.md contains zero kyber group rows (Kyber was superseded by ML-KEM
-# when FIPS 203 landed). OpenSSL rejects the whole -groups string on an unknown
-# name, so this would have failed at runtime -- it was never caught because no
-# compose file instantiates this image. Every name below is verified present in
-# submodules/oqs-provider/ALGORITHMS.md. hqc128 was dropped for the same
-# reason: the pinned provider exposes no HQC group at all.
+# Groups, by where they come from on OpenSSL 3.5:
+#   X25519MLKEM768, mlkem768, SecP256r1MLKEM768   the default provider
+#   p384_mlkem768, frodo640aes                    oqs-provider
+# OpenSSL rejects the whole -groups string on an unknown name, so every entry
+# must resolve. p384_kyber768 was once listed and never existed in the pinned
+# provider; hqc128 was dropped because the provider exposes no HQC group.
 ENV TLS_GROUPS="X25519MLKEM768:p384_mlkem768:mlkem768:SecP256r1MLKEM768:frodo640aes"
+
+# The build must prove every group negotiates with both providers loaded. This
+# lane is in no compose file, so a runtime failure would otherwise surface only
+# when somebody ran it by hand -- which is how p384_kyber768 survived, and how
+# the missing oqsprovider.so above went unnoticed. The server's stdin is held
+# open by `sleep`: s_server treats end of stdin as a quit command, so with
+# /dev/null it shut down before the client's handshake finished.
+RUN set -e; \
+    openssl list -providers -provider default -provider oqsprovider \
+        | grep -q oqsprovider; \
+    for g in $(echo "${TLS_GROUPS}" | tr ':' ' '); do \
+        sleep 3 | openssl s_server -tls1_3 -provider default -provider oqsprovider \
+            -groups "${TLS_GROUPS}" -accept 127.0.0.1:4433 -naccept 1 \
+            -cert /etc/ssl/certs/server.crt -key /etc/ssl/private/server.key \
+            >/dev/null 2>&1 & \
+        sleep 1; \
+        echo | openssl s_client -tls1_3 -provider default -provider oqsprovider \
+                -groups "$g" -connect 127.0.0.1:4433 2>/dev/null \
+            | grep -qi "Negotiated TLS1.3 group: $g" \
+            || { echo "FATAL: group $g did not negotiate" >&2; exit 1; }; \
+        wait; \
+    done; \
+    echo "OK: every group in TLS_GROUPS negotiates"
 
 CMD ["sh", "-c", "OPENSSL_MODULES=${OPENSSL_MODULES} \
                   openssl s_server -tls1_3 -provider default -provider oqsprovider \

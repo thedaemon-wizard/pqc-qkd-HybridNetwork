@@ -1,22 +1,27 @@
 """Two pure-function endpoints were recomputed on every page load.
 
-Measured against the live demo 2026-08-28:
+Measured 2026-09-26 against the pqc-validator and bb84-kme images run on a
+development workstation, uncached (a small hosted VM is slower):
 
-    POST /api/pqc/agility     4.0 s   3 ML-KEM + 3 ML-DSA + 3 SLH-DSA
-                                      keygen/sign/verify in liboqs
-    GET  /api/verify/keyrate  1.1 s   closed form (microseconds) plus a scipy
-                                      optimise inside the TNO engine
+    POST /api/pqc/agility     1.7 s   3 ML-KEM + 3 HQC keygen/encap/decap and
+                                      3 ML-DSA + 4 SLH-DSA keygen/sign/verify/
+                                      reject-tampered in liboqs
+    GET  /api/verify/keyrate  1.0 s   closed form (microseconds) plus a scipy
+                                      optimise inside the TNO engine; first
+                                      call, then 0.2 s once it is imported
 
-`/verify` fetches both on mount, so every visitor cost about five seconds of
-server CPU before seeing anything, and N concurrent viewers multiplied it.
+`/verify` fetches both on mount, so uncached, every visitor costs the sum of
+the two in server CPU before seeing anything, and N concurrent viewers
+multiply it.
 
-CACHED RATHER THAN MOVED TO THE BROWSER, deliberately. `lib/sim/pqc.ts` already
-exports an `agilityMatrix()` computing the same matrix with
-@noble/post-quantum, and nothing calls it -- wiring it in would be the larger
-saving. It would also make the panel title "Crypto-Agility Matrix (liboqs ...)"
-and the citable export line "# Crypto-agility matrix (liboqs)" FALSE, because
-the numbers would then come from a different library. Provenance is what that
-page is for. The cache buys most of the time back and costs no honesty.
+CACHED RATHER THAN MOVED TO THE BROWSER, deliberately. `lib/sim/pqc.ts` exports
+an `agilityMatrix()` computing the same matrix with @noble/post-quantum, and
+/verify runs it only as an on-demand cross-check beside the liboqs rows. Using
+it as a replacement would be the larger saving. It would also make the panel
+title "Crypto-Agility Matrix (liboqs ...)" and the citable export line
+"# Crypto-agility matrix (liboqs)" FALSE, because the numbers would then come
+from a different library. Provenance is what that page is for. The cache buys
+most of the time back and costs no honesty.
 
 The key-rate cache is INVALIDATED rather than left on a TTL. A bare window
 would make VERIFICATION_CHECKLIST.md row 4.7.10 racy: it instructs the reader
@@ -87,14 +92,23 @@ def test_the_agility_cache_is_not_invalidated_by_config_changes():
     assert '"agility"' not in body
 
 
-def test_a_caller_supplying_an_explicit_algorithm_list_is_not_served_the_cache():
-    """The cached value answers the DEFAULT request only."""
+def test_a_caller_supplied_list_never_reaches_the_validator():
+    """The validator is asked for its default matrix and nothing else.
+
+    This used to read "a caller supplying an explicit list is not served the
+    cache" -- and the list was forwarded verbatim, unbounded, to a validator
+    that spends about 0.6 s per SLH-DSA entry. An explicit list is now answered
+    by selecting rows of the cached default matrix
+    (tests/test_pqc_agility_request_is_bounded.py pins the behaviour).
+    """
     src = _src()
-    i = src.index('@app.post("/api/pqc/agility")')
+    i = src.index("async def _fetch_default_agility(")
     body = src[i:src.index("\n@app.", i + 10)]
-    assert "cacheable = not req" in body, (
-        "a caller passing an explicit list would receive the default matrix")
-    assert re.search(r"if cacheable:", body)
+    assert 'json={}' in body, "the default-matrix fetch no longer posts an empty body"
+    i = src.index('@app.post("/api/pqc/agility")')
+    handler = src[i:src.index("\n@app.", i + 10)]
+    assert "json=req" not in handler and "json=req" not in body, (
+        "a caller's body is forwarded to the validator again")
 
 
 def test_the_ttls_are_env_overridable_and_have_defaults():

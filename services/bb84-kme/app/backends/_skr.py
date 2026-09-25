@@ -1,4 +1,6 @@
-"""Shared SKR helpers: Lo-Ma 2005 asymptotic decoy bound + Lim et al. 2014
+"""Shared SKR helpers: the asymptotic decoy-state bound of Lo-Ma-Chen (PRL 94,
+230504 (2005)) with the channel model and two-decoy bounds of Ma et al. (PRA 72,
+012326 (2005)), as docs/keyrate.md cites them, and the Lim et al. 2014
 finite-key analysis (PRA 89, 022307, arXiv:1311.7129).
 
 Used by every backend that needs a science-grounded channel model, OR a
@@ -19,12 +21,12 @@ def total_transmittance(eta_d: float, alpha_db_per_km: float, L_km: float) -> fl
 
 
 def gain_Qmu(Y0: float, eta_total: float, intensity: float) -> float:
-    """Q_μ = Y0 + 1 - exp(-η·μ)  (Lo-Ma 2005 eq 32)."""
+    """Q_μ = Y0 + 1 - exp(-η·μ)  (Ma et al., PRA 72, 012326 (2005), Eq. 10; docs/keyrate.md)."""
     return Y0 + 1.0 - math.exp(-eta_total * intensity)
 
 
 def qber_Emu(Y0: float, eta_total: float, e_d: float, intensity: float) -> float:
-    """E_μ = [Y0/2 + e_d·(1 - exp(-η·μ))] / Q_μ."""
+    """E_μ = [Y0/2 + e_d·(1 - exp(-η·μ))] / Q_μ  (Ma et al. 2005, Eq. 11)."""
     q = gain_Qmu(Y0, eta_total, intensity)
     if q <= 0.0:
         return 0.5

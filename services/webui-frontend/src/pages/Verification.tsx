@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { crossCheckAgility, type CrossCheckResult } from "../lib/sim/agilityCrossCheck";
+import { assumptionOf, crossCheckAgility, type CrossCheckResult } from "../lib/sim/agilityCrossCheck";
 
 import { describeVerdict } from "./crosscheckVerdict";
 import PageHeader from "../components/PageHeader";
@@ -14,8 +14,9 @@ import { colors } from "../lib/commonStyles";
  * Implementation Verification page.
  *
  * Aggregates three independent "research-implementation verification" checks:
- *  1. Crypto-agility matrix — ML-KEM (encap/decap) + ML-DSA (sign/verify) across
- *     all NIST security levels via liboqs. A PQClean column used to sit here
+ *  1. Crypto-agility matrix — ML-KEM (encap/decap), ML-DSA and SLH-DSA
+ *     (sign, verify, reject a tampered message) via liboqs, cross-checked
+ *     in the browser against @noble. A PQClean column used to sit here
  *     reporting test-binary presence; it was always "—" because the binaries
  *     are never built, so it advertised a comparison that never ran.
  *  2. Key-rate cross-check — our closed-form Lo-Ma rate vs the independent
@@ -26,7 +27,24 @@ import { colors } from "../lib/commonStyles";
 interface AgilityRow {
   algo: string; family: string; enabled: boolean; ok: boolean;
   pk_len?: number; ct_len?: number; ss_len?: number; sig_len?: number;
+  /** SIG rows: a tampered message was verified and rejected. */
+  rejects_tampered?: boolean;
+  assumption?: string;
   error?: string;
+}
+
+/**
+ * The liboqs verdict for one row. A signature passes only if the genuine
+ * message verified AND the tampered one was rejected; `ok` alone was
+ * `verify(...)`, which a verify that accepts everything also passes.
+ */
+function liboqsVerdict(r: AgilityRow): { text: string; pass: boolean } {
+  if (!r.enabled) return { text: "n/a", pass: false };
+  if (r.family !== "SIG") return r.ok ? { text: "PASS ✓", pass: true } : { text: "FAIL ✗", pass: false };
+  if (!r.ok) return { text: "FAIL ✗ (verify)", pass: false };
+  if (r.rejects_tampered === true) return { text: "PASS ✓ (verify + rejects tampered)", pass: true };
+  if (r.rejects_tampered === false) return { text: "FAIL ✗ (accepted a tampered message)", pass: false };
+  return { text: "verify ✓ · tamper check not reported", pass: false };
 }
 
 export default function Verification() {
@@ -47,6 +65,8 @@ export default function Verification() {
     setCrossBusy(true);
     // Yield first so the button's disabled state paints before the main
     // thread is taken; without this the UI shows nothing until it finishes.
+    // (The cost is the browser running its four SLH-DSA sets, SHA2 128s, 128f,
+    // 192s and 256s; the liboqs matrix runs the same four server-side.)
     await new Promise((r) => setTimeout(r, 0));
     try {
       setCross(crossCheckAgility(agility?.matrix ?? null));
@@ -100,7 +120,18 @@ export default function Verification() {
 
   return (
     <div>
-      {/* This page is headed "Implementation Verification" and had no way to
+      <PageHeader
+        title="Implementation Verification"
+        subtitle={
+          <>Independent evidence that this PoC matches the research it implements:
+            crypto-agility across NIST PQC algorithms (liboqs), a key-rate
+            cross-check against the independent <b>TNO-Quantum</b> engine, and the
+            paper packet budgets from <code>arXiv:2604.05599</code>.</>
+        }
+      />
+
+      {/* Below the header, as on every other page. This page is headed
+          "Implementation Verification" and had no way to
           export the verification. Whoever needs the evidence -- a reviewer, a
           paper appendix -- had to screenshot a table. The whole point of the
           page is producing something citable. */}
@@ -118,7 +149,7 @@ export default function Verification() {
             const rows = agility?.matrix ?? [];
             for (const r of rows) {
               lines.push(`${r.algo}\t${r.family}\t${r.enabled ? "enabled" : "disabled"}`
-                + `\t${r.ok ? "PASS" : "FAIL"}`
+                + `\t${liboqsVerdict(r).text}`
                 + (r.pk_len ? `\tpk=${r.pk_len}` : "")
                 + (r.ct_len ? ` ct=${r.ct_len}` : "")
                 + (r.ss_len ? ` ss=${r.ss_len}` : "")
@@ -143,7 +174,9 @@ export default function Verification() {
               // names put "total_packets<TAB>undefined" in the export while the
               // panel beside it rendered 9 and 5248 from that same response, and
               // the export is the only artefact a reviewer can cite.
-              lines.push("#", "# Paper budgets (arXiv:2604.05599 Table 1)");
+              // "paper_total_*" is the SUM of Table 1's three rows, computed
+              // by the backend; the paper prints no total.
+              lines.push("#", "# Paper budgets (arXiv:2604.05599 Table 1; paper_total_* = sum of its rows)");
               lines.push(`computed_total_packets\t${cite(budgets.computed_total_packets)}`);
               lines.push(`paper_total_packets\t${cite(budgets.paper_total_packets)}`);
               lines.push(`computed_total_bytes\t${cite(budgets.computed_total_bytes)}`);
@@ -156,21 +189,15 @@ export default function Verification() {
           jsonProvider={() => ({ agility, keyrate, budgets })}
           csvProvider={() => (agility?.matrix ?? []).map((r: any) => ({
             algo: r.algo, family: r.family, enabled: r.enabled, ok: r.ok,
+            // null, not false, for a KEM row or a validator that does not
+            // report it: absent is "not checked", not "failed".
+            rejects_tampered: typeof r.rejects_tampered === "boolean" ? r.rejects_tampered : null,
+            assumption: r.assumption ?? assumptionOf(r.algo),
             pk_len: r.pk_len ?? null, ct_len: r.ct_len ?? null,
             ss_len: r.ss_len ?? null, sig_len: r.sig_len ?? null,
           }))}
         />
       </div>
-
-      <PageHeader
-        title="Implementation Verification"
-        subtitle={
-          <>Independent evidence that this PoC matches the research it implements:
-            crypto-agility across NIST PQC algorithms (liboqs), a key-rate
-            cross-check against the independent <b>TNO-Quantum</b> engine, and the
-            paper packet budgets from <code>arXiv:2604.05599</code>.</>
-        }
-      />
 
       <div style={{ margin: "12px 0" }}>
         <Button variant="primary" onClick={runAll} disabled={busy}>
@@ -184,7 +211,7 @@ export default function Verification() {
           algorithms (main.py DEFAULT_SIG_ALGOS), three of them SLH-DSA,
           so the matrix is nine rows and the panel rendered three families
           under a heading naming two. */}
-      <Panel title="1 · Crypto-Agility Matrix (liboqs — ML-KEM, ML-DSA, SLH-DSA)">
+      <Panel title="1 · Crypto-Agility Matrix (liboqs — ML-KEM, HQC, ML-DSA, SLH-DSA)">
         {!agility ? (failed.agility ? <NotObserved why={failed.agility} /> : <Loading />) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
@@ -199,17 +226,21 @@ export default function Verification() {
               <thead>
                 <tr style={{ color: colors.textMute, textAlign: "left" }}>
                   <th style={th}>Algorithm</th><th style={th}>Family</th>
+                  <th style={th}>Hardness assumption</th>
                   <th style={th}>liboqs</th><th style={th}>sizes (B)</th>
                 </tr>
               </thead>
               <tbody>
-                {(agility.matrix as AgilityRow[]).map((r) => (
+                {(agility.matrix as AgilityRow[]).map((r) => {
+                  const v = liboqsVerdict(r);
+                  return (
                   <tr key={r.algo} style={{ borderTop: `1px solid ${colors.border}` }}>
                     <td style={td}>{r.algo}</td>
                     <td style={td}>{r.family}</td>
-                    <td style={{ ...td, color: r.ok ? colors.success : colors.danger,
+                    <td style={td}>{r.assumption ?? assumptionOf(r.algo) ?? "not recorded"}</td>
+                    <td style={{ ...td, color: v.pass ? colors.success : r.enabled ? colors.warn : colors.textMute,
                                   fontWeight: 700 }}>
-                      {r.ok ? "PASS ✓" : (r.enabled ? "FAIL ✗" : "n/a")}
+                      {v.text}
                     </td>
                     <td style={{ ...td, fontFamily: "monospace" }}>
                       {r.family === "KEM"
@@ -217,15 +248,19 @@ export default function Verification() {
                         : `pk ${r.pk_len ?? "–"} · sig ${r.sig_len ?? "–"}`}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
-              Crypto-agility = swapping the algorithm is one list edit; all NIST
-              levels run through the same interface — ML-KEM 512/768/1024,
-              ML-DSA 44/65/87 and SLH-DSA-SHA2 128s/192s/256s. The last three
-              are hash-based rather than lattice-based, which is the point: the
-              interface does not care what the hardness assumption is.
+              This matrix shows that one interface runs every listed parameter
+              set — KEMs ML-KEM 512/768/1024 and HQC-1/3/5, signatures ML-DSA
+              44/65/87 and SLH-DSA-SHA2 128s/128f/192s/256s. HQC is code-based
+              and SLH-DSA hash-based rather than lattice-based (the assumption
+              column), which is the point: the interface does not care what the
+              hardness assumption is. That is
+              agility of this test harness; the system-level agility is the
+              environment-driven IKE proposal on <code>/vpn</code>.
             </p>
           </>
         )}
@@ -254,30 +289,42 @@ export default function Verification() {
               Independent cross-check &mdash; the same matrix in your browser
               (@noble)
             </b>
-            <Row k="Algorithms both implementations ran"
-                 v={`${cross.compared.length}`} />
-            <Row k="Round-trip passes in BOTH (strong)"
-                 v={cross.allBothPass ? "yes" : "no"}
-                 ok={cross.allBothPass} />
-            <Row k="Byte lengths agree (weak &mdash; both read the same FIPS table)"
-                 v={cross.allLengthsAgree ? "yes" : "no"}
-                 ok={cross.allLengthsAgree} />
-            {cross.serverOnly.length > 0 && (
-              <Row k="liboqs only, not exercised in-browser"
-                   v={cross.serverOnly.join(", ")} />
-            )}
-            {cross.clientOnly.length > 0 && (
-              <Row k="In-browser only, not in the liboqs matrix"
-                   v={cross.clientOnly.join(", ")} />
-            )}
-            {cross.compared.flatMap((c) => c.lengthNotes).map((n, i) => (
-              <Row key={i} k="Length mismatch" v={n} ok={false} />
-            ))}
+            {/* A <table>: Row renders a <tr>, which this block placed straight
+                inside a <div> -- invalid nesting, and a broken layout. */}
+            <table style={{ width: "100%", fontSize: 12, color: colors.textPri }}>
+              <tbody>
+                <Row k="Algorithms both implementations ran"
+                     v={`${cross.compared.length}`} />
+                <Row k="Round-trip passes in BOTH (strong)"
+                     v={cross.allBothPass ? "yes" : "no"}
+                     ok={cross.allBothPass} />
+                <Row k="Byte lengths agree (weak — both read the same FIPS table)"
+                     v={cross.allLengthsAgree ? "yes" : "no"}
+                     ok={cross.allLengthsAgree} />
+                {cross.serverTamperNotReported.length > 0 && (
+                  <Row k="liboqs signatures with no tampered-message check reported"
+                       v={cross.serverTamperNotReported.join(", ")} ok={false} />
+                )}
+                {cross.serverOnly.length > 0 && (
+                  <Row k="liboqs only, not exercised in-browser"
+                       v={cross.serverOnly.join(", ")} />
+                )}
+                {cross.clientOnly.length > 0 && (
+                  <Row k="In-browser only, not in the liboqs matrix"
+                       v={cross.clientOnly.join(", ")} />
+                )}
+                {cross.compared.flatMap((c) => c.lengthNotes).map((n, i) => (
+                  <Row key={i} k="Length mismatch" v={n} ok={false} />
+                ))}
+              </tbody>
+            </table>
             <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
               Two independently written implementations exercising the same
               algorithm set. What is strong here is that both ran a real
-              round-trip and both passed &mdash; for signatures that means
-              verifying a good signature <i>and</i> rejecting a tampered one.
+              round-trip and both passed &mdash; for signatures that means, on
+              both sides, verifying a good signature <i>and</i> rejecting a
+              tampered one; a liboqs row that does not report its tampered-message
+              check (<code>rejects_tampered</code>) is not counted as a pass.
               What is weak is length agreement: both read the same FIPS
               203/204/205 parameter tables, so a wrong implementation produces
               the right sizes too. The conclusive test &mdash; liboqs
@@ -344,19 +391,25 @@ export default function Verification() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
                            gap: 12, marginBottom: 12 }}>
               <KPI label="Computed packets" value={budgets.computed_total_packets ?? "—"} />
-              <KPI label="Paper packets" value={budgets.paper_total_packets ?? "—"} />
+              <KPI label="Table 1 rows, summed (packets)" value={budgets.paper_total_packets ?? "—"} />
               <KPI label="Computed bytes" value={budgets.computed_total_bytes ?? "—"} />
-              <KPI label="Paper bytes" value={budgets.paper_total_bytes ?? "—"} />
+              <KPI label="Table 1 rows, summed (bytes)" value={budgets.paper_total_bytes ?? "—"} />
             </div>
             <table style={{ width: "100%", fontSize: 12, color: colors.textPri }}>
               <tbody>
-                <Row k="Packets match paper" v={budgets.packets_match ? "YES ✓" : "no"}
+                <Row k="Packets match the Table 1 row sum" v={budgets.packets_match ? "YES ✓" : "no"}
                      ok={budgets.packets_match} />
-                <Row k="Bytes match paper" v={budgets.bytes_match ? "YES ✓" : "no"}
+                <Row k="Bytes match the Table 1 row sum" v={budgets.bytes_match ? "YES ✓" : "no"}
                      ok={budgets.bytes_match} />
                 <Row k="Reference" v={budgets.reference} />
               </tbody>
             </table>
+            <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
+              Table 1 prints three rows (WireGuard, Arnika, Rosenpass) and no
+              total, so the "Table 1" figures are those rows added up, not a
+              number the paper states. The check catches an edited per-phase
+              budget; it is not a comparison with a printed total.
+            </p>
           </>
         )}
       </Panel>

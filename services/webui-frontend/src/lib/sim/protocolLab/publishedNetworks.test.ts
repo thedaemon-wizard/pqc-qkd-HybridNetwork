@@ -120,6 +120,39 @@ describe("the values the review flagged", () => {
     expect(l.notes.join(" ")).toMatch(/keystore/);
   });
 
+  it("does not call Thuringia's keystore hop 'not QKD': the source says only 'not live'", () => {
+    const l = presetById("thuringia-2026").links.find((x) => x.id === "IOF-UKJ")!;
+    const text = l.notes.join(" ");
+    expect(text).not.toMatch(/\bnot QKD\b/);
+    expect(text).toMatch(/previously generated keys from a local keystore/);
+    expect(text).toMatch(/does not say how the stored keys were generated/);
+    // The model column is the other place the hop is described.
+    const why = modelRateFor(l);
+    expect(why.bps).toBeNull();
+    expect("why" in why ? why.why : "").not.toMatch(/\bnot (a )?QKD\b/);
+    expect("why" in why ? why.why : "").toMatch(/not live QKD/);
+  });
+
+  it("does not claim the Thuringia layering is this repository's", () => {
+    // In the paper arnika carries QKD-only keys per hop and PQC is a separate
+    // end-to-end tunnel; here arnika mixes the Rosenpass key into each hop.
+    const text = presetById("thuringia-2026").notes.join(" ");
+    expect(text).not.toMatch(/same layering as this repository/);
+    expect(text).toMatch(/QKD keys only on each hop/);
+    expect(text).toMatch(/mixes a Rosenpass key into each hop's WireGuard PSK/);
+  });
+
+  it("says Thuringia's values are campaign averages with temporal spreads", () => {
+    const p = presetById("thuringia-2026");
+    const snd = p.links.find((x) => x.id === "SND-ERF")!;
+    const erf = p.links.find((x) => x.id === "ERF-IOF")!;
+    expect(snd.rate!.qualifier).toBe("average");
+    expect(snd.qber!.qualifier).toBe("average");
+    expect(erf.qber!.qualifier).toBe("average");
+    expect(p.notes.join(" ")).toMatch(/temporal standard deviations/);
+    expect(snd.notes.join(" ")).toMatch(/generates at this mean continuously/);
+  });
+
   it("binds no MadQCI rate to a span, and says why", () => {
     const p = presetById("madqci-2024");
     expect(p.links.every((l) => l.rate === null)).toBe(true);

@@ -1,17 +1,37 @@
 /**
- * Multi-hop trusted-node topology SVG (Phase 14).
+ * Multi-hop trusted-node topology SVG.
  *
  * Faithful to the arnika-project/arnika image:
  *   End Node Alice | Trusted Node × N | End Node Bob
  *
  * Each column stacks: QKD Device → KMS Keystore (ETSI 014) → Arnika → VPN
  * WireGuard. End-node columns also carry PQC Rosenpass and a DATA IPv4/IPv6
- * box at the bottom. Numbered phase markers (① Quantum Plane / ② QKD Key
- * IDs / ③ PQC Handshake / ④ Data Exchange) highlight per the live
- * orchestrator phase prop.
+ * box at the bottom. The numbered markers are paperSim's five phases
+ * (PHASE_NAMES), and every box and connector lights on the phase that
+ * paperSim's PHASE_OF_LAYER assigns to its layer:
+ *   1 Quantum Plane   QKD devices and the quantum-plane connectors
+ *   2 key_ID          KMS keystores, Arnika and the key_ID connectors
+ *   3 WireGuard hop   hop WireGuard boxes and the hop-tunnel connectors
+ *   4 Rosenpass PQC   the Rosenpass boxes and the end-to-end handshake arc
+ *   5 Data tunnel     the final WireGuard boxes, the data line and DATA
+ *
+ * The body used to keep the four /e2e phases after the legend moved to five:
+ * the Rosenpass arc lit at phase 3 (the WireGuard hop) and the data line at
+ * phase 4 (the Rosenpass handshake), and legend entry 5 had no colour, so it
+ * rendered black. This SVG is the PNG/WebM/GIF export target, so the mismatch
+ * travelled with every export.
  */
 import { colors } from "../lib/commonStyles";
-import { PHASE_NAMES } from "../lib/sim/paperSim";
+import { MAX_HOP_COUNT, PHASE_NAMES, PHASE_OF_LAYER } from "../lib/sim/paperSim";
+
+/** One colour per paperSim phase, matching the boxes that phase lights. */
+export const PHASE_COLOR: Record<number, string> = {
+  [PHASE_OF_LAYER.qkd]: colors.success,       // green: QKD devices
+  [PHASE_OF_LAYER.arnika]: colors.qkd,        // orange: KMS + Arnika key_ID
+  [PHASE_OF_LAYER.wireguard]: colors.vpn,     // purple: WireGuard hop tunnel
+  [PHASE_OF_LAYER.rosenpass]: colors.pqc,     // pink: Rosenpass PQC handshake
+  [PHASE_OF_LAYER.data]: colors.danger,       // red: final data tunnel
+};
 
 export interface MultiHopTopologyProps {
   hopCount: number;       // number of Trusted Nodes between Alice and Bob
@@ -33,7 +53,7 @@ const CIRCLED: Record<number, string> = {
 export default function MultiHopTopologySvg({
   hopCount, currentPhase, failureLayer, cascadeStages, idle,
 }: MultiHopTopologyProps) {
-  const tnCount = Math.max(0, Math.min(8, hopCount));
+  const tnCount = Math.max(0, Math.min(MAX_HOP_COUNT, hopCount));
   // Build columns: [Alice, TN1, TN2, ..., TNn, Bob]
   const cols: { label: string; isEnd: boolean }[] = [
     { label: "End Node Alice", isEnd: true },
@@ -57,12 +77,9 @@ export default function MultiHopTopologySvg({
   const glow = (active: boolean, hex: string) =>
     active && currentPhase > 0 ? `drop-shadow(0 0 6px ${hex})` : "none";
   const dimUnless = (active: boolean) => (active ? 1 : 0.4);
-  const phaseColor: Record<number, string> = {
-    1: colors.vpn,         // purple
-    2: colors.qkd,         // orange
-    3: colors.pqc,         // pink (PQC handshake)
-    4: colors.danger,      // red (final data exchange)
-  };
+  const phaseColor = PHASE_COLOR;
+  /** True while paperSim is in the phase that drives `layer`. */
+  const on = (layer: keyof typeof PHASE_OF_LAYER) => currentPhase === PHASE_OF_LAYER[layer];
 
   // Injected-failure highlight: outline the affected layer's box(es) red so the
   // failure is visually unambiguous (not just the bottom banner).
@@ -145,17 +162,13 @@ export default function MultiHopTopologySvg({
         const x = padL + i * (colW + colGap);
         const boxX = x + 18;
         const boxW = colW - 36;
-        const phase2Active = currentPhase === 2;
-        const phase3Active = currentPhase === 3;
-        const phase4Active = currentPhase === 4 || currentPhase === 5;
-
         return (
           <g key={`stack-${i}`}>
             {/* QKD Device */}
             <rect x={boxX} y={70} width={boxW} height={50} rx={5}
                   fill={"#0f3326"} stroke={failStroke("qkd", colors.success)}
                   strokeWidth={failWidth("qkd")}
-                  style={{ filter: failGlow("qkd", glow(currentPhase === 1, colors.success)) }} />
+                  style={{ filter: failGlow("qkd", glow(on("qkd"), colors.success)) }} />
             <text x={boxX + boxW / 2} y={92} fill={colors.success}
                   fontSize={12} textAnchor="middle" fontWeight={700}>QKD Device</text>
             <text x={boxX + boxW / 2} y={108} fill={colors.success}
@@ -165,7 +178,7 @@ export default function MultiHopTopologySvg({
             <rect x={boxX} y={140} width={boxW} height={60} rx={5}
                   fill={"#0f3326"} stroke={failStroke("qkd", colors.success)}
                   strokeWidth={failWidth("qkd")}
-                  style={{ filter: failGlow("qkd", glow(phase2Active, colors.success)) }} />
+                  style={{ filter: failGlow("qkd", glow(on("arnika"), colors.success)) }} />
             <text x={boxX + boxW / 2} y={162} fill={colors.success}
                   fontSize={11} textAnchor="middle" fontWeight={700}>KMS Keystore</text>
             <text x={boxX + boxW / 2} y={178} fill={colors.success}
@@ -177,7 +190,7 @@ export default function MultiHopTopologySvg({
             <rect x={boxX} y={230} width={boxW} height={50} rx={5}
                   fill={`${colors.qkd}25`} stroke={failStroke("arnika", colors.qkd)}
                   strokeWidth={failWidth("arnika")}
-                  style={{ filter: failGlow("arnika", glow(phase2Active, colors.qkd)) }} />
+                  style={{ filter: failGlow("arnika", glow(on("arnika"), colors.qkd)) }} />
             <text x={boxX + boxW / 2} y={252} fill={colors.qkd}
                   fontSize={12} textAnchor="middle" fontWeight={700}>Arnika</text>
             <text x={boxX + boxW / 2} y={268} fill={colors.qkd}
@@ -187,7 +200,7 @@ export default function MultiHopTopologySvg({
             <rect x={boxX} y={320} width={boxW} height={50} rx={5}
                   fill={`${colors.vpn}25`} stroke={failStroke("wireguard", colors.vpn)}
                   strokeWidth={failWidth("wireguard")}
-                  style={{ filter: failGlow("wireguard", glow(phase3Active || phase4Active, colors.vpn)) }} />
+                  style={{ filter: failGlow("wireguard", glow(on("wireguard"), colors.vpn)) }} />
             <text x={boxX + boxW / 2} y={342} fill={colors.vpn}
                   fontSize={12} textAnchor="middle" fontWeight={700}>VPN WireGuard</text>
             <text x={boxX + boxW / 2} y={358} fill={colors.vpn}
@@ -199,7 +212,7 @@ export default function MultiHopTopologySvg({
                 <rect x={boxX} y={410} width={boxW} height={50} rx={5}
                       fill={`${colors.pqc}25`} stroke={failStroke("rosenpass", colors.pqc)}
                       strokeWidth={failWidth("rosenpass")}
-                      style={{ filter: failGlow("rosenpass", glow(phase3Active, colors.pqc)) }} />
+                      style={{ filter: failGlow("rosenpass", glow(on("rosenpass"), colors.pqc)) }} />
                 <text x={boxX + boxW / 2} y={432} fill={colors.pqc}
                       fontSize={12} textAnchor="middle" fontWeight={700}>PQC Rosenpass</text>
                 <text x={boxX + boxW / 2} y={448} fill={colors.pqc}
@@ -208,7 +221,7 @@ export default function MultiHopTopologySvg({
                 <rect x={boxX} y={490} width={boxW} height={50} rx={5}
                       fill={`${colors.danger}20`} stroke={colors.danger}
                       strokeWidth={failWidth("data")}
-                      style={{ filter: failGlow("data", glow(phase4Active, colors.danger)) }} />
+                      style={{ filter: failGlow("data", glow(on("data"), colors.danger)) }} />
                 <text x={boxX + boxW / 2} y={512} fill={colors.danger}
                       fontSize={12} textAnchor="middle" fontWeight={700}>Final WG tunnel</text>
                 <text x={boxX + boxW / 2} y={528} fill={colors.danger}
@@ -217,7 +230,7 @@ export default function MultiHopTopologySvg({
                 <rect x={boxX} y={570} width={boxW} height={40} rx={5}
                       fill="#1a2440" stroke={failStroke("data", colors.borderLt)}
                       strokeWidth={failWidth("data")}
-                      style={{ filter: failGlow("data", "none") }} />
+                      style={{ filter: failGlow("data", glow(on("data"), colors.danger)) }} />
                 <text x={boxX + boxW / 2} y={596} fill={colors.textPri}
                       fontSize={11} textAnchor="middle">DATA IPv4 / IPv6</text>
               </>
@@ -230,24 +243,20 @@ export default function MultiHopTopologySvg({
       {cols.slice(0, -1).map((_, i) => {
         const xL = padL + i * (colW + colGap) + colW - 18;
         const xR = padL + (i + 1) * (colW + colGap) + 18;
-        const phase1Active = currentPhase === 1;
-        const phase2Active = currentPhase === 2;
-        const phase3Active = currentPhase === 3;
-        const phase4Active = currentPhase === 4 || currentPhase === 5;
         return (
           <g key={`conn-${i}`}>
-            {/* ① QKD Device ↔ QKD Device (Quantum Plane, dashed purple) */}
+            {/* QKD Device ↔ QKD Device (Quantum Plane, dashed) */}
             <line x1={xL} y1={95} x2={xR} y2={95}
-                  stroke={colors.vpn} strokeWidth={2} strokeDasharray="4 4"
-                  opacity={dimUnless(phase1Active)} />
-            {/* ② Arnika ↔ Arnika (orange dashed key_ID exchange) */}
+                  stroke={phaseColor[PHASE_OF_LAYER.qkd]} strokeWidth={2} strokeDasharray="4 4"
+                  opacity={dimUnless(on("qkd"))} />
+            {/* Arnika ↔ Arnika (dashed key_ID exchange) */}
             <line x1={xL} y1={255} x2={xR} y2={255}
-                  stroke={colors.qkd} strokeWidth={2} strokeDasharray="6 3"
-                  opacity={dimUnless(phase2Active)} />
-            {/* ③ WG ↔ WG hop tunnel (solid pink/magenta) */}
+                  stroke={phaseColor[PHASE_OF_LAYER.arnika]} strokeWidth={2} strokeDasharray="6 3"
+                  opacity={dimUnless(on("arnika"))} />
+            {/* WG ↔ WG hop tunnel (solid) */}
             <line x1={xL} y1={345} x2={xR} y2={345}
-                  stroke={colors.pqc} strokeWidth={2.5}
-                  opacity={dimUnless(phase3Active)} />
+                  stroke={phaseColor[PHASE_OF_LAYER.wireguard]} strokeWidth={2.5}
+                  opacity={dimUnless(on("wireguard"))} />
           </g>
         );
       })}
@@ -259,17 +268,16 @@ export default function MultiHopTopologySvg({
         const aliceCx = padL + 18 + (colW - 36) / 2;
         const bobCx = padL + (cols.length - 1) * (colW + colGap) + 18 + (colW - 36) / 2;
         const rpTop = 410;            // Rosenpass box top edge (box is y=410 h=50)
-        const phase3Active = currentPhase === 3;
         const midX = (aliceCx + bobCx) / 2;
         return (
-          <g opacity={dimUnless(phase3Active)}>
+          <g opacity={dimUnless(on("rosenpass"))}>
             <path d={`M ${aliceCx} ${rpTop} Q ${midX} 388 ${bobCx} ${rpTop}`}
                   fill="none" stroke={colors.pqc} strokeWidth={2.5} />
             <circle cx={aliceCx} cy={rpTop} r={3} fill={colors.pqc} />
             <circle cx={bobCx} cy={rpTop} r={3} fill={colors.pqc} />
             <text x={midX} y={381} fill={colors.pqc} fontSize={11}
                   textAnchor="middle">
-              ③ PQC Handshake (Rosenpass end-to-end)
+              {CIRCLED[PHASE_OF_LAYER.rosenpass]} PQC Handshake (Rosenpass end-to-end)
             </text>
           </g>
         );
@@ -282,17 +290,16 @@ export default function MultiHopTopologySvg({
         const aliceRight = padL + 18 + (colW - 36);                         // Alice box right edge
         const bobLeft = padL + (cols.length - 1) * (colW + colGap) + 18;    // Bob box left edge
         const yMid = 515;          // Final-WG box mid (box is y=490 h=50)
-        const phase4Active = currentPhase === 4 || currentPhase === 5;
         const midX = (aliceRight + bobLeft) / 2;
         return (
-          <g opacity={dimUnless(phase4Active)}>
+          <g opacity={dimUnless(on("data"))}>
             <line x1={aliceRight} y1={yMid} x2={bobLeft} y2={yMid}
                   stroke={colors.danger} strokeWidth={3} />
             <circle cx={aliceRight} cy={yMid} r={3} fill={colors.danger} />
             <circle cx={bobLeft} cy={yMid} r={3} fill={colors.danger} />
             <text x={midX} y={508} fill={colors.danger} fontSize={11}
                   textAnchor="middle" fontWeight={600}>
-              ④ Data Exchange (ChaCha20-Poly1305)
+              {CIRCLED[PHASE_OF_LAYER.data]} Data Exchange (ChaCha20-Poly1305)
             </text>
           </g>
         );

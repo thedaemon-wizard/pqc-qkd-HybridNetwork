@@ -37,8 +37,12 @@ def test_per_phase_values_match_table_iii():
     assert actual == expected
 
 
-def test_totals_are_the_published_figures():
-    """9 packets / 5248 bytes for one full multi-hop handshake cycle."""
+def test_totals_are_the_sum_of_the_table_1_rows():
+    """9 packets / 5248 bytes for one full multi-hop handshake cycle.
+
+    Sums of Table 1's three rows (3+2+4, 398+78+4772). The paper prints the
+    rows, not a total; this test used to call the sums "the published figures".
+    """
     assert paper_budgets.TOTAL_HANDSHAKE_PACKETS == 9
     assert paper_budgets.TOTAL_HANDSHAKE_BYTES == 5248
 
@@ -71,49 +75,91 @@ def test_mean_setup_times():
 def test_as_dict_shape_matches_the_endpoint_contract():
     """`/api/verify/paper-budgets` and the WebUI depend on these exact keys."""
     d = paper_budgets.as_dict()
-    assert set(d) == {"phases", "total_handshake_packets", "total_handshake_bytes",
+    assert set(d) == {"phases", "table1_rows",
+                      "total_handshake_packets", "total_handshake_bytes",
                       "paper_total_packets", "paper_total_bytes",
                       "mean_10_hop_setup_s", "mean_100_hop_setup_s"}
+    assert [r["component"] for r in d["table1_rows"]] == ["WireGuard", "Arnika", "Rosenpass"]
     assert [p["phase"] for p in d["phases"]] == [1, 2, 3, 4, 5]
     for p in d["phases"]:
         assert {"phase", "name", "packets", "bytes",
                 "period_s", "grace_s", "description"} <= set(p)
 
 
-def test_the_totals_are_transcribed_independently_of_the_table():
-    """`packets_match` on /verify must be able to fail.
+def test_the_table_1_rows_are_transcribed_independently_of_the_phases():
+    """`packets_match` on /verify must be able to fail, row by row.
 
-    It used to compare `sum(PHASE_BUDGETS)` against `TOTAL_HANDSHAKE_PACKETS`,
-    which is defined as `sum(PHASE_BUDGETS)`. Editing any per-phase figure moved
-    both sides together, so the flag was true by construction and the /verify
-    page displayed a check that could not detect anything.
-
-    The paper totals are now literals, so a per-phase edit breaks the match --
-    which is the only thing that makes displaying it worth doing.
+    It first compared `sum(PHASE_BUDGETS)` with a total defined as
+    `sum(PHASE_BUDGETS)` -- true by construction. Then with literal totals
+    9 / 5248 described as "printed in the paper", which Table 1 does not print,
+    and which two compensating per-phase edits leave untouched. The independent
+    side is now Table 1's three rows, as literals that do not reference
+    PHASE_BUDGETS; the totals are computed from those rows.
     """
     import ast
     import inspect
 
-    src = inspect.getsource(paper_budgets)
-    tree = ast.parse(src)
-    literals = {}
+    tree = ast.parse(inspect.getsource(paper_budgets))
+    assigns = {}
     for node in ast.walk(tree):
+        target = None
         if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
-            name = node.targets[0].id
-            if name in ("PAPER_TOTAL_PACKETS", "PAPER_TOTAL_BYTES"):
-                literals[name] = node.value
+            target = node.targets[0].id
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target = node.target.id
+        if target:
+            assigns[target] = node.value
 
-    assert set(literals) == {"PAPER_TOTAL_PACKETS", "PAPER_TOTAL_BYTES"}
-    for name, value in literals.items():
-        assert isinstance(value, ast.Constant), (
-            f"{name} must be a literal transcribed from the paper, not a "
-            f"computed expression -- otherwise the match check compares the "
-            f"table against itself"
-        )
+    rows = assigns["TABLE_1_ROWS"]
+    assert isinstance(rows, ast.Dict)
+    for row in rows.values:
+        assert isinstance(row, ast.Dict)
+        assert all(isinstance(v, ast.Constant) for v in row.values), (
+            "a Table 1 row is computed rather than transcribed; it would then "
+            "move with the phase it is meant to check")
+    for name in ("PAPER_TOTAL_PACKETS", "PAPER_TOTAL_BYTES"):
+        src = ast.unparse(assigns[name])
+        assert "TABLE_1_ROWS" in src and "PHASE_BUDGETS" not in src, (
+            f"{name} must be the sum of the Table 1 rows, not of the phases")
 
-    # And they must equal the sums today, or the table disagrees with the paper.
     assert paper_budgets.PAPER_TOTAL_PACKETS == paper_budgets.TOTAL_HANDSHAKE_PACKETS == 9
     assert paper_budgets.PAPER_TOTAL_BYTES == paper_budgets.TOTAL_HANDSHAKE_BYTES == 5248
+    assert "no total" in paper_budgets.PAPER_TOTALS_SOURCE
+
+
+def test_compensating_edits_fail_the_endpoint(monkeypatch):
+    """The case the totals-only check could not see: one phase up, another down."""
+    import asyncio
+    import copy
+
+    main = importlib.import_module("webui_backend_app.main")
+    ok = asyncio.run(main.verify_paper_budgets())
+    assert ok["packets_match"] is True and ok["bytes_match"] is True
+    assert all(r["packets_match"] and r["bytes_match"] for r in ok["table1_rows"])
+    assert "no total" in ok["paper_totals_source"]
+
+    edited = copy.deepcopy(paper_budgets.PHASE_BUDGETS)
+    edited[3]["packets"] += 1
+    edited[4]["packets"] -= 1
+    monkeypatch.setattr(paper_budgets, "PHASE_BUDGETS", edited)
+    out = asyncio.run(main.verify_paper_budgets())
+    assert out["computed_total_packets"] == out["paper_total_packets"], (
+        "precondition: the edits compensate, so the totals still agree")
+    assert out["packets_match"] is False, (
+        "two compensating per-phase edits passed as a match with the paper")
+    bad = {r["component"] for r in out["table1_rows"] if not r["packets_match"]}
+    assert bad == {"WireGuard", "Rosenpass"}
+
+
+def test_the_grace_window_is_the_papers_60_s():
+    """Fail-Safe Mechanism: refresh every 120 s, "with a 60s grace window".
+
+    Arnika and Rosenpass read 180 here, which is period + grace -- the time
+    until a missed refresh bites -- in a field named for the window.
+    """
+    for phase in (2, 3, 4, 5):
+        assert paper_budgets.PHASE_BUDGETS[phase]["period_s"] == 120
+        assert paper_budgets.PHASE_BUDGETS[phase]["grace_s"] == 60, phase
 
 
 def test_a_per_phase_edit_breaks_the_paper_match():

@@ -26,5 +26,8 @@ import /etc/caddy/conf.d/*.caddy
 
 {$PUBLIC_HOST} {
 	encode zstd gzip
+	# Drop the Server header on the way out. Behind this proxy it is the
+	# frontend nginx's, and it carried nginx's exact version to every visitor.
+	header -Server
 	reverse_proxy webui-frontend:80
 }

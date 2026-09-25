@@ -74,7 +74,9 @@ export default function Topology() {
         anywhere else in the UI. Adding him needs a way to know the profile is active.
       </p>
       <div style={{ marginBottom: 12 }}>
-        <ExportToolbar name="topology" pngTargetSelector="#topology-svg"
+        {/* Not animated: the force layout settles within seconds, so a 10 s
+            WebM or GIF of it is a still image. */}
+        <ExportToolbar name="topology" pngTargetSelector="#topology-svg" animated={false}
                        jsonProvider={() => ({ topology: topo, layout: positions })} />
       </div>
       <svg id="topology-svg" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>

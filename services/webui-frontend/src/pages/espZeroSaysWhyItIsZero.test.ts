@@ -3,13 +3,15 @@
  * not one here.
  *
  * `/vpn` renders ESP byte and packet counters per CHILD_SA. On the public demo
- * they read `0 B / 0 pkt` indefinitely, under a green "established" status.
- *
- * That zero is CORRECT: nothing on that host sends anything through the
- * tunnel. There is no ping, no keepalive and no health check that traverses
- * it, and `start_action = trap` installs the CHILD_SA on demand rather than
- * driving traffic. Checklist row 2.11 and the `ipsec` CI job both `ping`
- * first, precisely because otherwise there is nothing to count.
+ * they read `0 B / 0 pkt` indefinitely until 2026-09-25, under a green
+ * "established" status, because nothing on the host sent traffic through the
+ * tunnel. Since then `alice-ipsec`'s health check pings the peer every 15 s,
+ * so a zero is legitimate only between a PPK rotation (which installs a new
+ * CHILD_SA at zero) and the next probe; `start_action = trap` installs the
+ * CHILD_SA on demand rather than driving traffic. Checklist row 2.11 and the
+ * `ipsec` CI job both `ping` first, precisely because otherwise there may be
+ * nothing to count. A zero that persists across probes is still the signature
+ * the ipsec CI job treats as a policy bypass.
  *
  * But the ipsec job's own comment says:
  *
@@ -59,7 +61,8 @@ describe("an all-zero ESP reading explains itself", () => {
     // The two reasons a zero is legitimate now: a rotation has just reset the
     // counters, and the health-check probe has not fired since.
     expect(SRC).toMatch(/rotation installs a new CHILD_SA whose counters start at zero/);
-    expect(SRC).toMatch(/health check every 15 s/);
+    expect(SRC).toMatch(/health check every \{ESP_PROBE_INTERVAL_S\} s/);
+    expect(SRC).toMatch(/Zero is expected for up to \{ESP_PROBE_INTERVAL_S\} s after each rotation\s+\(until the next health-check ping\)/);
     expect(SRC).toMatch(/start_action = trap/);
     // The reproduction, so a reader can make it non-zero themselves.
     expect(SRC).toMatch(/ping -c3 10\.30\.0\.21/);
@@ -87,5 +90,25 @@ describe("the note reads as prose in the browser, not as run-together words", ()
     // to be explicit. Nothing in typecheck or the assertions above could see
     // this -- only reading the rendered page could.
     expect(SRC).toMatch(/<code>start_action = trap<\/code>\{" "\}/);
+  });
+});
+
+describe("the zero window is stated, not estimated", () => {
+  it("claims no share of readings", () => {
+    // "about a third of readings at the current ~30 s cadence" was derived
+    // from nothing: the rotation gaps were measured at 30-241 s, not 30 s.
+    expect(SRC).not.toMatch(/a third of/);
+    expect(SRC).not.toMatch(/~30 s cadence/);
+  });
+
+  it("takes the probe interval from alice-ipsec's health check in the compose file", () => {
+    const compose = readFileSync(join(HERE, "..", "..", "..", "..", "docker-compose.strongswan.yml"), "utf8");
+    // alice-ipsec's is the health check that pings the peer ($PEER_IP);
+    // bob-ipsec's only lists algorithms.
+    const probe = /healthcheck:\s*\n\s*test:[^\n]*ping[^\n]*\n\s*interval:\s*(\d+)s/.exec(compose);
+    expect(probe, "alice-ipsec's pinging health check moved; update ESP_PROBE_INTERVAL_S's source").not.toBeNull();
+    const constant = /const ESP_PROBE_INTERVAL_S = (\d+);/.exec(SRC);
+    expect(constant).not.toBeNull();
+    expect(Number(constant![1])).toBe(Number(probe![1]));
   });
 });

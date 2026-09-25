@@ -88,9 +88,13 @@ describe("the record is produced and rendered, not just typed", () => {
   it("all three accelerator tiers are named and benchmarked", () => {
     const code = stripComments(SIM);
     for (const tier of ["WebGPU (compute shader)", "WebGL2 (GPGPU)",
-                        "WASM (Rust, 907 B)"]) {
+                        "WASM (Rust, ${BB84_KERNEL_WASM_BYTES} B)"]) {
       expect(code, `${tier} is not a benchmarked tier`).toContain(tier);
     }
+    // The WASM tier's size comes from the generated module, not a literal
+    // that would go stale when the kernel is rebuilt.
+    expect(code).not.toContain("WASM (Rust, 907 B)");
+    expect(code).toContain("const WASM = WASM_TIER;");
     // Each must be compared against the SAME target, so no tier can be adopted
     // on easier terms than the others.
     const cmp = code.match(/>= target/g) ?? [];

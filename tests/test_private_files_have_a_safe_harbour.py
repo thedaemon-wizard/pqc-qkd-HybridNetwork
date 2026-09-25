@@ -146,6 +146,25 @@ def _names_a_private_file(text: str) -> bool:
                for t in _tokens(text))
 
 
+# SHA-256 of the lowercased alphabetic stems of the operator's NUMBERED notes:
+# a word followed by a counter, optionally with `.md`. Stored as digests for the
+# same reason as the names above -- a stem, or a pattern that rebuilds it, in a
+# tracked file discloses the naming scheme. Used on text published beside the
+# tree (commit messages, pull-request bodies), not on the tree itself, where a
+# word-plus-number token is ordinary prose far too often.
+_NUMBERED_NOTE_STEM_DIGESTS = frozenset({
+    "3eeb7e96e59ce40f9cb1a089daba079fd699f6867a30f6634af8570967b2375a",
+    "64879f7d6b960a01909762d911a32d4582c20010c5641ee90278b644a9e3b525",
+})
+_NUMBERED = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]+)[0-9]+(?:\.md)?(?![A-Za-z0-9])")
+
+
+def _names_a_numbered_note(text: str,
+                           digests: frozenset[str] = _NUMBERED_NOTE_STEM_DIGESTS) -> bool:
+    return any(hashlib.sha256(m.group(1).lower().encode()).hexdigest() in digests
+               for m in _NUMBERED.finditer(text))
+
+
 def _ignored(relpath: str) -> bool:
     """Ask git itself, rather than re-implementing gitignore matching."""
     return subprocess.run(
@@ -291,9 +310,21 @@ def test_the_boundary_expansion_runs_in_both_directions():
         assert expected in toks, f"span {expected!r} not emitted"
 
 
+def test_the_numbered_note_matcher_fires_only_on_a_stored_stem():
+    """Expressed against the probe stem, so no real shape is written here."""
+    probe = frozenset({_PROBE_DIGEST})
+    for text in (f"see {_PROBE}12 for the request", f"as in {_PROBE}3.md",
+                 f"({_PROBE.upper()}7)", f"{_PROBE}0.md."):
+        assert _names_a_numbered_note(text, probe), f"missed: {text!r}"
+    for text in (f"{_PROBE} without a counter", f"x{_PROBE}12", f"{_PROBE}12x",
+                 "sha256 and ipv4 are ordinary tokens"):
+        assert not _names_a_numbered_note(text, probe), f"false positive on {text!r}"
+    assert _NUMBERED_NOTE_STEM_DIGESTS, "no numbered-note stem is registered"
+
+
 def test_every_stored_digest_is_a_sha256_and_none_is_a_plaintext_token():
     """Guards against someone 'fixing' a miss by pasting the name back in."""
-    for d in _PRIVATE_DIGESTS:
+    for d in _PRIVATE_DIGESTS | _NUMBERED_NOTE_STEM_DIGESTS:
         assert re.fullmatch(r"[0-9a-f]{64}", d), (
             f"{d!r} is not a SHA-256 digest. If a name was pasted in to make a "
             f"check work, the file is disclosing it again.")

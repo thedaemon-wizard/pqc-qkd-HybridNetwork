@@ -25,7 +25,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { PHASE_NAMES } from "./paperSim";
+import { PHASE_NAMES, PHASE_OF_LAYER } from "./paperSim";
+import { PHASE_COLOR } from "../../components/MultiHopTopologySvg";
 
 const HERE = new URL(".", import.meta.url).pathname;
 const SVG = readFileSync(
@@ -81,5 +82,41 @@ describe("the abbreviations are abbreviations, not different claims", () => {
   it("no two phases share a short name", () => {
     const shorts = PHASE_NAMES.map((p) => p.shortName);
     expect(new Set(shorts).size).toBe(shorts.length);
+  });
+});
+
+describe("the figure body lights on the simulator's phases, not /e2e's", () => {
+  it("every legend entry has a colour", () => {
+    // Entry 5 had none, so its bullet and label rendered black on the dark
+    // background, in the page and in every PNG/GIF/WebM export of it.
+    for (const { phase } of PHASE_NAMES) {
+      expect(PHASE_COLOR[phase], `phase ${phase} has no colour`).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it("colours are distinct, so the legend can tell phases apart", () => {
+    const cs = PHASE_NAMES.map(({ phase }) => PHASE_COLOR[phase]);
+    expect(new Set(cs).size).toBe(cs.length);
+  });
+
+  it("each layer's phase is a phase the legend shows", () => {
+    const phases = new Set(PHASE_NAMES.map((p) => p.phase));
+    for (const [layer, phase] of Object.entries(PHASE_OF_LAYER)) {
+      expect(phases.has(phase), `${layer} -> ${phase}`).toBe(true);
+    }
+  });
+
+  it("no highlight is keyed on a bare phase number any more", () => {
+    // The /e2e scheme lit the Rosenpass arc at 3 and the data line at `4 || 5`.
+    expect(SVG).not.toMatch(/currentPhase === [0-9]/);
+    expect(SVG).toContain('dimUnless(on("rosenpass"))');
+    expect(SVG).toContain('dimUnless(on("data"))');
+  });
+
+  it("the in-figure glyphs number the phases paperSim runs them in", () => {
+    expect(SVG).toContain("{CIRCLED[PHASE_OF_LAYER.rosenpass]} PQC Handshake");
+    expect(SVG).toContain("{CIRCLED[PHASE_OF_LAYER.data]} Data Exchange");
+    expect(PHASE_OF_LAYER.rosenpass).toBe(4);
+    expect(PHASE_OF_LAYER.data).toBe(5);
   });
 });

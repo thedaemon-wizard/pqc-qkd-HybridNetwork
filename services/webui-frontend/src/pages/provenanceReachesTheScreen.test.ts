@@ -108,7 +108,9 @@ describe("the container log is readable", () => {
   it("is applied on arrival, so the render and the export share it", () => {
     // Stripping at only one of the two would leave the other carrying escapes,
     // and the export is the one offered as evidence.
-    expect(src("Console.tsx")).toMatch(/setLog\(stripAnsi\(/);
+    // One cleaned string, stored with its container, feeds both.
+    expect(src("Console.tsx")).toMatch(/text = stripAnsi\(/);
+    expect(src("Console.tsx")).toMatch(/setTail\(\{ container: active, log: text \}\)/);
   });
 });
 

@@ -6,6 +6,14 @@
  * budget (Rosenpass Phase 4 dominates at 4772B).
  */
 import { colors } from "../lib/commonStyles";
+import { PHASE_NAMES } from "../lib/sim/paperSim";
+
+/**
+ * The legend abbreviations paperSim publishes for exactly this column. The
+ * names were cut at 17 characters instead, which turned "Arnika QKD key_ID
+ * exchange" into "Arnika QKD key_ID…" when a written abbreviation existed.
+ */
+const SHORT_NAME = new Map(PHASE_NAMES.map((p) => [p.phase, p.shortName]));
 
 export interface PhaseBudget {
   phase: number;
@@ -80,7 +88,8 @@ export default function PhaseSequenceSvg({ budgets, currentPhase }: PhaseSequenc
             </text>
             <text x={16} y={y + laneH / 2 + 12} fill={colors.textSec}
                   fontSize={10}>
-              {b.name.length > 18 ? b.name.slice(0, 17) + "…" : b.name}
+              {SHORT_NAME.get(b.phase) ?? b.name}
+              <title>{b.name}</title>
             </text>
             <rect x={150} y={y + laneH / 2 - 12} width={74} height={24} rx={4}
                   fill={`${c}25`} stroke={c} />

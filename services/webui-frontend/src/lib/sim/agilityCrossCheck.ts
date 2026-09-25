@@ -17,9 +17,19 @@
  *   STRONG -- both implementations independently ran a real round-trip over
  *   the same algorithm set and both report pass. @noble encapsulates and
  *   decapsulates in TypeScript and compares the recovered secret to the sent
- *   one; liboqs does the equivalent in C. Two independently written
- *   implementations agreeing that ML-DSA-87 verifies a signature AND rejects
- *   a tampered message is evidence about the algorithm, not about a table.
+ *   one; liboqs does the equivalent in C. For a signature, pass means BOTH
+ *   halves on BOTH sides: a genuine signature verifies AND a tampered message
+ *   is rejected. The browser has always checked both. The server reported only
+ *   `ok = verify(...)` -- so a liboqs verify that accepted everything would
+ *   have passed -- and now reports `rejects_tampered` as well. A signature row
+ *   counts as a server pass only when that field is present and true; a
+ *   validator that does not send it cannot be credited with a check it did
+ *   not report (`serverTamperNotReported` names those rows).
+ *
+ *   Names are matched by what they denote, not by spelling: liboqs calls
+ *   FIPS 205's SLH-DSA-SHA2-128s "SLH_DSA_PURE_SHA2_128S", and exact matching
+ *   meant no SLH-DSA row -- the family the agility argument rests on -- was
+ *   ever compared.
  *
  *   WEAK -- byte lengths. Both read the same FIPS 203/204/205 parameter
  *   tables, so agreement on `pk_len` shows they can both read. A completely
@@ -43,10 +53,45 @@ export interface ServerRow {
   ct_len?: number;
   ss_len?: number;
   sig_len?: number;
+  /** SIG rows: the server verified a tampered message and it was rejected. */
+  rejects_tampered?: boolean;
+  /** The hardness assumption, when the validator reports it. */
+  assumption?: string;
+}
+
+/**
+ * liboqs spells FIPS 205 parameter sets `SLH_DSA_PURE_<HASH>_<N><S|F>`; the
+ * standard, and @noble, spell them `SLH-DSA-<HASH>-<N><s|f>`. Map the first
+ * onto the second so the two implementations' rows meet. Any other name is
+ * already spelled the FIPS way by both sides (ML-KEM-768, ML-DSA-65).
+ */
+const LIBOQS_SLH_DSA = /^SLH_DSA_PURE_(SHA2|SHAKE)_(\d+)([SF])$/;
+export function fipsName(algo: string): string {
+  const m = LIBOQS_SLH_DSA.exec(algo);
+  return m ? `SLH-DSA-${m[1]}-${m[2]}${m[3].toLowerCase()}` : algo;
+}
+
+/**
+ * The hardness assumption behind each family, by FIPS name prefix. Shown on
+ * /verify because it is the column that says which rows would fail together:
+ * a structural break in module lattices takes out every ML-KEM and ML-DSA row
+ * at once, and none of the SLH-DSA rows.
+ */
+const ASSUMPTION_BY_PREFIX: [string, string][] = [
+  ["ML-KEM-", "module lattice (MLWE)"],
+  ["HQC-", "quasi-cyclic codes (QCSD)"],
+  ["ML-DSA-", "module lattice (MLWE / MSIS)"],
+  ["SLH-DSA-", "hash functions only"],
+];
+export function assumptionOf(algo: string): string | null {
+  const name = fipsName(algo);
+  return ASSUMPTION_BY_PREFIX.find(([p]) => name.startsWith(p))?.[1] ?? null;
 }
 
 export interface AlgoComparison {
+  /** The FIPS spelling; `serverAlgo` is liboqs's, when it differs. */
   algo: string;
+  serverAlgo: string;
   family: string;
   /** Both implementations exercised it and both passed. The strong signal. */
   bothPass: boolean;
@@ -60,6 +105,8 @@ export interface AlgoComparison {
 
 export interface CrossCheckResult {
   compared: AlgoComparison[];
+  /** SIG rows whose server half did not report `rejects_tampered`. */
+  serverTamperNotReported: string[];
   /** In the server matrix but not exercised in the browser, and vice versa. */
   serverOnly: string[];
   clientOnly: string[];
@@ -107,12 +154,17 @@ export function crossCheckAgility(serverMatrix: ServerRow[] | null): CrossCheckR
   }
 
   const server = new Map<string, ServerRow>();
-  for (const r of serverMatrix ?? []) server.set(r.algo, r);
+  for (const r of serverMatrix ?? []) server.set(fipsName(r.algo), r);
 
   const compared: AlgoComparison[] = [];
+  const serverTamperNotReported: string[] = [];
   for (const [algo, c] of clientRows) {
     const s = server.get(algo);
     if (!s) continue;
+    // A signature passes on the server only with its negative control.
+    const isSig = c.family === "SIG";
+    if (isSig && typeof s.rejects_tampered !== "boolean") serverTamperNotReported.push(algo);
+    const serverPass = s.ok && (!isSig || s.rejects_tampered === true);
     const lengthNotes: string[] = [];
     const checks = [
       cmp("pk_len", s.pk_len, c.pk, lengthNotes),
@@ -121,9 +173,9 @@ export function crossCheckAgility(serverMatrix: ServerRow[] | null): CrossCheckR
       cmp("sig_len", s.sig_len, c.sig, lengthNotes),
     ].filter((x): x is boolean => x !== null);
     compared.push({
-      algo, family: c.family,
-      serverPass: s.ok, clientPass: c.pass,
-      bothPass: s.ok && c.pass,
+      algo, serverAlgo: s.algo, family: c.family,
+      serverPass, clientPass: c.pass,
+      bothPass: serverPass && c.pass,
       lengthsAgree: checks.length ? checks.every(Boolean) : null,
       lengthNotes,
     });
@@ -132,7 +184,8 @@ export function crossCheckAgility(serverMatrix: ServerRow[] | null): CrossCheckR
   const comparedNames = new Set(compared.map((c) => c.algo));
   return {
     compared,
-    serverOnly: [...server.keys()].filter((a) => !comparedNames.has(a)),
+    serverTamperNotReported,
+    serverOnly: [...server.values()].filter((r) => !comparedNames.has(fipsName(r.algo))).map((r) => r.algo),
     clientOnly: [...clientRows.keys()].filter((a) => !comparedNames.has(a)),
     // `.every` on an empty array is true, which would make an unreachable
     // backend render as agreement. Require something to have been compared.

@@ -70,6 +70,15 @@ RUN cmake -S /src/liboqs -B /build -GNinja \
     cmake --build /build --parallel && \
     cmake --install /build
 
+# The pinned liboqs 0.16.0 is inside the affected range of GHSA-wh5q-mpc8-67wf
+# (heap out-of-bounds read in LMS/HSS signature verification; fixed in 0.17.0,
+# not yet released). This image is not exposed because LMS is not compiled:
+# OQS_ENABLE_SIG_STFL_LMS defaults OFF and the cmake line above does not turn
+# it on. That is a property of a default, so it is checked rather than assumed:
+# the build fails if the installed configuration header enables LMS.
+RUN test -f /opt/liboqs/include/oqs/oqsconfig.h \
+ && ! grep -q '^#define OQS_ENABLE_SIG_STFL_LMS' /opt/liboqs/include/oqs/oqsconfig.h
+
 # =====================================================================
 FROM python:3.12-slim AS runtime
 
@@ -90,9 +99,11 @@ COPY --from=liboqs-build /opt/liboqs /opt/liboqs
 
 WORKDIR /app
 
-# Lightweight Python stack
+# Lightweight Python stack. pip is upgraded first, as the other two Python
+# images already do: the base image's pip (25.0.1 when checked on 2026-09-25)
+# carries published advisories, and it ships in the runtime image.
 COPY services/pqc-validator/requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Fail the BUILD, not the first request, if the bindings cannot reach the
 # library or the algorithms the validator needs are missing. Without this the
@@ -113,8 +124,6 @@ spk = s.generate_keypair();\
 assert s.verify(b'pqc-validator build check', s.sign(b'pqc-validator build check'), spk), 'ML-DSA-65 verify failed';\
 print('liboqs', oqs.oqs_version(), '/ liboqs-python', oqs.oqs_python_version(), '- ML-KEM-768 and ML-DSA-65 OK')"
 
-# We mount /submodules/PQClean at runtime via compose volume to avoid
-# baking the whole 200MB into the image.
 COPY services/pqc-validator/app /app/app
 
 EXPOSE 8090

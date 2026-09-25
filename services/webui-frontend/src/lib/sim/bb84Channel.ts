@@ -182,14 +182,35 @@ export const KEY_POOL_YIELD = 0.25;
 export const KEY_POOL_DRAIN_PER_ROUND = 64;
 
 /**
+ * Pulses per Monte-Carlo round, for every tier. One definition: the worker and
+ * the engine each carried their own 1_000_000. A round of this size takes tens
+ * of milliseconds on the CPU worker, which keeps the 250 ms loop responsive.
+ */
+export const PULSES_PER_ROUND = 1_000_000;
+
+/**
+ * A round's QBER, or null when nothing was sifted.
+ *
+ * `sifted > 0 ? errors / sifted : 0` reported a round with no sifted bits as
+ * QBER 0 -- a perfect link -- at exactly the losses where nothing was measured
+ * (about 0.3 detections per round at 300 km). Null is "not measured"; the
+ * chart leaves a gap and the log prints n/a.
+ */
+export function roundQber(sifted: number, errors: number): number | null {
+  return sifted > 0 ? errors / sifted : null;
+}
+
+/**
  * One round's effect on the pool. `qberAbort` is protocol.qber_threshold_abort:
  * a round above it is aborted and distils nothing, so only the drain applies.
+ * A round with no QBER (nothing sifted) distils nothing either.
  *
  * Without that gate the yield factor `1 - 2 QBER` stayed positive up to 50 %,
  * so a round at Eve's 25 % still ADDED key -- the pool grew while the chart
  * beside it showed QBER far above the ceiling it draws.
  */
-export function advanceKeyPool(pool: number, sifted: number, qber: number, qberAbort: number): number {
-  const distilled = qber > qberAbort ? 0 : Math.floor(sifted * (1 - 2 * qber) * KEY_POOL_YIELD);
+export function advanceKeyPool(pool: number, sifted: number, qber: number | null, qberAbort: number): number {
+  const distilled = qber === null || qber > qberAbort
+    ? 0 : Math.floor(sifted * (1 - 2 * qber) * KEY_POOL_YIELD);
   return Math.max(0, Math.min(KEY_POOL_CAPACITY, pool + distilled - KEY_POOL_DRAIN_PER_ROUND));
 }

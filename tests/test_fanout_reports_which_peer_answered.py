@@ -22,6 +22,15 @@ diverge for a reason nothing surfaces. `{"ok": true}` covered that state too.
 `ok` now means every peer was reached AND answered non-4xx/5xx. `nodes` says
 which, so half-applied is visible. A 4xx still raises, because a rejected
 override is a validation error the user must see rather than a peer being down.
+
+The backend switch goes further and answers with an HTTP error unless BOTH KMEs
+applied it: the refusing KME's status, or 502 for one that could not be
+reached. It used to wrap a KME's 400 or 503 in HTTP 200, so /physics printed
+"Backend switch to qkdnetsim_proxy requested." while both KMEs had refused it.
+The parameter routes keep reporting an unreachable peer in-band (`ok: false`).
+
+All three routes are opt-in (ENABLE_LIVE_PARAM_OVERRIDES); these tests turn
+the flag on, and tests/test_live_param_overrides_are_opt_in.py covers it off.
 """
 
 from __future__ import annotations
@@ -66,6 +75,12 @@ class _Client:
         return outcome
 
 
+@pytest.fixture(autouse=True)
+def _overrides_enabled(monkeypatch):
+    """What these tests exercise is the fan-out, on a host that opted in."""
+    monkeypatch.setattr(main, "LIVE_PARAM_OVERRIDES_ENABLED", True)
+
+
 def _run(coro):
     import asyncio
     return asyncio.run(coro)
@@ -86,16 +101,13 @@ def _only_alice_up(url):
         else ConnectionError("connection refused")
 
 
-@pytest.mark.parametrize("endpoint", ["backend", "reset"])
-def test_neither_peer_reachable_is_not_ok(monkeypatch, endpoint):
+def test_neither_peer_reachable_is_not_ok(monkeypatch):
     """The case that used to return {"ok": true} with HTTP 200."""
     _patch(monkeypatch, ALL_DOWN)
-    call = (main.sim_backend_proxy({"name": "qutip"}) if endpoint == "backend"
-            else main.sim_params_reset_proxy())
-    out = _run(call)
+    out = _run(main.sim_params_reset_proxy())
 
     assert out["ok"] is False, (
-        f"/api/sim/{endpoint} reported success with neither KME reachable. "
+        "/api/sim/params/reset reported success with neither KME reachable. "
         "The page then tells the operator the change was applied."
     )
     assert out["reached"] == 0 and out["of"] == 2
@@ -123,11 +135,26 @@ def test_half_applied_is_visible(monkeypatch):
     reason.
     """
     _patch(monkeypatch, _only_alice_up)
-    out = _run(main.sim_backend_proxy({"name": "qutip"}))
+    out = _run(main.sim_params_reset_proxy())
     assert out["ok"] is False
     assert out["reached"] == 1 and out["of"] == 2
     assert out["nodes"]["alice"]["ok"] is True
     assert out["nodes"]["bob"]["ok"] is False
+
+
+@pytest.mark.parametrize("behaviour,reachable", [(ALL_DOWN, 0), (_only_alice_up, 1)])
+def test_a_backend_switch_that_missed_a_peer_is_an_http_error(
+        monkeypatch, behaviour, reachable):
+    """A switch that reached one KME leaves the two on different backends;
+    that is not a 200 with a flag inside it."""
+    from fastapi import HTTPException
+
+    _patch(monkeypatch, behaviour)
+    with pytest.raises(HTTPException) as e:
+        _run(main.sim_backend_proxy({"name": "qutip"}))
+    assert e.value.status_code == 502
+    assert "bob: unreachable" in e.value.detail
+    assert ("alice: applied" in e.value.detail) is (reachable == 1)
 
 
 def test_params_applies_the_override_exactly_once(monkeypatch):
@@ -164,3 +191,35 @@ def test_the_response_does_not_echo_whole_bodies(monkeypatch):
     for node in out["nodes"].values():
         assert "body" not in node, "per-node entries leak the full response body"
     assert out["kme"] is not None, "the applied values are still returned, once"
+
+
+@pytest.mark.parametrize("status", [400, 503])
+def test_a_refused_backend_switch_is_an_http_error(monkeypatch, status):
+    """A KME that says no must not be reported as a switch requested.
+
+    503 is what bb84-kme answers when the backend's dependency (qkdnetsim-kme)
+    is not deployed on the host; 400 is an unknown backend name.
+    """
+    from fastapi import HTTPException
+
+    _patch(monkeypatch, lambda url: _Resp(status, text="qkdnetsim-kme is not deployed"))
+    with pytest.raises(HTTPException) as e:
+        _run(main.sim_backend_proxy({"name": "qkdnetsim_proxy"}))
+    assert e.value.status_code == status
+    assert "alice" in e.value.detail and "bob" in e.value.detail
+    assert "not deployed" in e.value.detail
+    assert isinstance(e.value.detail, str), (
+        "the frontend renders body.detail into a sentence; a dict prints as "
+        "[object Object]")
+
+
+def test_a_half_refused_backend_switch_names_the_peer_that_took_it(monkeypatch):
+    from fastapi import HTTPException
+
+    _patch(monkeypatch, lambda url: _Resp(200, {"ok": True}) if main.KME_A_URL in url
+           else _Resp(503, text="not deployed"))
+    with pytest.raises(HTTPException) as e:
+        _run(main.sim_backend_proxy({"name": "qkdnetsim_proxy"}))
+    assert e.value.status_code == 503
+    assert "alice: applied" in e.value.detail
+    assert "bob: HTTP 503" in e.value.detail

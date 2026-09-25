@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # One-shot bootstrap for the FULL real-WireGuard stack on a fresh
-# a KVM VPS running Ubuntu 22.04/24.04.
+# KVM VPS running Ubuntu 22.04/24.04.
 #
 # This is the HEAVY full stack: it builds liboqs + rosenpass (Rust) +
 # strongSwan from source for the privileged alice/bob WireGuard nodes.
@@ -11,7 +11,7 @@
 #
 # For a PUBLIC DEMO you almost certainly want the much lighter
 #   deploy/deploy-demo.sh   (sim-only; no privileged WG nodes)
-# — the 4 simulation pages run client-side, so the demo barely needs a backend.
+# — the simulation pages run client-side, so the demo needs no WireGuard nodes.
 #
 # Idempotent: safe to re-run. Installs Docker + compose plugin, ensures
 # the WireGuard kernel module + IP forwarding, adds UFW rules for ssh/80/443
@@ -27,8 +27,8 @@
 #   sudo bash deploy/deploy.sh                 # first install
 #   sudo bash deploy/deploy.sh --pull --ipsec  # redeploy, with the IPsec lane
 #
-# The firewall step ADDS rules (see deploy/firewall.sh); it no longer resets
-# UFW. Set SKIP_UFW=1 to leave the firewall alone.
+# The firewall step ADDS rules (configure_firewall in deploy/lib.sh); it does
+# not reset UFW. Set SKIP_UFW=1 to leave the firewall alone.
 # ============================================================
 set -euo pipefail
 
@@ -71,34 +71,24 @@ ensure_swap() {
   fi
 }
 
-# The bb84-kme image installs the heavy QKD backends (SimQN / SeQUeNCe /
-# Strawberry Fields / TNO) from these submodules at BUILD time. The default
-# backend is `simqn` (config/qkd_params.yaml); if SimQN isn't checked out, the
-# editable install is silently skipped and the KME crashes on boot trying to
-# load it (-> "bb84-kme-a Error / dependency failed to start").
+# The bb84-kme image installs all four heavy QKD backends (SimQN / SeQUeNCe /
+# Strawberry Fields / TNO) from these submodules at BUILD time, and a failed
+# install fails the build (services/bb84-kme/Dockerfile). An empty submodule
+# therefore stops the build; no backend choice gets past it. So the fetch below
+# must succeed: under `set -e` a failure ends the deploy here, with git's own
+# error, instead of at a build that cannot work. `--force` re-runs the checkout
+# even when the recorded commit is already current, which restores a submodule
+# whose files were deleted after cloning.
 #
-# This routine makes the deploy DETERMINISTIC rather than relying on a runtime
-# fallback: it (1) force-fetches the backend submodules, then (2) if SimQN is
-# still missing, exports SIMULATOR_BACKEND=qutip so the KME boots on the
-# always-present built-in backend. Switch back to a heavy backend at runtime
-# (Physics page / POST /sim/backend) once its submodule is present.
+# The backend itself is chosen by SIMULATOR_BACKEND in .env, read when a KME
+# starts, so changing it means recreating bb84-kme-a and bb84-kme-b. The
+# Physics page can switch it on the running KMEs only where
+# ENABLE_LIVE_PARAM_OVERRIDES=true, which deploy/.env.example keeps false.
 ensure_backend_submodules() {
-  local d
   log "ensuring KME backend submodules are present"
   git submodule update --init --force --recursive \
       submodules/SimQN submodules/SeQUeNCe \
-      submodules/strawberryfields submodules/tno-qkd-key-rate || true
-  if [[ ! -e submodules/SimQN/setup.py ]]; then
-    log "WARNING: submodules/SimQN is still empty after fetch — the default 'simqn'"
-    log "         backend can't build. Deploying on the built-in 'qutip' backend"
-    log "         instead (export SIMULATOR_BACKEND=qutip). To use the real simqn"
-    log "         backend, fix the submodule and rebuild:"
-    log "           git submodule update --init --force submodules/SimQN && \\"
-    log "           docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build bb84-kme-a bb84-kme-b"
-    export SIMULATOR_BACKEND=qutip
-  else
-    log "SimQN present ($(du -sh submodules/SimQN 2>/dev/null | cut -f1)) — using configured backend"
-  fi
+      submodules/strawberryfields submodules/tno-qkd-key-rate
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -122,7 +112,7 @@ systemctl enable --now docker
 # ---- 2) WireGuard kernel module ----------------------------
 log "ensuring WireGuard kernel module"
 apt-get update -y
-apt-get install -y --no-install-recommends wireguard-tools ca-certificates git || true
+apt-get install -y --no-install-recommends wireguard-tools ca-certificates git
 modprobe wireguard || { echo "[deploy] WARNING: modprobe wireguard failed — kernel may lack WG; the WG E2E will not work" >&2; }
 if ! grep -q '^wireguard$' /etc/modules-load.d/wireguard.conf 2>/dev/null; then
   echo wireguard > /etc/modules-load.d/wireguard.conf
@@ -145,7 +135,7 @@ if [[ "$PULL" == "1" ]]; then
 fi
 log "syncing git submodules"
 git submodule update --init --recursive
-ensure_backend_submodules   # force-fetch KME backends; pick qutip if SimQN absent
+ensure_backend_submodules   # force-fetch the KME backends the image build requires
 
 # ---- 5b) Swap (avoid build OOM on small VPS) ---------------
 ensure_swap

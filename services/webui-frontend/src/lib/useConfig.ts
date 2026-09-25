@@ -14,6 +14,7 @@ import { getConfig, type RuntimeConfig } from "../api";
 const RESTRICTIVE: RuntimeConfig = {
   demo_mode: true,
   container_control: false,
+  live_param_overrides: false,
   rate_limit: null,
   arnika_interval: null,
 };
@@ -43,4 +44,15 @@ export function useDemoMode(): boolean {
  */
 export function useContainerControl(): boolean {
   return useRuntimeConfig().container_control === true;
+}
+
+/**
+ * Whether the backend will accept a live parameter override or backend switch.
+ *
+ * `=== true`, like `useContainerControl`: a backend that predates the field
+ * omits it, and an absent flag must read as "not allowed" rather than as
+ * permission the backend never gave.
+ */
+export function useLiveParamOverrides(): boolean {
+  return useRuntimeConfig().live_param_overrides === true;
 }

@@ -101,7 +101,13 @@ describe("the two simulators agree on the states they can be in", () => {
   });
 
   it("the head only advances while running, so stepped freezes it", () => {
-    expect(CASCADE).toMatch(/if \(status !== "running"/);
+    // The clock is the simulator's (cascadeHeadTracksTheRun.test.ts drives
+    // it); the timeline only draws it. The tick that advances it returns
+    // before doing anything unless the run is running.
+    expect(CASCADE).toMatch(/Math\.min\(max, elapsedS\)/);
+    const tick = PAPER.slice(PAPER.indexOf("  private tick() {"));
+    expect(tick.slice(0, 200)).toMatch(/if \(this\.status !== "running"\) return;/);
+    expect(tick).toContain("this.advanceCascade(");
   });
 });
 

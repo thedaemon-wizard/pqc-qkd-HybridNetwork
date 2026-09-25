@@ -5,15 +5,17 @@ The finite-key half was previously credited to arXiv:2511.21253, which
 contains no such formula; see services/bb84-kme/app/backends/_skr.py.
 Method:    scikit-optimize gp_minimize (Gaussian Process + Expected Improvement).
 
-Why BO?  Because the SKR is a smooth, non-convex function of (μ, ν1, ν2, pz),
-and BO is sample-efficient when each evaluation is cheap-but-not-free. The
+Why BO?  Because the SKR is a smooth, non-convex function of (μ, ν1, ν2), and
+BO is sample-efficient when each evaluation is cheap-but-not-free. pz is in the
+search space but the objective ignores it (the rate model has no pz term), so
+the returned pz is reported, not optimised. The
 fallback `closed_form_only` simply scans μ on a coarse grid.
 
 NOT used from any route or CI job. `POST /api/optimize` was deleted (see
 `main.py`) after it was measured at 14.6 s server-side as an unauthenticated
-CPU sink, and no CI job references this module. `optimize_bayesian` and
+CPU sink, and no CI workflow step names this module. `optimize_bayesian` and
 `optimize_from_yaml` have no caller; only `optimize_closed_form` is used, by
-one test. Kept because the closed-form path is still needed.
+tests/test_backend_cross_qber.py, which the CI `python` job collects. Kept because the closed-form path is still needed.
 
 References:
 - Snoek, Larochelle, Adams "Practical Bayesian Optimization" NeurIPS 2012

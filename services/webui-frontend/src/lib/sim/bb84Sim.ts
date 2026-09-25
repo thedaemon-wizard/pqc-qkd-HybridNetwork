@@ -15,10 +15,13 @@
 import { Bb84Gpu, type Bb84Cfg } from "./bb84Gpu";
 import { Bb84Gl } from "./bb84Gl";
 import { Bb84Wasm } from "./bb84Wasm";
-import { bb84KernelWasm } from "./generated/bb84KernelWasm";
+import { BB84_KERNEL_WASM_BYTES, bb84KernelWasm } from "./generated/bb84KernelWasm";
 import { BUNDLED_PARAMS, bundledChannel } from "./keyrate";
 import { RunSeeds } from "./runSeed";
-import { advanceKeyPool, framesFromGpuRound, type ChannelCfg } from "./bb84Channel";
+import { advanceKeyPool, framesFromGpuRound, PULSES_PER_ROUND, type ChannelCfg } from "./bb84Channel";
+
+/** The WASM tier's name, with the kernel's size read from the generated module. */
+const WASM_TIER = `WASM (Rust, ${BB84_KERNEL_WASM_BYTES} B)`;
 
 export interface Bb84Frame {
   i: number; alice_bit: number; alice_basis: number;
@@ -50,7 +53,8 @@ export interface TierTrial {
 }
 
 export interface Bb84Update {
-  qber: number; pool_size: number; frames: Bb84Frame[];
+  /** Null for a round that sifted nothing: no QBER was measured. */
+  qber: number | null; pool_size: number; frames: Bb84Frame[];
   engine: string; pulsesPerSec: number;
   /** Empty until the upgrade pass has run; never undefined. */
   tierTrials: TierTrial[];
@@ -62,7 +66,7 @@ export interface Bb84Update {
 // literals describing a channel 6.3x more lossy than the configured one.
 const DEFAULT_CFG: Bb84Cfg = {
   ...bundledChannel(),
-  eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
+  eveOn: false, eveProb: 1.0, pulsesPerRound: PULSES_PER_ROUND,
   qberAbort: BUNDLED_PARAMS.qberThresholdAbort,
 };
 const UPGRADE_MARGIN = 1.15;       // a GPU tier must beat the CPU by ≥15% to be used
@@ -74,6 +78,13 @@ export class Bb84Engine {
   private gl: Bb84Gl | null = null;
   private wasm: Bb84Wasm | null = null;
   private wasmPool = 0;
+  /**
+   * The pool size last emitted, whichever tier produced it. An adopted tier
+   * continues from here: each tier kept its own pool from 0, so adopting a
+   * faster one dropped the chart from the worker's value to near zero -- the
+   * pool depended on which accelerator won, which it must not.
+   */
+  private lastPool = 0;
   /** Per-round seeds. Deterministic when the page was opened with ?seed=,
    *  Math.random() otherwise -- the default path is byte-for-byte what it was,
    *  which matters because the demo's headline throughput figures were
@@ -122,7 +133,7 @@ export class Bb84Engine {
     const target = Math.max(this.workerPps, 1) * UPGRADE_MARGIN;
     const GPU = "WebGPU (compute shader)";
     const GL = "WebGL2 (GPGPU)";
-    const WASM = "WASM (Rust, 907 B)";
+    const WASM = WASM_TIER;
 
     try {                                                 // ── WebGPU ──
       const gpu = new Bb84Gpu();
@@ -203,6 +214,7 @@ export class Bb84Engine {
 
   /** Attach the selection record to every update, so the page can show it. */
   private emit(u: Omit<Bb84Update, "tierTrials" | "workerPulsesPerSec">) {
+    this.lastPool = u.pool_size;
     this.onUpdate({ ...u, tierTrials: [...this.trials],
                     workerPulsesPerSec: this.workerPps || null });
   }
@@ -237,14 +249,18 @@ export class Bb84Engine {
    */
   private adoptWasm(wasm: Bb84Wasm) {
     this.upgraded = true; this.wasm = wasm; this.stopWorker();
-    this.wasmLoop("WASM (Rust, 907 B)");
+    this.wasmPool = this.lastPool;
+    this.wasmLoop(WASM_TIER);
   }
 
   private adoptGpu(gpu: Bb84Gpu) {
-    this.upgraded = true; this.gpu = gpu; this.stopWorker(); this.gpuLoop("WebGPU (compute shader)");
+    this.upgraded = true; this.gpu = gpu; this.stopWorker();
+    gpu.seedPool(this.lastPool);
+    this.gpuLoop("WebGPU (compute shader)");
   }
   private adoptGl(gl: Bb84Gl) {
     this.upgraded = true; this.gl = gl; this.stopWorker();
+    gl.seedPool(this.lastPool);
     this.glLoop("WebGL2 (GPGPU)");
   }
 

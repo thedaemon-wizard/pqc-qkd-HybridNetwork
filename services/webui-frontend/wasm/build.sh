@@ -8,12 +8,17 @@
 #
 # The output is committed. That is deliberate: `npm ci && vite build` must work
 # without Docker or a Rust toolchain, and CI's frontend job has neither. The
-# guard in src/lib/sim/wasmArtefactIsCurrent.test.ts rebuilds and compares, so a
-# stale commit is a red test rather than a silent drift.
+# guard in tests/test_the_wasm_artefact_matches_its_source.py rebuilds and
+# compares, so a stale commit is a red test rather than a silent drift.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/../src/lib/sim/generated/bb84KernelWasm.ts"
+# Pinned, and older than the Rust used elsewhere in the repository, on purpose:
+# the committed bytes are a function of the compiler as well as the source, and
+# the guard above rebuilds with this same image and compares byte for byte. A
+# newer toolchain is a deliberate change -- bump this and the guard's IMAGE
+# together, rerun this script, and commit the new artefact.
 IMAGE="rust:1.88-alpine"
 
 # Read-only source mount, and cargo's scratch tree kept INSIDE the container.

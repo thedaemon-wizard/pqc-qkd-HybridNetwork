@@ -1,9 +1,11 @@
 /**
  * Closed-form QKD key-rate — faithful TypeScript port of
- * services/bb84-kme/app/backends/_skr.py -- Lo-Ma two-decoy asymptotic bound
- * (PRL 94, 230504 (2005)) plus the Lim et al. finite-key analysis
- * (PRA 89, 022307 (2014), arXiv:1311.7129). Pure functions; the single source
- * of truth for the client-side Physics + BB84 numbers (no backend).
+ * services/bb84-kme/app/backends/_skr.py -- the decoy-state method of
+ * Lo-Ma-Chen (PRL 94, 230504 (2005)), with the channel model and two-decoy
+ * bounds of Ma et al. (PRA 72, 012326 (2005)), as docs/keyrate.md cites them,
+ * plus the Lim et al. finite-key analysis (PRA 89, 022307 (2014),
+ * arXiv:1311.7129). Pure functions; the single source of truth for the
+ * client-side Physics + BB84 numbers (no backend).
  *
  * tests/test_keyrate_ports_agree.py fails if this drifts from the Python.
  */
@@ -20,12 +22,12 @@ export function totalTransmittance(
   return etaD * Math.pow(10, (-alphaDbPerKm * lKm) / 10.0);
 }
 
-/** Q_μ = Y0 + 1 - exp(-η·μ)  (Lo-Ma 2005 eq 32). */
+/** Q_μ = Y0 + 1 - exp(-η·μ)  (Ma et al., PRA 72, 012326 (2005), Eq. 10; docs/keyrate.md). */
 export function gainQmu(Y0: number, etaTotal: number, intensity: number): number {
   return Y0 + 1.0 - Math.exp(-etaTotal * intensity);
 }
 
-/** E_μ = [Y0/2 + e_d·(1 - exp(-η·μ))] / Q_μ. */
+/** E_μ = [Y0/2 + e_d·(1 - exp(-η·μ))] / Q_μ  (Ma et al. 2005, Eq. 11). */
 export function qberEmu(
   Y0: number, etaTotal: number, eD: number, intensity: number,
 ): number {

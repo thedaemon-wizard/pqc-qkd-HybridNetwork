@@ -24,6 +24,12 @@ export type RuntimeConfig = {
    *  Reported separately from demo_mode because control is opt-in server-side,
    *  so "not a demo" does not imply "control is available". */
   container_control: boolean;
+  /** Whether the backend accepts POST /api/sim/params, /api/sim/params/reset
+   *  and /api/sim/backend (ENABLE_LIVE_PARAM_OVERRIDES, off by default). Those
+   *  routes change process-global state on both KMEs, so on a shared host one
+   *  visitor's edit would silently become every visitor's. When false, /physics
+   *  keeps edits in this browser only. */
+  live_param_overrides: boolean;
   rate_limit: { max: number; window_s: number } | null;
   /** ARNIKA_INTERVAL as compose passed it (e.g. "30s"), or null if unset. */
   arnika_interval: string | null;

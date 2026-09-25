@@ -134,5 +134,59 @@ case "$cfg" in
         fail=1 ;;
 esac
 
+# ---- 6) live parameter overrides must be OFF -----------------------------
+# POST /api/sim/params, /api/sim/params/reset and /api/sim/backend change
+# process-global state on both KMEs that feed arnika's key supply. On a shared
+# host one visitor's edit reaches every other visitor and both VPN lanes, so
+# the routes are opt-in (ENABLE_LIVE_PARAM_OVERRIDES) and must be off here.
+case "$cfg" in
+    *'"live_param_overrides":false'*) say "live parameter overrides disabled" "ok" ;;
+    *'"live_param_overrides":true'*)
+        echo "::error::live_param_overrides is TRUE on $BASE -- any visitor can"
+        echo "         switch the KME backend, enable Eve or move the QBER abort"
+        echo "         threshold for everyone. Unset ENABLE_LIVE_PARAM_OVERRIDES."
+        fail=1 ;;
+    *)
+        echo "::error::could not read live_param_overrides from /api/config"
+        fail=1 ;;
+esac
+
+# ---- 7) ... and the route itself must refuse -----------------------------
+# Same belt and braces as check 3, and the same care: the probe names a backend
+# that does not exist, so a WRONGLY enabled host rejects it at the KME (400)
+# instead of switching anything. Only the refusal body passes.
+sim_body=$(mktemp)
+code=$(curl -s -o "$sim_body" -w '%{http_code}' --max-time 20 \
+       -H 'Content-Type: application/json' \
+       -d '{"name":"hardening-probe-does-not-exist"}' \
+       -X POST "$BASE/api/sim/backend" 2>/dev/null || echo 000)
+body=$(cat "$sim_body")
+rm -f "$sim_body"
+say "POST /api/sim/backend <absent>" "HTTP $code"
+case "$code" in
+    403)
+        case "$body" in
+            *'live parameter overrides are disabled'*) say "backend switch refused" "ok" ;;
+            *) echo "::error::403 from /api/sim/backend, but not the overrides refusal."
+               echo "         body: $body"
+               fail=1 ;;
+        esac ;;
+    *) echo "::error::/api/sim/backend answered $code, expected the 403 refusal"
+       fail=1 ;;
+esac
+
+# ---- 8) container logs are served only for the six lane containers --------
+# /api/logs/{name} fetched `docker logs` for ANY container name, which on the
+# public host included the reverse proxy's access log -- visitor addresses and
+# user agents. The allow-list answers 404 before Docker is touched. The body is
+# discarded unread, so a host that still leaks does not leak into this output.
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+       "$BASE/api/logs/caddy?tail=1" 2>/dev/null || echo 000)
+say "GET /api/logs/caddy" "HTTP $code"
+[ "$code" = "404" ] || {
+    echo "::error::expected 404 for a container outside the log allow-list, got $code"
+    fail=1
+}
+
 [ "$fail" -eq 0 ] && echo "ok: $BASE is hardened"
 exit "$fail"

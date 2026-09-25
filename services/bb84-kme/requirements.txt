@@ -43,10 +43,24 @@ aiosqlite==0.20.0
 #
 # It was carrying two HIGH DoS advisories against 0.0.20
 # (GHSA-5rvq-cxj2-64vf, GHSA-pp6c-gr5w-3c5g) on a parser that never ran.
-pyyaml==6.0.2
+# pyyaml and pandas: pinned to what the image ships, for the reason numpy and
+# qutip are above. This line read `pyyaml==6.0.2` while the image shipped 6.0.3
+# (SeQUeNCe declares `pyyaml>=6.0.3` and its editable install upgraded it), and
+# pandas -- imported by the tno backend and by SimQN -- was installed with no pin
+# at all and resolved to 3.0.6, a major version. Measured with `pip freeze` in
+# the built image, 2026-09-25. Both are repeated in constraints.txt, and the
+# Dockerfile now fails the build if any `==` pin in this file is not what pip
+# actually installed.
+pyyaml==6.0.3
+pandas==3.0.6
 scikit-optimize==0.10.2
 # Strawberry Fields (cvqkd backend) still imports legacy pkg_resources, removed
 # in setuptools>=81. Keep a version that provides it (also pinned in constraints).
+#
+# The hold is PERMANENT while cvqkd depends on Strawberry Fields: upstream is
+# archived, so no release will drop pkg_resources. It resolves to 80.10.2, which
+# sits in the range of GHSA-h35f-9h28-mq5c (fixed in 83.0.0); that advisory is
+# for macOS sdist builds and does not apply to this Linux image.
 setuptools<81
 # Optional heavy backends (pulled in via submodule install in Dockerfile):
 # - SimQN          (pip install -e /submodules/SimQN)

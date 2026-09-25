@@ -47,14 +47,29 @@ x-ipsec-crypto: &ipsec-crypto
   # candidate variable in the unresolved intermittent PPK mismatch rather than a
   # value that was reasoned about when it was chosen.
   #
-  # QCI-CAT deliverable D6.1 -- arnika's own design document, authored by its
-  # maintainer -- recommends 120s and gives the reason: "it is recommended to set
-  # it to 120 seconds (default value) to align with the WireGuard rekey process",
-  # WireGuard rekeying "after 120 seconds or after 260 messages". That rationale
-  # is specific to the WireGuard lane. This lane reauthenticates IKEv2 instead,
-  # so the alignment argument does not transfer unchanged -- but it does not
-  # obviously fail to apply either, and at 30s the master/backup role D6.1
-  # assigns "for the configured interval" flips four times as often.
+  # QCI-CAT deliverable D6.1 (v1.0, 2025; A. Neuhold and G. Swoboda of CANCOM,
+  # arnika's original developers) describes arnika v1.x. It recommends 120s so
+  # the rotation aligns with WireGuard's rekey, which happens after 120 seconds
+  # or after 2^60 messages (the exponent is a superscript in the PDF). "Default
+  # value" there is the v1.x default; the pinned config.go defaults INTERVAL to
+  # 10s. That rationale is specific to the WireGuard lane. This lane
+  # reauthenticates IKEv2 instead, so the alignment argument does not transfer
+  # unchanged -- but it does not obviously fail to apply either.
+  #
+  # D6.1's master/backup rule (the peer that receives a key_id first becomes
+  # the backup) is NOT what the pinned arnika runs. The pin re-elects the role
+  # every interval from HMAC-SHA256(ARNIKA_PSK, interval number) XOR ARNIKA_ID
+  # (IsPrimary in submodules/arnika/config/config.go), so at 30s the role is
+  # re-elected four times as often as at 120s. What survived the change is the
+  # exchange itself: the PRIMARY fetches enc_keys and sends the key_id, and the
+  # BACKUP resolves it through dec_keys. That exchange is where the mismatch has
+  # been localised.
+  #
+  # Moving this lane to a CNSA 2.0 profile is not a change of one variable
+  # either. NSA's IKEv2 profile keeps CNSA 1.0 key establishment (ECDH P-384)
+  # and adds ML-KEM-1024, so both proposal strings above change curve and KEM;
+  # the healthchecks below probe for ML_KEM_768 by name. The CI `ipsec` job
+  # reads the expected parameter set from IKE_PROPOSALS, so it follows an edit.
   #
   # Do NOT read this as a diagnosis. The measured rotation gaps here are 30, 90,
   # 90, 60, 241, 120 and 120 seconds, which match neither 30s nor 120s, so the

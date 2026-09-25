@@ -1,4 +1,4 @@
-"""The POST rate limiter must be active on the host that faces the internet.
+"""The rate limiter on mutating requests must be active on the internet-facing host.
 
 Measured against the live public demo 2026-08-28:
 
@@ -16,11 +16,12 @@ control, privileged nodes). It is not a declaration that a host is exposed.
 
 Two changes, and this file pins both:
 
-  * the limiter runs on every POST regardless of `DEMO_MODE`
+  * the limiter runs on every mutating request (POST, PUT, PATCH, DELETE)
+    regardless of `DEMO_MODE`
   * `POST /api/sim/optimize` and `POST /sim/optimize` are gone -- the route,
     not the module: `optimize_from_yaml()` stays importable for offline use,
-    exercised by tests/test_backend_cross_qber.py and documented in
-    docs/phases.md
+    as the command-line recipe in docs/phases.md runs it, and the module's
+    `optimize_closed_form()` is exercised by tests/test_backend_cross_qber.py
 
 Nothing could have caught this. The limiter had tests, and they set
 `DEMO_MODE=1` first -- so they verified the bucket arithmetic on a
@@ -149,8 +150,9 @@ def test_the_optimizer_module_is_still_importable():
     """The exposure was the route. The maths is a legitimate offline tool."""
     mod = REPO / "services" / "bb84-kme" / "app" / "optimizer.py"
     assert mod.exists(), (
-        "optimizer.py was deleted along with the route. It is exercised by "
-        "tests/test_backend_cross_qber.py and documented in docs/phases.md; "
+        "optimizer.py was deleted along with the route. Its closed-form scan "
+        "is exercised by tests/test_backend_cross_qber.py and "
+        "optimize_from_yaml() is the command-line recipe in docs/phases.md; "
         "removing it deletes a working capability to fix an exposure that "
         "removing one route already fixes.")
     assert "def optimize_from_yaml" in mod.read_text(encoding="utf-8")

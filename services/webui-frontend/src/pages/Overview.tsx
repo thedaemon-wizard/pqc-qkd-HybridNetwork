@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { getStack, postStack, type StackItem } from "../api";
 import { usePoll } from "../lib/usePoll";
 import { useRuntimeConfig } from "../lib/useConfig";
@@ -29,13 +30,33 @@ const STATUS_COLOR: Record<string, string> = {
 function chip(s: StackItem): { label: string; color: string; title?: string } {
   if (s.optional && s.status === "absent") {
     return {
-      label: `not started (${s.profile})`,
+      // "not deployed here", not "not started": whether a profile runs is a
+      // per-host deployment choice, and "not started" read as a start someone
+      // forgot. The explanation is also printed under the table -- a tooltip
+      // is invisible on touch screens and often skipped by screen readers.
+      label: `not deployed here (${s.profile})`,
       color: "#3a4a6b",
       title: s.note,
     };
   }
-  return { label: s.status, color: STATUS_COLOR[s.status] || "#445", title: s.note };
+  // The backend's note begins "Absent here means..." and was attached to the
+  // green `running` chips of alice-ipsec and bob-ipsec too, where it
+  // contradicted the chip. A running optional row gets its provenance only.
+  const title = s.optional && s.compose_file
+    ? `defined in ${s.compose_file} (profile ${s.profile})` : undefined;
+  return { label: s.status, color: STATUS_COLOR[s.status] || "#445", title };
 }
+
+/**
+ * What a profile-gated service IS, for the visible note under the table. Only
+ * services whose absence needs explaining are listed; the backend supplies the
+ * compose file and profile, this adds the one sentence it cannot.
+ */
+const OPTIONAL_ROLE: Record<string, string> = {
+  "qkdnetsim-kme":
+    "a Flask facade that serves ETSI GS QKD 014 keys for cross-validation; the NS-3 "
+    + "simulator is built into its image but not run",
+};
 
 export default function Overview() {
   const [stack, setStack] = useState<StackItem[]>([]);
@@ -73,17 +94,21 @@ export default function Overview() {
           preshared key, which enters the Noise_IKpsk2 chaining key. The <b>IPsec/IKEv2</b> lane
           (<code>alice-ipsec</code>/<code>bob-ipsec</code>) takes it as an
           {" "}<b>RFC 8784 PPK</b> over strongSwan&rsquo;s VICI socket, alongside RFC 9370 ML-KEM-768;
-          see <a href="/vpn">VPN Protocols</a>. Rotation is configured at{" "}
+          see <Link to="/vpn">VPN Protocols</Link>. Rotation is configured at{" "}
           <code>{runtime.arnika_interval ?? "(not reported)"}</code> (<code>ARNIKA_INTERVAL</code>), but the interval
-          is when arnika <i>attempts</i> a rotation, not a guarantee: measured gaps on the public
-          host ran 30&ndash;241 s, so count rotations over a window rather than dividing by the interval.</>}
+          is when arnika <i>attempts</i> a rotation, not a guarantee: gaps measured on the public
+          host on 2026-08-23 ran 30&ndash;241 s, so count rotations over a window (the rotations
+          panel on <Link to="/vpn">/vpn</Link>) rather than dividing by the interval.</>}
       />
       <div style={{ marginBottom: 12 }}>
+        {/* Not animated: the architecture figure is static, so a WebM or GIF
+            of it would be ten seconds of one frame. */}
         <ExportToolbar
           name="overview"
           logService="webui-backend"
           pngTargetSelector="#overview-arch-svg"
           jsonProvider={() => ({ stack })}
+          animated={false}
         />
       </div>
 
@@ -142,6 +167,21 @@ export default function Overview() {
               ))}
             </tbody>
           </table>
+          {/* The profile comes from the row; nothing here says which profiles
+              a deploy script can start. It said "which this host's deploy
+              script does not start" for every absent row, and that is false
+              for the ipsec profile: deploy/deploy.sh starts alice-ipsec and
+              bob-ipsec with --ipsec. What the row does establish is that the
+              profile was not started on this host. */}
+          {stack.filter((s) => s.optional && s.status === "absent").map((s) => (
+            <p key={s.name} style={{ fontSize: 11, color: "#9aa9d8", margin: "8px 0 0", lineHeight: 1.5 }}>
+              <code>{s.name}</code>: not deployed on this host. It is defined only in{" "}
+              <code>{s.compose_file ?? "(compose file not reported)"}</code> behind the{" "}
+              <code>{s.profile ?? "(profile not reported)"}</code> profile, which was not
+              started on this host &mdash; a deployment choice, not a failure and not a
+              licensing restriction.{OPTIONAL_ROLE[s.name] ? ` It is ${OPTIONAL_ROLE[s.name]}.` : ""}
+            </p>
+          ))}
           {actionError && (
             <p role="alert" style={{ color: "#e25555", fontSize: 12, marginTop: 8 }}>
               {actionError}
@@ -156,7 +196,11 @@ export default function Overview() {
 function ArchPanel() {
   return (
     <div style={{ background: "#0d1320", padding: 16, borderRadius: 8, border: "1px solid #1d2741" }}>
-      <h3 style={{ marginTop: 0 }}>Layered Architecture (from arXiv:2604.05599)</h3>
+      {/* "This PoC's", not "from" the paper. In arXiv:2604.05599 arnika injects
+          QKD keys into the hop WireGuard tunnels and Rosenpass keys the
+          end-to-end tunnel; the HKDF fusion of the two and the IPsec lane
+          below are this project's additions. */}
+      <h3 style={{ marginTop: 0 }}>This PoC&apos;s layering (extends arXiv:2604.05599)</h3>
       <svg id="overview-arch-svg" viewBox="0 0 420 280" style={{ width: "100%" }}>
         {/* E2E Layer */}
         <rect x="20" y="20" width="380" height="60" rx="6" fill="#332247" stroke="#7c5cff" />
@@ -184,6 +228,11 @@ function ArchPanel() {
           </marker>
         </defs>
       </svg>
+      <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
+        Additions to the paper&apos;s layering: arnika&apos;s HKDF-SHA3-256 fusion of the QKD
+        and PQC keys (the paper keeps them apart) and the IPsec/IKEv2 lane. The paper&apos;s
+        own layering is on <Link to="/paper-flow">/paper-flow</Link>.
+      </p>
     </div>
   );
 }

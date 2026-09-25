@@ -5,15 +5,35 @@ import ExportToolbar from "../components/ExportToolbar";
 /**
  * Poll interval, paired with the backend's VPN_SAMPLE_TTL_S (5 s): at 3 s
  * against a 2 s cache every poll from every viewer missed the cache and ran
- * five `docker exec` calls. The lanes rotate every 30 s, so 5 s loses nothing.
+ * five `docker exec` calls. Rotations are configured at 30 s (ARNIKA_INTERVAL)
+ * and were measured 30-241 s apart, so 5 s loses nothing.
  */
 const VPN_POLL_MS = 5000;
+
+/** The rotation-count window row 2.14 asks for: ten minutes. */
+const ROTATION_WINDOW_S = 600;
+/**
+ * Rotation counts are over ten minutes and the backend caches them for
+ * VPN_ROTATION_TTL_S (15 s), so polling faster than this only re-reads the
+ * cache while each miss reads two containers' logs.
+ */
+const ROTATION_POLL_MS = 30_000;
+
+/**
+ * How often alice-ipsec's health check pings the peer through the tunnel: the
+ * `interval: 15s` of its `healthcheck` in docker-compose.strongswan.yml. The
+ * API does not report it, so it is stated here and
+ * espZeroSaysWhyItIsZero.test.ts reads the compose file to keep the two equal.
+ * It bounds how long the ESP counters can legitimately read zero after a
+ * rotation installs a fresh CHILD_SA.
+ */
+const ESP_PROBE_INTERVAL_S = 15;
 
 /**
  * VPN Protocols page.
  *
  * Displays the two parallel quantum-secure VPN lanes:
- *   - WireGuard tunnel (kernel/boringtun)
+ *   - WireGuard tunnel (kernel module, or wireguard-go where the host has none)
  *   - strongSwan IPsec/IKEv2, RFC 9370 hybrid KE + RFC 8784 PPK
  *
  * The arnika HKDF(QKD ‖ PQC) output is consumed by BOTH lanes, through
@@ -25,12 +45,14 @@ const VPN_POLL_MS = 5000;
  * WireGuard one -- and no field falls back to a constant when the parse comes
  * back empty. `null` renders as an em dash.
  *
- * Three checklist rows (2.3 ESP counters, 2.11 PPK on both ends, 2.14
- * rotations) used to say "Measured on the public host". The measurements were
- * real but taken over SSH: the API exposed no ESP byte or packet field, and a
- * single `ppk_required` boolean sourced only from alice-ipsec. A reader with a
- * browser could reproduce none of them. Everything those rows assert is now on
- * this page and in `curl /api/vpn/protocols`.
+ * Three checklist rows (2.3 PPK required on both ends, 2.11 ESP counters,
+ * 2.14 rotations) used to say "Measured on the public host". The measurements
+ * were real but taken over SSH: the API exposed no ESP byte or packet field,
+ * and a single `ppk_required` boolean sourced only from alice-ipsec. Rows 2.3
+ * and 2.11 are now on this page and in `curl /api/vpn/protocols`. Row 2.14's
+ * counts come from `curl /api/vpn/ppk-rotations`, shown in the rotations
+ * panel below; its SA-concurrency part still needs the shell procedure, and
+ * that endpoint's own `note` says so.
  *
  * That sentence used to read "nothing on this page is a constant" and was
  * false for the WireGuard panel, in both directions: the backend returned the
@@ -155,6 +177,23 @@ export default function VpnProtocols() {
   }
   usePoll(load, VPN_POLL_MS);
 
+  // Row 2.14's counts. Separate request, separate poll, separate failure: a
+  // log read that fails must not blank the lane panels above.
+  const [rotations, setRotations] = useState<Rotations | null>(null);
+  const [rotationsFailed, setRotationsFailed] = useState<string>("");
+  async function loadRotations() {
+    try {
+      const r = await fetch(`/api/vpn/ppk-rotations?window_s=${ROTATION_WINDOW_S}`);
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(`HTTP ${r.status}${j?.detail ? `: ${j.detail}` : ""}`);
+      setRotations(j);
+      setRotationsFailed("");
+    } catch (e) {
+      setRotationsFailed(e instanceof Error ? e.message : String(e));
+    }
+  }
+  usePoll(loadRotations, ROTATION_POLL_MS);
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>VPN Protocols</h2>
@@ -172,22 +211,27 @@ export default function VpnProtocols() {
             <code> wg0</code> through <code>wgctrl</code> netlink.</li>
         <li><b>strongSwan IPsec/IKEv2</b> — a native VICI client installs the
             same derived key as an <b>RFC 8784 Post-quantum Preshared Key</b>,
-            on an IKE_SA negotiated with the <b>RFC 9370</b> hybrid
-            <code> ecp256 + ke1_mlkem768</code>.</li>
+            on an IKE_SA negotiated with an <b>RFC 9370</b> hybrid proposal
+            (the shipped default is <code>ecp256-ke1_mlkem768</code>, set by
+            <code> IKE_PROPOSALS</code>; the Proposal row below shows what the
+            SA actually negotiated).</li>
       </ul>
-      {/* Rows 2.3, 2.11 and 2.14 are read from this page, so it produces
-          evidence and must be able to export it. Not animated: the lanes
-          change only on the 5 s poll. */}
+      {/* Rows 2.3 and 2.11 are read from this page, and row 2.14's counts
+          from the rotations panel, so it produces evidence and must be able
+          to export it. Not animated: the lanes change only on the poll. */}
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="vpn-protocols"
           animated={false}
-          jsonProvider={() => ({ wireguard: wg, ipsec, ...sampled, request_failed: failed || null })}
+          jsonProvider={() => ({
+            wireguard: wg, ipsec, ...sampled, request_failed: failed || null,
+            ppk_rotations: rotations, ppk_rotations_request_failed: rotationsFailed || null,
+          })}
         />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
-        <Panel title="WireGuard (kernel / boringtun)" color="#3ddc84">
+        <Panel title="WireGuard (kernel / wireguard-go)" color="#3ddc84">
           {wg ? (
             <>
               <Row k="Status" v={<Badge text={wg.status} color={statusColor(wg.status)} />} />
@@ -239,6 +283,8 @@ export default function VpnProtocols() {
           </p>
         </Panel>
       </div>
+
+      <RotationsPanel r={rotations} failed={rotationsFailed} />
 
       <div style={{ marginTop: 24, background: "#0d1320", border: "1px solid #1d2741",
                      borderRadius: 8, padding: 14 }}>
@@ -327,8 +373,8 @@ function BothEnds({ s }: { s: VpnStatus }) {
  * ESP byte and packet counters, per CHILD_SA.
  *
  * These have always been in `swanctl --list-sas`; the API fetched that output
- * and discarded them, so VERIFICATION_CHECKLIST rows 2.3 and 2.11 could only
- * be executed over SSH. A missing direction shows as an em dash, never as 0 --
+ * and discarded them, so VERIFICATION_CHECKLIST row 2.11 (and the SPI-pairing
+ * half of the both-ends check) could only be executed over SSH. A missing direction shows as an em dash, never as 0 --
  * charon omits the line it has nothing for, and "no outbound line" is not
  * "zero bytes sent".
  */
@@ -353,11 +399,13 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
   //     in the clear past the policy.
   //
   // alice-ipsec's health check now pings the peer through the tunnel every
-  // 15 s (docker-compose.strongswan.yml), so the counters are normally
-  // non-zero. A zero remains correct in one window: each rotation
-  // reauthenticates and installs a new CHILD_SA whose counters start at zero,
-  // until the next probe. `start_action = trap` installs the CHILD_SA on demand
-  // and generates no packets itself.
+  // ESP_PROBE_INTERVAL_S, so the counters are non-zero except in one window:
+  // each rotation reauthenticates and installs a new CHILD_SA whose counters
+  // start at zero, until the next probe. How often a reading lands in that
+  // window depends on the rotation gaps, which were measured at 30-241 s and
+  // are not predictable from ARNIKA_INTERVAL, so no share is claimed.
+  // `start_action = trap` installs the CHILD_SA on demand and generates no
+  // packets itself.
   //
   // Naming the precondition is the whole fix. No number is invented, no
   // fallback is taken, and a genuine leak still shows as zero -- but the
@@ -385,10 +433,11 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
       {allIdle && (
         <p style={{ fontSize: 11, color: "#9aa9d8", margin: "6px 0 0",
                     lineHeight: 1.5 }}>
-          Zero is expected only briefly, and it is worth saying why: <b>each
-          rotation installs a new CHILD_SA whose counters start at zero</b>, and
+          Zero is expected for up to {ESP_PROBE_INTERVAL_S} s after each rotation
+          (until the next health-check ping), and it is worth saying why:{" "}
+          <b>each rotation installs a new CHILD_SA whose counters start at zero</b>, and
           the only traffic on this host is one ping from <code>alice-ipsec</code>&apos;s
-          health check every 15 s. <code>start_action = trap</code>{" "}
+          health check every {ESP_PROBE_INTERVAL_S} s. <code>start_action = trap</code>{" "}
           installs the CHILD_SA on demand rather than generating packets, so
           between a rotation and the next probe there is nothing to count. To
           see counts at once, send something across it &mdash;
@@ -401,6 +450,66 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
           distinguish, not to explain away.
         </p>
       )}
+    </div>
+  );
+}
+
+/** One node's counts from `GET /api/vpn/ppk-rotations`; null means "could not look". */
+interface RotationNode {
+  count: number | null;
+  distinct_ids: number | null;
+  auth_failed: number | null;
+  ppk_applied: number | null;
+  error?: string;
+}
+interface Rotations {
+  window_s: number;
+  requested_window_s?: number;
+  capped?: boolean;
+  nodes: Record<string, RotationNode>;
+  counts?: Record<string, string>;
+  observed_at?: number;
+  note?: string;
+}
+
+/**
+ * PPK rotations per IPsec node over a window -- checklist row 2.14's counts.
+ *
+ * This page's comment and checklist row 4.6.17 said row 2.14 was read from
+ * here while nothing on the page fetched the only endpoint that serves it.
+ * Every count is shown as the backend reports it; `null` (the log could not be
+ * read) is an em dash with the error, never a zero.
+ */
+function RotationsPanel({ r, failed }: { r: Rotations | null; failed: string }) {
+  const n = (x: number | null | undefined) => (x == null ? "—" : String(x));
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Panel title={`PPK rotations, last ${r ? Math.round(r.window_s / 60) : ROTATION_WINDOW_S / 60} min (row 2.14)`} color="#7c5cff">
+        {!r ? (failed ? <NotObserved why={failed} /> : <Loading />) : (
+          <>
+            {Object.entries(r.nodes).map(([name, v]) => (
+              <div key={name} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: "#9aa9d8" }}>{name}</div>
+                <Row k="rotations queued ('PPK rotated')" v={n(v.count)} />
+                <Row k="distinct PPK ids" v={n(v.distinct_ids)} />
+                <Row k="PPK applied ('using PPK for')" v={n(v.ppk_applied)} />
+                <Row k="AUTHENTICATION_FAILED" v={n(v.auth_failed)} />
+                {v.error && <Row k="could not read" v={v.error} />}
+              </div>
+            ))}
+            {r.capped && (
+              <p style={{ fontSize: 11, color: "#f5a623", margin: "4px 0" }}>
+                Asked for {r.requested_window_s} s; the backend capped the window at {r.window_s} s.
+              </p>
+            )}
+            {r.note && (
+              <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
+                {r.note}
+              </p>
+            )}
+          </>
+        )}
+      </Panel>
     </div>
   );
 }

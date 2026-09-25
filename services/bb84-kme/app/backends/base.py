@@ -92,6 +92,17 @@ class KeyProducer(abc.ABC):
         """Hot-reload hook called when qkd_params.yaml changes."""
         self.cfg = cfg
 
+    async def preflight(self) -> None:
+        """Check, before this backend is swapped in, that it can run a round.
+
+        Raise RuntimeError with the reason when it cannot; KeyPool.switch_backend
+        then keeps the current backend and POST /sim/backend answers 503.
+        The default is a no-op: a backend whose constructor succeeded has
+        everything it needs in-process. Backends that depend on another
+        service override this -- see qkdnetsim_proxy.
+        """
+        return None
+
     #: Whether `run_round` actually reads `cfg.eve_enabled`.
     #:
     #: Default False, so a backend that does nothing with Eve says so by

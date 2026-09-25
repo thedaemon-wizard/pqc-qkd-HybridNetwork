@@ -148,13 +148,14 @@ describe("/physics says which parameters its panel reads", () => {
 // 5. The agility panel names every family it runs.
 // --------------------------------------------------------------------------
 
-describe("the /verify agility panel names all three families", () => {
-  it("SLH-DSA is in the title", () => {
-    expect(VERIFY).toContain("ML-KEM, ML-DSA, SLH-DSA");
+describe("the /verify agility panel names all four families", () => {
+  it("HQC and SLH-DSA are in the title", () => {
+    expect(VERIFY).toContain("ML-KEM, HQC, ML-DSA, SLH-DSA");
     expect(VERIFY).not.toContain("Matrix (liboqs — ML-KEM + ML-DSA)");
   });
 
-  it("the prose lists the SLH-DSA parameter sets too", () => {
-    expect(VERIFY).toContain("SLH-DSA-SHA2 128s/192s/256s");
+  it("the prose lists the validator's parameter sets", () => {
+    expect(VERIFY).toMatch(/HQC-1\/3\/5/);
+    expect(VERIFY).toMatch(/SLH-DSA-SHA2 128s\/128f\/192s\/256s/);
   });
 });

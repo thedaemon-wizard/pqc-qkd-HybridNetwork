@@ -34,6 +34,7 @@ Reference papers:
 | [`deploy/README.md`](deploy/README.md), [`docs/deployment-economics.md`](docs/deployment-economics.md) | Deploying, redeploying, and what each hosting option costs |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | The benchmark scripts, and what has (not yet) been measured |
 | [`docs/paper_mapping.md`](docs/paper_mapping.md) | The paper's claims, one by one, against this implementation |
+| [`docs/IMAGE1_VPN_SCOPE.md`](docs/IMAGE1_VPN_SCOPE.md), [`docs/IMAGE2_MULTIHOP.md`](docs/IMAGE2_MULTIHOP.md) | The two reference-architecture figures mapped to code: the single tunnel, and the trusted-node multi-hop chain |
 | [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md), [`docs/roadmap.md`](docs/roadmap.md) | What is simulated rather than measured, known gaps, and future work |
 | [`docs/phases.md`](docs/phases.md) | The phase-by-phase implementation record |
 | [`docs/references.md`](docs/references.md) | Every paper, standard and dependency, with identifiers and licences |
@@ -72,7 +73,7 @@ reach a KME or arnika, so it does not exercise arnika's fall-back path.
                                     │ REST
                      ┌──────────────▼─────────────────────┐
                      │  webui-backend (FastAPI)           │
-                     │  /api/stack /api/stats /api/verify │
+                     │ /api/stack /api/stats /api/verify/*│
                      └──┬───────────────────────┬─────────┘
                         │                       │
         ┌───────────────▼───┐               ┌───▼──────────────┐
@@ -88,9 +89,10 @@ reach a KME or arnika, so it does not exercise arnika's fall-back path.
         └────────────────────┘               └──────────────────┘
 ```
 
-A second lane, strongSwan IKEv2 with ML-KEM-768 and an RFC 8784 PPK fed by the
-same arnika output, runs under the `ipsec` compose profile. See
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+A second lane, strongSwan IKEv2 with ML-KEM-768 and an RFC 8784 PPK, runs under
+the `ipsec` compose profile. It is fed by a second pair of arnika instances that
+use the same KMEs and the same Rosenpass output, not by the WireGuard lane's
+arnika. See [`ARCHITECTURE.md` section 4](ARCHITECTURE.md#4-the-ipsec-lane).
 
 ## 3. Quickstart
 
@@ -143,6 +145,10 @@ submitting. Every change must pass `make smoke && make test`.
 
 ## Acknowledgements
 
-- arnika: CANCOM Converged Services GmbH (EU EUROQCI/QCI-CAT program)
+- arnika: developed at CANCOM Converged Services GmbH within the QCI-CAT
+  project (EU DIGITAL-2021-QCI-01, No. 101091642, and Austria's National
+  Foundation for Research, Technology and Development), which covered
+  arnika v1.x; maintained by XBC Digital GmbH since Q2 2026. The pinned
+  revision is v2.x `main` (after the QCI-CAT-funded v1.x line).
 - liboqs / oqs-provider: Open Quantum Safe project
 - Rosenpass: Rosenpass project contributors

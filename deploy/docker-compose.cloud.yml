@@ -52,6 +52,14 @@ services:
 
   webui-backend:
     restart: unless-stopped
+    environment:
+      # This overlay IS the public host. The two values equal the backend's
+      # own defaults; they are stated here so that a change of default cannot
+      # loosen the public host unnoticed. Exports reach the visitor's browser
+      # first; the server copy is a convenience, not the download path, so a
+      # tight cap costs nothing.
+      EXPORT_MAX_FILES: "100"
+      EXPORT_MAX_BYTES: "26214400"   # 25 MiB
 
   bb84-kme-a:
     restart: unless-stopped

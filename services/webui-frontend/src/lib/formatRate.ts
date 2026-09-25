@@ -32,11 +32,13 @@
  * quietly where `0.00` at least looks broken. Both are the same defect.
  *
  * Both of those are also THROTTLED readings, taken in a hidden tab. The caveat
- * is one file over, in `e2eSim.ts`: a foreground cycle is 4 x 450 ms and runs
- * at about 19.9 kbps, which the old card rendered `0.02`. So the fault was
- * never "always zero" -- it was one or two significant figures at every rate
- * this page produces, and the foreground case is the one that looks most like
- * a real measurement.
+ * is one file over, in `e2eSim.ts`: a foreground cycle is 4 x 500 ms (it was
+ * documented as 4 x 450, which the 100 ms loop never achieved) and runs at
+ * about 17.9 kbps, which the old card rendered `0.02`. So the fault was never
+ * "always zero" -- it was one or two significant figures at every rate this
+ * page produces, and the foreground case is the one that looks most like a
+ * real measurement. (The /e2e card now calls it an animation-paced byte rate,
+ * which is what it is.)
  *
  * The `?? 0` was the second half of the same fault: "the run has not reported a
  * rate yet" and "the rate is zero" rendered identically. That substitution is

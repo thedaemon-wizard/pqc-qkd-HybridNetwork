@@ -230,17 +230,27 @@ interrupt traffic.
 ### The sequence
 
 Implemented in
-[`services/arnika-vici/repositories/strongswan-vici.go`](../services/arnika-vici/repositories/strongswan-vici.go):
+[`services/arnika-vici/repositories/strongswan-vici.go`](../services/arnika-vici/repositories/strongswan-vici.go)
+and set out step by step, with the reasons for each, in the adapter's
+[README](../services/arnika-vici/README.md) ("Rotation sequence"). In short:
 
 ```
 1. load-shared   { id: "qkd-<peer>-<n+1>", type: "ppk", data: <32 B>, owners: [<ppk_id>] }
 2. get-shared    -> assert the new id is present
-3. rekey         { ike: <conn>, reauth: "yes" }
+3. list-sas      -> pick the newest IKE_SA of the connection
+   rekey         { ike-id: <unique id>, reauth: "yes" }   (initiate, if no SA exists yet)
    -> assert success == "yes" AND matches >= 1
 4. unload-shared { id: "qkd-<peer>-<n>" }      # only now
+5. unload-shared { id: <bootstrap id> }        # once
 ```
 
-Three details that are not optional:
+Only the node configured as the IKE initiator drives step 3; both nodes load
+every generation. Step 3 selects one SA by `ike-id`, not by connection name:
+selecting by name reauthenticates every SA on the connection, and since
+make-before-break builds each replacement before dropping the original, N SAs
+become 2N.
+
+Four details that are not optional:
 
 - **`matches >= 1` must be asserted.** `success = yes` with `matches = 0` is
   charon's normal answer when the selector matched nothing — success alone
@@ -253,6 +263,10 @@ Three details that are not optional:
   they can never be removed except by `clear-creds`. For a loop rotating every
   30 s that is an unbounded leak *and* an ever-growing set of keys any peer can
   authenticate with.
+- **The bootstrap credential is unloaded once the first rotation lands.** It
+  answers the same `PPK_ID` as every rotated credential and carries no QKD
+  material, so while it stays loaded two keys answer one lookup and charon's
+  choice between them is unspecified.
 
 ### Never run `swanctl --load-creds` on these nodes
 
@@ -273,7 +287,7 @@ The adapter changes only *where* a key is delivered. Agreement remains arnika's
 job, unchanged:
 
 ```
-KME-A  --ETSI 014 enc_keys-->  arnika (master)  --key_ID over UDP-->  arnika (backup)
+KME-A  --ETSI 014 enc_keys-->  arnika (PRIMARY) --key_ID over UDP-->  arnika (BACKUP)
                                      | |
                                      | ETSI 014 dec_keys --> KME-B
                                      v                                      v
@@ -283,6 +297,13 @@ KME-A  --ETSI 014 enc_keys-->  arnika (master)  --key_ID over UDP-->  arnika (ba
                                      |
                        VICI load-shared type=ppk + reauth
 ```
+
+Which node is PRIMARY is drawn afresh every interval: the pinned arnika takes
+an HMAC-SHA256 of the interval number, keyed with `ARNIKA_PSK`, and XORs it
+with `ARNIKA_ID` (`IsPrimary` in `submodules/arnika/config/config.go`), so the
+two nodes' IDs must differ in parity. arnika v1.x instead made whichever peer
+received a `key_id` first the backup; the QCI-CAT design document describes
+that older rule (see [`references.md`](references.md) section 3).
 
 Note the SAE direction, which is easy to get backwards: per ETSI GS QKD 014
 clause 5.1, `enc_keys` names the **slave** SAE in the path and `dec_keys` names
@@ -370,7 +391,9 @@ accumulate. The 30 s default here is defensible only for a simulator; on a real
 link the interval, and `REAUTH_TIME`, should be derived from the measured SKR
 rather than configured independently of it. (arXiv:2608.18869's 120 s is its
 PQC renegotiation interval, not a QKD rotation, so it is not evidence for a
-QKD figure; arnika's own recommended 120 s default is.)
+QKD figure. arnika's recommendation to align with WireGuard's 120 s rekey is,
+though that is a WireGuard-lane argument, and the 120 s "default" in its v1.x
+design document is not the pinned code's default of 10 s.)
 
 ---
 
@@ -444,7 +467,8 @@ logs below show no retry.)
 
 > **What this means for the CI ceiling, which is tighter than it reads.**
 > The 45-rotation figure above comes from a long two-node run (the trace
-> reaches generation 26). The `strongswan-lane` job does **not** run that long:
+> reaches generation 26). The `ipsec` CI job (displayed as "strongSwan lane")
+> does **not** run that long:
 > its window is `sleep 240`, and both nodes report **6 rotations**, measured
 > repeatedly on 2026-08-22. So `authfail * 5 <= rotations` tolerates
 > `floor(6/5) = 1` failure per run, not the nine that "20 %" suggests to a
@@ -491,7 +515,7 @@ it. The example of 2026-09-24: alice loads at 15:15:05.002901, bob fails the
 MAC at .011183 and loads at .012136.
 
 **Do not attribute the drop to 6.1.0 alone.** The baseline came from a short
-two-node run on a different host; this is a long run on the demo VPS, and the
+two-node run on a different host; this is a long run on the public demo, and the
 race depends on scheduling. What 6.1.0 did change is recorded in section 2:
 the initiator now enforces `ppk_required`. The CI ceiling `authfail*5 <=
 rotations` held in every window above; at six rotations per CI run the expected
@@ -504,7 +528,7 @@ the requested window.
 
 ### 2026-08-27: the CI failures are a DIFFERENT fault from the race above
 
-The unconditional timeline dump added to `strongswan-lane` finally produced the
+The unconditional timeline dump added to the `ipsec` CI job finally produced the
 discriminating observation, and it rules out both standing hypotheses. CI run
 `33071519309`, 2 failures on each node, aligned by container timestamp:
 
@@ -554,7 +578,7 @@ narrowed on the same day, below: the QKD half, the generation numbering and
 the bootstrap credential are ruled out for the latest failing run.
 
 **2026-09-25: the next failing run named it, and it is not the `key_id`
-handover.** The `strongswan-lane` job failed on a pull request that touched
+handover.** The `ipsec` job failed on a pull request that touched
 only frontend code and documentation, with **8 authentication failures in 17
 rotations on both nodes -- intervals 0 to 7, every one, then 9 clean.** With
 the widened alternation, both nodes' dumps show every failing interval
@@ -579,12 +603,15 @@ This is also a **different signature** from the runs of 2026-08-28, which
 carried `failed to retrieve QKD key` (the empty-pool gate since fixed in
 `keypool.py`); there is no retrieval failure here. **The one HKDF input this
 dump cannot see is the PQC half written by the Rosenpass sidecar.** The
-2026-08-23 failing run found the two PQC halves byte-identical and excluded
-them for that run (see `roadmap.md`); it does not exclude them for this one,
-whose failures stop about four minutes after start. So the PQC half is the
-input not yet ruled out, not a finding. Capturing a per-write fingerprint of
-`pqc.psk` on both nodes would decide it; it is not done yet, because that
-fingerprint would land in container logs the WebUI serves.
+2026-08-23 failing run (4 failures in 10 rotations) found the two PQC halves
+byte-identical and excluded them for that run; the evidence is in
+[`VERIFICATION_CHECKLIST.md`](../VERIFICATION_CHECKLIST.md) row 2.13. It does
+not exclude them for this one, whose failures stop about four minutes after
+start. So the PQC half is the input not yet ruled out, not a finding.
+Capturing a per-write fingerprint of `pqc.psk` on both nodes would decide it.
+It is not done yet: written to the container logs, the fingerprint would be
+served by the WebUI, so it has to go to a channel nothing serves, such as a CI
+artifact.
 
 Widening the overlap does **not** fix it. Keeping both generations loaded makes
 two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to
@@ -594,6 +621,9 @@ bootstrap credential did, and it produced 4 authentication failures in 9
 rotations until the bootstrap was unloaded.
 
 ### The actual fix
+
+**Not implemented as of 2026-09-25**: the lane still uses one static
+`PPK_ID`, `ppk-qkd@pqcqkd.local`, on both nodes.
 
 Scope the `PPK_ID` to the generation, e.g. `ppk-qkd-26@pqcqkd.local`. RFC 8784
 has the initiator send `PPK_ID` in IKE_AUTH and the responder look it up, so the
@@ -605,19 +635,32 @@ The obstacle is that `ppk_id` is connection configuration, so each rotation
 would need a `load-conn` carrying the new id in addition to `load-shared`. That
 is available over VICI and is the natural next change; it is not made here
 because it alters the connection on every rotation and wants its own two-node
-soak test.
+soak test, with a CI assertion that each rotation uses a new id.
 
 
 ## Appendix: SP 800-227 and this project's key combiner
 
-`docs/references.md` points here for "how far this project meets" SP 800-227
-§4.6.2. It did not, until now — the analysis existed only in
-`services/arnika-vici/README.md`, which nothing pointed at. Moved here, where
-the promise was already made.
+This appendix is the one place the combiner analysis lives; `references.md`,
+`threat-model.md` and the adapter README point here.
 
-SP 800-227 (Final, September 2025) §4.6.1 acknowledges that a multi-algorithm
-scheme may include a secret established via QKD. §4.6.2 then requires ("shall")
-an approved key combiner, drawn from SP 800-56C or SP 800-133.
+SP 800-227 (Final, September 2025) mentions QKD exactly once, in the *General
+multi-algorithm schemes* discussion of **§4.6.1**:
+
+> "such schemes could potentially include pre-shared keys or shared secrets
+> established via quantum key distribution. Still, most multi-algorithm schemes
+> will likely include a step in which a series of shared secrets are combined
+> via a key combiner algorithm of a form similar to KeyCombine above. In those
+> cases, an approved key combiner discussed in Sec. 4.6.2 **shall** be used."
+
+So the requirement ("shall") is stated in §4.6.1, and §4.6.2 describes the
+approved combiners it points to, drawn from SP 800-56C and SP 800-133. Neither
+section *permits* the construction so much as sets a bar for it: including a
+QKD secret is acknowledged as possible, and doing so obliges the design to use
+an approved combiner. Both source documents are moving -- NIST announced a
+revision of SP 800-56C on 2026-01-06 to admit KEM shared secrets in $`Z`$ and
+more flexible hybrid formatting, and SP 800-133 Rev. 3 is in draft -- so this
+analysis is against the current revisions ([`references.md`](references.md),
+NIST table).
 
 **What arnika does**, from `submodules/arnika/kdf/kdf.go`:
 
@@ -630,13 +673,14 @@ i.e. `HKDF-SHA3-256(QKD ‖ PQC)` with a nil salt and no info string.
 **Where that stands against the requirement, precisely:**
 
 - The **two-step shape is right**. SP 800-56C's form is
-  `K <- Expand(Extract(salt, Z), FixedInfo)`, and HKDF is exactly
-  Extract-then-Expand. A nil HKDF salt is not a missing salt: RFC 5869 §2.2
-  defines it as HashLen zero bytes, which is the default salt SP 800-56C
-  permits. An earlier version of this analysis said arnika "supplies neither
+  $`K \leftarrow \mathrm{Expand}(\mathrm{Extract}(\text{salt}, Z), \text{FixedInfo})`$,
+  and HKDF is exactly Extract-then-Expand. A nil HKDF salt is not a missing
+  salt: RFC 5869 §2.2 defines it as HashLen zero bytes, which is the default
+  salt SP 800-56C permits. An earlier version of this analysis said arnika "supplies neither
   salt nor FixedInfo" — the salt half of that carries no weight.
 - **FixedInfo is genuinely absent.** No domain separator, no protocol or party
-  binding. That is a real gap against §4.6.2, and it is the one to state.
+  binding. That is a real gap against the approved forms §4.6.2 describes, and
+  it is the one to state.
 - **The inputs are not approved-KEM-derived.** The pinned Rosenpass v0.2.3
   combines Classic McEliece 460896 with Kyber512 — Kyber512 is the
   pre-standardisation parameter set, not FIPS 203 ML-KEM. So even with

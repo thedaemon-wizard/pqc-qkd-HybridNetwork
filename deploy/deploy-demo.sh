@@ -4,18 +4,21 @@
 # Ubuntu (22.04/24.04) VPS.
 #
 # Unlike deploy/deploy.sh (the heavy FULL real-WireGuard stack), this brings up
-# only the sim-only demo: the E2E / Paper / Physics / BB84 pages run ENTIRELY
+# only the sim-only demo: the E2E / Paper / Physics / BB84 simulations run
 # CLIENT-SIDE, so there are NO privileged WireGuard nodes and NO rosenpass /
 # strongSwan builds. The only backend services are webui-backend (DEMO_MODE=1),
-# bb84-kme-a/b and pqc-validator (for the /verify cross-check) behind Caddy TLS.
+# bb84-kme-a/b (the /verify key-rate cross-check, and the parameters and
+# statistics /bb84, /physics and /benchmarks read) and pqc-validator (the
+# /verify crypto-agility matrix), behind Caddy TLS.
 #
 # This needs much less than the full stack, but pqc-validator + bb84-kme still
 # build liboqs / Python wheels — give the box ~2 GB RAM (swap is auto-added) and
 # ~8 GB free disk.
 #
-# Even lighter: the four simulation pages need NO backend at all — you can serve
-# services/webui-frontend's built `dist/` statically (GitHub/Cloudflare/Netlify
-# Pages) for a near-$0 demo; only /verify is then unavailable.
+# Even lighter (static-only): serve services/webui-frontend's built `dist/`
+# from any static host. Five pages then work unchanged, three fall back to
+# bundled defaults, and six lose their content; docs/deployment-economics.md
+# has the page-by-page table.
 #
 #   git clone --recurse-submodules <repo> pqc-qkd-hybrid
 #   cd pqc-qkd-hybrid
@@ -98,19 +101,15 @@ configure_firewall
 # ---- 3) Submodules (bb84-kme + pqc-validator builds need them) ----
 log "syncing git submodules"
 git submodule update --init --recursive
-# The bb84-kme image installs its QKD backends from these submodules at build
-# time. The default backend is `simqn`; if SimQN isn't checked out the KME
-# crashes on boot. Make it deterministic: force-fetch the backends and, if
-# SimQN is still absent, deploy on the always-present built-in `qutip` backend
-# (no submodule needed). For a public demo this is ideal — the simulation pages
-# run client-side, so the server backend choice is cosmetic.
+# The bb84-kme image installs all four heavy QKD backends from these submodules
+# at build time, and a failed install fails the build
+# (services/bb84-kme/Dockerfile), so they are required here, not optional: a
+# failed fetch ends the deploy now rather than at the build. `--force` re-runs
+# the checkout even when the recorded commit is current, which restores a
+# submodule whose files were deleted after cloning.
 git submodule update --init --force --recursive \
     submodules/SimQN submodules/SeQUeNCe \
-    submodules/strawberryfields submodules/tno-qkd-key-rate || true
-if [[ ! -e submodules/SimQN/setup.py ]]; then
-  log "SimQN submodule absent — deploying on the built-in 'qutip' backend (SIMULATOR_BACKEND=qutip)."
-  export SIMULATOR_BACKEND=qutip
-fi
+    submodules/strawberryfields submodules/tno-qkd-key-rate
 
 ensure_swap
 

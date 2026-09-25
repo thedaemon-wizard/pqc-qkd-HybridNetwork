@@ -8,8 +8,10 @@ import ExportToolbar from "../components/ExportToolbar";
 // WireGuard profile; the host added `docker-compose.strongswan.yml` on
 // 2026-08-23, so `alice-ipsec`/`bob-ipsec` are real containers whose logs
 // carry the charon and VICI traffic (`PPK rotated`, `using PPK for PPK_ID`).
-// A name with no container simply yields an error line in the pane, which is
-// the honest outcome -- the page tails whatever Docker reports.
+// These six are exactly the names `GET /api/logs/{name}` accepts; any other
+// name is a 404 from the backend before Docker is asked. A listed container
+// that is not running yields an error line in the pane, which is the honest
+// outcome.
 const NAMES = [
   "alice", "bob", "bb84-kme-a", "bb84-kme-b", "alice-ipsec", "bob-ipsec",
 ];
@@ -41,21 +43,33 @@ export function stripAnsi(s: string): string {
 
 export default function Console() {
   const [active, setActive] = useState("alice");
-  const [log, setLog] = useState("");
+  // The text together with the container it came from. A bare string kept the
+  // previous container's log on screen after a switch until the first new
+  // poll, and an in-flight request for the old container could land after
+  // the switch -- either way the pane and the export (named for the NEW
+  // container) carried another container's log.
+  const [tail, setTail] = useState<{ container: string; log: string } | null>(null);
+  const log = tail?.container === active ? tail.log : "";
 
   useEffect(() => {
     let stop = false;
+    setTail(null);
     async function loop() {
       while (!stop) {
         // A hidden tab does not poll: nobody is reading the tail, and this
         // is the page that asks the public demo for the most data.
         if (document.visibilityState !== "hidden") {
+          let text: string;
           try {
             const r = await getLogs(active, 400);
-            setLog(stripAnsi(r.log || ""));
+            text = stripAnsi(r.log || "");
           } catch (e) {
-            setLog(`Not observed -- GET /api/logs/${active} failed: ${e instanceof Error ? e.message : e}`);
+            text = `Not observed -- GET /api/logs/${active} failed: ${e instanceof Error ? e.message : e}`;
           }
+          // Checked after the await, not only at the loop head: the tab may
+          // have switched while the request was in flight.
+          if (stop) return;
+          setTail({ container: active, log: text });
         }
         await new Promise(r => setTimeout(r, 1500));
       }

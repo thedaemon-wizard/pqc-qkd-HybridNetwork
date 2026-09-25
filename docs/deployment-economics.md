@@ -6,40 +6,54 @@ The simulation work in this project runs in the browser, so the interesting
 question is not "how big a server" but "how little server". This document
 answers that with the page-by-page reality rather than a slogan.
 
-Reviewed 2026-08-21. Route table updated 2026-09-25 for route 14, `/protocol-lab`,
-and for `/physics`, which gained a bundled-default fallback after the review.
+Reviewed 2026-09-25: the route table below was re-read against every page's
+fetch calls on that date.
 
 ---
 
 ## 1. Which pages actually need a backend
 
 Measured by reading every page's fetch calls, including the ones routed through
-`services/webui-frontend/src/api.ts`. This table is the thing to keep accurate;
-an earlier claim that a static deployment "disables only `/verify`" was wrong by
-seven pages.
+`services/webui-frontend/src/api.ts`. This table is the one place that
+records it; other documents link here. An earlier claim that a static
+deployment "disables only `/verify`" was wrong by five pages: six routes need
+the backend, not one.
 
 | Route | Backend calls | Static-only behaviour |
 |---|---|---|
-| `/e2e` | none | **Fully works.** Real HKDF-SHA3-256 and ChaCha20-Poly1305 in-browser |
-| `/paper-flow` | none | **Fully works.** Includes the AEAD payload and failure cascade |
-| `/keyflow` | none | **Fully works** (static diagram) |
+| `/e2e` | none during a run (exports aside) | **Fully works.** Real HKDF-SHA3-256 and ChaCha20-Poly1305 in-browser |
+| `/paper-flow` | none during a run (exports aside) | **Fully works.** Includes the AEAD payload and failure cascade |
+| `/keyflow` | none (exports aside) | **Fully works** (static diagram) |
 | `/hil` | none | **Fully works** (static) |
+| `/protocol-lab` | none during a run (exports aside) | **Fully works.** Relay, re-routing and the ETSI 014 / 004 timeline are simulated in the browser from published data |
 | `/bb84` | `GET /api/sim/params` once at mount | **Works**, falls back to bundled defaults |
-| `/pqc` | `GET /api/pqc/algorithms`, `POST /api/pqc/roundtrip` | **Works client-side**; the server cross-check is skipped and the UI says so |
-| `/physics` | 5 endpoints, incl. 5 s poll | **Works**: the form falls back to bundled defaults and the live key rate is computed in the browser; Apply, Reset and the backend selector need the backend |
-| `/protocol-lab` | none | **Fully works.** Relay, re-routing and the ETSI 014 / 004 timeline are simulated in the browser from published data |
-| `/` | `GET /api/stack` (3 s poll) | Degrades: container status is empty |
-| `/benchmarks` | `GET /api/stats` (1 s poll) | Degrades: no live statistics |
+| `/pqc` | `GET /api/pqc/algorithms`, `POST /api/pqc/roundtrip`, `POST /api/pqc/interop` | **Works client-side**; the liboqs cross-checks are skipped and the UI says so |
+| `/physics` | `GET /api/sim/params/editable`, `GET /api/stats` and `GET /api/sim/params` (5 s poll), `GET /api/stack` (5 s poll, so the two backends that forward to `qkdnetsim-kme` are offered only while it runs), `GET /api/config`; `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` only where live overrides are enabled | **Works**: the form falls back to bundled defaults, and the key rate and optimiser run in the browser. Apply and Reset change only the in-browser model, as they do on any backend with live overrides off; the backend selector is disabled. See [`webui-pages.md`](webui-pages.md#server-side-switches) |
+| `/` | `GET /api/stack` (3 s poll), `GET /api/config`; `GET /api/logs/download/webui-backend?lines=1000` (Logs export only) | Degrades: container status is empty, and the Logs export fails |
+| `/benchmarks` | `GET /api/stats` (1 s poll); `GET /api/logs/download/alice?lines=1000` (Logs export only) | Degrades: no live statistics, and the Logs export fails |
 | `/console` | `GET /api/logs/<name>` (1.5 s poll) | Degrades: no container logs |
 | `/topology` | `GET /api/topology` | Degrades: no graph data |
-| `/vpn` | `GET /api/vpn/protocols` (3 s poll) | Degrades: no lane status |
-| `/verify` | `/api/pqc/agility`, `/api/verify/keyrate`, `/api/verify/paper-budgets` | Degrades: no verification evidence |
+| `/vpn` | `GET /api/vpn/protocols` (5 s poll, served from a 5 s server-side sample cache), `GET /api/vpn/ppk-rotations?window_s=600` (30 s poll) | Degrades: no lane status and no rotation counts |
+| `/verify` | `POST /api/pqc/agility`, `GET /api/verify/keyrate`, `GET /api/verify/paper-budgets` | Degrades: no server evidence; the browser half of the agility cross-check still runs |
 
-**Eight of fourteen routes are fully self-contained. Six need the backend.**
+**Five routes need no backend call besides the optional export copy below.
+Three more work without one, on bundled defaults or without their server
+cross-check. Six need the backend for their content.**
+
+Thirteen of the fourteen pages carry an export toolbar (all but `/hil`). Every
+file except the server-log download on `/` and `/benchmarks` is built in the
+browser and delivered from memory. On those two pages the Logs button fetches
+the tail of a server-side log (`webui-backend.log`, and the `alice.log` that
+`bb84-kme-a` writes) through `GET /api/logs/download/<service>`, so it is the
+one export that needs the backend. The toolbar sends `POST /api/exports/save`
+only when the visitor ticks "copy to shared gallery", which is off by default,
+and `GET /api/exports/list` only when the Saved-exports picker is opened.
+Neither is needed for the export itself.
 
 The four pages that carry the project's actual argument — the E2E hybrid
-exchange, the paper reproduction, BB84 and the PQC validator — are all in the
-first group. That is what makes a near-zero-cost deployment worth considering.
+exchange, the paper reproduction, BB84 and the PQC validator — all work
+without a backend. That is what makes a near-zero-cost deployment worth
+considering.
 
 ---
 
@@ -79,34 +93,28 @@ the wrong way round; paying it to serve the handful of API calls is not.
 
 ### C. Everything on one VPS
 
-What the public demo runs. Simplest to reason about, one machine, one TLS
-certificate. Reasonable while the demo is small; the cost grows with traffic
-because the bundle is served from it.
+The full stack on one machine: simplest to reason about, one TLS certificate.
+Reasonable while the demo is small; the cost grows with traffic because the
+bundle is served from it.
 
-**It is the FULL stack, not the sim-only demo profile.** This section used to
-say it was "what `deploy/deploy-demo.sh` does today" and sized it accordingly.
-Measured against the running host: `/api/config` reports `demo_mode: false`, and
-`/api/stack` enumerates ten containers including both privileged WireGuard nodes
-(`alice`, `bob`) and both strongSwan nodes (`alice-ipsec`, `bob-ipsec`).
-
-Requirements are therefore the full-stack ones from
+**This is the full stack, not the sim-only demo profile**, and it has to be
+sized as one. The requirements are the full-stack ones from
 [`../deploy/README.md`](../deploy/README.md): **≥4 GB RAM** (8 GB to build
 everything on-box) and **~15 GB free disk**, because `pqc-validator` builds
 liboqs and `bb84-kme` builds Python wheels. On a smaller box the first build is
-OOM-killed or fills the disk, leaving a broken image.
-
-The figures previously given here — 2 GB RAM and 8 GB disk — were attributed to
-`deploy/README.md`, which contains neither. They are `deploy/deploy-demo.sh`'s
-demo-profile numbers, so this section sized the deployed system at roughly half
-its documented requirement while citing a file that says otherwise.
+OOM-killed or fills the disk, leaving a broken image. The 2 GB RAM and 8 GB
+disk that apply to the sim-only demo profile are `deploy/deploy-demo.sh`'s
+figures, not these.
 
 **One consequence worth stating.** The full profile mounts the Docker socket
-into `webui-backend`, which is reachable from an unauthenticated HTTP surface.
-Container *control* is disabled on the public host — `/api/config` reports
-`container_control: false` and `POST /api/stack/{action}/{name}` answers 403 —
-but container *enumeration* is not; `/api/stack` is the command used above.
-That is a deliberate choice for a demo whose purpose is to show the lanes
-running, and not a default to carry into a deployment where the host matters.
+read-only into `webui-backend`, which serves an unauthenticated HTTP API, so
+that `/api/stack` can enumerate containers and `/api/logs` can read them.
+Container *control* is off unless explicitly enabled
+([`webui-pages.md`](webui-pages.md#server-side-switches)); container
+*enumeration* is not. That suits a demo whose purpose is to show the lanes
+running, and is not a default to carry into a deployment where the host
+matters. Removing the socket from the internet-facing process is on the
+[`roadmap.md`](roadmap.md) list of deferred items.
 
 ---
 
@@ -132,11 +140,13 @@ can be sized for one user rather than for the internet.
   resource timeline during a run on `/e2e` and `/paper-flow`: zero `/api` and
   zero WebSocket requests. `VERIFICATION_CHECKLIST.md` item 4.6.2 asserts this
   with a command, so it stays true.
-- **Exports currently round-trip through the backend.** `saveToBackendAndDownload`
-  in `services/webui-frontend/src/lib/exporters.ts` POSTs each artefact to
-  `/api/exports/save` before handing it to the user, falling back to a local
-  blob only on failure. On a static-only deployment every export takes the
-  fallback path. That works, but it means option A silently loses the saved-
-  exports gallery, and the code should arguably not assume a backend at all.
-- **`DEMO_MODE` matters if a backend is public.** It disables container control
-  and rate-limits POSTs. See `deploy/docker-compose.demo.yml`.
+- **Exports download from memory first.** `services/webui-frontend/src/lib/exporters.ts`
+  hands the file to the browser, and posts a copy to `/api/exports/save` only
+  when the visitor asked for one; that copy only feeds the Saved-exports
+  picker, which a static-only deployment lacks. The exception is the Logs
+  button on `/` and `/benchmarks`, whose file is a server log and so comes
+  from `GET /api/logs/download/<service>`.
+- **The server-side switches matter if a backend is public.** Live parameter
+  overrides and container control are both off by default, and the rate limit
+  is always on; what each switch does is in
+  [`webui-pages.md`](webui-pages.md#server-side-switches).

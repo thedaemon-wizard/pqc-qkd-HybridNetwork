@@ -1,23 +1,31 @@
 /**
- * Client-side E2E orchestrator (Round 5) — TS port of the 4-phase
- * the former services/webui-backend/app/e2e_orchestrator.py state machine (that
- * module has since been deleted; this is now the only implementation), run in
- * the browser with REAL crypto (HKDF-SHA3-256 + ChaCha20-Poly1305 via @noble).
- * Emits the same E2EState shape the page already renders, so no UI changes.
+ * Client-side E2E orchestrator: a 4-step state machine, ported from the former
+ * services/webui-backend/app/e2e_orchestrator.py (that module has since been
+ * deleted; this is now the only implementation), run in the browser with REAL
+ * crypto (HKDF-SHA3-256 + ChaCha20-Poly1305 via @noble).
+ *
+ * "Step", not "phase": the numbering is this page's own, and "phase" is the
+ * word arXiv:2604.05599 and /paper-flow use for a different scheme. The run
+ * state, the CSV and the run log all say `step` (EXPORT_SCHEMA_VERSION 3 marks
+ * the JSON keys' rename from `current_phase` / `phase_name` / `history[].phase`).
  */
 import { chachaEncrypt, deriveHkdfSha3, encodeUtf8, randomBytes, toHex } from "./crypto";
+import { dwellDone, dwellMs, LOOP_TICK_MS } from "./pacing";
 
 export type Mode = "A" | "B" | "C";
 
-export interface PhaseRec {
-  phase: number; name: string;
+export interface StepRec {
+  step: number; name: string;
   started_at: number; completed_at: number | null;
   detail: Record<string, unknown>;
 }
 
+/** An operator action, logged so a run log can say what was done to the run. */
+export interface OperatorAction { at: number; action: string; }
+
 export interface E2EState {
   /**
-   * `stepped` is a manual single-phase advance, distinct from `paused`.
+   * `stepped` is a manual single-step advance, distinct from `paused`.
    *
    * `paused` carries a second meaning in this machine: it is the FATALITY
    * verdict. `e2eFailure.test.ts` distinguishes survived-from-halted by
@@ -26,7 +34,7 @@ export interface E2EState {
    *
    * Before this value existed, `step()` left the badge reading `idle` while
    * the machine advanced. Observed on the deployed build: one Step from idle
-   * moved `Active phase` to 2 and ticked phase 1 complete, with the badge
+   * moved the active step to 2 and ticked step 1 complete, with the badge
    * still showing `idle`.
    */
   status: "idle" | "running" | "paused" | "stepped";
@@ -42,8 +50,8 @@ export interface E2EState {
    * on. One rule, one owner.
    */
   failure_is_fatal: boolean;
-  current_phase: number;
-  phase_name: string;
+  current_step: number;
+  step_name: string;
   mode: Mode;
   mode_label: string;
   completed_cycles: number;
@@ -53,7 +61,12 @@ export interface E2EState {
   last_psk_prefix_hex: string;
   last_error: string;
   /**
-   * Measured throughput, or null when nothing has been measured yet.
+   * Animation-paced byte rate, or null when nothing has been measured yet.
+   *
+   * Bytes sealed in one cycle, times 8, over that cycle's wall-clock length --
+   * and the cycle is almost entirely the fixed UI dwell (`nominal_cycle_ms`).
+   * So this is set by the animation's pacing, not by ChaCha20-Poly1305 or by
+   * any tunnel. The page labels it so and shows the cycle length beside it.
    *
    * NULLABLE deliberately. This was a non-optional `number` initialised to 0,
    * and `formatRate` renders a dash only for a non-finite value -- so a run
@@ -76,11 +89,22 @@ export interface E2EState {
    * that denominator. See the comment at the assignment.
    */
   nominal_cycle_ms: number;
-  history: PhaseRec[];
+  /**
+   * Packets sealed in step 4 of each cycle. Set by the operator (bounded by
+   * PACKETS_PER_CYCLE_MIN / _MAX); latched when a cycle starts, so one cycle
+   * never mixes two settings.
+   */
+  packets_per_cycle: number;
+  /** The last STEP_HISTORY_LIMIT step records; `steps_total` counts them all. */
+  history: StepRec[];
+  steps_total: number;
+  /** The last ACTION_LOG_LIMIT operator actions; `actions_total` counts them all. */
+  operator_actions: OperatorAction[];
+  actions_total: number;
   engine?: string;
 }
 
-const PHASE_NAMES: Record<number, string> = {
+const STEP_NAMES: Record<number, string> = {
   1: "Quantum Plane",
   2: "QKD Key IDs (ETSI 014)",
   3: "PQC Handshake (HKDF-SHA3-256)",
@@ -100,51 +124,68 @@ export type E2ELayer = "qkd" | "pqc" | "data";
 const MODE_LABEL: Record<Mode, string> = {
   A: "QKD-only", B: "PQC-only", C: "Hybrid (QKD ‖ PQC)",
 };
-const N_PACKETS = 64;
+/** Packets per cycle a fresh page starts with. */
+export const DEFAULT_PACKETS_PER_CYCLE = 64;
+/**
+ * Bounds on the packets-per-cycle input. At least one packet, or step 4 seals
+ * nothing and reports a rate over no data. At most 1024: each packet is one
+ * ChaCha20-Poly1305 seal on the main thread inside a single 100 ms tick, and
+ * the cap keeps a cycle's step 4 well inside that tick.
+ */
+export const PACKETS_PER_CYCLE_MIN = 1;
+export const PACKETS_PER_CYCLE_MAX = 1024;
+
+/** Steps in one cycle. */
+export const STEPS_PER_CYCLE = 4;
+/** Step records kept in the run state. */
+export const STEP_HISTORY_LIMIT = 20;
+/** Operator actions kept in the run state. */
+export const ACTION_LOG_LIMIT = 50;
 
 /**
- * Dwell per phase, chosen so the animation is watchable.
+ * Dwell per step, chosen so the animation is watchable: five loop ticks (see
+ * pacing.ts for why a dwell is a whole number of ticks -- this was 450 ms,
+ * which a 100 ms loop can only honour at 500).
  *
- * Exported because the CSV carries the MEASURED wall-clock time each phase
+ * Exported because the CSV carries the MEASURED wall-clock time each step
  * occupied, and without the nominal value beside it that column reads as a
  * protocol measurement. It is not one: it is this constant, and the browser
  * distorts it. Chrome clamps `setInterval` to roughly 1 Hz in a hidden tab, so
- * a run recorded with the tab in the background reports ~1000 ms per phase
- * against a 450 ms nominal -- observed on the deployed demo, where phases that
- * should take 450 ms logged 999 ms.
+ * a run recorded with the tab in the background reports ~1000 ms per step --
+ * observed on the deployed demo, where steps logged 999 ms.
  *
  * Publishing both lets a reader see the distortion instead of plotting it.
  */
-export const NOMINAL_PHASE_DWELL_MS = 450;
+export const NOMINAL_STEP_DWELL_MS = dwellMs(5);
 
 /**
- * `/e2e`'s phase history as CSV rows.
+ * `/e2e`'s step history as CSV rows.
  *
  * Here, not inside the page component, so a test can call the thing that
  * actually builds the file. While this was a closure over `state` the only
  * symbol a test could reach was the dwell constant, so the guard written to
  * keep `duration_ms` from coming back could not see a single exported column.
  */
-export function e2eCsvRows(history: PhaseRec[]): Record<string, unknown>[] {
+export function e2eCsvRows(history: StepRec[]): Record<string, unknown>[] {
   return history.map((h) => ({
     // `step`, the word the page uses for its own scheme (it said `phase`,
     // the paper's word for a different numbering). The CSV carries no schema
     // version -- EXPORT_SCHEMA_VERSION is injected into JSON only -- so the
     // column name is the only signal of the change.
-    step: h.phase,
+    step: h.step,
     name: h.name,
     started_at: new Date(h.started_at * 1000).toISOString(),
     completed_at: h.completed_at
       ? new Date(h.completed_at * 1000).toISOString() : "",
     // Named for what it is. This is the wall-clock time the UI sat on the
-    // phase, not a protocol timing: the dwell is a fixed animation constant,
+    // step, not a protocol timing: the dwell is a fixed animation constant,
     // and Chrome clamps timers to ~1 Hz in a hidden tab, so a run recorded in
-    // a background tab logs ~1000 ms against a 450 ms nominal -- observed on
-    // the deployed demo. Exporting the nominal beside it lets a reader detect
-    // that distortion instead of plotting it as a measurement.
+    // a background tab logs ~1000 ms per step -- observed on the deployed
+    // demo. Exporting the nominal beside it lets a reader detect that
+    // distortion instead of plotting it as a measurement.
     ui_dwell_ms: h.completed_at
       ? Math.round((h.completed_at - h.started_at) * 1000) : "",
-    nominal_dwell_ms: NOMINAL_PHASE_DWELL_MS,
+    nominal_dwell_ms: NOMINAL_STEP_DWELL_MS,
     // One column per detail key rather than a JSON blob, so the CSV is
     // usable in a spreadsheet without post-processing.
     ...h.detail,
@@ -157,8 +198,10 @@ export class E2ESim {
 
   private s: E2EState;
   private timer: number | null = null;
-  private phaseStart = 0;
+  private stepStart = 0;
   private cycleStart = 0;
+  /** packets_per_cycle as it was when the current cycle began. */
+  private cyclePackets = DEFAULT_PACKETS_PER_CYCLE;
   // Annotated explicitly: `new Uint8Array(0)` infers the narrower
   // Uint8Array<ArrayBuffer>, while @noble's helpers return the general
   // Uint8Array<ArrayBufferLike>, so inference alone makes assignment fail.
@@ -170,10 +213,10 @@ export class E2ESim {
   /**
    * Depth of Alice's QKD key pool, as a real quantity.
    *
-   * Phase 1 reported `1 + Math.floor(Math.random() * 8)` here, and that number
-   * was surfaced in the phase-history table and in the JSON and CSV exports as
+   * Step 1 reported `1 + Math.floor(Math.random() * 8)` here, and that number
+   * was surfaced in the step-history table and in the JSON and CSV exports as
    * if it were a measurement. It is now driven by the run: the quantum plane
-   * deposits a key each cycle, and the ETSI 014 exchange in phase 2 draws one,
+   * deposits a key each cycle, and the ETSI 014 exchange in step 2 draws one,
    * so the depth reflects what the simulation actually did.
    */
   private alicePool = 0;
@@ -184,28 +227,41 @@ export class E2ESim {
     this.s = this.fresh("C");
   }
 
-  private fresh(mode: Mode): E2EState {
+  private fresh(mode: Mode, packetsPerCycle = DEFAULT_PACKETS_PER_CYCLE): E2EState {
     return {
-      status: "idle", current_phase: 0, phase_name: "idle", mode, failed_layer: null,
+      status: "idle", current_step: 0, step_name: "idle", mode, failed_layer: null,
       failure_is_fatal: false,
       mode_label: MODE_LABEL[mode], completed_cycles: 0,
       total_bytes_encrypted: 0, total_packets: 0, last_qkd_key_id: "",
       last_psk_prefix_hex: "", last_error: "", rate_bps: null,
-      nominal_cycle_ms: 4 * NOMINAL_PHASE_DWELL_MS, history: [],
+      nominal_cycle_ms: STEPS_PER_CYCLE * NOMINAL_STEP_DWELL_MS,
+      packets_per_cycle: packetsPerCycle,
+      history: [], steps_total: 0, operator_actions: [], actions_total: 0,
       engine: "client-side (JS + @noble)",
     };
   }
 
-  private emit() { this.onState({ ...this.s, history: [...this.s.history] }); }
+  private emit() {
+    this.onState({ ...this.s, history: [...this.s.history],
+                   operator_actions: [...this.s.operator_actions] });
+  }
+
+  private record(action: string) {
+    this.s.operator_actions.push({ at: Date.now() / 1000, action });
+    if (this.s.operator_actions.length > ACTION_LOG_LIMIT) this.s.operator_actions.shift();
+    this.s.actions_total += 1;
+  }
 
   start() {
+    this.record("run");
     this.s.status = "running";
-    if (this.s.current_phase === 0) this.enter(1);
+    if (this.s.current_step === 0) this.enter(1);
     this.ensureLoop();
     this.emit();
   }
   /** Freeze the run, keeping all state so resume() can continue it. */
   pause() {
+    this.record("pause");
     this.s.status = "paused";
     // Stop the timer rather than letting tick() early-return on every fire:
     // a paused simulation should not keep waking the main thread 10x a second.
@@ -213,19 +269,21 @@ export class E2ESim {
     this.emit();
   }
 
-  resume() { this.s.status = "running"; this.ensureLoop(); this.emit(); }
+  resume() { this.record("resume"); this.s.status = "running"; this.ensureLoop(); this.emit(); }
 
   /** Return to the initial state, discarding key material and history. */
   reset() {
     // Stop the loop first. Previously reset() left the interval running, so
     // the next start() found a live timer, ensureLoop() short-circuited, and
-    // phaseStart/cycleStart were never re-seeded -- making the first phase
+    // stepStart/cycleStart were never re-seeded -- making the first step
     // after a reset finish early and the throughput figure meaningless.
     this.stopLoop();
-    const mode = this.s.mode;
-    this.s = this.fresh(mode);
+    // Mode and packets per cycle are settings, not run state: they survive.
+    this.s = this.fresh(this.s.mode, this.s.packets_per_cycle);
     this.clearKeyMaterial();
     this.cycleBytes = 0; this.keyId = ""; this.alicePool = 0;
+    // The action log restarts with the run it describes, beginning with the reset.
+    this.record("reset");
     this.emit();
   }
 
@@ -235,17 +293,18 @@ export class E2ESim {
    * control that Reset deliberately is not.
    */
   abort() {
+    this.record("abort");
     this.stopLoop();
     this.s.status = "idle";
-    this.s.current_phase = 0;
-    this.s.phase_name = "aborted";
+    this.s.current_step = 0;
+    this.s.step_name = "aborted";
     this.clearKeyMaterial();
     this.cycleBytes = 0; this.keyId = "";
     this.s.last_error = "Run aborted by operator";
     this.emit();
   }
   /**
-   * Advance exactly one phase.
+   * Advance exactly one step.
    *
    * Refuses while running. It previously did not check status, so pressing
    * Step during a run advanced the machine underneath the timer and the badge
@@ -253,20 +312,21 @@ export class E2ESim {
    */
   step() {
     if (this.s.status === "running") return;
+    this.record("step");
     // `stepped`, NOT `paused`. `paused` is the fatality verdict in this
     // machine (see the status field), and five assertions in
     // e2eFailure.test.ts distinguish survived-from-halted by comparing
     // against it, so reusing it here would make "the operator stepped" and
     // "the run died" indistinguishable.
     //
-    // A fatal step is the one case that must NOT be relabelled: if the phase
+    // A fatal step is the one case that must NOT be relabelled: if the step
     // work below halts the run, `advance()` sets `paused` and that verdict
     // has to survive. So this is set BEFORE the work and only kept if the
     // work did not change it.
     const before = this.s.status;
     this.s.status = "stepped";
-    if (this.s.current_phase === 0) this.enter(1);
-    this.runPhaseWork();
+    if (this.s.current_step === 0) this.enter(1);
+    this.runStepWork();
     this.advance(true);
     // If the work halted the run, `advance` has already set `paused` and that
     // is the honest state. Only restore the manual label when nothing did.
@@ -275,13 +335,37 @@ export class E2ESim {
     }
     this.emit();
   }
-  setMode(m: Mode) {
+  /**
+   * Change the mode, only between cycles. Returns whether it was applied.
+   *
+   * Refused mid-cycle. The page disabled the buttons only while running, so a
+   * Pause or a Step part-way through a cycle let the mode change between
+   * step 2 and step 3: a QKD key drawn under C, then HKDF(qkd || pqc) derived
+   * with info "mode-B" in a PQC-only mode -- a cycle that was neither mode.
+   */
+  setMode(m: Mode): boolean {
+    if (this.s.current_step !== 0) return false;
+    this.record(`mode ${m}`);
     this.s.mode = m;
     this.s.mode_label = MODE_LABEL[m];
     // The same failed layer is fatal in one mode and harmless in another, so
     // the verdict is re-derived here rather than only at injection time.
     this.s.failure_is_fatal = this.failureIsFatal();
     this.emit();
+    return true;
+  }
+
+  /**
+   * Set how many packets step 4 seals per cycle. Takes effect at the next
+   * cycle; out-of-range or non-integer values are refused, not clamped, so the
+   * page never shows a count the operator did not enter.
+   */
+  setPacketsPerCycle(n: number): boolean {
+    if (!Number.isInteger(n) || n < PACKETS_PER_CYCLE_MIN || n > PACKETS_PER_CYCLE_MAX) return false;
+    this.record(`packets per cycle ${n}`);
+    this.s.packets_per_cycle = n;
+    this.emit();
+    return true;
   }
 
   dispose() { this.stopLoop(); this.clearKeyMaterial(); }
@@ -313,33 +397,39 @@ export class E2ESim {
 
   private ensureLoop() {
     if (this.timer !== null) return;
-    this.phaseStart = performance.now();
+    this.stepStart = performance.now();
     this.cycleStart = performance.now();
-    this.timer = window.setInterval(() => this.tick(), 100);
+    this.timer = window.setInterval(() => this.tick(), LOOP_TICK_MS);
   }
 
   private tick() {
     if (this.s.status !== "running") return;
-    if (performance.now() - this.phaseStart >= NOMINAL_PHASE_DWELL_MS) {
-      this.runPhaseWork();
+    if (dwellDone(performance.now() - this.stepStart, NOMINAL_STEP_DWELL_MS)) {
+      this.runStepWork();
       this.advance(false);
       this.emit();
     }
   }
 
-  private enter(phase: number) {
-    this.s.current_phase = phase;
-    this.s.phase_name = PHASE_NAMES[phase] ?? "idle";
-    if (phase === 1) { this.cycleStart = performance.now(); this.cycleBytes = 0; }
-    this.s.history.push({ phase, name: PHASE_NAMES[phase] ?? "",
+  private enter(step: number) {
+    this.s.current_step = step;
+    this.s.step_name = STEP_NAMES[step] ?? "idle";
+    if (step === 1) {
+      this.cycleStart = performance.now(); this.cycleBytes = 0;
+      this.cyclePackets = this.s.packets_per_cycle;
+    }
+    this.s.history.push({ step, name: STEP_NAMES[step] ?? "",
       started_at: Date.now() / 1000, completed_at: null, detail: {} });
-    if (this.s.history.length > 20) this.s.history = this.s.history.slice(-20);
-    this.phaseStart = performance.now();
+    this.s.steps_total += 1;
+    if (this.s.history.length > STEP_HISTORY_LIMIT) {
+      this.s.history = this.s.history.slice(-STEP_HISTORY_LIMIT);
+    }
+    this.stepStart = performance.now();
   }
 
   private exit(detail: Record<string, unknown>) {
     for (let i = this.s.history.length - 1; i >= 0; i--) {
-      if (this.s.history[i].phase === this.s.current_phase
+      if (this.s.history[i].step === this.s.current_step
           && this.s.history[i].completed_at === null) {
         this.s.history[i].completed_at = Date.now() / 1000;
         this.s.history[i].detail = detail;
@@ -359,12 +449,14 @@ export class E2ESim {
    * is no second leg to fall back to.
    */
   injectFailure(layer: E2ELayer) {
+    this.record(`inject ${layer}`);
     this.s.failed_layer = layer;
     this.s.failure_is_fatal = this.failureIsFatal();
     this.emit();
   }
 
   clearFailure() {
+    this.record("clear failure");
     this.s.failed_layer = null;
     this.s.failure_is_fatal = false;
     this.s.last_error = "";
@@ -384,10 +476,10 @@ export class E2ESim {
     return this.s.mode === "B";                    // f === "pqc"; B is PQC-only
   }
 
-  /** Do the actual crypto/work for the CURRENT phase. */
-  private runPhaseWork() {
+  /** Do the actual crypto/work for the CURRENT step. */
+  private runStepWork() {
     const mode = this.s.mode;
-    switch (this.s.current_phase) {
+    switch (this.s.current_step) {
       case 1:
         if (this.s.failed_layer === "qkd") {
           // No key material is produced at all; the pool cannot grow.
@@ -433,6 +525,7 @@ export class E2ESim {
         // "Latest derived WireGuard PSK". A public constant in the slot the page
         // labels key material. Report the absence instead; see
         // e2eEmptyIkm.test.ts, which pins the two cells by name.
+        // (Unreachable in mode C: failing one layer leaves the other.)
         if (this.qkdKey.length === 0 && this.pqcSecret.length === 0) {
           this.derived = new Uint8Array(0);
           this.s.last_psk_prefix_hex = "";
@@ -464,7 +557,8 @@ export class E2ESim {
           break;
         }
         let bytes = 0;
-        for (let i = 0; i < N_PACKETS; i++) {
+        const packets = this.cyclePackets;
+        for (let i = 0; i < packets; i++) {
           const payload = encodeUtf8(`PING ${i} Alice->Bob over Quantum-Secure VPN`);
           const { ctLen, nonceLen } = chachaEncrypt(this.derived, payload);
           bytes += ctLen + nonceLen;
@@ -472,40 +566,42 @@ export class E2ESim {
         this.cycleBytes = bytes;
         const elapsed = Math.max((performance.now() - this.cycleStart) / 1000, 1e-3);
         this.s.total_bytes_encrypted += bytes;
-        this.s.total_packets += N_PACKETS;
+        this.s.total_packets += packets;
         this.s.completed_cycles += 1;
         this.s.last_qkd_key_id = this.keyId;
-        // Bits per second over WALL-CLOCK, which the browser throttles.
+        // Bits per second over WALL-CLOCK, which the animation sets.
         //
         // The arithmetic and the units are right -- bytes x 8 / seconds -- but
-        // the denominator is measured, and Chrome clamps timers to about 1 Hz
-        // in a hidden tab. Measured on the demo: 4470 bytes reported at
-        // 8952 bps, implying 3.995 s for a cycle whose nominal length is
-        // 4 x 450 ms = 1.8 s. So a backgrounded run understates throughput by
-        // roughly the throttle ratio.
+        // the denominator is the cycle, and the cycle is four fixed UI dwells:
+        // the seals themselves take a negligible share of it. So this figure
+        // is set by NOMINAL_STEP_DWELL_MS and says nothing about the cipher or
+        // a tunnel; the page labels it "animation-paced". About 17.9 kbps in a
+        // foreground tab (64 packets, 4470 bytes over a 2.0 s cycle).
         //
-        // `nominal_cycle_ms` is published beside it for the same reason
-        // `nominal_dwell_ms` is published beside `ui_dwell_ms`: a reader can
-        // compare the two and see whether the recording was throttled, instead
-        // of taking the rate for a property of the system.
+        // It also moves with the browser: Chrome clamps timers to about 1 Hz
+        // in a hidden tab. Measured on the demo: 4470 bytes reported at
+        // 8952 bps, implying 3.995 s for one cycle. `nominal_cycle_ms` is
+        // published beside it for the same reason `nominal_dwell_ms` is
+        // published beside `ui_dwell_ms`: a reader can compare the two and see
+        // whether the recording was throttled.
         this.s.rate_bps = (bytes * 8.0) / elapsed;
-        this.s.nominal_cycle_ms = 4 * NOMINAL_PHASE_DWELL_MS;
+        this.s.nominal_cycle_ms = STEPS_PER_CYCLE * NOMINAL_STEP_DWELL_MS;
         this.s.last_error = this.s.failed_layer
           ? `Degraded: ${this.s.failed_layer.toUpperCase()} layer failed; `
             + `mode ${mode} continued on the surviving leg`
           : "";
-        this.exit({ packets: N_PACKETS, bytes, rate_mbps: (bytes * 8.0) / elapsed / 1e6 });
+        this.exit({ packets, bytes, rate_mbps: (bytes * 8.0) / elapsed / 1e6 });
         break;
       }
     }
   }
 
-  /** Move to the next phase (or finish a cycle). */
+  /** Move to the next step (or finish a cycle). */
   private advance(stepping: boolean) {
-    const cur = this.s.current_phase;
-    if (cur >= 4) {
-      this.s.current_phase = 0;
-      this.s.phase_name = "idle";
+    const cur = this.s.current_step;
+    if (cur >= STEPS_PER_CYCLE) {
+      this.s.current_step = 0;
+      this.s.step_name = "idle";
       if (this.s.status === "running" && !stepping) this.enter(1);   // loop
     } else {
       this.enter(cur + 1);

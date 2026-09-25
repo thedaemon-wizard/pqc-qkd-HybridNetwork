@@ -92,8 +92,11 @@ ip link del "$WG_IFACE" 2>/dev/null || true
 # and tests/test_compose_env_is_read_by_something.py exempted it on the
 # strength of that same assumption.
 #
-# Selecting the implementation by variable keeps docker-compose.boringtun.yml
-# working, which sets it to `boringtun`.
+# WG_QUICK_USERSPACE_IMPLEMENTATION can still name another binary, but only one
+# is installed: wireguard-go. The docker-compose.boringtun.yml overlay that set
+# it to `boringtun` was removed -- the image has never shipped that binary, so
+# the overlay made a host without the module exit here, which is the only case
+# it existed for.
 if ! ip link add dev "$WG_IFACE" type wireguard 2>/dev/null; then
     userspace="${WG_QUICK_USERSPACE_IMPLEMENTATION:-wireguard-go}"
     command -v "$userspace" >/dev/null 2>&1 || {

@@ -1,4 +1,6 @@
 import Plot from "react-plotly.js";
+import { Link } from "react-router-dom";
+import ExportToolbar from "../components/ExportToolbar";
 import { PLOT_CONFIG } from "../lib/plotConfig";
 import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
@@ -47,10 +49,18 @@ export default function KeyFlow() {
         {KEY_FLOW_EDGES.length} links, marked <code>illustrative</code> in
         <code> keyFlowGraph.ts</code>) show the <i>shape</i> of sifting and
         reconciliation at a readable scale. They are not the block sizes{" "}
-        <a href="/bb84">/bb84</a> runs, and they are not measurements — read that
+        <Link to="/bb84">/bb84</Link> runs, and they are not measurements — read that
         page for real per-round counts. Everything from “QKD key” rightwards is
         the actual 256-bit key material.
       </p>
+      {/* A PNG of the Sankey and the edge list behind it. Not animated: the
+          figure is fixed, so a WebM or GIF would be a still. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar name="key-flow" animated={false}
+                       pngTargetSelector="#keyflow-sankey"
+                       jsonProvider={() => ({ nodes: KEY_FLOW_NODES, labels: KEY_FLOW_LABELS, edges: KEY_FLOW_EDGES })} />
+      </div>
+      <div id="keyflow-sankey">
       <Plot
         data={data}
         layout={{
@@ -61,17 +71,14 @@ export default function KeyFlow() {
         config={PLOT_CONFIG}
         style={{ width: "100%" }}
       />
+      </div>
       <p style={{ color: "#9aa9d8", maxWidth: 760, fontSize: 12, marginBottom: 4 }}>
-        The derivation, from <code>submodules/arnika/kdf/kdf.go</code>. This block
-        previously showed{" "}
-        <code>hkdf.New(sha3.New256, append(qkdKey, pqcKey...), nil, nil)</code>{" "}
-        under the same citation. That is not what the file does, and the
-        difference is the point:{" "}
-        <code>append(qkdKey, pqcKey...)</code> can write into the caller’s{" "}
-        <code>qkdKey</code> backing array when it has spare capacity, which is
-        the aliasing the real code builds a separate slice to avoid — and the
-        snippet also dropped the <code>secret.Do</code> block that zeroes the
-        combined keying material.
+        The derivation, quoted from <code>submodules/arnika/kdf/kdf.go</code>. It
+        builds the combined input in a separate slice rather than with{" "}
+        <code>append(qkdKey, pqcKey...)</code>, which could write into the
+        caller’s <code>qkdKey</code> backing array when it has spare capacity,
+        and it zeroes the combined keying material inside a{" "}
+        <code>secret.Do</code> block.
       </p>
       <pre style={{
         background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8,

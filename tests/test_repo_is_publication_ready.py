@@ -214,6 +214,52 @@ def test_no_ai_tooling_attribution_in_tracked_content():
     assert not offenders, f"AI-tooling references in tracked content: {offenders}"
 
 
+# A tool configuration file whose conventional NAME carries no vendor word, so
+# TOOLING cannot see it in a path. Anchored to a path component.
+TOOLING_PATHS = re.compile(r"(^|/)\.mcp\.json$")
+
+
+def test_no_tracked_path_names_ai_tooling():
+    """The content scan above never looks at paths, and a path is enough.
+
+    A browser-preview configuration directory was committed once, and nothing
+    would have caught it again: a launch configuration need not mention the
+    tool anywhere in its body, and the content scan reads only bodies. The
+    .gitignore does not list these directories (so that it does not enumerate
+    them), which makes this check the only thing that stops one being staged.
+
+    Every tracked path counts here, binaries included -- a path discloses
+    regardless of what the file contains.
+    """
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT,
+                         capture_output=True, text=True, check=False).stdout
+    paths = [p for p in out.split("\0") if p]
+    assert len(paths) > 100, f"only {len(paths)} tracked paths found"
+    offenders = [p for p in paths
+                 if (TOOLING.search(p) or TOOLING_PATHS.search(p))
+                 and p != SELF]
+    assert not offenders, f"tracked paths name AI tooling: {offenders}"
+
+
+def test_the_path_check_matches_the_shapes_it_exists_for():
+    """Positive control, so a regex edit cannot quietly widen the hole.
+
+    The tool names are taken from TOOLING itself rather than written out again,
+    so this control adds no new mention of them to the tree.
+    """
+    names = re.search(r"\(([^()]*)\)", TOOLING.pattern).group(1).split("|")
+    assert names, "could not read the names back out of TOOLING"
+    for n in names:
+        for sample in (f".{n}/launch.json", f"services/webui-frontend/.{n}/x.json",
+                       f"{n.upper()}.md"):
+            assert TOOLING.search(sample), sample
+    for sample in (".mcp.json", "tools/.mcp.json"):
+        assert TOOLING_PATHS.search(sample), sample
+    for benign in ("docs/mcp.md", "services/webui-frontend/src/main.tsx",
+                   "tools/rules.json"):
+        assert not (TOOLING.search(benign) or TOOLING_PATHS.search(benign)), benign
+
+
 # The demo's FQDN as a PATTERN, not a literal, so this file does not become
 # the thing it forbids. Any host under the operator's domain disqualifies.
 _DEMO_FQDN = re.compile(r"\b[a-z0-9-]+(\.[a-z0-9-]+)*\.daemons\.jp\b", re.I)

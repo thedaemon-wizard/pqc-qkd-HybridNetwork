@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
 import { colors } from "../lib/commonStyles";
-import { E2ESim, e2eCsvRows, type E2EState } from "../lib/sim/e2eSim";
+import {
+  E2ESim, e2eCsvRows, PACKETS_PER_CYCLE_MAX, PACKETS_PER_CYCLE_MIN, type E2ELayer, type E2EState,
+} from "../lib/sim/e2eSim";
 import { formatRate } from "../lib/formatRate";
 // Re-exported so existing importers (rateIsLegible.test.ts) keep one path; the
 // definition moved to lib/ so /protocol-lab can share it without importing a page.
@@ -12,14 +15,15 @@ export { formatRate };
 /**
  * Quantum-Secure E2E Simulation.
  *
- * Visualises the 4-phase data exchange from the reference architecture image:
- *   Phase 1  Quantum Plane           — bb84-kme keys appear
- *   Phase 2  QKD Key IDs (ETSI 014)  — arnika fetches via enc_keys / dec_keys
- *   Phase 3  PQC Handshake           — HKDF-SHA3-256 combines QKD ‖ PQC
- *   Phase 4  Data Exchange           — ChaCha20-Poly1305 encrypted ping payloads
+ * Visualises the 4-step data exchange from the reference architecture image:
+ *   1  Quantum Plane           — a QKD key is deposited in the pool
+ *   2  QKD Key IDs (ETSI 014)  — a QKD key and key_ID are drawn
+ *   3  PQC Handshake           — HKDF-SHA3-256 combines QKD ‖ PQC
+ *   4  Data Exchange           — ChaCha20-Poly1305 encrypted ping payloads
  *
- * Round 5: runs CLIENT-SIDE (src/lib/sim/e2eSim.ts) — real in-browser
- * HKDF-SHA3-256 + ChaCha20-Poly1305 (@noble); no backend / no /ws/e2e.
+ * The numbers are this page's own steps, not /paper-flow's phases (see
+ * e2eSim.ts). Runs CLIENT-SIDE (src/lib/sim/e2eSim.ts) with real in-browser
+ * HKDF-SHA3-256 + ChaCha20-Poly1305 (@noble); no backend.
  */
 
 
@@ -29,7 +33,7 @@ const MODE_COLOR: Record<string, string> = {
   C: "#e25555",  // Hybrid   — red
 };
 
-const PHASE_LABELS = [
+const STEP_LABELS = [
   "1. Quantum Plane",
   "2. QKD Key IDs (ETSI 014)",
   "3. PQC Handshake (HKDF-SHA3)",
@@ -54,12 +58,12 @@ export default function QuantumSecureE2E() {
   function setMode(mode: "A" | "B" | "C") {
     simRef.current?.setMode(mode);
   }
-  function inject(layer: "qkd" | "pqc" | "data") {
+  function inject(layer: E2ELayer) {
     simRef.current?.injectFailure(layer);
   }
 
   /**
-   * Phase history as CSV rows.
+   * Step history as CSV rows.
    *
    * The toolbar renders its CSV button only when a csvProvider is supplied, so
    * without this the button simply did not exist on this page even though the
@@ -88,30 +92,48 @@ export default function QuantumSecureE2E() {
       `# mode:       ${s.mode}`,
       `# status:     ${s.status}`,
       `# cycles:     ${s.completed_cycles}`,
-      `# packets:    ${s.total_packets}`,
-      `# bytes:      ${s.total_bytes_encrypted}`,
-      `# rate_bps:   ${s.rate_bps}`,
+      `# packets:    ${s.total_packets} (${s.packets_per_cycle} per cycle)`,
+      `# bytes:      ${s.total_bytes_encrypted} (on the wire: ciphertext + tag + nonce)`,
+      // The rate is paced by the animation; the cycle length is the term that
+      // makes it readable (and shows a throttled hidden-tab recording).
+      `# rate_bps:   ${s.rate_bps} (animation-paced, not cipher throughput)`,
+      `# nominal_cycle_ms: ${s.nominal_cycle_ms}`,
+      `# failed_layer: ${s.failed_layer ?? "(none)"}${s.failed_layer ? ` (${s.failure_is_fatal ? "fatal" : "survived"} in mode ${s.mode})` : ""}`,
       `# last_key_id:${s.last_qkd_key_id}`,
-      // Empty means phase 3 found neither leg alive and declined to derive:
+      // Empty means step 3 found neither leg alive and declined to derive:
       // HKDF over an empty IKM returns a public constant, not a secret. Say so
       // -- a bare "# psk_prefix:" reads as a truncated export rather than a
       // measured absence.
       `# psk_prefix: ${s.last_psk_prefix_hex || "(none - no key material survived)"}`,
       s.last_error ? `# last_error: ${s.last_error}` : "",
+      // The header counters cover the whole run; the step lines do not.
+      `# steps:      last ${s.history.length} of ${s.steps_total} shown`,
       "",
     ].filter(Boolean);
     const body = (s.history ?? []).map((h) => {
       const started = new Date(h.started_at * 1000).toISOString();
       const dur = h.completed_at
         ? `${Math.round((h.completed_at - h.started_at) * 1000)}ms` : "open";
-      return `${started}  step ${h.phase}  ${h.name}  (${dur})  ${JSON.stringify(h.detail)}`;
+      return `${started}  step ${h.step}  ${h.name}  (${dur})  ${JSON.stringify(h.detail)}`;
     });
-    return [...head, ...body, ""].join("\n");
+    // What was done to the run: a degraded or halted cycle reads differently
+    // once the reader can see the inject, mode change or abort behind it.
+    const actions = (s.operator_actions ?? []).map((a) =>
+      `  ${new Date(a.at * 1000).toISOString()}  ${a.action}`);
+    return [...head, ...body,
+            ...(actions.length
+              ? ["", `# operator actions (last ${actions.length} of ${s.actions_total})`, ...actions]
+              : []),
+            ""].join("\n");
   }
 
   const status = state?.status ?? "idle";
-  const phase = state?.current_phase ?? 0;
+  const step = state?.current_step ?? 0;
   const mode = state?.mode ?? "C";
+  // Mode changes are allowed only between cycles (e2eSim.setMode refuses
+  // otherwise), so a paused or stepped run part-way through a cycle keeps its
+  // mode too.
+  const modeLocked = status === "running" || step !== 0;
 
   return (
     <div>
@@ -141,7 +163,9 @@ export default function QuantumSecureE2E() {
 
       {/* Architecture diagram — Image 1 layout (PNG/GIF capture target) */}
       <div id="e2e-arch-svg-wrap">
-        <ArchSvg mode={mode} phase={phase} aborted={state?.phase_name === "aborted"} />
+        <ArchSvg mode={mode} step={step} aborted={state?.step_name === "aborted"}
+                 failedLayer={state?.failed_layer ?? null}
+                 fatal={state?.failure_is_fatal ?? false} />
         <ArchLegend />
       </div>
 
@@ -150,24 +174,47 @@ export default function QuantumSecureE2E() {
                      alignItems: "center" }}>
         <span style={{ color: "#9aa9d8", fontSize: 13 }}>Mode:</span>
         {(["A", "B", "C"] as const).map((m) => (
-          // Locked while a run is in progress. Switching mid-cycle produced a
-          // half-A/half-C cycle: phase 2 could draw a QKD key under one mode
-          // and phase 3 derive under another, so the exported "mode" described
-          // neither. Every other control here was already status-gated; this
-          // one, which changes what the run MEANS, was not.
+          // Locked unless the run is between cycles. Switching mid-cycle
+          // produced a half-A/half-C cycle: step 2 could draw a QKD key under
+          // one mode and step 3 derive under another, so the exported "mode"
+          // described neither. Gating on `running` alone left the same hole
+          // open through Pause and Step.
           <button key={m} onClick={() => setMode(m)}
-                  disabled={status === "running"}
-                  title={status === "running"
-                    ? "Pause or Reset before changing mode -- switching mid-cycle would mix two modes in one cycle"
+                  disabled={modeLocked}
+                  title={modeLocked
+                    ? "Finish or Reset the cycle before changing mode -- switching mid-cycle would mix two modes in one cycle"
                     : undefined}
                   style={{ ...modeBtn(m === mode, MODE_COLOR[m]),
-                           opacity: status === "running" ? 0.45 : 1,
-                           cursor: status === "running" ? "not-allowed" : "pointer" }}>
+                           opacity: modeLocked ? 0.45 : 1,
+                           cursor: modeLocked ? "not-allowed" : "pointer" }}>
             {m === "A" && "A · QKD-only"}
             {m === "B" && "B · PQC-only"}
             {m === "C" && "C · Hybrid (QKD ‖ PQC)"}
           </button>
         ))}
+        {modeLocked && (
+          <span style={{ fontSize: 11, color: "#6b7796" }}>
+            Mode changes between cycles: finish or Reset the cycle first.
+          </span>
+        )}
+        <label style={{ marginLeft: "auto", fontSize: 12, color: "#9aa9d8",
+                        display: "inline-flex", alignItems: "center", gap: 6 }}>
+          Packets per cycle
+          <input type="number" min={PACKETS_PER_CYCLE_MIN} max={PACKETS_PER_CYCLE_MAX} step={1}
+                 value={state?.packets_per_cycle ?? ""}
+                 aria-label="Packets per cycle"
+                 onChange={(e) => {
+                   // Refused, not clamped, by the simulator: an out-of-range
+                   // entry leaves the last accepted value on screen.
+                   simRef.current?.setPacketsPerCycle(Number(e.target.value));
+                 }}
+                 style={{ width: 70, fontFamily: "monospace", fontSize: 12, padding: "2px 6px",
+                          background: "#070b14", color: "#cbd6f5",
+                          border: "1px solid #2a3760", borderRadius: 4 }} />
+          <span style={{ fontSize: 11, color: "#6b7796" }}>
+            ({PACKETS_PER_CYCLE_MIN}-{PACKETS_PER_CYCLE_MAX}; applies from the next cycle)
+          </span>
+        </label>
       </div>
 
       {/* Operation controls — shared <Button> so the disabled state is VISIBLE
@@ -195,7 +242,7 @@ export default function QuantumSecureE2E() {
         )}
         {/* An aborted run returns to idle with its counters kept; say which
             idle this is, or it reads as a page that never ran. */}
-        <Badge text={`status: ${status}${state?.phase_name === "aborted" ? " (aborted)" : ""}`}
+        <Badge text={`status: ${status}${state?.step_name === "aborted" ? " (aborted)" : ""}`}
                color={status === "running" ? "#3ddc84"
                       : status === "paused" ? "#f5a623" : "#445"} />
       </div>
@@ -241,16 +288,16 @@ export default function QuantumSecureE2E() {
         </div>
       )}
 
-      {/* Phase progress strip */}
+      {/* Step progress strip */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
                      gap: 8, marginBottom: 16 }}>
-        {PHASE_LABELS.map((lbl, i) => {
+        {STEP_LABELS.map((lbl, i) => {
           const idx = i + 1;
-          const active = phase === idx;
+          const active = step === idx;
           const done = state && state.history.some(
-            (h) => h.phase === idx && h.completed_at);
+            (h) => h.step === idx && h.completed_at);
           return (
-            <div key={lbl} data-phase={idx}
+            <div key={lbl} data-step={idx}
                  style={{
                    padding: "10px 12px", borderRadius: 8,
                    background: active ? "#1a2440"
@@ -289,10 +336,18 @@ export default function QuantumSecureE2E() {
         */}
         <KPI label="Completed cycles" value={state?.completed_cycles ?? 0} />
         <KPI label="Packets encrypted" value={state?.total_packets ?? 0} />
-        <KPI label="Bytes encrypted (×10³)"
-             value={Math.round((state?.total_bytes_encrypted ?? 0) / 1000)} />
-        <KPI label={`Throughput (${formatRate(state?.rate_bps).unit})`}
-             value={formatRate(state?.rate_bps).value} />
+        {/* Every byte counted: ciphertext, the 16-byte tag and the 12-byte
+            nonce. The label said "encrypted (x10^3)", but the tag and nonce
+            are not encrypted, and rounding to kB hid a whole cycle's worth. */}
+        <KPI label="Bytes on the wire (ct + tag + nonce)"
+             value={state?.total_bytes_encrypted ?? 0} />
+        {/* Not a throughput. It is one cycle's bytes over the cycle's
+            wall-clock length, and the cycle is four fixed UI dwells, so the
+            figure is set by the animation's pacing -- it said "Throughput"
+            with the caveat only in a code comment. */}
+        <KPI label={`Animation-paced byte rate (${formatRate(state?.rate_bps).unit})`}
+             value={formatRate(state?.rate_bps).value}
+             note={state ? `per ${(state.nominal_cycle_ms / 1000).toFixed(1)} s paced cycle; not cipher or tunnel throughput` : undefined} />
       </div>
 
       {/* Latest derived material */}
@@ -313,7 +368,7 @@ export default function QuantumSecureE2E() {
           <p style={{ color: colors.textMute, fontSize: 11, marginTop: 4 }}>
             Derived with this page&apos;s own parameters: salt <code>pqcqkd-e2e</code>,
             info <code>mode-{mode}</code>. arnika&apos;s <code>kdf.go</code> passes nil for
-            both (see <a href="/keyflow">Key Flow</a>), so the same two inputs give a
+            both (see <Link to="/keyflow">Key Flow</Link>), so the same two inputs give a
             different key there. The construction is the same; the parameters differ.
           </p>
         </Panel>
@@ -331,7 +386,7 @@ export default function QuantumSecureE2E() {
         </div>
       )}
 
-      {/* Phase history (last 8) */}
+      {/* Step history (last 8) */}
       <Panel title="Step history (last 8)">
         <table style={{ width: "100%", fontSize: 12, color: "#cbd6f5" }}>
           <thead>
@@ -346,7 +401,7 @@ export default function QuantumSecureE2E() {
                 ? ((h.completed_at - h.started_at) * 1000).toFixed(0) : "…";
               return (
                 <tr key={i} style={{ borderTop: "1px solid #1d2741" }}>
-                  <td style={{ padding: "4px 0" }}>{h.phase}</td>
+                  <td style={{ padding: "4px 0" }}>{h.step}</td>
                   <td>{h.name}</td>
                   <td>{dur}</td>
                   <td style={{ fontFamily: "monospace", fontSize: 11 }}>
@@ -413,17 +468,38 @@ const LANE = {
 // Quadratic-bezier control-point y that yields the desired apex (curve midpoint).
 const ctrlY = (y0: number, apex: number) => 2 * apex - y0;
 
-function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborted: boolean }) {
-  // Highlight rules:
-  //   mode "A" (QKD-only) -> orange path active in phase 1-2
-  //   mode "B" (PQC-only) -> pink path active in phase 3
-  //   mode "C" (Hybrid)   -> red HKDF box active in phase 3, tunnel in phase 4
+function ArchSvg({ mode, step, aborted, failedLayer, fatal }:
+                 { mode: string; step: number; aborted: boolean;
+                   failedLayer: E2ELayer | null; fatal: boolean }) {
+  // Highlight rules follow what e2eSim actually does in each step, mode and
+  // failure, not just the step number:
+  //   step 1  quantum channel     -- unless the QKD layer is down
+  //   step 2  KMS, QKD KEY/key_ID arrows, ETSI badges, key_ID lane, ARNIKA
+  //           -- only when a QKD key is drawn: not in mode B (PQC-only), not
+  //           with the QKD layer down
+  //   step 3  Rosenpass + PQC lane -- only when a PQC secret is made: not in
+  //           mode A, not with the PQC layer down; HKDF badge + ARNIKA --
+  //           whenever either leg produced material (every mode derives; the
+  //           two empty-IKM cells derive nothing)
+  //   step 4  WireGuard + tunnel  -- unless the failure is fatal
+  //
+  // It used to light the QKD path at step 2 in mode B, where the simulator
+  // fetches no QKD key at all, and to light HKDF only in mode C, although
+  // steps 3 of modes A and B derive the PSK the page then displays. This SVG
+  // is the PNG/GIF export target, so the figure has to say what the run did.
   //
   // Layout v3 (Round 3): geometry-driven 1240×600 viewBox. Site B mirrors
   // Site A about the divider so KMS↔ARNIKA gaps are symmetric; every arrow
   // starts/ends on a computed box edge; the A/B/C/E mode legend moved OUT of
   // the SVG to an HTML strip (ArchLegend) — it used to duplicate the top key
   // legend and collide with the bottom exchange-lane arcs.
+  const qkdLeg = mode !== "B" && failedLayer !== "qkd";
+  const pqcLeg = mode !== "A" && failedLayer !== "pqc";
+  const quantumOn = step === 1 && failedLayer !== "qkd";
+  const qkdOn = step === 2 && qkdLeg;
+  const pqcOn = step === 3 && pqcLeg;
+  const hkdfOn = step === 3 && (qkdLeg || pqcLeg);
+  const dataOn = step === 4 && !fatal;
   const hot = (cond: boolean) =>
     cond ? "#e25555" : "#3a4a78";
   const dimUnless = (cond: boolean) => (cond ? 1 : 0.3);
@@ -474,12 +550,12 @@ function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborte
               fontWeight={700}>Site B</text>
         {/* VPN lock icon on the tunnel at the centre divider */}
         <g transform={`translate(${GEO.divider},${boxMidY})`}>
-          <circle r="14" fill="#e25555" opacity={dimUnless(phase === 4)} />
+          <circle r="14" fill="#e25555" opacity={dimUnless(dataOn)} />
           <rect x="-7" y="-3" width="14" height="11" rx="1" fill="#fff"
-                opacity={dimUnless(phase === 4)} />
+                opacity={dimUnless(dataOn)} />
           <path d="M -4,-3 L -4,-7 Q -4,-11 0,-11 Q 4,-11 4,-7 L 4,-3"
                 stroke="#fff" strokeWidth="1.5" fill="none"
-                opacity={dimUnless(phase === 4)} />
+                opacity={dimUnless(dataOn)} />
           <text y="30" fill="#e25555" fontSize="10" textAnchor="middle"
                 fontWeight={700}>VPN</text>
         </g>
@@ -489,31 +565,31 @@ function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborte
         <KeyLegend x={960} flip={true}  mode={mode} />
 
         {/* ───── KMS keystores (z=2) ───── */}
-        <KmsKeystore x={GEO.kms.lx}  active={phase === 2} />
-        <KmsKeystore x={kmsRx} active={phase === 2} mirror />
+        <KmsKeystore x={GEO.kms.lx}  active={qkdOn} />
+        <KmsKeystore x={kmsRx} active={qkdOn} mirror />
 
         {/* ───── Site A inner boxes (z=3) ───── */}
         <SiteBox x={GA.arnika} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
-                 hot={phase === 2 || phase === 3} />
+                 hot={qkdOn || hkdfOn} />
         <SiteBox x={GA.rosenpass} label="ROSENPASS" tag="PQC function" color="#e91e63"
-                 hot={(mode === "B" || mode === "C") && phase === 3} />
+                 hot={pqcOn} />
         <SiteBox x={GA.wireguard} label="WIREGUARD" tag="VPN function" color="#7c5cff"
-                 hot={phase === 4} />
+                 hot={dataOn} />
 
         {/* Site B (exact mirror) */}
         <SiteBox x={GB.wireguard} label="WIREGUARD" tag="VPN function" color="#7c5cff"
-                 hot={phase === 4} />
+                 hot={dataOn} />
         <SiteBox x={GB.rosenpass} label="ROSENPASS" tag="PQC function" color="#e91e63"
-                 hot={(mode === "B" || mode === "C") && phase === 3} />
+                 hot={pqcOn} />
         <SiteBox x={GB.arnika} label="ARNIKA" tag="KEY-CONTROL" color="#f0a020"
-                 hot={phase === 2 || phase === 3} />
+                 hot={qkdOn || hkdfOn} />
 
         {/* HKDF-SHA3 indicator (z=4) — top-inner corner of each ARNIKA box,
             clear of the centred title/tag rows. */}
         <HkdfBadge x={rightEdge(GA.arnika) - 16} y={GEO.box.y + 15}
-                   active={mode === "C" && phase === 3} />
+                   active={hkdfOn} />
         <HkdfBadge x={GB.arnika + 16} y={GEO.box.y + 15}
-                   active={mode === "C" && phase === 3} />
+                   active={hkdfOn} />
 
         {/* ───── KMS↔ARNIKA ETSI-014 interface (z=5) ─────
             Two arrows in the symmetric 56 px gap: QKD KEY (KMS→ARNIKA) above,
@@ -521,30 +597,30 @@ function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborte
             Labels sit in the clear bands above/below the box row. */}
         {/* Left site */}
         <ArrowX x1={kmsRightEdge} x2={GA.arnika} y={boxMidY - 14} color="#f0a020"
-                width={2} active={phase === 2} headAt="end" />
+                width={2} active={qkdOn} headAt="end" />
         <text x={(kmsRightEdge + GA.arnika) / 2} y={GEO.box.y - 8} fill="#f0a020"
               fontSize="9" textAnchor="middle">QKD KEY</text>
         <ArrowX x1={GA.arnika} x2={kmsRightEdge} y={boxMidY + 14} color="#3ddc84"
-                width={1.5} dashed active={phase === 2} headAt="end" />
+                width={1.5} dashed active={qkdOn} headAt="end" />
         <text x={(kmsRightEdge + GA.arnika) / 2} y={GEO.box.y + GEO.box.h + 16}
               fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
-        <ETSIBadge x={(kmsRightEdge + GA.arnika) / 2} y={boxMidY} active={phase === 2} />
+        <ETSIBadge x={(kmsRightEdge + GA.arnika) / 2} y={boxMidY} active={qkdOn} />
         {/* Right site (mirror) */}
         <ArrowX x1={kmsRx} x2={rightEdge(GB.arnika)} y={boxMidY - 14} color="#f0a020"
-                width={2} active={phase === 2} headAt="end" />
+                width={2} active={qkdOn} headAt="end" />
         <text x={(kmsRx + rightEdge(GB.arnika)) / 2} y={GEO.box.y - 8} fill="#f0a020"
               fontSize="9" textAnchor="middle">QKD KEY</text>
         <ArrowX x1={rightEdge(GB.arnika)} x2={kmsRx} y={boxMidY + 14} color="#3ddc84"
-                width={1.5} dashed active={phase === 2} headAt="end" />
+                width={1.5} dashed active={qkdOn} headAt="end" />
         <text x={(kmsRx + rightEdge(GB.arnika)) / 2} y={GEO.box.y + GEO.box.h + 16}
               fill="#3ddc84" fontSize="9" textAnchor="middle">key_ID</text>
-        <ETSIBadge x={(kmsRx + rightEdge(GB.arnika)) / 2} y={boxMidY} active={phase === 2} />
+        <ETSIBadge x={(kmsRx + rightEdge(GB.arnika)) / 2} y={boxMidY} active={qkdOn} />
 
         {/* WireGuard tunnel across the divider (z=5) — snapped to WG box edges */}
         <line x1={rightEdge(GA.wireguard)} y1={boxMidY} x2={GB.wireguard} y2={boxMidY}
-              stroke={hot(phase === 4)} strokeWidth="3.5" />
-        <text x={GEO.divider} y={GEO.box.y - 8} fill={hot(phase === 4)} fontSize="11"
-              textAnchor="middle" opacity={dimUnless(phase === 4)}>
+              stroke={hot(dataOn)} strokeWidth="3.5" />
+        <text x={GEO.divider} y={GEO.box.y - 8} fill={hot(dataOn)} fontSize="11"
+              textAnchor="middle" opacity={dimUnless(dataOn)}>
           VPN tunnel (ChaCha20-Poly1305)
         </text>
 
@@ -556,16 +632,16 @@ function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborte
             box-edge junctions explicitly. */}
         <ExchangeLane lane={LANE.pqc} color="#e91e63" width={2}
                       label="PQC KEY exchange  (Rosenpass A ⇄ B)"
-                      active={(mode === "B" || mode === "C") && phase === 3} />
+                      active={pqcOn} />
         <ExchangeLane lane={LANE.qkd} color="#3ddc84" width={1.5} dash="5 3"
                       label="QKD key_ID exchange  (ETSI 014)"
-                      active={phase === 2} />
+                      active={qkdOn} />
         <ExchangeLane lane={LANE.quantum} color="#7c5cff" width={1.5} dash="2 4"
                       label="Quantum Channel  (BB84 photonic)"
-                      active={phase === 1} />
+                      active={quantumOn} />
       </svg>
       <div style={{ marginTop: 6, fontSize: 11, color: "#6b7796" }}>
-        Active step: <b style={{ color: "#e25555" }}>{phase || (aborted ? "aborted" : "idle")}</b>
+        Active step: <b style={{ color: "#e25555" }}>{step || (aborted ? "aborted" : "idle")}</b>
         {" · "}Mode: <b style={{ color: MODE_COLOR[mode] }}>{mode}</b>
       </div>
     </div>
@@ -748,13 +824,14 @@ function KeyLegend({ x, flip, mode }:
   );
 }
 
-function KPI({ label, value }: { label: string; value: any }) {
+function KPI({ label, value, note }: { label: string; value: any; note?: string }) {
   return (
     <div style={{ background: "#0d1320", border: "1px solid #1d2741",
                    borderRadius: 8, padding: 12 }}>
       <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 22, color: "#d8e1ff", fontWeight: 700,
                      fontFamily: "monospace" }}>{value}</div>
+      {note && <div style={{ fontSize: 10, color: "#6b7796", marginTop: 4 }}>{note}</div>}
     </div>
   );
 }
@@ -776,9 +853,9 @@ function Row({ k, v }: { k: string; v: any }) {
     // minimum gap the label and value ABUT, and at a 700px content width /vpn
     // rendered `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...` as one unreadable
     // token. Measured in the browser on 2026-08-27; first collision at ~900px.
-    // Four near-identical Row components exist (here, PQCValidator,
-    // QuantumSecureE2E, and an UNUSED components/Row.tsx); all are fixed the
-    // same way. Consolidating them is a separate change.
+    // Three near-identical Row components exist (VpnProtocols, PQCValidator,
+    // QuantumSecureE2E; an unused fourth in components/ was deleted); all are
+    // fixed the same way. Consolidating them is a separate change.
     <div style={{ display: "flex", justifyContent: "space-between",
                    gap: 12, padding: "3px 0", fontSize: 12, fontFamily: "monospace" }}>
       <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>

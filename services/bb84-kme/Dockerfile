@@ -37,12 +37,52 @@ COPY submodules/tno-qkd-key-rate /opt/tno-qkd-key-rate
 # produced a green image whose simulator was simply absent at runtime, where
 # it degrades to a logged warning. The comment above already claimed they
 # "fail fast at build time"; now they do.
-RUN pip install -c constraints.txt pandas 'Cython<3.0' && \
+RUN pip install -c constraints.txt 'Cython<3.0' && \
     pip install -c constraints.txt -e /opt/SimQN && \
     pip install -c constraints.txt -e /opt/SeQUeNCe && \
     pip install -c constraints.txt -e /opt/strawberryfields && \
     pip install -c constraints.txt -e /opt/tno-qkd-key-rate && \
     python -c "import fastapi, starlette; from fastapi import APIRouter; APIRouter(on_startup=[]); print('web stack OK: starlette', starlette.__version__)"
+
+# Every `==` pin in requirements.txt must be what pip actually installed.
+#
+# requirements.txt is read as the record of what this image ships, and three
+# times it was not: numpy and qutip (moved by SeQUeNCe's editable install until
+# they were added to constraints.txt), then pyyaml, pinned at 6.0.2 while the
+# image shipped 6.0.3. Each was found by hand, after the fact. The editable
+# installs above run AFTER requirements.txt and can move any package that
+# constraints.txt does not hold, so the check runs here, after the last of them.
+# Names are compared in normalised form (PEP 503), so `prometheus-client` and
+# `prometheus_client` are the same package.
+RUN python - <<'PINCHECK'
+import re
+import subprocess
+import sys
+
+def norm(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+freeze = subprocess.run([sys.executable, "-m", "pip", "freeze", "--all"],
+                        capture_output=True, text=True, check=True).stdout
+installed = {}
+for line in freeze.splitlines():
+    m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+)$", line.strip())
+    if m:
+        installed[norm(m.group(1))] = m.group(2)
+drift = []
+for line in open("requirements.txt"):
+    line = line.split("#", 1)[0].strip()
+    m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?==(\S+)$", line)
+    if not m:
+        continue
+    got = installed.get(norm(m.group(1)))
+    if got != m.group(2):
+        drift.append(f"{m.group(1)}: requirements.txt pins {m.group(2)}, image has {got}")
+if drift:
+    raise SystemExit("PIN DRIFT (pin it in constraints.txt too, or fix the pin):\n  "
+                     + "\n  ".join(drift))
+print("requirements.txt pins match the installed packages:", len(installed), "installed")
+PINCHECK
 
 # Prove the four backends are importable, in the image, at build time.
 #

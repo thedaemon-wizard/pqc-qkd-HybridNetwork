@@ -20,8 +20,14 @@
  *
  * Worth knowing before citing this as compliance: NSA CNSA 2.0 states that
  * "while SLH-DSA is hash-based, it is not part of CNSA and is not approved for
- * any use in NSS". BSI TR-02102-1 does recommend it. The algorithms differ in
- * standing between agencies, not only in mathematics. The liboqs-backed `pqc-validator` service remains the
+ * any use in NSS". BSI TR-02102-1 (2026-01) recommends SLH-DSA only in its
+ * category 3 and 5 parameter sets, and of the lattice schemes only ML-KEM-768
+ * / 1024 and ML-DSA-65 / 87 -- so several sets offered here are standardised
+ * but not recommended by it -- and recommends the lattice ones only in hybrid
+ * combination with a classical scheme, while hash-based signatures may in
+ * principle be used alone. POLICY_STANDING records this per algorithm and
+ * /pqc shows it. The algorithms differ in standing between agencies, not only
+ * in mathematics. The liboqs-backed `pqc-validator` service remains the
  * server-side cross-check for the full stack and for CI.
  *
  * HONEST LIMITATIONS -- surfaced in the UI, not buried here:
@@ -47,7 +53,9 @@ import {
 /** Library provenance, shown in the UI so results are attributable. */
 export const PQC_PROVIDER = {
   name: "@noble/post-quantum",
-  version: "0.7.0",
+  // The installed version, injected at build time (vite.config.ts). A literal
+  // here stayed at 0.7.0 after the dependency moved to 0.7.1.
+  version: __NOBLE_PQ_VERSION__,
   license: "MIT",
   audited: false,
   constantTime: false,
@@ -122,6 +130,82 @@ const SIGS = {
   "SLH-DSA-SHA2-192s": { impl: slh_dsa_sha2_192s, category: 3, standard: "FIPS 205", family: "hash-based" },
   "SLH-DSA-SHA2-256s": { impl: slh_dsa_sha2_256s, category: 5, standard: "FIPS 205", family: "hash-based" },
 } as const;
+
+/**
+ * Where each offered algorithm stands with three bodies, as recorded on
+ * 2026-09-26 (POLICY_STANDING_RECORDED, the date /pqc prints beside each
+ * line). A record of published positions, not a compliance claim, and dated
+ * because positions change:
+ *   NIST -- the standard that specifies it (FIPS 203 / 204 / 205);
+ *   BSI  -- TR-02102-1, version 2026-01 (23 January 2026): ML-KEM-768/1024
+ *           (Table 2.7), ML-DSA-65/87 (Table 5.7) and SLH-DSA in categories 3
+ *           and 5 (Table 5.6), the signatures in their "hedged" variants;
+ *   CNSA -- NSA CNSA 2.0: ML-KEM-1024 and ML-DSA-87 only; SLH-DSA "is not
+ *           part of CNSA and is not approved for any use in NSS". Re-read on
+ *           2026-09-26 in the CNSA 2.0 FAQ, Ver. 2.1 (December 2024), via the
+ *           archived copy docs/threat-model.md cites (the NSA host refuses
+ *           scripted fetches).
+ * Shown on /pqc beside every result, so a green tick on ML-KEM-512 does not
+ * read as the same endorsement as one on ML-KEM-1024.
+ *
+ * `bsiCondition` is the condition BSI attaches to a recommendation, and is
+ * printed with it. /pqc runs every algorithm standalone, and a bare
+ * "recommended" beside a standalone ML-KEM-768 result misstated the guideline.
+ * Checked against the 2026-01 PDF on 2026-09-26:
+ *   section 2.4 -- "It is recommended to use quantum-safe KEMs in a hybrid
+ *           manner", and section 2.1 limits the recommendation to "the
+ *           hybrid use ... of quantum-safe methods in combination with
+ *           classical methods";
+ *   section 5.3.4 -- "recommends the use of a quantum-safe signature scheme
+ *           only in combination with a classic signature scheme", except that
+ *           hash-based signatures "can, provided that the implementation
+ *           security ... is carefully considered, in principle also be used
+ *           alone (i.e. not in hybrid form)".
+ * BSI's other condition, the "hedged" signing variant, is not printed because
+ * /pqc meets it: `impl.sign(message, secretKey)` passes no `extraEntropy`, and
+ * @noble/post-quantum then draws fresh randomness for each signature.
+ */
+export const POLICY_STANDING_RECORDED = "2026-09-26";
+
+/** BSI's condition for the lattice schemes it recommends (TR-02102-1 2026-01, sections 2.1, 2.4, 5.3.4). */
+const BSI_HYBRID_ONLY = "hybrid with a classical scheme only";
+/** BSI's allowance for hash-based signatures (TR-02102-1 2026-01, section 5.3.4). */
+const BSI_MAY_STAND_ALONE = "may be used alone";
+
+export interface PolicyStanding {
+  nist: string;
+  bsi: boolean;
+  /** Printed after "recommended"; set exactly when `bsi` is true. */
+  bsiCondition: string | null;
+  cnsa: boolean;
+}
+
+export const POLICY_STANDING: Record<string, PolicyStanding> = {
+  "ML-KEM-512": { nist: "FIPS 203", bsi: false, bsiCondition: null, cnsa: false },
+  "ML-KEM-768": { nist: "FIPS 203", bsi: true, bsiCondition: BSI_HYBRID_ONLY, cnsa: false },
+  "ML-KEM-1024": { nist: "FIPS 203", bsi: true, bsiCondition: BSI_HYBRID_ONLY, cnsa: true },
+  "ML-DSA-44": { nist: "FIPS 204", bsi: false, bsiCondition: null, cnsa: false },
+  "ML-DSA-65": { nist: "FIPS 204", bsi: true, bsiCondition: BSI_HYBRID_ONLY, cnsa: false },
+  "ML-DSA-87": { nist: "FIPS 204", bsi: true, bsiCondition: BSI_HYBRID_ONLY, cnsa: true },
+  "SLH-DSA-SHA2-128s": { nist: "FIPS 205", bsi: false, bsiCondition: null, cnsa: false },
+  "SLH-DSA-SHA2-128f": { nist: "FIPS 205", bsi: false, bsiCondition: null, cnsa: false },
+  "SLH-DSA-SHA2-192s": { nist: "FIPS 205", bsi: true, bsiCondition: BSI_MAY_STAND_ALONE, cnsa: false },
+  "SLH-DSA-SHA2-256s": { nist: "FIPS 205", bsi: true, bsiCondition: BSI_MAY_STAND_ALONE, cnsa: false },
+};
+
+/**
+ * One line for the UI, e.g. "FIPS 203 · BSI TR-02102-1: recommended (hybrid
+ * with a classical scheme only) · CNSA 2.0: not approved (as recorded ...)".
+ */
+export function policyStanding(algo: string): string {
+  const p = POLICY_STANDING[algo];
+  if (!p) return "policy standing not recorded";
+  const bsi = p.bsi
+    ? `recommended${p.bsiCondition ? ` (${p.bsiCondition})` : ""}`
+    : "not recommended";
+  return `${p.nist} · BSI TR-02102-1: ${bsi}`
+    + ` · CNSA 2.0: ${p.cnsa ? "approved" : "not approved"} (as recorded ${POLICY_STANDING_RECORDED})`;
+}
 
 export type KemName = keyof typeof KEMS;
 export type SigName = keyof typeof SIGS;
@@ -209,9 +293,10 @@ export function sigRoundtrip(name: SigName): SigResult {
 }
 
 /**
- * The crypto-agility matrix (RFC 7696): exercise every parameter set of every
- * supported algorithm, so swapping one for another is demonstrably a
- * configuration change rather than a code change.
+ * The crypto-agility matrix (RFC 7696): exercise the listed parameter sets
+ * (KEM_NAMES and SIG_NAMES -- all three ML-KEM and ML-DSA sets, four of the
+ * twelve SLH-DSA sets) through one interface, so swapping one for another is
+ * a list entry rather than new code.
  */
 export function agilityMatrix(): { kems: KemResult[]; sigs: SigResult[]; allPass: boolean } {
   const kems = KEM_NAMES.map(kemRoundtrip);

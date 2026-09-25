@@ -17,9 +17,11 @@ two families across seven signature schemes. Only the server matrix, which is
 the one `/verify` renders and calls evidence, did not.
 
 Naming trap worth keeping: liboqs spells it `SLH_DSA_PURE_SHA2_128S` and
-@noble spells it `SLH-DSA-SHA2-128s`. Passing the browser's spelling to liboqs
-does not raise -- the row simply comes back `enabled: false`, so a silent
-downgrade to one family would look like a working matrix.
+@noble spells it `SLH-DSA-SHA2-128s`. liboqs itself does not raise on the
+browser's spelling -- the row would simply come back `enabled: false`, so a
+silent downgrade to one family would look like a working matrix. The validator
+now refuses any name outside DEFAULT_*_ALGOS with 422 (AgilityRequest), so the
+trap can no longer reach liboqs through /api/agility.
 """
 from __future__ import annotations
 
@@ -106,3 +108,36 @@ def test_the_size_cost_of_leaving_the_lattice_is_visible():
         f"expected the hash-based signature to be far larger; got {hash_based} B "
         f"against {lattice} B"
     )
+
+
+# ---- the KEM half ------------------------------------------------------------
+# The same argument applies to KEMs, and the KEM list was ML-KEM only: three
+# module-lattice parameter sets. HQC (code-based, NIST's selected backup KEM) is
+# enabled by default in the pinned liboqs.
+def _kem_families(algos) -> set[str]:
+    return {"code-based" if a.startswith("HQC") else "module-lattice" for a in algos}
+
+
+def test_the_default_kem_list_is_not_one_family():
+    fams = _kem_families(main.DEFAULT_KEM_ALGOS)
+    assert fams == {"module-lattice", "code-based"}, (
+        f"DEFAULT_KEM_ALGOS covers only {fams}; one break in module lattices "
+        "would take out the whole KEM half of the matrix")
+
+
+def test_every_default_kem_is_actually_enabled_in_this_liboqs():
+    import oqs
+
+    enabled = set(oqs.get_enabled_kem_mechanisms())
+    missing = [a for a in main.DEFAULT_KEM_ALGOS if a not in enabled]
+    assert not missing, f"default KEMs not enabled in the pinned liboqs: {missing}"
+
+
+def test_every_signature_row_rejects_a_tampered_message_in_real_liboqs():
+    """`ok` needs `verified` AND `rejects_tampered`; check both with the real
+    library rather than the stand-in used on the host."""
+    out = main.agility(None)
+    sigs = [r for r in out["matrix"] if r["family"] == "SIG"]
+    assert len(sigs) == len(main.DEFAULT_SIG_ALGOS)
+    for r in sigs:
+        assert r["verified"] is True and r["rejects_tampered"] is True, r

@@ -2,8 +2,8 @@
  * Saved-exports picker (Phase 13).
  *
  * Pops a dropdown that lists every artefact stored in /var/lib/pqcqkd-exports
- * (PNG / JSON / CSV / GIF / log). Each entry has a Download link that points
- * at the stable backend URL plus a 🗑 Delete button.
+ * (PNG / JSON / CSV / GIF / WebM / log). Each entry has a Download link that points
+ * at the stable backend URL plus a Delete button.
  *
  * The list refreshes on open and after any delete.
  */
@@ -24,13 +24,22 @@ function fmtTime(t: number): string {
   return new Date(t * 1000).toLocaleString();
 }
 
-function iconFor(name: string): string {
-  if (/\.png$/i.test(name)) return "🖼";
-  if (/\.gif$/i.test(name)) return "🎞";
-  if (/\.json$/i.test(name)) return "📋";
-  if (/\.csv$/i.test(name)) return "📊";
-  if (/\.log$/i.test(name) || /\.txt$/i.test(name)) return "💾";
-  return "📄";
+/**
+ * The file-type tag shown before each saved artefact's name. Where
+ * ExportToolbar has a button for the type (PNG, JSON, CSV, GIF, WebM), the tag
+ * is spelled as that button spells it; LOG and TXT have no button of that
+ * name. These were pictographs (one film icon for both GIF and WebM, one
+ * floppy disk for log and txt), which a screen reader reads by Unicode name
+ * and which did not tell the two video formats apart.
+ */
+export const TYPE_TAGS: Readonly<Record<string, string>> = {
+  png: "PNG", gif: "GIF", webm: "WebM", json: "JSON", csv: "CSV", log: "LOG", txt: "TXT",
+};
+
+/** An extension this list does not know is shown as FILE, not guessed at. */
+export function typeTag(name: string): string {
+  const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+  return (ext && TYPE_TAGS[ext]) || "FILE";
 }
 
 export default function SavedExportsPicker() {
@@ -64,8 +73,11 @@ export default function SavedExportsPicker() {
         setOpen(false);
       }
     };
-    setTimeout(() => document.addEventListener("click", handler), 0);
-    return () => document.removeEventListener("click", handler);
+    // Deferred so the click that opened the picker does not close it. The
+    // timer is cleared on cleanup: an open-then-close inside one tick used to
+    // add the listener AFTER cleanup had run, and it was never removed.
+    const t = setTimeout(() => document.addEventListener("click", handler), 0);
+    return () => { clearTimeout(t); document.removeEventListener("click", handler); };
   }, [open]);
 
   async function remove(name: string) {
@@ -82,7 +94,7 @@ export default function SavedExportsPicker() {
       <Button variant="ghost" size="sm"
               title="Browse backend-saved exports"
               onClick={() => setOpen((o) => !o)}>
-        📂 Saved
+        Saved exports
       </Button>
       {open && (
         <div style={{
@@ -97,7 +109,7 @@ export default function SavedExportsPicker() {
             <span style={{ fontSize: 11, color: "#6b7796" }}>
               Backend artefacts (/var/lib/pqcqkd-exports)
             </span>
-            <Button variant="ghost" size="sm" onClick={refresh}>🔄</Button>
+            <Button variant="ghost" size="sm" onClick={refresh}>Refresh</Button>
           </div>
           {err && <div style={{ fontSize: 11, color: "#e25555" }}>{err}</div>}
           {items === null && (
@@ -117,7 +129,7 @@ export default function SavedExportsPicker() {
                               textOverflow: "ellipsis", whiteSpace: "nowrap",
                               fontFamily: "monospace" }}
                     title={`${it.name}\n${fmtTime(it.mtime)}`}>
-                {iconFor(it.name)} {it.name}
+                <span style={{ color: "#6b7796" }}>{typeTag(it.name)}</span> {it.name}
               </span>
               <span style={{ color: "#6b7796", fontFamily: "monospace" }}>
                 {fmtSize(it.size)}
@@ -127,10 +139,10 @@ export default function SavedExportsPicker() {
                            padding: "2px 8px", border: "1px solid #5b8def",
                            borderRadius: 4 }}
                  title="Download from backend">
-                ⬇
+                Download
               </a>
               <Button variant="ghost" size="sm" title="Delete from backend"
-                      onClick={() => remove(it.name)}>🗑</Button>
+                      onClick={() => remove(it.name)}>Delete</Button>
             </div>
           ))}
         </div>

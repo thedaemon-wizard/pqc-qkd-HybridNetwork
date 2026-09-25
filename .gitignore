@@ -111,9 +111,13 @@ sbom*.json
 *.docx
 .~lock.*#
 
-# Local editor / tooling scratch directories are excluded per-checkout via
-# .git/info/exclude rather than here, so this published file does not enumerate
-# them.
+# Local editor and tooling scratch files are NOT listed here, so this published
+# file does not enumerate them. Nothing in the repository ignores them either:
+# each developer excludes them in their own global ignore (core.excludesFile)
+# or in .git/info/exclude. What the repository does enforce is the consequence:
+# tests/test_repo_is_publication_ready.py fails if a tracked PATH, not only
+# tracked content, names such tooling -- a committed configuration file need
+# not mention the tool in its body.
 
 # Round 5 implementation backup (not for publication)
 services/webui-frontend/.backup-round5/

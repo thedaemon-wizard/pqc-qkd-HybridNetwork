@@ -16,6 +16,8 @@
  * computes client-side, and at this size the base64 overhead is ~300 bytes.
  */
 
+import { roundQber } from "./bb84Channel";
+
 /** Raw exports; see `wasm/bb84/src/lib.rs`. No allocations, no memory views. */
 interface Bb84Exports {
   run_round(
@@ -27,7 +29,8 @@ interface Bb84Exports {
 export interface WasmRoundResult {
   sifted: number;
   errors: number;
-  qber: number;
+  /** Null when nothing was sifted: see roundQber. */
+  qber: number | null;
 }
 
 /**
@@ -40,7 +43,7 @@ export interface WasmRoundResult {
 export function unpack(packed: bigint): WasmRoundResult {
   const sifted = Number(packed & 0xffff_ffffn);
   const errors = Number((packed >> 32n) & 0xffff_ffffn);
-  return { sifted, errors, qber: sifted > 0 ? errors / sifted : 0 };
+  return { sifted, errors, qber: roundQber(sifted, errors) };
 }
 
 export class Bb84Wasm {
@@ -123,5 +126,5 @@ export function referenceRound(seed: number, cfg: {
       if (aBit !== bBit) errors++;
     }
   }
-  return { sifted, errors, qber: sifted > 0 ? errors / sifted : 0 };
+  return { sifted, errors, qber: roundQber(sifted, errors) };
 }
