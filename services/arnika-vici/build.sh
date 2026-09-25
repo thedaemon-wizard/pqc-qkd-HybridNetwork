@@ -62,10 +62,9 @@ cp "$ADAPTER_SRC/strongswanvici.go" ./
 # wireguardmikrotik.go and wireguardnetlinknetns.go define that function.
 #
 # So this rewrite is still needed, for the same reason as before. What changed
-# is only the string being rewritten. See
-# 0001-make-key-writer-adapters-mutually-exclusive.patch -- the same change,
-# formatted for submission upstream, and still not submitted: the maintainer
-# has not been asked, and it affects writer selection for every build.
+# is only the string being rewritten. It is not proposed upstream on its own:
+# upstream's KEYCONTROL.md makes extending the default's negation part of adding
+# a writer (step 3), so it would travel with an adapter PR.
 EXPECTED='//go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)'
 ACTUAL=$(head -1 wireguardnetlink.go)
 if [ "$ACTUAL" != "$EXPECTED" ]; then

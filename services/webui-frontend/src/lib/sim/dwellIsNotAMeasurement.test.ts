@@ -30,6 +30,7 @@ import {
 import {
   NOMINAL_PHASE_DWELL_MS as PAPER_DWELL, paperCsvRows, type PaperFlowState,
 } from "./paperSim";
+import { NOMINAL_TICK_DWELL_MS as LAB_DWELL } from "./protocolLabSim";
 
 /**
  * One closed phase and one still open, in the shape each simulator records.
@@ -67,6 +68,14 @@ describe("the nominal dwell is published", () => {
       expect(Number.isFinite(d)).toBe(true);
       expect(d).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps all three simulators' dwells distinct, /protocol-lab included", () => {
+    // The third simulator publishes `nominal_dwell_ms` too
+    // (protocolLabSim.test.ts checks its CSV); a shared value would make a
+    // wrong import look right here as well.
+    expect(new Set([E2E_DWELL, PAPER_DWELL, LAB_DWELL]).size).toBe(3);
+    expect(LAB_DWELL).toBe(250);
   });
 
   it("keeps the two pages' dwells distinct", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
+import { PLOT_CONFIG } from "../lib/plotConfig";
 import { Bb84Engine, type TierTrial, type Bb84Frame } from "../lib/sim/bb84Sim";
 import { engineChoiceSummary } from "../lib/sim/engineChoice";
 import { BUNDLED_PARAMS, channelFromParams } from "../lib/sim/keyrate";
@@ -29,6 +30,14 @@ import ExportToolbar from "../components/ExportToolbar";
  */
 const DEFAULT_PARAMS = BUNDLED_PARAMS;
 
+/**
+ * Where the intercept slider starts when Eve is switched on. A UI choice, not
+ * a configured value: config's `eve.intercept_prob` is 0.0 because the backend
+ * simulator runs with Eve off, and starting the slider there would make the
+ * Eve toggle visibly do nothing.
+ */
+const EVE_SLIDER_START = 1.0;
+
 export default function BB84() {
   // Read once; the URL does not change under the page.
   const pinnedSeed = seedFromLocation();
@@ -36,10 +45,12 @@ export default function BB84() {
   const [poolHistory, setPoolHistory] = useState<number[]>([]);
   const [frames, setFrames] = useState<Bb84Frame[]>([]);
   const [eveOn, setEveOn] = useState(false);
-  const [eveProb, setEveProb] = useState(1.0);
+  const [eveProb, setEveProb] = useState(EVE_SLIDER_START);
   const [engineName, setEngineName] = useState("starting…");
-  const [pps, setPps] = useState(0);
-  const [lastQber, setLastQber] = useState(0);
+  // null until the engine reports: a 0 here printed "0.0M pulses/s" and
+  // `last_qber: 0` before the first round, which read as measurements.
+  const [pps, setPps] = useState<number | null>(null);
+  const [lastQber, setLastQber] = useState<number | null>(null);
   const [pool, setPool] = useState(0);
   const [tierTrials, setTierTrials] = useState<TierTrial[]>([]);
   const [workerPps, setWorkerPps] = useState<number | null>(null);
@@ -84,7 +95,8 @@ export default function BB84() {
       } catch { /* offline → bundled defaults */ }
       setQberThreshold(p.qberThresholdAbort);
       const { etaTotal, Y0 } = channelFromParams(p);
-      eng.setConfig({ etaTotal, Y0, eD: p.misalignmentErrorEd, eveOn, eveProb });
+      eng.setConfig({ etaTotal, Y0, eD: p.misalignmentErrorEd, eveOn, eveProb,
+                      qberAbort: p.qberThresholdAbort });
       eng.start();
     })();
     return () => eng.dispose();
@@ -106,7 +118,7 @@ export default function BB84() {
       "# BB84 live simulation run log",
       `# generated:   ${new Date().toISOString()}`,
       `# engine:      ${engineName}`,
-      `# throughput:  ${pps.toLocaleString()} pulses/s`,
+      `# throughput:  ${pps === null ? "(not reported yet)" : pps.toLocaleString()} pulses/s`,
       `# eve:         ${eveOn ? `on, P(intercept)=${eveProb}` : "off"}`,
       `# abort thr.:  ${qberThreshold}`,
       `# rounds:      ${qberHistory.length}`,
@@ -172,7 +184,7 @@ export default function BB84() {
         <span style={{ fontSize: 11, color: "#3ddc84", border: "1px solid #1d4030",
                         borderRadius: 10, padding: "2px 10px" }}
               title={engineChoiceSummary(tierTrials, workerPps)}>
-          ⚡ {engineName} · {(pps / 1e6).toFixed(1)}M pulses/s
+          ⚡ {engineName} · {pps === null ? "—" : `${(pps / 1e6).toFixed(1)}M`} pulses/s
         </span>
       </div>
 
@@ -230,7 +242,7 @@ export default function BB84() {
                 font: { color: "#9aa9d8", size: 10 },
               }],
             }}
-            config={{ displaylogo: false }}
+            config={PLOT_CONFIG}
             style={{ width: "100%" }}
           />
         </ChartCard>
@@ -238,7 +250,7 @@ export default function BB84() {
           <Plot
             data={[{ y: poolHistory, type: "scatter", mode: "lines", line: { color: "#3ddc84" }, fill: "tozeroy" }]}
             layout={{ ...plotLayout, height: 240, yaxis: { color: "#9aa9d8" } }}
-            config={{ displaylogo: false }}
+            config={PLOT_CONFIG}
             style={{ width: "100%" }}
           />
         </ChartCard>
@@ -276,7 +288,7 @@ export default function BB84() {
   // the reading that a seed was used and happened to be null.
   ...(pinnedSeed !== null ? { seed: pinnedSeed, reproducible: true } : {}),
   pulses_per_sec: pps,
-  last_qber: Number(lastQber.toFixed(4)),
+  last_qber: lastQber === null ? null : Number(lastQber.toFixed(4)),
   key_pool: pool,
   eve: eveOn ? `on (p=${eveProb.toFixed(2)})` : "off",
 }, null, 2)}

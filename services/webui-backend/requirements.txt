@@ -1,4 +1,9 @@
-fastapi==0.115.6
+fastapi==0.141.1
+# Starlette pinned with it: 0.41.3 had seven published advisories on 2026-09-25,
+# three HIGH, including an O(n^2) Range-header DoS in FileResponse -- which this
+# service's /api/exports/download serves to the public demo. See
+# services/bb84-kme/requirements.txt for the list.
+starlette==1.7.0
 uvicorn[standard]==0.32.1
 httpx==0.28.1
 pydantic==2.10.4

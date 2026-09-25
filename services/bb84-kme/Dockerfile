@@ -28,8 +28,9 @@ COPY submodules/tno-qkd-key-rate /opt/tno-qkd-key-rate
 # Use requirements.txt as a pip CONSTRAINTS file (-c) for every editable backend
 # install so none of them can upgrade the pinned web stack (fastapi / starlette /
 # uvicorn / pydantic). Without this, a transitive dep of SeQUeNCe / Strawberry
-# Fields pulls a newer Starlette that breaks fastapi 0.115.6 and the KME crashes
-# on startup ("Router.__init__() got an unexpected keyword argument 'on_startup'").
+# Fields could pull a Starlette the pinned fastapi does not support; that once
+# crashed the KME on startup ("Router.__init__() got an unexpected keyword
+# argument 'on_startup'"), and the check at the end of this RUN still guards it.
 # Each install must SUCCEED. These were previously chained as
 # `pip install ... || echo "...failed; will use volume mount" && \`, which
 # cannot fail the build: `A || B && C` runs C either way, so a broken backend
@@ -70,6 +71,14 @@ if bad:
 PYCHECK
 
 COPY services/bb84-kme/app/ ./app/
+# The ETSI GS QKD 004 spec facts: ONE file, shared with the browser simulator
+# on /protocol-lab. The frontend image can only read its own directory, so the
+# file lives there and is copied in here (this image builds from the repository
+# root). Loading it at build time fails the build if it is missing or disagrees
+# with the status enum in app/etsi004_spec.py.
+COPY services/webui-frontend/src/lib/sim/etsi004SpecV211.json ./app/etsi004SpecV211.json
+ENV ETSI004_SPEC_FILE=/app/app/etsi004SpecV211.json
+RUN python -c "from app.etsi004_spec import load_spec; s = load_spec(); print('etsi004 spec', s['version'], len(s['transitions']), 'transitions')"
 
 EXPOSE 8080
 

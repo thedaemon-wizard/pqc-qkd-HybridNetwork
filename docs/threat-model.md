@@ -136,16 +136,18 @@ claimed Category 3, $`2^{207}`$ classical gates:
 | Source | Estimate for mceliece460896 | Stated basis |
 |---|---|---|
 | Saarinen, [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) (7 revisions, latest 2026-09-15) | $`2^{145.22}`$ bit operations, working memory $`2^{59.10}`$ bits | *"conditional arithmetic estimate"*; the model *"excludes address generation and memory traffic and uses budget estimates for some stages"* |
-| Weis, [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) (2026-09-11) | $`2^{94}`$–$`2^{102}`$ in the GIJS cost model, or $`2^{114}`$–$`2^{124}`$ with GIJS's conditions unchanged — against information-set decoding at $`2^{151}`$–$`2^{287}`$ | extends the Ghoshal-Ishai-Jain-Sun hold-out distinguisher ([2026/1630](https://eprint.iacr.org/2026/1630)) to key recovery |
+| Weis, [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) (2026-09-11, rev. 2026-09-18) | $`2^{94}`$–$`2^{102}`$ in the GIJS cost model, or $`2^{114}`$–$`2^{124}`$ with GIJS's conditions unchanged (v1 abstract); the revision adds $`2^{110}`$–$`2^{128}`$ when memory is charged as the Classic McEliece security guide does — against information-set decoding at $`2^{151}`$–$`2^{287}`$ | extends the Ghoshal-Ishai-Jain-Sun hold-out distinguisher ([2026/1630](https://eprint.iacr.org/2026/1630)) to key recovery |
 
 **What they do not say, stated first because the numbers invite the wrong
-reading.** Weis's abstract is explicit: *"None of the Classic McEliece
-computations is close to practical, and several ingredients are heuristic."* The
+reading.** Weis's abstract is explicit: *"None of this is close to practical,
+and several ingredients are heuristic."* (revised abstract, 2026-09-18; v1 read
+*"None of the Classic McEliece computations is close to practical"*). The
 demonstrations are on toy challenge instances, not parameter sets — Weis solved
 TII label 253 ($`m=8`$, $`t=9`$, $`n=214`$); Saarinen solved TII-254 ($`m=8`$,
 $`t=12`$, $`n=223`$, a $`[223,127]`$ code) using 27.2 GPU-hours on GH200s
-([2026/1986](https://eprint.iacr.org/2026/1986), a separate paper that makes **no
-claim about any NIST parameter set**). No key has been recovered at any NIST
+([2026/1986](https://eprint.iacr.org/2026/1986), a separate paper, revised
+2026-09-24 with its abstract unchanged, that still makes **no claim about any
+NIST parameter set**). No key has been recovered at any NIST
 size, and nothing in this deployment is broken.
 
 **The line is contested, and the scope of the objection matters.** Apon
@@ -170,13 +172,18 @@ seven months before this line began. It has not been revisited since.
 
 **The team's silence is informative because responding is their habit.**
 `classic.mceliece.org/nist.html` (page version 2026.06.23) carries dated
-responses to exactly this class of claim three times over: 2025-04-17 on a
-distinguisher cost claim, 2025-06-23 on a key-recovery cost claim, and
-2025-11-20 on *"You Only Decapsulate Once"* — all three concerning
-mceliece348864. The latest posting is still 2025-11-20; nothing addresses the
-2026 line. Checked 2026-09-16. An absence of comment from a team that has
-commented three times is worth more than an absence from a silent one, and it is
-the reason this section reports estimates rather than conclusions.
+responses to exactly this class of claim three times over, all three
+concerning mceliece348864: 2025-04-17 on a distinguisher cost claim, 2025-11-20
+on *"You Only Decapsulate Once"*, and a note on a key-recovery cost claim that
+the page dates **2025-06-23** but whose PDF is `mceliece-610-20260623.pdf`.
+The page's own version number is 2026.06.23 and the note is absent from the
+page's 2025-12-29 version, so this project reads that date as a typo for
+**2026-06-23**. An earlier version of this paragraph took the page's date at
+face value and called 2025-11-20 the latest posting. The latest posting is
+June 2026, before the August 2026 line began, and nothing addresses that line.
+Re-checked 2026-09-25. An absence of comment from a team that has commented
+three times is worth more than an absence from a silent one, and it is the
+reason this section reports estimates rather than conclusions.
 
 ## 5. Migration mandates in force
 
@@ -222,9 +229,11 @@ and the honest framing is the **crypto-agility and implementation-gap** case --
 which no authority disputes -- rather than QKD advocacy.
 
 **NSA does not recommend QKD for National Security Systems**, and says so on
-the same page that announces its PQC selections. Read in a browser 2026-09-02
-(`nsa.gov` returns 403 to scripted fetches and to the Internet Archive, so
-earlier rounds recorded this as unverifiable; it is reachable interactively):
+the same page that announces its PQC selections. Read in a browser 2026-09-02,
+and in a Wayback snapshot of 2026-09-08 (`nsa.gov` and `media.defense.gov`
+return 403 to scripted fetches; earlier rounds recorded this as unverifiable,
+and this paragraph used to say the Internet Archive was refused too, which is
+wrong -- its snapshots are readable):
 
 > "NSA continues to evaluate the usage of cryptography solutions to secure the
 > transmission of data in National Security Systems. **NSA does not recommend
@@ -248,7 +257,14 @@ cites Singapore without citing these three is selecting its evidence.
 **ML-DSA-87** — and only those. Every new NSS acquisition must support CNSA 2.0
 from **1 January 2027**; software and firmware signing and networking equipment
 target exclusive use by **2030**; operating systems, custom applications and
-cloud services by **2033**, ahead of the **2035** goal in NSM-10.
+cloud services by **2033**, ahead of the **2035** goal in NSM-10. For this
+repository's category the algorithms advisory is specific: *"Traditional
+networking equipment (e.g., virtual private networks, routers): support and
+prefer CNSA 2.0 by 2026, and exclusively use CNSA 2.0 by 2030."* The FAQ
+(Ver. 2.1, December 2024) adds that CNSA 2.0 algorithms are mandated for use by
+31 December 2031, and that *"NSS owners should not use or research QKD at this
+time without consulting NSA directly."* Both read from Wayback copies of the
+NSA PDFs on 2026-09-25.
 
 **This repository's IKEv2 lane negotiates `ke1_mlkem768`.** That is
 NIST-approved and IETF-conformant, and it is **outside CNSA 2.0 scope**, which
@@ -273,7 +289,7 @@ one-variable change. Stated as available, not as done.
 |---|---|
 | CRQC probability 28–49 % in 10 years, 51–70 % in 15; optimistic 34 % (2024) to 49 % (2025), pessimistic 14 % to 28 %; panel 37 (2023) / 32 (2024) / 26 (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. Re-verified against the publishers 2026-08-28. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
 | Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
-| CNSA 2.0 algorithms and dates | NSA CNSA 2.0 FAQ and transition guidance; see also [thequantuminsider.com, 2026-05-08](https://thequantuminsider.com/2026/05/08/post-quantum-migration-timelines-government-industry-impact/) |
+| CNSA 2.0 algorithms and dates | NSA, *CNSA 2.0 FAQ*, Ver. 2.1, December 2024 ([Wayback 2026-09-13](http://web.archive.org/web/20260913123116/https://media.defense.gov/2022/Sep/07/2003071836/-1/-1/0/CSI_CNSA_2.0_FAQ_.PDF)); NSA, *Announcing the CNSA 2.0 Algorithms* ([Wayback 2024-12-15](http://web.archive.org/web/20241215203633/https://media.defense.gov/2022/Sep/07/2003071834/-1/-1/0/CSA_CNSA_2.0_ALGORITHMS_.PDF)). This row cited a news site until 2026-09-25; `media.defense.gov` refuses scripted fetches, the archived copies do not. |
 
 
 ## 7. Relationship to QCI-CAT, and what this repository does not implement

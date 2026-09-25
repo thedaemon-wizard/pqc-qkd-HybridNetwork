@@ -11,17 +11,17 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@noble/ciphers": "^2.2.0",
-    "@noble/hashes": "^2.2.0",
-    "@noble/post-quantum": "^0.7.0",
+    "@noble/ciphers": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "^0.7.1",
     "d3-force": "^3.0.0",
     "html-to-image": "^1.11.13",
     "modern-gif": "^2.1.0",
-    "plotly.js-dist-min": "^2.35.3",
+    "plotly.js": "^4.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-plotly.js": "^2.6.0",
-    "react-router-dom": "^6.28.0"
+    "react-plotly.js": "^4.1.0",
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
     "@types/d3-force": "^3.0.10",
@@ -33,7 +33,7 @@
     "@webgpu/types": "^0.1.72",
     "katex": "^0.18.4",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3",
+    "vite": "^6.4.3",
     "vitest": "^4.1.11"
   }
 }

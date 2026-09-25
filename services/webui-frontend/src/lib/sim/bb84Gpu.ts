@@ -17,6 +17,8 @@ import {
 export interface Bb84Cfg {
   etaTotal: number; eD: number; Y0: number;
   eveOn: boolean; eveProb: number; pulsesPerRound: number;
+  /** protocol.qber_threshold_abort: rounds above it distil no key. */
+  qberAbort: number;
 }
 export interface RoundResult {
   qber: number; pool_size: number; pulsesPerSec: number;
@@ -153,7 +155,7 @@ export class Bb84Gpu {
     const dt = Math.max(performance.now() - t0, 1e-3);
 
     const qber = sifted > 0 ? errors / sifted : 0;
-    this.pool = advanceKeyPool(this.pool, sifted, qber);
+    this.pool = advanceKeyPool(this.pool, sifted, qber, cfg.qberAbort);
     return {
       qber, pool_size: this.pool,
       pulsesPerSec: Math.round(totalPulses / (dt / 1000)),

@@ -33,9 +33,9 @@ sudo bash deploy/deploy-demo.sh
 
 **Leanest (near-$0):** build the frontend
 (`cd services/webui-frontend && npm ci && npx vite build`) and serve `dist/` statically.
-`/e2e`, `/paper-flow`, `/keyflow` and `/hil` are fully self-contained; `/bb84` and `/pqc`
-degrade to bundled defaults. The other seven pages need the backend — this text previously
-claimed only `/verify` was lost, which understated it.
+`/e2e`, `/paper-flow`, `/keyflow`, `/hil` and `/protocol-lab` are fully self-contained;
+`/bb84`, `/pqc` and `/physics` degrade to bundled defaults. The other six pages need the
+backend -- an older version of this text claimed only `/verify` was lost.
 See [`../docs/deployment-economics.md`](../docs/deployment-economics.md) for the
 page-by-page breakdown and current hosting costs.
 
@@ -48,7 +48,7 @@ failure is that **`bb84-kme-a` itself did not come up**. Two distinct causes, in
    SeQUeNCe / Strawberry Fields / TNO from `submodules/` at build time; if a submodule is empty (clone
    failed, or you cloned without `--recurse-submodules`), that install is silently skipped and the
    `simqn` backend can't import at runtime. **On a fresh clone this happens regardless of how much RAM
-   you have** (e.g. a 12 GB / 100 GB VPS hits it just the same — the bb84-kme build context being only
+   you have** (a large host hits it just the same — the bb84-kme build context being only
    ~50 MB instead of ~130 MB is the tell that the submodules were empty).
 
    Three independent ways to fix it (pick one; the deploy scripts now do **a + b** automatically):
@@ -70,7 +70,7 @@ failure is that **`bb84-kme-a` itself did not come up**. Two distinct causes, in
      degrades a missing configured backend to `qutip` instead of crashing — so the KME no longer dies on
      boot. (a)/(b) are preferred because they make the choice explicit rather than silent.
 2. **Build OOM / out-of-disk (only on a genuinely small box).** A box with ≥4 GB RAM + ~15 GB disk is
-   not affected; `deploy.sh` also auto-adds swap. Irrelevant on, e.g., a 12 GB / 100 GB VPS.
+   not affected; `deploy.sh` also auto-adds swap. Irrelevant on a larger host.
 
 Diagnose the actual error (don't guess):
 ```sh
@@ -99,8 +99,13 @@ already running, use `--pull`:
 
 ```sh
 cd ~/pqc-qkd-hybrid
-sudo bash deploy/deploy-demo.sh --pull      # or deploy.sh for the full stack
+sudo bash deploy/deploy-demo.sh --pull      # simulation-only demo
+sudo bash deploy/deploy.sh --pull --ipsec   # full stack, with the IPsec lane
 ```
+
+Both scripts share the routine in `deploy/lib.sh`. `deploy.sh` did not accept
+`--pull` until 2026-09-25, although this section already told operators to use
+it; `--ipsec` adds `docker-compose.strongswan.yml` with the `ipsec` profile.
 
 `--pull` fetches `origin/main`, fast-forwards, re-syncs submodules, then
 rebuilds and restarts. Without the flag the script builds whatever is already
@@ -132,6 +137,15 @@ To confirm the update landed, check that the served bundle hash changed:
 ```sh
 curl -s https://$PUBLIC_HOST/ | grep -o '/assets/index-[^."]*'
 ```
+
+## The firewall step
+
+Both scripts **add** UFW rules for the SSH port(s) `sshd -T` reports, 80/tcp,
+443/tcp and 443/udp, and keep every other rule. They used to run `ufw --force
+reset` first, which deleted whatever else the host had -- another site's
+ports, or SSH on a non-standard port -- on every redeploy. The default-deny
+policy is set only when UFW was inactive, i.e. when the script is the one
+turning the firewall on. `SKIP_UFW=1` leaves the firewall untouched.
 
 ## Why a VPS (not managed PaaS)
 

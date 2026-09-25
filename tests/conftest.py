@@ -32,6 +32,12 @@ os.environ.setdefault("LOG_DIR", tempfile.mkdtemp(prefix="pqcqkd-test-logs-"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# The KME reads the ETSI GS QKD 004 spec from this path and has no fallback;
+# the Dockerfile sets it in the image, this sets it for host runs.
+os.environ.setdefault(
+    "ETSI004_SPEC_FILE",
+    str(REPO_ROOT / "services/webui-frontend/src/lib/sim/etsi004SpecV211.json"))
+
 
 def load_service_app(service: str, alias: str) -> types.ModuleType:
     """Import ``services/<service>/app`` as a top-level package named ``alias``.

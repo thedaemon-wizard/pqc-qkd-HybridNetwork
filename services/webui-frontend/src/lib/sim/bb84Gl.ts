@@ -130,7 +130,7 @@ export class Bb84Gl {
     }
     const dt = Math.max(performance.now() - t0, 1e-3);
     const qber = sifted > 0 ? errors / sifted : 0;
-    this.pool = advanceKeyPool(this.pool, sifted, qber);
+    this.pool = advanceKeyPool(this.pool, sifted, qber, cfg.qberAbort);
     return {
       qber, pool_size: this.pool,
       pulsesPerSec: Math.round(cfg.pulsesPerRound / (dt / 1000)),

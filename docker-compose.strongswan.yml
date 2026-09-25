@@ -112,8 +112,14 @@ services:
         condition: service_healthy
       alice:
         condition: service_started
+    # The ping is an ESP probe, not a health criterion: `|| true` keeps a
+    # dropped echo (the moment between two CHILD_SAs) from marking the node
+    # unhealthy. Without it nothing on the host ever sent traffic through the
+    # tunnel, so /vpn read 0 B / 0 pkt under "established" -- the same reading
+    # a policy bypass would give. One 84-byte echo per interval makes the
+    # counters observed rather than explained.
     healthcheck:
-      test: ["CMD-SHELL", "swanctl --list-algs | grep -q ML_KEM_768"]
+      test: ["CMD-SHELL", "swanctl --list-algs | grep -q ML_KEM_768 && { ping -c1 -W2 \"$$PEER_IP\" >/dev/null 2>&1 || true; }"]
       interval: 15s
       timeout: 5s
       retries: 5

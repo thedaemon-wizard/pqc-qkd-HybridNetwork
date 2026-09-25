@@ -261,6 +261,9 @@ services:
       KME_B_URL: http://bb84-kme-b:8080
       PQC_VALIDATOR_URL: http://pqc-validator:8090
       LOG_LEVEL: INFO
+      # Reported by /api/config so the Overview states the configured rotation
+      # interval instead of a literal. Same default as the arnika services.
+      ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - pqcqkd-logs:/var/log/pqcqkd

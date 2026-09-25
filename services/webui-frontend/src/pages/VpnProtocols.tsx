@@ -1,4 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { usePoll } from "../lib/usePoll";
+import ExportToolbar from "../components/ExportToolbar";
+
+/**
+ * Poll interval, paired with the backend's VPN_SAMPLE_TTL_S (5 s): at 3 s
+ * against a 2 s cache every poll from every viewer missed the cache and ran
+ * five `docker exec` calls. The lanes rotate every 30 s, so 5 s loses nothing.
+ */
+const VPN_POLL_MS = 5000;
 
 /**
  * VPN Protocols page.
@@ -123,15 +132,28 @@ export default function VpnProtocols() {
   const [ipsec, setIpsec] = useState<VpnStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Why the lanes read nothing, when they do. A failed request used to be
+  // swallowed and both panels stayed on "Loading..." for good.
+  const [failed, setFailed] = useState<string>("");
+  // When the backend sampled the lanes, and for how long it caches a sample:
+  // exported with the lanes so a saved reading says how old it is.
+  const [sampled, setSampled] = useState<{ observed_at: number | null; cache_ttl_s: number | null }>(
+    { observed_at: null, cache_ttl_s: null });
+
   async function load() {
     try {
       const r = await fetch("/api/vpn/protocols");
-      const j = await r.json();
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(`HTTP ${r.status}${j?.detail ? `: ${j.detail}` : ""}`);
       setWg(j.wireguard ?? null);
       setIpsec(j.ipsec ?? null);
-    } catch { /* backend may be down */ }
+      setSampled({ observed_at: j.observed_at ?? null, cache_ttl_s: j.cache_ttl_s ?? null });
+      setFailed("");
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : String(e));
+    }
   }
-  useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, []);
+  usePoll(load, VPN_POLL_MS);
 
   return (
     <div>
@@ -153,6 +175,16 @@ export default function VpnProtocols() {
             on an IKE_SA negotiated with the <b>RFC 9370</b> hybrid
             <code> ecp256 + ke1_mlkem768</code>.</li>
       </ul>
+      {/* Rows 2.3, 2.11 and 2.14 are read from this page, so it produces
+          evidence and must be able to export it. Not animated: the lanes
+          change only on the 5 s poll. */}
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar
+          name="vpn-protocols"
+          animated={false}
+          jsonProvider={() => ({ wireguard: wg, ipsec, ...sampled, request_failed: failed || null })}
+        />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
         <Panel title="WireGuard (kernel / boringtun)" color="#3ddc84">
@@ -173,7 +205,7 @@ export default function VpnProtocols() {
                   : `${wg.peers_with_psk} of ${wg.peers}`
               } />
             </>
-          ) : <Loading />}
+          ) : failed ? <NotObserved why={failed} /> : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
             PSK path: arnika (Go) → wgctrl netlink → wg0
           </p>
@@ -201,7 +233,7 @@ export default function VpnProtocols() {
               <BothEnds s={ipsec} />
               <EspCounters kids={ipsec.child_sas} />
             </>
-          ) : <Loading />}
+          ) : failed ? <NotObserved why={failed} /> : <Loading />}
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
             Key path: arnika → VICI <code>load-shared type=ppk</code> → charon reauth
           </p>
@@ -312,23 +344,23 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
   const dir = (d?: { spi: string; bytes: number; packets: number } | null) =>
     d ? `${d.spi}  ${d.bytes.toLocaleString()} B / ${d.packets.toLocaleString()} pkt` : "—";
 
-  // Every installed direction reporting zero. On this deployment that is the
-  // CORRECT steady state -- and it is indistinguishable, as rendered, from the
-  // one failure the ipsec CI job exists to catch. Its own comment reads:
+  // Every installed direction reporting zero. Until 2026-09-25 that was the
+  // steady state here, because nothing on the host sent anything through the
+  // tunnel -- and it is indistinguishable, as rendered, from the one failure
+  // the ipsec CI job exists to catch. Its own comment reads:
   //
   //     A tunnel that is up but installs no ESP counters is passing traffic
   //     in the clear past the policy.
   //
-  // So a reader who knows that reasoning sees a green "established" over
-  // 0 B / 0 pkt and concludes the lane is leaking plaintext. It is not: nothing
-  // on this host sends anything through the tunnel. There is no ping, no
-  // keepalive and no health check that traverses it, and `start_action = trap`
-  // installs the CHILD_SA on demand rather than driving traffic -- which is why
-  // checklist row 2.11 and the CI step both `ping` FIRST and only then assert a
-  // non-zero count.
+  // alice-ipsec's health check now pings the peer through the tunnel every
+  // 15 s (docker-compose.strongswan.yml), so the counters are normally
+  // non-zero. A zero remains correct in one window: each rotation
+  // reauthenticates and installs a new CHILD_SA whose counters start at zero,
+  // until the next probe. `start_action = trap` installs the CHILD_SA on demand
+  // and generates no packets itself.
   //
   // Naming the precondition is the whole fix. No number is invented, no
-  // fallback is taken, and a genuine leak still shows as zero -- but now the
+  // fallback is taken, and a genuine leak still shows as zero -- but the
   // reader is told what would have to be true for the zero to be alarming.
   const installed = kids.filter((k) => k.in || k.out);
   const allIdle = installed.length > 0 && installed.every(
@@ -353,14 +385,17 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
       {allIdle && (
         <p style={{ fontSize: 11, color: "#9aa9d8", margin: "6px 0 0",
                     lineHeight: 1.5 }}>
-          Zero is expected here, and it is worth saying why: <b>nothing on this
-          host sends traffic through the tunnel.</b> No ping, no keepalive and
-          no health check traverses it, and <code>start_action = trap</code>{" "}
-          installs the CHILD_SA on demand rather than generating packets. To
-          make these non-zero, send something across it &mdash;
+          Zero is expected only briefly, and it is worth saying why: <b>each
+          rotation installs a new CHILD_SA whose counters start at zero</b>, and
+          the only traffic on this host is one ping from <code>alice-ipsec</code>&apos;s
+          health check every 15 s. <code>start_action = trap</code>{" "}
+          installs the CHILD_SA on demand rather than generating packets, so
+          between a rotation and the next probe there is nothing to count. To
+          see counts at once, send something across it &mdash;
           <code> docker exec alice-ipsec ping -c3 10.30.0.21</code> &mdash; which
-          is exactly what checklist row 2.11 and the <code>ipsec</code> CI job
-          do before asserting a non-zero count. A tunnel that showed zero
+          is what checklist row 2.11 and the <code>ipsec</code> CI job do before
+          asserting a non-zero count. A reading that stays at zero across
+          several probes is not this case. A tunnel that showed zero
           <i> while traffic was flowing</i> would mean packets were bypassing
           the policy in the clear; that is the case this line exists to
           distinguish, not to explain away.
@@ -428,6 +463,10 @@ function statusColor(s: string): string {
   // "absent", or a dead daemon looks unremarkable.
   if (s === "stopped" || s === "down" || s === "error") return "#e25555";
   return "#445";
+}
+
+function NotObserved({ why }: { why: string }) {
+  return <div role="status" style={{ color: "#f5a623", fontSize: 12 }}>Not observed -- GET /api/vpn/protocols failed: {why}</div>;
 }
 
 function Loading() {

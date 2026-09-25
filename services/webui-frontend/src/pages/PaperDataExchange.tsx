@@ -9,7 +9,7 @@ import PhaseSequenceSvg, { type PhaseBudget } from "../components/PhaseSequenceS
 import PacketFlowTable from "../components/PacketFlowTable";
 import FailureCascadeTimeline, { type CascadeEvent } from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
-import { paperCsvRows, PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
+import { DEFAULT_HOP_COUNT, paperCsvRows, PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
 
 /**
  * Paper Data Exchange page.
@@ -33,7 +33,7 @@ import { paperCsvRows, PaperSim, type PaperFlowState } from "../lib/sim/paperSim
 // compile. One shape, one definition.
 export default function PaperDataExchange() {
   const [state, setState] = useState<PaperFlowState | null>(null);
-  const [hopCount, setHopCount] = useState(4);
+  const [hopCount, setHopCount] = useState(DEFAULT_HOP_COUNT);
   const simRef = useRef<PaperSim | null>(null);
 
   // Round 5: the multi-hop orchestration runs CLIENT-SIDE (no /ws/paper-flow).
@@ -111,8 +111,8 @@ export default function PaperDataExchange() {
                 `paper_budgets.total_handshake_*`. Editing a phase row would
                 have moved the cards and left the sentence asserting the old
                 total -- and the sentence is the one a reader quotes. */}
-            {state?.paper_budgets.total_handshake_packets ?? 9} packets /{" "}
-            {state?.paper_budgets.total_handshake_bytes ?? 5248} bytes per
+            {state?.paper_budgets.total_handshake_packets ?? "—"} packets /{" "}
+            {state?.paper_budgets.total_handshake_bytes ?? "—"} bytes per
             handshake). Differs from
             <code> /e2e </code> (single-tunnel concept) by showing a daisy
             chain, the 5-phase swimlane and the 240-720 s failure cascade.

@@ -120,7 +120,10 @@ test: ## Run pytest contract & integration tests
 
 .PHONY: bench
 bench: ## Run latency / throughput benchmarks
-	./benchmarks/handshake_timer.py
+# Through the venv, not the shebang: `#!/usr/bin/env python3` resolves to the
+# host's system interpreter (3.9 on the development host), which has none of
+# this project's packages.
+	$(VENV)/python benchmarks/handshake_timer.py
 	./benchmarks/ping_loop.sh
 	./benchmarks/iperf3_runner.sh
 
@@ -129,9 +132,9 @@ bench: ## Run latency / throughput benchmarks
 # -------------------------------------------------------------------
 .PHONY: animations
 animations: ## Render all Manim scenes
-	cd animations && python3.12 -m manim -ql bb84_polarization.py BB84PolarizationScene
-	cd animations && python3.12 -m manim -ql hkdf_combine.py HKDFCombineScene
-	cd animations && python3.12 -m manim -ql multi_hop_network.py MultiHopScene
+	cd animations && $(abspath $(VENV))/python -m manim -ql bb84_polarization.py BB84PolarizationScene
+	cd animations && $(abspath $(VENV))/python -m manim -ql hkdf_combine.py HKDFCombineScene
+	cd animations && $(abspath $(VENV))/python -m manim -ql multi_hop_network.py MultiHopScene
 
 # -------------------------------------------------------------------
 # Host-side OSS build (optional; used for pqc-tls-demo)
@@ -158,7 +161,7 @@ pqc-tls-demo-both: ## Build both PQC TLS lanes (oqs-provider + OpenSSL 3.5 nativ
 
 .PHONY: paper-compare
 paper-compare: ## Compare benchmark results to Spooren et al. paper supplementary
-	source .venv/bin/activate && python tools/compare_to_paper.py
+	$(VENV)/python tools/compare_to_paper.py
 
 .PHONY: browser-smoke
 browser-smoke: ## Verify the WebUI in a real browser (requires Vite dev server running)

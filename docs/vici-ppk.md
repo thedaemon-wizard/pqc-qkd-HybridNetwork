@@ -83,7 +83,7 @@ Stated plainly, because it is easy to overclaim:
 
   - **The two peers hold different PPKs.** Authentication fails on its own —
     the MAC does not verify — and no `ppk_required` check is involved. That is
-    the case traced under "the sub-millisecond rotation race" below.
+    the case traced under "the rotation race" below.
   - **The peer used no PPK at all.** This is the one that needed the flag. In
     `process_i()`, the initiator handling of the IKE_AUTH response checked
     `OPT_PPK_REQUIRED` when *building* its request and on the responder side,
@@ -321,12 +321,15 @@ type keyWriterRepository interface {
 Two methods, structurally satisfiable from outside the package. Adapter
 selection is by build tag in a root file, mirroring `wireguardnetlink.go`.
 
-`wireguardmikrotik.go` is currently a three-line stub with no implementation, so
-a VICI backend would be arnika's **second working key-writer**.
+Upstream has since implemented the MikroTik writer (2026-08-29) and a netns
+netlink writer, so a VICI backend would be arnika's **fourth** key writer.
+This paragraph used to call `wireguardmikrotik.go` a three-line stub and the
+VICI adapter the second.
 
-The one upstream change required is a build-tag narrowing so the adapters are
-mutually exclusive — see
-[`0001-make-key-writer-adapters-mutually-exclusive.patch`](../services/arnika-vici/0001-make-key-writer-adapters-mutually-exclusive.patch).
+The one upstream change it needs is the build-tag conjunct described in
+[`services/arnika-vici/README.md`](../services/arnika-vici/README.md). A
+standalone patch for it was withdrawn on 2026-09-25: upstream's
+`KEYCONTROL.md` now makes that edit part of adding any writer.
 
 Known rough edge to raise upstream: `config.Parse` requires
 `WIREGUARD_INTERFACE` and `WIREGUARD_PEER_PUBLIC_KEY` unconditionally, even for
@@ -364,8 +367,10 @@ data it selected. Neither arnika nor this project's lanes do that today.
 **Rotation cadence versus link capacity.** See the measured field rates in
 [`references.md`](references.md): at 12–22 bit/s a 256-bit key needs 12–20 s to
 accumulate. The 30 s default here is defensible only for a simulator; on a real
-link the paper's 120 s is the honest figure, and `REAUTH_TIME` should be
-derived from measured SKR rather than configured independently of it.
+link the interval, and `REAUTH_TIME`, should be derived from the measured SKR
+rather than configured independently of it. (arXiv:2608.18869's 120 s is its
+PQC renegotiation interval, not a QKD rotation, so it is not evidence for a
+QKD figure; arnika's own recommended 120 s default is.)
 
 ---
 
@@ -409,7 +414,7 @@ who then sees `psk_prefix` on `/e2e` will reasonably conclude that page
 demonstrates the weaker construction. The implementation was always correct;
 the vocabulary was not.
 
-## Known limitation: the sub-millisecond rotation race
+## Known limitation: the rotation race
 
 Rotating a PPK under a **stable** `PPK_ID` requires the two peers to switch
 generations atomically. They cannot, and the residual race is observable.
@@ -430,9 +435,12 @@ microseconds later. In that window the responder answers the `PPK_ID` lookup
 with generation 25 and, under `ppk_required = yes`, a mismatch is
 `AUTHENTICATION_FAILED`.
 
-It is self-correcting: charon retries and the lane returns to a single
-established SA. The cost is a brief reauthentication blip roughly every forty
-rotations, not a stuck tunnel.
+It is self-correcting but **not retried**. Under make-before-break the failed
+reauthentication is dropped and the previous SA stays established; the next
+rotation, one interval later, reauthenticates it. The cost is one interval in
+which the SA keeps the previous PPK generation. No SA is lost and no tunnel
+sticks. (This paragraph said "charon retries" until 2026-09-25; the live 6.1.0
+logs below show no retry.)
 
 > **What this means for the CI ceiling, which is tighter than it reads.**
 > The 45-rotation figure above comes from a long two-node run (the trace
@@ -452,6 +460,47 @@ rotations, not a stuck tunnel.
 > Treat a repeat as a real signal, not a flake to re-run: two failures in one
 > window already exceeds the ceiling, so the guard has almost no headroom at
 > this operating point, and a systematic mismatch would show as 3 of 6.
+
+### 2026-09-25: strongSwan 6.1.0 on the live demo, 8.8 days
+
+The race is still there, far less often, and it is milliseconds rather than
+microseconds. Read from the `docker logs -t` of both IPsec nodes on the public
+demo from 2026-09-16 12:21 to 2026-09-25 06:48 UTC -- strongSwan 6.1.0, arnika
+`3a8cc13`, one IKE_SA per node throughout:
+
+| window | PPK rotated (each node) | `using PPK for` (alice) | `AUTH_FAILED` | MAC mismatched (bob) |
+|---|---|---|---|---|
+| all, 8 d 18 h | 25,249 | 25,234 | 16 | 16 |
+| last 7 days | 20,155 | -- | 9 | -- |
+| last 24 hours | 2,879 | -- | 1 | -- |
+| last hour | 120 | -- | 0 | -- |
+
+**16 in 25,249 is 1 in 1,578**, against 1 in 45 on the two-node run above.
+Failures per UTC day: 4 on the partial first day, then 1, **7**, 1, 1, 0, 1, 0,
+1, 0. Seven fell on 2026-09-18 between 05:55 and 12:00 UTC, and one of those
+shows a 12.7 ms gap between alice's `[SND]` and bob's `[RCV]` against about
+1.5 ms normally, which suggests host scheduling delay; the cause is not
+established.
+
+**Every one of the 16 is the race described above.** Alice was PRIMARY for the
+interval in all 16, bob received the `key_id` in all 16, and bob loaded its PPK
+*after* answering with the MAC failure in all 16 -- a median of 1.7 ms after,
+15.3 ms at worst. So the responder (BACKUP), which must fetch its key with
+`dec_keys` after `[RCV]`, loses to the initiator (PRIMARY), which already holds
+it. The example of 2026-09-24: alice loads at 15:15:05.002901, bob fails the
+MAC at .011183 and loads at .012136.
+
+**Do not attribute the drop to 6.1.0 alone.** The baseline came from a short
+two-node run on a different host; this is a long run on the demo VPS, and the
+race depends on scheduling. What 6.1.0 did change is recorded in section 2:
+the initiator now enforces `ppk_required`. The CI ceiling `authfail*5 <=
+rotations` held in every window above; at six rotations per CI run the expected
+number of race failures is about 0.004.
+
+`/api/vpn/ppk-rotations` counted these as 25,249 successes until the same day,
+because arnika-vici logs `PPK rotated` when it queues the reauthentication. It
+now also reports `auth_failed` and `ppk_applied`, and says when it shortened
+the requested window.
 
 ### 2026-08-27: the CI failures are a DIFFERENT fault from the race above
 
@@ -474,9 +523,8 @@ still holding generation 2 -- not the fault.
 
 That is neither hypothesis:
 
-* **Not the sub-millisecond race** documented above. The gap is 60 s, not
-  microseconds, and it resolves by bob catching up rather than by charon
-  retrying.
+* **Not the rotation race** documented above. The gap is 60 s, not
+  milliseconds, and it resolves by bob catching up.
 * **Not a systematic mismatch.** Rotations 5-8 succeed with no intervention.
 
 The remaining shape is that bob was **BACKUP** for those intervals and never
@@ -496,6 +544,12 @@ produce an identical `AUTH_FAILED`, so its presence or absence separates
 absent from the lines captured above -- but the old alternation would not have
 matched it either, so that absence is not evidence yet. It will be on the next
 failing run.
+
+**Still CI-only on 2026-09-25.** The 8.8-day live run above shows no interval in
+which BACKUP waited without a `key_id` (bob's `PRIMARY` 12,536 plus `[RCV]`
+12,713 is exactly its 25,249 rotations) and no `[STOP]`, `no ACK`, `failed to
+retrieve`, `psk mismatch` or `random PSK` line in any of the four containers.
+So this fault has not been seen outside CI, and its cause is still open.
 
 Widening the overlap does **not** fix it. Keeping both generations loaded makes
 two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to

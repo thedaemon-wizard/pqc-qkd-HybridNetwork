@@ -25,7 +25,12 @@ export function toHex(b: Uint8Array): string {
 
 /**
  * Derive a 32-byte PSK from QKD ‖ PQC key material via HKDF-SHA3-256.
- * Identical parameters to the backend orchestrator so PSKs are reproducible.
+ *
+ * Salt "pqcqkd-e2e" and info "mode-<A|B|C>" are this demo's own parameters.
+ * This comment used to call them "identical to the backend orchestrator" --
+ * a module that has since been deleted. They are NOT arnika's: kdf.go at the
+ * pinned commit calls `hkdf.New(sha3.New256, combined, nil, nil)`, so the same
+ * inputs give a different key there. /e2e says so under its PSK panel.
  */
 export function deriveHkdfSha3(
   qkdKey: Uint8Array, pqcKey: Uint8Array, mode: string,

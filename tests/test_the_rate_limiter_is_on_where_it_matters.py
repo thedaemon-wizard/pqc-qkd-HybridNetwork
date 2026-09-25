@@ -158,10 +158,14 @@ def test_the_optimizer_module_is_still_importable():
 
 def test_the_kme_no_longer_imports_it_at_module_scope():
     """Nothing should pull skopt into the request path any more."""
+    # Checked on the module-level imports themselves rather than on one exact
+    # import line, which broke on an unrelated addition to that line.
     src = _src(KME)
-    assert "from . import config_loader, etsi014, logging_setup\n" in src, (
-        "the import line changed; check that `optimizer` is not being imported "
-        "at module scope, which would load skopt into the serving process")
+    top = [ln for ln in src.splitlines() if re.match(r"(from|import) ", ln)]
+    assert top, "no module-level imports found; the parse is wrong"
+    hits = [ln for ln in top if re.search(r"\boptimizer\b|\bskopt\b", ln)]
+    assert not hits, (
+        f"imported at module scope, which loads skopt into the serving process: {hits}")
 
 
 def test_architecture_no_longer_advertises_the_endpoint():

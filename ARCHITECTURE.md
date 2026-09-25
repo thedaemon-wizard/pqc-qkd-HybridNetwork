@@ -34,8 +34,14 @@
 | `webui-backend` | `services/webui-backend/` | mgmt-net, qkd-net | docker.sock RO |
 | `webui-frontend` | `services/webui-frontend/` | mgmt-net | none |
 
+Each KME serves two key-delivery interfaces over one key pool: ETSI GS QKD 014
+(`/api/v1/keys/...`, what arnika uses) and ETSI GS QKD 004 V2.1.1
+(`/etsi004/v2.1.1/...`, this project's HTTP binding, off by default; see
+[`docs/etsi004-binding.md`](docs/etsi004-binding.md)). Neither is published to
+the host.
+
 Networks:
-- `qkd-net` — `internal: true`. KME ↔ arnika and KME-KME sync. No host bridge.
+- `qkd-net` — `internal: true`. KME ↔ arnika, KME-KME key sync, and the 004 stream exchange (`/internal/etsi004/...`). No host bridge.
 - `wan-net` — simulated public Internet. WireGuard endpoints.
 - `mgmt-net` — WebUI plane. Exposes 5173 and 8000 to host.
 
@@ -146,7 +152,7 @@ Parameter pipeline:
 - `config_loader.py` watches YAML and pushes `BackendConfig` on change
 - `_skr.py` holds the Lo-Ma 2005 asymptotic decoy bound and the Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129 finite-key key length. It was credited to arXiv:2511.21253, which contains no such term; the formula shipped was a mangled Hoeffding deviation that ignored the decoy inversion entirely.
 - `optimizer.py` calls `skopt.gp_minimize` on the closed-form objective
-  to maximise the secret key rate per pulse over (μ, ν₁, ν₂, p_z)
+  to maximise the secret key rate per pulse over $`(\mu, \nu_1, \nu_2, p_z)`$
 
 Tests (host venv):
 - `test_no_hardcoded_params.py` — AST guard against magic numbers in backends
@@ -293,7 +299,7 @@ Shared UI under `services/webui-frontend/src/components/`:
 - Dark theme tokens centralised in `services/webui-frontend/src/lib/commonStyles.ts`
 - Phase 10/11 SVG inside the Quantum-Secure E2E page is left untouched
 
-### A.5 Phase 14 — Paper Data Exchange page + Rust ETSI 014 KME
+### A.5 Phase 14 — Paper Data Exchange page + Rust ETSI 014 KME (vendored, not built)
 
 ```
    ┌──────────────────────────────────────────────────────────────────┐
@@ -373,10 +379,11 @@ pqc-qkd-hybrid/
 │   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
 ├── services/
 │   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
+│   │                                  #   + ETSI-004 V2.1.1 (app/etsi004*.py, off by default)
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
 │   ├── webui-backend/                 # FastAPI orchestrator
-│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (13 pages incl.
-│   │                                  #   /e2e Quantum-Secure E2E + /paper-flow Paper Data Exchange)
+│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (14 pages incl.
+│   │                                  #   /e2e, /paper-flow and the /protocol-lab simulation)
 │   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
 │   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
 │   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)

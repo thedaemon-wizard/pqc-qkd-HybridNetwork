@@ -47,11 +47,15 @@ export default function Console() {
     let stop = false;
     async function loop() {
       while (!stop) {
-        try {
-          const r = await getLogs(active, 400);
-          setLog(stripAnsi(r.log || ""));
-        } catch (e) {
-          setLog(`error: ${e}`);
+        // A hidden tab does not poll: nobody is reading the tail, and this
+        // is the page that asks the public demo for the most data.
+        if (document.visibilityState !== "hidden") {
+          try {
+            const r = await getLogs(active, 400);
+            setLog(stripAnsi(r.log || ""));
+          } catch (e) {
+            setLog(`Not observed -- GET /api/logs/${active} failed: ${e instanceof Error ? e.message : e}`);
+          }
         }
         await new Promise(r => setTimeout(r, 1500));
       }

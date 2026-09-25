@@ -1,0 +1,3 @@
+# See the repository-root .dockerignore: host bytecode must not reach the image.
+**/__pycache__
+**/*.py[co]

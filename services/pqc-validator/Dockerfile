@@ -40,12 +40,14 @@
 # installing one when that load fails (see _load_liboqs in oqs.py). Building
 # it here therefore disables the fallback path entirely.
 #
-# VERSION COUPLING: liboqs-python performs NO version check on a library it
-# finds -- a mismatch surfaces as a missing ctypes symbol or a crash, not a
-# clear error. So the two are pinned to the SAME version on purpose:
+# VERSION COUPLING: liboqs-python never refuses a library it finds. It only
+# WARNS when major.minor differ (oqs.py, read in the 0.16.0.1 wheel on
+# 2026-09-25), so any other mismatch surfaces as a missing ctypes symbol or a
+# crash, not a clear error. So the two are pinned together on purpose:
 #
 #     submodules/liboqs            -> tag 0.16.0
-#     liboqs-python (requirements) -> ==0.16.0
+#     liboqs-python (requirements) -> ==0.16.0.1 (maintenance release of
+#                                     0.16.0, "still built for liboqs 0.16.0")
 #
 # Bump them together, and re-run the smoke test at the end of this file.
 # =====================================================================

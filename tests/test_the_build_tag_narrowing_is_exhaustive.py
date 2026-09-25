@@ -51,13 +51,40 @@ ARNIKA = ROOT / "submodules" / "arnika"
 # there while passing locally and in `go`.
 DEFAULT_WRITER = ARNIKA / "wireguardnetlink.go"
 
+
+def _checked_out() -> bool:
+    """The submodule has sources at all -- as opposed to an empty directory."""
+    return (ARNIKA / "main.go").is_file()
+
+
+def _require_known_layout() -> None:
+    """Skip only when there is nothing to read; FAIL when the layout moved.
+
+    Upstream's PR #51 (open on 2026-09-25) renames every writer file to
+    `wire_*.go`. With the old `if not DEFAULT_WRITER.is_file(): skip`, a pin
+    bump past it would have made every check in this file skip -- green, and
+    blind -- while build.sh's EXPECTED line pointed at a file that no longer
+    exists. A checked-out submodule without `wireguardnetlink.go` is a layout
+    change that build.sh has to be taught, not a missing checkout.
+    """
+    import pytest
+    if not _checked_out():
+        pytest.skip("arnika submodule not checked out")
+    renamed = sorted(p.name for p in ARNIKA.glob("wire_*.go"))
+    assert DEFAULT_WRITER.is_file(), (
+        "submodules/arnika is checked out but has no wireguardnetlink.go"
+        + (f"; it has {renamed} -- the wire_*.go layout of upstream PR #51" if renamed else "")
+        + ". Update services/arnika-vici/build.sh (its EXPECTED tag and the file it "
+          "rewrites) and this test for the new layout before moving the pin."
+    )
+
 # Every root-level file that defines getKeyWriterService is a writer, and every
 # writer except the default must be named in the default's negation.
 def _writers() -> dict[str, str]:
     out = {}
     if not DEFAULT_WRITER.is_file():
         return out
-    for p in ARNIKA.glob("wireguard*.go"):
+    for p in [*ARNIKA.glob("wireguard*.go"), *ARNIKA.glob("wire_*.go")]:
         text = p.read_text(encoding="utf-8", errors="replace")
         if "func getKeyWriterService(" in text:
             out[p.name] = text.splitlines()[0] if text.startswith("//go:build") else ""
@@ -80,10 +107,8 @@ def test_every_other_writer_is_excluded_by_name():
     """A new adapter that is not named here collides with the default."""
     sh = BUILD_SH.read_text(encoding="utf-8")
     tag = re.search(r"printf '%s\\n' '(//go:build [^']+)'", sh).group(1)
+    _require_known_layout()
     writers = _writers()
-    if not writers:
-        import pytest
-        pytest.skip("arnika submodule not checked out")
 
     # Derive the tag each non-default writer selects on, from its own first line.
     others = []
@@ -117,10 +142,22 @@ def test_the_guard_expects_what_upstream_currently_has():
     sh = BUILD_SH.read_text(encoding="utf-8")
     m = re.search(r"EXPECTED='(//go:build [^']+)'", sh)
     assert m, "build.sh no longer pins an expected upstream tag"
-    if not DEFAULT_WRITER.is_file():
-        import pytest
-        pytest.skip("arnika submodule not checked out")
+    _require_known_layout()
     actual = DEFAULT_WRITER.read_text(encoding="utf-8").splitlines()[0]
     assert m.group(1) == actual, (
         f"build.sh expects\n  {m.group(1)}\nbut the pin has\n  {actual}"
     )
+
+
+def test_a_moved_layout_fails_rather_than_skips(tmp_path, monkeypatch):
+    """Guard the guard: simulate the #51 layout and check the check fires."""
+    import sys
+
+    import pytest
+    mod = sys.modules[__name__]
+    (tmp_path / "main.go").write_text("package main\n")
+    (tmp_path / "wire_netlink.go").write_text("//go:build x\npackage main\n")
+    monkeypatch.setattr(mod, "ARNIKA", tmp_path)
+    monkeypatch.setattr(mod, "DEFAULT_WRITER", tmp_path / "wireguardnetlink.go")
+    with pytest.raises(AssertionError, match="wire_\\*.go layout of upstream PR #51"):
+        _require_known_layout()

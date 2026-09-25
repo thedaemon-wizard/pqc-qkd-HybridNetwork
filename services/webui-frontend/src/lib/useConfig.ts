@@ -15,6 +15,7 @@ const RESTRICTIVE: RuntimeConfig = {
   demo_mode: true,
   container_control: false,
   rate_limit: null,
+  arnika_interval: null,
 };
 
 let cached: RuntimeConfig | null = null;

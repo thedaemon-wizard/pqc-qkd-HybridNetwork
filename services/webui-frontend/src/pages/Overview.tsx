@@ -1,5 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getStack, postStack, type StackItem } from "../api";
+import { usePoll } from "../lib/usePoll";
+import { useRuntimeConfig } from "../lib/useConfig";
+
+/** Matches the backend's STACK_TTL_S, so a viewer does not outpace its cache. */
+const STACK_POLL_MS = 3000;
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import { useContainerControl } from "../lib/useConfig";
@@ -44,14 +49,18 @@ export default function Overview() {
   // container_control false, so `!demo` rendered a restart button for all ten
   // containers while the endpoint refused every click with 403.
   const canControl = useContainerControl();
+  const runtime = useRuntimeConfig();
   const [actionError, setActionError] = useState<string>("");
 
-  async function refresh() { setStack(await getStack()); }
-  useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
-  }, []);
+  // Why the status table is empty, when it is. The page had no failure path:
+  // a failed /api/stack left the previous table (or nothing) with no sign that
+  // it had stopped updating.
+  const [stackErr, setStackErr] = useState<string>("");
+  async function refresh() {
+    try { setStack(await getStack()); setStackErr(""); }
+    catch (e) { setStackErr(e instanceof Error ? e.message : String(e)); }
+  }
+  usePoll(refresh, STACK_POLL_MS);
 
   return (
     <div>
@@ -64,9 +73,10 @@ export default function Overview() {
           preshared key, which enters the Noise_IKpsk2 chaining key. The <b>IPsec/IKEv2</b> lane
           (<code>alice-ipsec</code>/<code>bob-ipsec</code>) takes it as an
           {" "}<b>RFC 8784 PPK</b> over strongSwan&rsquo;s VICI socket, alongside RFC 9370 ML-KEM-768;
-          see <a href="/vpn">VPN Protocols</a>. Rotation is configured at 30 s, but the interval
+          see <a href="/vpn">VPN Protocols</a>. Rotation is configured at{" "}
+          <code>{runtime.arnika_interval ?? "(not reported)"}</code> (<code>ARNIKA_INTERVAL</code>), but the interval
           is when arnika <i>attempts</i> a rotation, not a guarantee: measured gaps on the public
-          host ran 30&ndash;241 s, so count rotations over a window rather than dividing by 30.</>}
+          host ran 30&ndash;241 s, so count rotations over a window rather than dividing by the interval.</>}
       />
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
@@ -81,6 +91,12 @@ export default function Overview() {
         <ArchPanel />
         <div>
           <h3>Container Status</h3>
+          {stackErr && (
+            <p role="status" style={{ color: "#f5a623", fontSize: 12 }}>
+              Not observed -- GET /api/stack failed: {stackErr}.
+              {stack.length ? " The table below is the last successful reading." : ""}
+            </p>
+          )}
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: "left", color: "#6b7796" }}>

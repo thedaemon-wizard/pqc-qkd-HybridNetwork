@@ -22,7 +22,8 @@ Verified before removal, not assumed:
   * the published metadata of fastapi, uvicorn, httpx, pydantic, docker and
     websockets declares neither
   * FastAPI needs python-multipart only under its `standard` / `all` extras,
-    and bb84-kme installs plain `fastapi==0.115.6`
+    and bb84-kme installs plain `fastapi` (0.115.6 then, 0.141.1 since
+    2026-09-25; re-checked for both)
 
 CI proves the services still start: "Container images build" and "ETSI GS QKD
 014 contract tests (live KMEs)" run the real containers, so a package that was

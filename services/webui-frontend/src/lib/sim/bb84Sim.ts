@@ -16,7 +16,7 @@ import { Bb84Gpu, type Bb84Cfg } from "./bb84Gpu";
 import { Bb84Gl } from "./bb84Gl";
 import { Bb84Wasm } from "./bb84Wasm";
 import { bb84KernelWasm } from "./generated/bb84KernelWasm";
-import { bundledChannel } from "./keyrate";
+import { BUNDLED_PARAMS, bundledChannel } from "./keyrate";
 import { RunSeeds } from "./runSeed";
 import { advanceKeyPool, framesFromGpuRound, type ChannelCfg } from "./bb84Channel";
 
@@ -63,6 +63,7 @@ export interface Bb84Update {
 const DEFAULT_CFG: Bb84Cfg = {
   ...bundledChannel(),
   eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
+  qberAbort: BUNDLED_PARAMS.qberThresholdAbort,
 };
 const UPGRADE_MARGIN = 1.15;       // a GPU tier must beat the CPU by ≥15% to be used
 
@@ -268,7 +269,7 @@ export class Bb84Engine {
       const t0 = performance.now();
       const r = this.wasm.runRound(seed, this.cfg);
       const dt = Math.max(performance.now() - t0, 1e-3);
-      this.wasmPool = advanceKeyPool(this.wasmPool, r.sifted, r.qber);
+      this.wasmPool = advanceKeyPool(this.wasmPool, r.sifted, r.qber, this.cfg.qberAbort);
       this.emit({
         qber: r.qber,
         pool_size: this.wasmPool,

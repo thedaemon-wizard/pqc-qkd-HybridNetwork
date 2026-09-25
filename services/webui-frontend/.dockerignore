@@ -1,0 +1,6 @@
+# `COPY . .` runs after `npm install` in the image. Without this it copied the
+# HOST's node_modules over the image's -- glibc native binaries into an Alpine
+# (musl) build -- so a local image was built from different packages than the
+# same Dockerfile builds on a clean checkout. And a host dist/ is not the build.
+node_modules
+dist
