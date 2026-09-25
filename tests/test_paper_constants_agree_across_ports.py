@@ -80,3 +80,46 @@ def test_no_stray_copies_of_the_literals_remain():
         f"{strays} appear as bare literals in {PAPER_SIM.name} outside their "
         "declaration. Import the constant instead."
     )
+
+
+# ---------------------------------------------------------------------------
+# Table 1 per phase. The two ports carry the same five-row table; they drifted
+# once already (grace_s 180 against the paper's 60 s window), and nothing
+# compared them, so a correction to one left the other reading the old value.
+# ---------------------------------------------------------------------------
+PHASE_FIELDS = ("packets", "bytes", "period_s", "grace_s")
+
+
+def _typescript_phase_budgets() -> dict[int, dict[str, float | None]]:
+    src = PAPER_SIM.read_text(encoding="utf-8")
+    block = re.search(r"const PHASE_BUDGETS[^=]*=\s*\{(.*?)\n\};", src, re.S)
+    assert block, f"PHASE_BUDGETS not found in {PAPER_SIM.name}"
+    rows: dict[int, dict[str, float | None]] = {}
+    for m in re.finditer(r"^\s*(\d+):\s*\{(.*?)description:", block.group(1), re.S | re.M):
+        fields = {}
+        for f in PHASE_FIELDS:
+            v = re.search(rf"\b{f}:\s*(null|[0-9.]+)", m.group(2))
+            assert v, f"phase {m.group(1)} has no {f} in {PAPER_SIM.name}"
+            fields[f] = None if v.group(1) == "null" else float(v.group(1))
+        rows[int(m.group(1))] = fields
+    return rows
+
+
+def test_both_ports_carry_the_same_phase_table():
+    ts = _typescript_phase_budgets()
+    py = {k: {f: (None if v[f] is None else float(v[f])) for f in PHASE_FIELDS}
+          for k, v in paper_budgets.PHASE_BUDGETS.items()}
+    assert sorted(ts) == sorted(py) == [1, 2, 3, 4, 5], (sorted(ts), sorted(py))
+    diffs = [(k, f, ts[k][f], py[k][f]) for k in py for f in PHASE_FIELDS
+             if ts[k][f] != py[k][f]]
+    assert not diffs, (
+        "paperSim.ts and paper_budgets.py disagree on Table 1 (phase, field, ts, py): "
+        f"{diffs}. Change both to match the paper, never one to match the other.")
+
+
+def test_every_grace_window_is_the_papers_sixty_seconds():
+    """4.3 Fail-Safe Mechanism: 'every 120s, with a 60s grace window' for all
+    three refreshing components; phase 1 has no refresh and so no window."""
+    for k, v in paper_budgets.PHASE_BUDGETS.items():
+        expected = 0 if v["period_s"] is None else 60
+        assert v["grace_s"] == expected, (k, v["grace_s"])

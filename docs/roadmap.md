@@ -3,13 +3,9 @@
 Actionable work items beyond the current PoC. The code base must remain stable
 before starting any of these.
 
-Status is stated per item, and reviewed against the implemented tree rather
-than carried forward untouched. Reviewed 2026-08-28.
-
-A header date that trails the entries below it is its own small false
-claim: this line read 2026-08-20 while the file carried items dated the
-21st, 22nd, 23rd and 28th, so a reader checking whether the roadmap had
-kept up would have concluded it had not.
+Status is stated and dated per entry, and reviewed against the implemented
+tree rather than carried forward untouched. Last full review: 2026-09-25. A
+review date older than the newest entry below is a defect in this file.
 
 ## Completed since this roadmap was written
 
@@ -18,12 +14,13 @@ here so the roadmap does not keep proposing work that already exists.
 
 | Item | Where |
 |---|---|
-| Crypto-agility matrix across ML-KEM, ML-DSA **and SLH-DSA** parameter sets -- two mathematical families, so a break in module lattices does not take out every option. Rendered on `/verify` from `POST /api/pqc/agility`; the browser side of the same claim is `src/lib/sim/pqc.ts`. Until 2026-08 the SERVER matrix was ML-KEM + ML-DSA only -- six algorithms, all module-lattice -- so the page called it agility while showing none. |
+| Crypto-agility matrix across ML-KEM **and HQC** KEMs and ML-DSA **and SLH-DSA** signatures -- two mathematical families on each side, so a break in module lattices does not take out every option (HQC added 2026-09-25). Rendered on `/verify` from `POST /api/pqc/agility`; the browser side of the same claim is `src/lib/sim/pqc.ts`. Until 2026-08 the SERVER matrix was ML-KEM + ML-DSA only -- six algorithms, all module-lattice -- so the page called it agility while showing none. |
 | Independent key-rate cross-check | TNO-Quantum backend, plus a golden vector pinned to Ma et al. 2005 in `tests/test_keyrate_golden_vector.py` |
 | CI enforcement of the ETSI 014 contract | `.github/workflows/ci.yml`, job `live-stack` |
 | A written key-rate derivation | [`keyrate.md`](keyrate.md) |
 | Secret scanning in CI | `.github/workflows/ci.yml`, job `secrets` (was listed as "recommended" for months) |
 | Reproducible seeded simulation runs | `reconcile()` now takes an injectable RNG |
+| Userspace WireGuard fallback | The node image installs `wireguard-go` from Debian bookworm `main`, and `wg-quick` falls back to it with no configuration when the kernel module is absent. See [`BUILD.md`](BUILD.md) section 5.3 |
 | Protocol Lab: trusted-node key relay, re-routing, and the ETSI GS QKD 014 / 004 message sequence, over published networks | `/protocol-lab`, client-side and labelled a simulation; see the decision record below (2026-09-25) |
 | ETSI GS QKD 004 V2.1.1 application interface | `bb84-kme`, over this project's HTTP/JSON binding, off by default; [`etsi004-binding.md`](etsi004-binding.md) (2026-09-25) |
 
@@ -31,14 +28,15 @@ here so the roadmap does not keep proposing work that already exists.
 
 Recorded rather than scheduled. These are limitations of the physics and
 protocol modelling, and are not expected to close without new work upstream.
-Implementation gaps are tracked separately, under "Status" below.
+Implementation gaps are tracked separately, under "Implementation gaps still
+open" below.
 
 | Gap | Consequence |
 |---|---|
-| No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. `f_EC` is an assumed constant, and no leakage is measured. |
-| ~~First-order finite-key term only~~ **CLOSED 2026-08-28** | Was "not a composable security proof". It now is one: Lim et al. PRA 89, 022307 (2014) with eps_sec and eps_cor tracked separately and a key LENGTH in bits. See [`keyrate.md`](keyrate.md) section 5. The residual caveat is different in kind and is stated there -- the counts fed to the estimators are EXPECTED under the channel model, not observed, so the output is an expected key length and the eps_sec guarantee does not attach to a simulated number. |
-| **Upstream has stated the file-based PQC handover will be removed** | arnika's maintainer, 2026-09-16: *"pls. note that we'll drop the PQC_FILE_PSK and replace it with PQC-HPKE"* and *"the concept of key handover via file is somehow odd"*. This PoC's PQC half IS that handover: Rosenpass writes `/var/lib/rosenpass/pqc.psk` and arnika reads it, wired in `nodes/alice/entrypoint.sh` (six references) and asserted in the `ipsec` CI job. Measured on the `feat/pqc-hpke` branch (`b4a832e`): **`PQC_PSK_FILE` is gone from `config/` entirely**, and the branch is +10,400/-1,249 across 68 files, including renaming every writer-selection file to `wire_*.go`. **Not urgent -- `main` still has `PQC_PSK_FILE`** and the pin is on `main`. What changes is the planning assumption: the Rosenpass-file integration now has a stated end of life rather than an open-ended one, and the `wire_*.go` rename will also move the build-tag surface that `services/arnika-vici/build.sh` asserts on. Re-read the branch before the next pin bump. |
-| Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
+| No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. $`f_{\mathrm{EC}}`$ is an assumed constant, and no leakage is measured. |
+| ~~First-order finite-key term only~~ **CLOSED 2026-08-28** | Was "not a composable security proof". It now is one: Lim et al. PRA 89, 022307 (2014) with $`\varepsilon_{\text{sec}}`$ and $`\varepsilon_{\text{cor}}`$ tracked separately and a key LENGTH in bits. See [`keyrate.md`](keyrate.md) section 5. The residual caveat is different in kind and is stated there -- the counts fed to the estimators are EXPECTED under the channel model, not observed, so the output is an expected key length and the $`\varepsilon_{\text{sec}}`$ guarantee does not attach to a simulated number. |
+| **Upstream plans to remove the file-based PQC handover** | Open arnika PR [#51](https://github.com/arnika-project/arnika/pull/51), *feat(keyreader): pqc-hpke (RFC 9180)*, replaces it with an HPKE key reader. This PoC's PQC half IS that handover: Rosenpass writes `/var/lib/rosenpass/pqc.psk` and arnika reads it through `PQC_PSK_FILE`, wired in `nodes/alice/entrypoint.sh` and asserted in the `ipsec` CI job. Measured on 2026-09-25 at head `f4cf9ba` (55 commits, +10,721/-1,264 across 68 files): `PQC_PSK_FILE` is removed from `config/`, and the three files this repository's build asserts on move -- `repositories/kms.go` to `repositories/kms/kms.go`, `repositories/wireguard-netlink.go` to `repositories/wgnetlink/netlink.go`, and `wireguardnetlink.go` to `wire_wireguard_netlink.go`. So the `grep -q` guards in both node Dockerfiles and the build-tag rewrite in `services/arnika-vici/build.sh` will fail on a bump past it, loudly and by design. **Not urgent -- `main` still has `PQC_PSK_FILE`** and the pin (`3a8cc13`) is on `main`. What changes is the planning assumption: the Rosenpass-file integration has a stated end of life. Re-read the PR before the next pin bump. |
+| Static channel model | Measured field data (arXiv:2608.18869): the mostly aerial link showed about twice the QBER of the mostly buried one despite lower attenuation, measured in separate campaigns, and its QBER correlates with wind speed (r = 0.78 at 15-minute resolution, section IV.B). See [`references.md`](references.md). The model cannot express that. |
 | The asymptotic decoy bound takes $`Y_0`$ as known | `asymptotic_skr_per_pulse` and its TypeScript port use the configured dark-count yield directly. A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). The finite-key rate the backends report already estimates the vacuum term from decoy counts; see [`keyrate.md`](keyrate.md) sections 4 and 5. Recorded 2026-09-25. |
 | Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
 | RFC 9867 not available on this lane | Stated as two reproducible observations rather than the flat "no open-source IKEv2 implementation has it" that stood here -- that claim is not checkable, and the supporting one ("strongSwan marks it unsupported in its own features table") pointed at a file that is **not in the pinned tree**: it lives in the separate `strongswan/strongswan-docs` repository. What can be established: (1) `USE_PPK_INT` (16445) and `PPK_IDENTITY_KEY` (16446) appear nowhere under `submodules/strongswan/src/`, and **16444 is the highest Status Type** in `notify_payload.h`, so they sit immediately above the top of the range; (2) the `IKE_SA_INIT` response on this lane carries `N(USE_PPK)`, and RFC 9867 §3.1 has a responder return either that or `USE_PPK_INT`, never both. Both are pinned by `tests/test_claims_about_the_pinned_strongswan_hold.py`. Consuming fresh QKD material therefore needs a full reauthentication per rotation. See [`vici-ppk.md`](vici-ppk.md). |
@@ -62,7 +60,10 @@ Implementation gaps are tracked separately, under "Status" below.
 **References:**
 - NVIDIA CUDA-Q docs
 - `pyzx` GitHub
-- NIST IR 8413 (PQC standardisation status)
+- NIST IR 8545, *Status Report on the Fourth Round of the NIST Post-Quantum
+  Cryptography Standardization Process* (2025-03), and NIST IR 8610, *Status
+  Report on the Second Round of the Additional Digital Signature Schemes*
+  (2026-05). These replace NIST IR 8413, the 2022 third-round report.
 
 ## B. HNDL (Harvest Now, Decrypt Later) Simulator
 **Goal:** Make the time-shifted attack tangible for stakeholders.
@@ -71,11 +72,14 @@ Implementation gaps are tracked separately, under "Status" below.
 1. `services/hndl-simulator/` captures `tcpdump` of the `wan-net` UDP/51820 traffic
 2. Stores ciphertext blobs into a "cold archive" volume
 3. WebUI timeline: rotation interval ↔ HNDL exposure window plot
-4. Manim animation: "captured today, decrypted in 2030"
+4. Manim animation: "captured today, decrypted once a CRQC exists" -- the date
+   is deliberately unspecified, as in [`threat-model.md`](threat-model.md)
 
 **References:**
-- NIST IR 8547 (Migration to PQC)
-- CISA Quantum-Readiness Roadmap
+- NIST IR 8547, *Transition to Post-Quantum Cryptography Standards* (initial
+  public draft, 2024-11-12; not final)
+- CISA, NSA and NIST, *Quantum-Readiness: Migration to Post-Quantum
+  Cryptography* (factsheet, 2023-08-21)
 
 ## C. QLSTM-IDS for QKD attack detection
 **Goal:** Detect side-channel and protocol attacks on the BB84 link.
@@ -88,14 +92,29 @@ Implementation gaps are tracked separately, under "Status" below.
 3. Train + benchmark vs classical RandomForest + GradientBoosting
 4. WebUI page "IDS Live" — per-photon attack probability stream
 
-**Target metrics** (per Wiley IET QC 2026 paper): Precision 94.7%, Recall 93.2%, F1 93.9%.
+**Reference figures**, from Al-kuwari et al., *Resisting Quantum Key
+Distribution Attacks Using Quantum Machine Learning*, IET Quantum Communication
+(2026), doi:[10.1049/qtc2.70028](https://doi.org/10.1049/qtc2.70028),
+[arXiv:2509.14282](https://arxiv.org/abs/2509.14282): the hybrid QLSTM at 50
+epochs reports accuracy 94.7 %, precision 95.1 %, recall 94.7 % and F1 94.7 %.
+The authors evaluate on a semi-realistic, simulation-generated decoy-state BB84
+dataset and describe the result as a proof of concept, not an assessment on
+field-deployed QKD systems -- so these are figures to compare against, not
+targets a detector here would be expected to reach on real data.
 
 ## D. NIST PQC Algorithm Sweep
-**Goal:** Benchmark every NIST-standardised algorithm exposed by `liboqs`.
+**Goal:** Benchmark the NIST post-quantum algorithms exposed by `liboqs`, with
+their standardisation status stated per row.
 
 **Tasks:**
 1. `services/pqc-benchmark/` runs liboqs-python on the host
-2. Algorithms: ML-KEM-{512,768,1024}, ML-DSA-{44,65,87}, SLH-DSA variants, Falcon
+2. Algorithms, in two groups that must not be merged:
+   - **NIST-standardised (FIPS 203/204/205):** ML-KEM-{512,768,1024},
+     ML-DSA-{44,65,87}, SLH-DSA parameter sets.
+   - **Selected or draft, not yet standardised:** FN-DSA / Falcon (FIPS 206,
+     no public draft), HQC (FIPS 207, no public draft; the pinned liboqs
+     already builds it), and the additional SLH-DSA parameter sets of
+     SP 800-230 (initial public draft, 2026-04-13).
 3. Compare key/signature sizes, handshake time, RAM, CPU
 4. WebUI page "PQC Catalogue" — sortable table + bar chart
 
@@ -105,7 +124,10 @@ Implementation gaps are tracked separately, under "Status" below.
 **Tasks:**
 1. Add `docs/compliance.md` with explicit mapping:
    - NIST CSF 2.0 functions (GOVERN/IDENTIFY/PROTECT/DETECT/RESPOND/RECOVER) ↔ PoC components
-   - SP 800-56C Rev 2 ↔ HKDF-SHA3-256 implementation in `kdf/kdf.go`
+   - SP 800-56C Rev 2 ↔ HKDF-SHA3-256 implementation in `submodules/arnika/kdf/kdf.go`.
+     NIST announced a revision of SP 800-56C Rev. 2 on 2026-01-06, to let the
+     shared secret Z include a KEM shared secret; map against the revision
+     once a draft exists. See [`references.md`](references.md).
    - SP 800-208 ↔ optional LMS/XMSS signing of WireGuard config (D-stage)
 2. CI job to fail if mapping drifts
 
@@ -119,7 +141,8 @@ Implementation gaps are tracked separately, under "Status" below.
 
 ## G. QRNG + AI quality evaluation
 - Replace classical numpy RNG in BB84 with QRNG model output
-- CNN-based quality evaluation (per MDPI Electronics 2026)
+- CNN-based quality evaluation (no source selected yet; an earlier entry cited
+  a journal without an identifier)
 
 ## H. Quantum Federated Learning + FHE
 - Use QKD-derived keys to securely distribute FHE parameters across federated participants
@@ -129,37 +152,48 @@ Implementation gaps are tracked separately, under "Status" below.
 1. **D** (PQC sweep) — pure compute, low risk, immediate research value
 2. **C** (QLSTM-IDS) — leverages existing BB84 simulator data
 3. **A** (Shor sim) — needs CUDA-Q and time
-4. **B** (HNDL) — partly product/marketing; small lift
+4. **B** (HNDL) — mostly visualisation; small lift
 5. **E** (Compliance) — documentation
 6. **F**, **G**, **H** — longer-term
 
 ## Decision record: the word "phase" appears in three unrelated schemes
 
-Recorded because the instruction "delete the Phase labels if they are not
-needed" was given four times across successive rounds and never actioned. The
-reason it was never actioned was never written down, so it kept coming back.
-It is written down now.
+Recorded because a request to delete the Phase labels if they were not needed
+was raised repeatedly and never actioned, and the reason was never written
+down, so it kept coming back. It is written down now.
 
 There are three numbering schemes, all called "phase":
 
 | Scheme | Numbers | Owner |
 |---|---|---|
 | Build phases | 0, 2-4, 8-14 | this project's own milestones, `docs/phases.md` |
-| Protocol phases | 1-5 | **the paper's**, arXiv:2604.05599 Table 1 |
+| Protocol phases | 1-5 | this project's split of the paper's four numbered stages (arXiv:2604.05599, 4.2 and 4.3), laid out against its Table 1 |
 | `/e2e` orchestration | 1-4 | this project's own invention |
 
-**The second cannot be deleted or renamed.** `services/webui-backend/app/paper_budgets.py`
-quotes "Table 1: per-phase handshake cost of one multi-hop cycle" -- "phase" is
-the paper's word for these, `/paper-flow` reproduces that table per phase, and
-`tests/test_paper_budgets.py` pins the totals. Renaming it would put this
-project's vocabulary between a reader and the source it claims to reproduce.
+**The second is ours, not the paper's.** arXiv:2604.05599 never uses the word
+"phase". It numbers the components (1)-(4) in 4.2 (Integration Workflow) and
+4.3 (Fail-Safe Mechanism), calls them the "stages" of the setup Figure 3
+illustrates, and captions Table 1 "Packets and Traffic per Handshake or Key
+Negotiation". The five-way split is this repository's: phase 1 is stage (1),
+phase 2 is (2), phases 3 and 4 split (3) into the WireGuard hop handshake and
+the Rosenpass exchange carried over it, so each Table 1 row is its own phase,
+and phase 5 is (4). `services/webui-backend/app/paper_budgets.py` holds Table 1
+in that layout and quotes its caption verbatim, `/paper-flow` draws it, and
+`tests/test_paper_budgets.py` pins the totals to the three rows the paper
+prints.
 
-**So the fix is disambiguation, not deletion.** `/e2e`'s scheme is ours alone,
-so it now says **step** -- "Active step", "Step history" -- which removes one
-of the three collisions at no cost to fidelity. `/paper-flow` keeps the word
-and qualifies it: "the paper's 5 protocol phases", "paper phase 5". A reader
-who sees `Phase 8` in the docs and `paper phase 5` in the UI can now tell they
-are unrelated, which was the actual complaint behind the instruction.
+It keeps the word "phase" anyway, because the obvious alternative collides:
+"stage" is the paper's word for a four-way count, and calling this five-way
+split stages as well would make "stage 4" mean two different things.
+
+**So the fix is disambiguation, not deletion.** `/e2e`'s scheme has no
+counterpart in the paper, so it now says **step** -- "Active step", "Step
+history" -- which removes one of the three collisions at no cost to fidelity.
+`/paper-flow` keeps "phase" as its own label and puts the paper's stage number
+beside it: "this page's 5 phases, splitting the paper's stages (1)-(4)",
+"phase 5 = paper stage (4)". A reader who sees `Phase 8` in the docs and
+`phase 5 = paper stage (4)` in the UI can now tell they are unrelated, which
+was the actual problem behind the request.
 
 The build phases keep the bare word because `docs/phases.md` is where a reader
 already expects project history.
@@ -205,7 +239,7 @@ the public demo that currently keeps the Worker, and the console records why --
 > **Closed 2026-08-29 for the run, not for the rungs.** `?seed=1234` on `/bb84`
 > pins the per-round seeds through `lib/sim/runSeed.ts`, so the SAME rung
 > replays exactly and `/bb84`'s stats panel reports `seed` and
-> `reproducible: true`. Without the parameter the path is byte-for-byte what it
+> `reproducible: true`. Without the parameter the path is exactly what it
 > was, which matters because the demo's throughput figures were measured on it.
 > What is still NOT closed is cross-rung agreement: Worker mulberry32 and
 > shader xorshift32 give the same seed different samples, and making them
@@ -271,10 +305,18 @@ and labelled a simulation before anything runs:
 
 **What was withdrawn, and why.**
 
-- *NS-3 / qkdnetsim backend.* qkdnetsim is GPL-2.0 and no qkdnetsim binary is
-  run anywhere in this repository; `qkdnetsim-kme` is a Flask facade that builds
-  NS-3 and does not execute it. Running it for one page would change the
-  licence posture of the hosted demo for a view the browser can compute.
+- *NS-3 / qkdnetsim backend.* No qkdnetsim binary is run anywhere in this
+  repository; `qkdnetsim-kme` is a Flask facade that builds NS-3 and does not
+  execute it. Driving a live page from NS-3 would need its real-time emulation
+  path: qkdnetsim's own ETSI 014 emulation examples attach to real interfaces
+  through `EmuFdNetDevice` (raw sockets, `CAP_NET_RAW`) or, in the `_tap`
+  variant, `TapFdNetDevice` (TAP, `CAP_NET_ADMIN`) under
+  `RealtimeSimulatorImpl`, and the image does not build the `fd-net-device`
+  module. That is a privileged server-side process per demo, for a view the
+  browser can compute. The licence is not the reason: GPL-2.0 does not
+  restrict running or hosting the program and permits commercial use; its
+  source obligations arise only if the image or binaries are distributed (see
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)).
 - *A 004 endpoint on qkdnetsim-kme (port 81).* Depends on the above, and
   qkdnetsim's own 004 application is partial: point to point, reads only
   Key_chunk_size, returns no status codes and ignores a requested index. The
@@ -306,21 +348,58 @@ basis of a route controller had never been verified and is not repeated.
 - qkdnetsim commit `7a99fc17` (2026-08-24) adds QKD+PQC key mixing to the key
   management layer upstream; worth reading before any further qkdnetsim work.
 
+---
+
+## Decision record: withdrawn or deferred from the early plans (2026-09-25)
+
+The early plans promised more than the Protocol Lab. Each item below is either
+withdrawn or deferred, with the reason, so none of them reads as an oversight
+or comes back as new work.
+
+| Item | Status | Reason |
+|---|---|---|
+| CV-QKD Lab page (homodyne histogram, PLOB bound curve) | Deferred | The `cvqkd` backend (GG02) is a full KME backend: whenever it is selected (`SIMULATOR_BACKEND=cvqkd`, which `deploy/.env.example` sets, or the `/physics` selector where live overrides are enabled), both KMEs produce keys with it and both VPN lanes draw from them. It is not the repository default (`simqn`). What is missing is the page: a teaching view would need its own key-rate model derived and tested first. |
+| Protocol Zoo (B92, E91, SARG04) | Withdrawn | Only decoy-state BB84 is modelled end to end. Each further protocol needs its own derivation in [`keyrate.md`](keyrate.md) and a golden vector, which is the bar BB84 had to meet. |
+| MDI-QKD backend and its detector-side-channel immunity test | Withdrawn | Needs a two-sender channel model and a separate finite-key analysis, and nothing in the stack would consume its keys. |
+| Hardware-in-the-loop compose profile, dry-run test and a fake HIL device | Deferred | No hardware has been tested against this PoC, and a fake device would test the fake. Blocked on the ETSI 014 TLS gap listed under "Implementation gaps still open" below; `/hil` documents the manual path. |
+| QOSST (CV-QKD software stack) as a backend | Withdrawn | Not vendored; `cvqkd` already covers GG02 in simulation, and the CV-QKD Lab above is deferred. |
+| Cross-validating the Rust ETSI 014 KME | Deferred | `submodules/qkd_kme_server` is vendored and in no compose profile ([`phases.md`](phases.md), Phase 14). Running `tests/test_etsi014_contract.py` against it needs a build stage and a service definition first. |
+| Paper-baseline overlay on `/benchmarks` | Withdrawn | `/benchmarks` shows live state only, and no local measurement exists to overlay ([`benchmarks.md`](benchmarks.md)). The paper's figures are on `/paper-flow` and `/verify`. |
+| Prometheus and Grafana containers | Deferred | The KMEs already expose `/metrics`; a scraper and dashboards would duplicate the WebUI's polling on a single-host demo. |
+| Generated SBOM (CycloneDX or SPDX) for the images | Deferred | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) is the hand-maintained inventory, checked against the pins by `tests/test_notices_match_the_pins.py`. |
+| A running `wgephemeralpeer` container | Withdrawn | Reasons in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`IMAGE1_VPN_SCOPE.md`](IMAGE1_VPN_SCOPE.md). |
+| QuNetSim and NetSquid | Withdrawn | Reasons in [`keyrate.md`](keyrate.md) section 8. |
+
+## Deferred from the 2026-09-25 batch
+
+Found or decided during the 2026-09-25 batch and left for a later change of
+its own. Two related items live elsewhere in this file and are not repeated:
+$`Y_0^L`$ in the asymptotic bound (Known gaps) and the arnika bump past PR #51
+(Known gaps); Protocol Lab maximum-flow capacity and concurrent demands are
+under that decision record's "Still open".
+
+| Item | What is wrong or missing | What closing it involves |
+|---|---|---|
+| `/bb84` click model | The per-pulse detection probability is `etaTotal + Y0`, which omits the signal intensity $`\mu`$ (section 2 of [`keyrate.md`](keyrate.md) has $`Q_\mu = Y_0 + 1 - e^{-\eta\mu}`$), and a dark-count click carries Alice's bit instead of a uniformly random one ($`e_0 = \tfrac12`$). | The same change in all four engines -- the TypeScript Worker, the WGSL and GLSL shaders and the WASM kernel -- which must keep agreeing (`wasmAgreesWithWorker.test.ts`, `bb84Channel.test.ts`). |
+| Docker socket on `webui-backend` | The full profile mounts `/var/run/docker.sock` read-only into the internet-facing backend to enumerate containers and read logs. Container control is off by default, but the socket is still there. | A separate status service that holds the socket and exposes only the fields `/api/stack` and `/api/logs` use. Architectural; the highest-priority item in this table. |
+| `/bb84` variability mode | The field data of arXiv:2608.18869 varies with time; `/bb84` draws every round from one static channel. | A mode drawing per-round parameters from a distribution. Deferred because the distribution's parameters would be this project's derivation, not the source's. |
+| SeQUeNCe v1.2.0 | The pin is `v1.0.0` (2026-06-17); v1.2.0 was released 2026-09-12 and is 64 commits ahead ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). | A before/after on the `sequence` backend, and a check of v1.2.0's numpy range against the KME's `numpy==2.5.3` pin. |
+| oqs-provider | The pin is `5fd81fb` (2026-05-12), 37 commits past 0.10.0 on `main`. `main` has 20 commits more, among them four fixes the pin lacks -- a heap overflow (#810), a double free (#816), a use-after-free (#829) and missing length checks on hybrid KEM public keys (#814), listed in the header of `services/pqc-tls-demo/Dockerfile.oqs-provider` -- and the re-activation of HQC (#787). 0.11.0 (2025-12-24) is on a release branch that does not contain the pin, and 0.12.0 is at rc2 (2026-09-16). | Bump once 0.12.0 is final, rebuilding against the pinned liboqs; the Dockerfile's per-group negotiation check then shows whether HQC groups can join `TLS_GROUPS`. |
+| qkdnetsim v3.1.4 | The pin `1cda34c` (2026-05-03) is three commits before v3.1.3 and four before v3.1.4 (2026-09-21). Those four add QKD+PQC key mixing to the key-management layer (`7a99fc17`) and move qkdnetsim to NS-3 v3.48, while `services/qkdnetsim-kme/Dockerfile` builds NS-3 v3.46. | Low priority: nothing runs qkdnetsim. Bump the pin and `NS3_REF` together, and build the image by hand, since CI does not build it. |
+| Strawberry Fields | Archived upstream on 2026-01-16, and still installed in the `bb84-kme` image (editable, from `submodules/strawberryfields`) because the `cvqkd` backend runs its Gaussian simulator. It imports `pkg_resources`, which holds `setuptools<81` in `services/bb84-kme/requirements.txt` and `constraints.txt`. | Replace the dependency in `cvqkd_backend.py`, then drop the submodule and the `setuptools` hold. `tests/test_cvqkd_is_a_cv_protocol.py` must keep passing. |
+| Base images | The WireGuard node image (`nodes/alice/Dockerfile`) is still on bookworm: its runtime (`debian:bookworm-slim`, line 89), its Rust stage (`rust:1.90-bookworm`, line 65) and its arnika stage (`golang:1.26-bookworm`, line 27). The strongSwan node's runtime is on trixie, but its arnika stage is `golang:1.26-bookworm` too (`nodes/strongswan/Dockerfile`, line 82). `services/qkdnetsim-kme/Dockerfile` is on `ubuntu:22.04`. | Move the bookworm stages to trixie and the Rust stage to a current image, each verified by the `images` CI job. The Go stages must stay on Go 1.26 or later (arnika uses `runtime/secret`). |
+
 ## Status as of 2026-08-21
 
-Closed this round, with the evidence rather than the intention:
+Closed by 2026-08-21, with the evidence rather than the intention:
 
 - **VICI lane** verified in CI on `main`: both peers negotiate
   `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`, hold exactly
-  one IKE_SA, and rotate. The residual rotation race (milliseconds; the
-  responder loads its PPK after the initiator has sent IKE_AUTH) is **1 failure
-  in 45 rotations** on the first two-node run and **16 in 25,249** over 8.8 days
-  on the live demo under strongSwan 6.1.0 ([`vici-ppk.md`](vici-ppk.md)). This entry previously said
-  "one per ~9 rotations" -- that is the rate measured while the un-retired
-  bootstrap credential made two keys answer one `PPK_ID`, a defect that was
-  fixed, not the race that remains. Note also that the CI job observes only
-  ~6 rotations in its 240 s window, so its 20 % ceiling tolerates one failure
-  per run, not nine.
+  one IKE_SA, and rotate. The residual rotation race (the responder loads its
+  PPK after the initiator has sent IKE_AUTH) was **1 failure in 45
+  rotations** on the first two-node run; its later, much lower rate is in
+  [`vici-ppk.md`](vici-ppk.md). The CI job observes only ~6 rotations in its
+  240 s window, so its 20 % ceiling tolerates one failure per run.
 - **Dead backend removed.** `e2e_orchestrator.py` and `paper_flow.py` are gone
   along with ~200 lines of unreachable routes; `main.py` 842 -> 684. The paper
   budgets moved to `paper_budgets.py` and are now pinned by a test.
@@ -380,23 +459,56 @@ Closed this round, with the evidence rather than the intention:
   phase table against a constant defined as that same sum; the paper totals are
   now transcribed independently.
 
-### Implementation gaps still open
+## Implementation gaps still open
 
-Re-verified 2026-08-22 against the deployed demo and the code. Entries are
-grouped by what is required to close them, because that is the useful axis: a
-wrong sentence and a missing dependency are not the same kind of work.
+Re-verified 2026-09-25 against the code.
 
-**Blocked on a dependency decision** -- these need a new vendored submodule, so
-they are not something to close silently:
+- **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
+  rather than faked; wiring the two TLS lanes into compose behind a real switch
+  is the remaining work for that RFC 7696 claim. Neither lane appears in any
+  compose file today.
+- **ETSI GS QKD 014 runs without TLS.** The KMEs serve plain HTTP and arnika
+  connects without a client certificate, while ETSI 014 specifies mutually
+  authenticated TLS between SAE and KME. arnika at the pin already reads
+  `CERTIFICATE`, `PRIVATE_KEY` and `CA_CERTIFICATE` (`config/config.go:21-23`,
+  `keyreader.go:10`); this repository's compose files and entrypoints set none
+  of them, the KME configures no TLS, and nothing consumes `pki/`. Required
+  before any hardware-in-the-loop run against a real KMS; see
+  [`LIMITATIONS.md`](LIMITATIONS.md).
+- **The IPsec lane's CI-only authentication failures.** Open. The full account,
+  with each observation and what it rules out, is kept in one place:
+  [`vici-ppk.md`](vici-ppk.md#2026-08-27-the-ci-failures-are-a-different-fault-from-the-race-above).
+  It is a different fault from the rotation race in
+  [`vici-ppk.md`](vici-ppk.md#known-limitation-the-rotation-race), and has not
+  been seen outside CI. State on 2026-09-25:
+  * The two causes found on 2026-08-28 are both fixed. Ours: `KeyPool.run`
+    gated production on buffered peer replicas it could never dispense, so a
+    KME could read FULL while answering `enc_keys` with 503; it now gates on
+    `dispensable()`. Upstream: given that 503, `kmsRequest` read a closed
+    response body after its retry loop
+    ([arnika#43](https://github.com/arnika-project/arnika/issues/43)). That was
+    fixed by #44 and #49, both merged 2026-09-02 (#44 as `40f96ec`), and the
+    pin `3a8cc13` contains them. Both node Dockerfiles assert it
+    (`grep -q "ErrKMSUnavailable"`), so a bump to a revision without the fix
+    fails the build.
+  * The failing run of 2026-09-25 carries neither signature: no retrieval
+    failure, and both sides fed HKDF the same QKD half. The PQC half written by
+    the Rosenpass sidecar is the input not yet ruled out. The 2026-08-23 finding
+    that both nodes held byte-identical PQC halves held for that run only.
+  * How often runs fail has not been re-measured on the current pin, so no
+    rate is stated here; the per-run figures of 2026-08-29 predate it. The
+    20 % ceiling in `.github/workflows/ci.yml` is unchanged.
 
-- **No userspace WireGuard fallback exists.** `docs/BUILD.md` 5.3 offers the
-  `boringtun` overlay to anyone whose `modprobe wireguard` fails.
-  `command -v boringtun` in the node image finds nothing, and neither boringtun
-  nor wireguard-go is packaged for `debian:bookworm`. wg-quick exits when the
-  kernel module is absent AND the binary is missing -- exactly that case. The
-  documented recovery path cannot work for the people who need it. Closing it
-  means vendoring boringtun plus a cargo stage; the image already builds Rust
-  for rosenpass, so it is feasible.
+  Withdrawn readings, kept so they are not re-derived: that the failure count
+  was "bimodal, 4 or 0, never 1 to 3" (the series once the dump was made
+  unconditional was 0, 0, 1, 4, 8, 4 -- checklist row 2.13), and that the
+  condition was "specific to the CI environment, not to the code path" (the
+  2026-08-28 trigger was in this project's own `KeyPool`).
+
+## Implementation gaps closed
+
+Kept with their dates so the roadmap does not argue for work that exists.
+
 - ~~**Multi-hop cannot relay.**~~ **Done.** Every layer now carries a
   QKD-derived key, and each fix was smaller than the entry that preceded it
   claimed:
@@ -418,74 +530,13 @@ they are not something to close silently:
   * **Ping is not the check.** After the WireGuard fix it was 0 % loss in all
     directions while alice had installed no PSK at all -- WireGuard runs
     perfectly well unprotected. Count PSK installs. Checklist rows 2.11 and 3.5.
-  * **`docker compose up` does not rebuild.** One round of "the second instance
-    never started" was the old entrypoint still in the image; the running
-    container had no trace of the variable it was supposed to read.
+  * **`docker compose up` does not rebuild.** One attempt at "the second
+    instance never started" was the old entrypoint still in the image; the
+    running container had no trace of the variable it was supposed to read.
 
   Also corrected here: charlie's `KMS_URL` named `CHARLIE`. ETSI 014 names the
   **peer**, never yourself -- the same inversion previously found in
   `ARCHITECTURE.md`'s trace.
-
-**Open, unexplained** -- do not close by re-running:
-
-- **The `strongswan-lane` auth-failure count has now fired twice**, both on
-  branches touching no lane file: **4 failures in 6 rotations**, then 0 in 6 on
-  an immediate re-run, then **4 in 8**. Both nodes, both times, and both times
-  exactly four.
-
-  Six CI observations, per node, identical across the two nodes in every run,
-  plus two local reproduction attempts:
-
-  | failures | rotations | result |
-  |---|---|---|
-  | 4 | 6 | fail |
-  | 0 | 6 | pass (re-run of the same commit) |
-  | 4 | 8 | fail |
-  | 0 | 9 | pass |
-  | 0 | 5 | pass |
-  | 0 | 9 | pass |
-  | 0 | 7 | pass, **local** |
-  | 0 | 7 | pass, **local** |
-
-  The count is **bimodal -- 4 or 0, never 1 to 3**. That is the useful clue,
-  and it rules out the obvious readings. A per-rotation race would scatter
-  (0, 1, 2 ...) and scale with the denominator; it does neither. A fixed
-  startup cost would appear in every run; it does not. Something either happens
-  once per run and costs exactly four failures, or does not happen at all --
-  which points at a startup condition that is itself intermittent, most likely
-  the interval during which the bootstrap credential and the first QKD-derived
-  key can both answer `PPK_ID`.
-
-  Attempted locally on 2026-08-22 and **could not be reproduced**: the lane
-  brings up an SA with `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`
-  and two full 240 s windows gave 7 rotations and **0 failures** each, with no
-  clustering at startup when sampled at 15/30/45/60/90/120/180/240 s. So the
-  condition is specific to the CI environment, not to the code path.
-
-  The job originally printed only the count, so a failure left nothing to
-  diagnose. It now dumps the `AUTH_FAILED`, bootstrap-unload, orphan-unload and
-  rotation lines with timestamps whenever there is **any** failure, not only
-  when the ceiling trips -- a passing run with one or two failures is precisely
-  the data point that separates a startup window from a per-rotation race, and
-  dumping only on failure threw those away.
-
-  The threshold was deliberately NOT loosened. If these are genuinely
-  post-bootstrap failures then the peers are resolving different PPKs and the
-  guard is doing its job, and loosening it is exactly how that gets waved
-  through.
-
-**Manual step remaining** -- the mechanism is in place, the action is the
-operator's:
-
-- Private working files now have a tracked `/private/` rule that travels to
-  every clone. Protection was previously `.git/info/exclude`, which is
-  per-clone; a simulated fresh clone staged those files. Moving them into
-  `/private/` is a local action this repository cannot verify without naming
-  them, which is the thing the rule exists to avoid.
-
-
-Four entries previously listed here have been closed and are recorded above
-instead; leaving them would have kept the roadmap arguing for work that exists.
 
 - **Exports no longer round-trip through the backend** (closed 2026-08-29).
   `saveToBackendAndDownload` used to POST every JSON/PNG/CSV/GIF/WebM to
@@ -497,43 +548,60 @@ instead; leaving them would have kept the roadmap arguing for work that exists.
   browser-computes rule is about. It also deletes a failure mode instead of
   reporting one: by the time the POST can fail the file is on disk, so the
   toolbar notice now says the saved-exports list missed a copy rather than that
-  the download degraded. **Still true:** a static-only deployment cannot
-  populate the saved-exports gallery, because that gallery is the backend. See
+  the download degraded. Since 2026-09-25 the copy is sent only when the
+  visitor ticks "copy to shared gallery" (off by default). **Still true:** a
+  static-only deployment cannot populate the saved-exports gallery, because
+  that gallery is the backend. See
   [`deployment-economics.md`](deployment-economics.md).
 
 - **`/verify` is no longer server-only** (closed 2026-08-29). It still calls
   `/api/pqc/agility`, `/api/verify/keyrate` and `/api/verify/paper-budgets`,
-  but the agility matrix can now also be run in the browser and compared --
-  see the cross-check button on that page. The panel labels which half of the
-  comparison is strong (both implementations ran a real round-trip) and which
-  is weak (byte lengths, where both are reading the same FIPS table).
+  and without a backend it degrades, but the agility matrix can now also be
+  run in the browser and compared -- see the cross-check button on that page.
+  The panel labels which half of the comparison is strong (both
+  implementations ran a real round-trip) and which is weak (byte lengths,
+  where both are reading the same FIPS table).
 
-- **`PQC_PROVIDER` is not implemented.** Withdrawn from the documentation
-  rather than faked; wiring the two TLS lanes into compose behind a real switch
-  is the remaining work for that RFC 7696 claim. Neither lane appears in any
-  compose file today.
-- **`/verify` is server-side.** It calls `/api/pqc/agility`,
-  `/api/verify/keyrate` and `/api/verify/paper-budgets`, so it is one of the
-  seven routes that degrade without a backend.
-- **`/physics` renders nothing without the backend.** The editable field list
-  comes from `/api/sim/params/editable`; the key-rate mathematics beside it is
-  already client-side.
-- ~~**Export toolbars are on 5 of 13 pages.**~~ **Done.** Nine of thirteen
-  pages carry one; the four without (`/topology`, `/vpn`, `/keyflow`, `/hil`)
-  are display-only prose. `/bb84` exports its QBER history, key-pool history
-  and photon frames (`BB84.tsx`), which this entry said it could not.
+- ~~**Export toolbars are on 5 of 13 pages.**~~ **Done.** Thirteen of
+  fourteen pages carry one (since 2026-09-25 including `/vpn`, which exports
+  the per-node PPK, ESP-counter and SPI-pairing evidence for checklist rows 2.3
+  and 2.11, `/topology`, and `/keyflow`, which exports its Sankey as PNG and
+  its edge list as JSON); the one without, `/hil`, is display-only. `/bb84`
+  exports its QBER history, key-pool history and photon frames (`BB84.tsx`).
 - ~~**`/e2e` has no failure-injection control.**~~ **Done.** `/e2e` injects on
   `qkd`, `pqc` and `data` with a `clear`, and decides fatality from the mode
   rather than the layer -- see `e2eSim.injectFailure` and `e2eFailure.test.ts`.
+- **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
+  (2014), arXiv:1311.7129.** This entry previously recorded that a paper was
+  cited for a formula it does not contain. Checking the formula against the
+  paper found three further faults, so it was replaced outright rather than
+  re-cited; what was wrong with it is set out once, in
+  [`keyrate.md`](keyrate.md) section 5, "What this replaced, and why".
+  Implemented from the paper and cross-checked to 8 significant figures against
+  an independent transcription. The zero-crossing moved from 93.3 km to 98.49 km
+  at $`N = 10^9`$, and the curve now saturates against the asymptotic wall
+  rather than gaining ~25 km per decade of $`N`$ without limit — the old shape
+  would have claimed key past 500 km at $`N = 10^{30}`$.
+  `tools/precompute_keyrate_table_fallback.py` held a SECOND copy of the same
+  wrong formula and wrote it into `config/qkd_keyrate_table.json` as shipped
+  data; it now delegates to `_skr.py`, and the table has been regenerated.
+- **Operator-private working files are inside `/private/`** (closed
+  2026-09-25). The tracked `.gitignore` rule for that directory travels to
+  every clone, unlike a per-clone `.git/info/exclude`, and the files now sit
+  under it. The move is a local action no test can observe;
+  `tests/test_private_files_have_a_safe_harbour.py` guards the rest: the
+  directory stays ignored by the tracked rule, and neither `.gitignore` nor
+  any other tracked file names a private file.
 
 ## Status as of 2026-08-22 — external claims
 
 The two pages that had never been systematically fact-checked, `/hil` and
-`/console`, were both checked. All thirteen routes have now had their computed
-numbers or their factual claims verified against a source outside the codebase.
+`/console`, were both checked. All thirteen routes of the time had then had
+their computed numbers or their factual claims verified against a source
+outside the codebase (`/protocol-lab`, route 14, was added on 2026-09-25).
 
-Everything found this round was one class, and it is a different class from the
-earlier rounds: not *a plausible number nobody executed* but **a plausible
+Everything found in that review was one class, and a different class from the
+earlier reviews: not *a plausible number nobody executed* but **a plausible
 reference nobody followed**. Nothing in a build can contradict a citation or a
 product name, so these survive every green CI run.
 
@@ -544,7 +612,8 @@ product name, so these survive every green CI run.
   020, Toshiba's ETSI 014 API is the default rather than a "compatibility
   mode", and ID Quantique exposes the ETSI interface from **Clarion KX** rather
   than natively. The heading also asserted interoperability nobody had tested.
-  Now checklist row 7.12.
+  Now checklist row 7.12; the vendor list itself is kept in
+  [`LIMITATIONS.md`](LIMITATIONS.md).
 - ~~**Every citation of the reference paper pointed nowhere.**~~ **Fixed.**
   Thirteen files said "§IV-B Table III"; the paper has no Roman-numeral
   sections and one table. See row 7.13 — the guard now derives Table 1 from the
@@ -552,158 +621,3 @@ product name, so these survive every green CI run.
 - ~~**`/console` never exported the container it displayed.**~~ **Fixed.** All
   four selections were wrong, and two returned HTTP 200 with a comment in place
   of a log. Rows 4.5.15 and 4.5.16.
-
-### Still open
-
-- **The VICI lane intermittently reauthenticates with mismatched PPKs.**
-  Characterised properly on 2026-08-22 after the CI dump was made
-  unconditional; two earlier readings of it were wrong and are recorded here so
-  they are not re-derived.
-
-  A **failing** run (8 of 8 rotations, both nodes) rejects every
-  reauthentication with
-
-  ```
-  tried 1 shared key for 'bob@pqcqkd.local' - 'alice@pqcqkd.local', but MAC mismatched
-  ```
-
-  Exactly one credential, correct generation, and the MAC still fails -- so the
-  two peers hold **different 32 bytes**. That eliminates ordering, id
-  namespacing and a missing credential by observation rather than by argument,
-  and it is not the documented rotation race, which is 1-in-45 on the first
-  run, 16 in 25,249 on the live demo, and self-correcting. The IKE_SA stays at `pqcqkd-vpn[1]` for the whole window.
-
-  A **passing** run, by contrast, retires the bootstrap credential and then
-  establishes a *new* SA on every rotation -- `[2]`, `[3]`, `[4]`, `[5]` ... --
-  with 0 failures over 9 rotations. So the QKD-derived PPK does enter the key
-  schedule when the lane is healthy.
-
-  **Two hypotheses tested and refuted**, both of which looked convincing:
-
-  1. *"The lane has always run on the static bootstrap PPK."* False. The
-     bootstrap is retired on passing runs too; retirement is not the
-     discriminator. This one came from reading an ABSENCE as evidence -- the
-     timeline used to dump only when `authfail > 0`, so a passing run printed
-     nothing and appeared to show the bootstrap surviving.
-  2. *"The PQC half diverges"* (crossing Rosenpass initiations leaving each
-     peer holding the other's OSK). **False, and now on the evidence that
-     counts.** The first measurement of this was the green CI run
-     (`e5f54ee7a7309ddd77132fc7` on both nodes) plus the live deployment --
-     which refutes nothing, because a run that works is expected to have
-     matching halves. It reads as circular the moment anyone checks.
-
-     A **failing** run settles it: 4 failures in 10 rotations on 2026-08-23,
-     and the two nodes' PQC halves were byte-identical at
-     `630b22dc...` **on that run**. So the Rosenpass half is excluded on the
-     only kind of run where exclusion means anything.
-
-  So the defect is real and proven, and the localisation is **half done**: the
-  PQC half is ruled out, and what remains is the QKD half -- specifically the
-  `key_id` exchange, since arnika elects a PRIMARY per interval which fetches
-  `enc_keys`, sends the id, and leaves the BACKUP to resolve it via `dec_keys`.
-  An id sent on one node with no matching receipt on the other puts the two
-  ends on different QKD keys, which with the PQC halves identical is the whole
-  defect.
-
-  **DEMONSTRATED 2026-08-28, and it is not a `key_id` delivery gap.** The
-  2026-08-23 run showed two ids on alice absent from bob's list, which looked
-  conclusive and was not: `tail` truncates, so "bob never received it" and "the
-  tail cut it off" produce the same output. With `SND`/`RCV`/`REQ` captured, the
-  failing runs since then carry the actual cause:
-
-  ```
-  [ERROR] failed to retrieve QKD key for key_id <uuid> from
-          http://bb84-kme-b:8080/api/v1/keys/ALICE,
-          http: read on closed response body
-  ```
-
-  The `[RCV]` lines prove the id WAS received, so the UDP exchange is fine. What
-  fails is the subsequent ETSI 014 fetch, with a Go `net/http` response-body
-  lifecycle error -- the body is read after being closed.
-
-  **Corrected 2026-08-29. This entry used to end: "That is the whole defect, and
-  it is upstream in arnika's HTTP client, not in this project's key delivery."
-  Both halves of that sentence were wrong.**
-
-  It is two defects, one on each side, and the trigger is ours.
-
-  *Ours.* `KeyPool.run` gated production on `len(self._buf)`, which counts peer
-  replicas that `pop_for_enc` may never dispense. A KME whose peer produces
-  faster fills with replicas, crosses the watermark on them alone and stops
-  producing -- the pool then reads FULL while every `enc_keys` request answers
-  503 "key pool empty". Sampled on the public demo over two minutes before the
-  fix: alice `rounds_total 7`, `pool_size 64` (capacity), zero rounds per
-  minute, against bob's 805 rounds at `pool_size 8`. alice had produced seven
-  keys in her entire lifetime and held sixty-four, so at least fifty-seven were
-  bob's. Fixed by gating on `dispensable()`.
-
-  *Upstream.* Given that 503, `kmsRequest` in `repositories/kms.go` closes the
-  response body inside its retry loop and reads it after the loop; a non-200
-  sets no error, so the nil-check falls through. Filed as
-  [arnika-project/arnika#43](https://github.com/arnika-project/arnika/issues/43)
-  with a minimal Go reproduction and a suggested fix. Still present on upstream
-  `main` at `9d44332`, which is also our pin.
-
-  Also corrected: the path. This entry describes BACKUP/`dec_keys`, but the CI
-  failure examined on 2026-08-28 is PRIMARY/`enc_keys`
-  (`failed to retrieve QKD key from .../api/v1/keys/BOB`). Both route through
-  the same `kmsRequest`, so the symptom is broader than recorded.
-
-  And the frequency, **re-measured 2026-08-29 and materially worse than what
-  stood here**. This paragraph said "1 failure in the last 20 runs of the
-  `ipsec` job" (5% of runs) and `ci.yml` says "1 failure in 45 rotations" (2%
-  of rotations). Both are now stale by roughly an order of magnitude.
-
-  Observed across six `ipsec` runs on one branch in a single day:
-
-  | run | rotations | auth failures | rate |
-  |---|---|---|---|
-  | 33234515173 | -- | 0 | pass |
-  | 33235596471 | -- | 0 | pass |
-  | 33237084658 | -- | 0 | pass |
-  | (superseded) | 9 | **8** | **89%** |
-  | (rerun of the above) | -- | 0 | pass |
-  | 33238341982 | 13 | **4** | **31%** |
-
-  So **two of six runs failed**, and when a run fails the per-rotation rate is
-  31-89%, not 2%. The two failing runs also disagree with each other by a
-  factor of three, which is what a race looks like rather than a constant.
-
-  Ruled out as the cause: nothing on that branch touched the lane. The only
-  `ci.yml` change was a step added to the `live-stack` job, and `git diff
-  --name-only` over the branch returns no file under `nodes/strongswan/`,
-  `services/arnika-vici/`, or the `ipsec` job itself. GitHub gives each job its
-  own runner, so the added step cannot contend with it either.
-
-  What this means practically: **the 20% ceiling in `ci.yml` is now tripped
-  often enough to block merges**, and the honest reading is that the upstream
-  `kmsRequest` defect (arnika#43, unfixed at pin `9d44332`) has become more
-  frequent rather than that the gate is too tight. Raising the ceiling would
-  hide a real regression in the lane's reliability. The gate is doing its job.
-
-  It reproduced on pull requests touching only frontend TypeScript, which is
-  consistent with the trigger being a KME that momentarily cannot serve a key
-  rather than anything in the change.
-  The 20 % threshold is deliberately unchanged: it is catching a real defect.
-- **DONE 2026-08-28 — the finite-key analysis is now Lim et al. PRA 89, 022307
-  (2014), arXiv:1311.7129.** This entry previously recorded that a paper was
-  cited for a formula it does not contain, and proposed either implementing
-  that paper's Eq. (32) or downgrading the comment to "generic first-order
-  penalty". Neither was done: a web fact-check found three further faults
-  beyond the citation, so the formula was replaced outright.
-  (a) `sqrt(2/N)*sqrt(log2(2/eps))` is 2.402x a two-sided Hoeffding deviation,
-  with `log2` where `ln` belongs. (b) It was channel-independent, so it never
-  propagated through the decoy inversion, where near-cancelling differences over
-  small denominators amplify the deviation by one to two orders of magnitude —
-  the dominant finite-size effect in decoy BB84, entirely absent. (c) It was
-  subtracted from a rate rather than producing a key *length*, so it bounded
-  nothing in either direction: optimistic on the statistics, pessimistic on the
-  rate, and therefore not defensible as conservative.
-  Implemented from the paper and cross-checked to 8 significant figures against
-  an independent transcription. The zero-crossing moved from 93.3 km to 98.49 km
-  at N = 1e9, and the curve now saturates against the asymptotic wall rather
-  than gaining ~25 km per decade of N without limit — the old shape would have
-  claimed key past 500 km at N = 1e30.
-  `tools/precompute_keyrate_table_fallback.py` held a SECOND copy of the same
-  wrong formula and wrote it into `config/qkd_keyrate_table.json` as shipped
-  data; it now delegates to `_skr.py`, and the table has been regenerated.

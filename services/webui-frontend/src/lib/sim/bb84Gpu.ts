@@ -11,9 +11,7 @@
  * are the pulses the GPU actually simulated; it previously showed an unrelated
  * Math.random() sample instead.
  */
-import {
-  advanceKeyPool, framesFromGpuRound, type ChannelCfg,
-} from "./bb84Channel";
+import { advanceKeyPool, framesFromGpuRound, type ChannelCfg, roundQber } from "./bb84Channel";
 export interface Bb84Cfg {
   etaTotal: number; eD: number; Y0: number;
   eveOn: boolean; eveProb: number; pulsesPerRound: number;
@@ -21,7 +19,7 @@ export interface Bb84Cfg {
   qberAbort: number;
 }
 export interface RoundResult {
-  qber: number; pool_size: number; pulsesPerSec: number;
+  qber: number | null; pool_size: number; pulsesPerSec: number;
   frames: { i: number; alice_bit: number; alice_basis: number;
             bob_basis: number; bob_bit: number; basis_match: boolean }[];
 }
@@ -154,7 +152,7 @@ export class Bb84Gpu {
     this.readBuf.unmap();
     const dt = Math.max(performance.now() - t0, 1e-3);
 
-    const qber = sifted > 0 ? errors / sifted : 0;
+    const qber = roundQber(sifted, errors);
     this.pool = advanceKeyPool(this.pool, sifted, qber, cfg.qberAbort);
     return {
       qber, pool_size: this.pool,
@@ -162,6 +160,9 @@ export class Bb84Gpu {
       frames: framesFromGpuRound(cfg as ChannelCfg, seed, pulsesPerThread, 16),
     };
   }
+
+  /** Continue from the pool the previous tier reached, so adoption does not reset it. */
+  seedPool(bits: number) { this.pool = bits; }
 
   dispose() { this.device?.destroy?.(); this.device = null; }
 }

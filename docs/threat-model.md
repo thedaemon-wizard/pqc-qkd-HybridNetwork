@@ -1,12 +1,9 @@
 # Threat model: what this project is defending against, and why hybrid
 
-This document existed nowhere. `README.md`, `ARCHITECTURE.md` and
-`docs/LIMITATIONS.md` contained no mention of Q-Day, harvest-now-decrypt-later,
-or Mosca's inequality — while `docs/references.md` documented every agency
-objection to QKD in full. The repository built a QKD-plus-PQC hybrid whose
-entire justification is long-lifetime confidentiality and never stated the
-threat it exists for. A reader could not tell whether the design was a response
-to an argument or an assembly of interesting parts.
+The adversary this QKD-plus-PQC hybrid is built against, the estimates and
+mandates that bound when it matters, and what the project does not claim. The
+design's whole justification is long-lifetime confidentiality, so the threat is
+stated here rather than left for a reader to infer from the parts.
 
 ## 1. The adversary
 
@@ -57,10 +54,27 @@ They separate two cost axes, and the distinction is the useful part:
   "targets the adversary alone", which is why the paper concludes that
   "rekeying and key size selection offer the strongest defensive levers".
 
-That second axis is the argument for this PoC's rotation cadence. Rotating
-every 30 s makes no single recovery harder; it makes each recovery worth 30 s
-of traffic. Worth stating explicitly, because "we rotate often" otherwise
-reads as hygiene rather than as the counter to a specific adversary model.
+That second axis is the argument for this PoC's rotation cadence, and how far
+it reaches depends on the lane, because the two lanes consume a new key at
+different moments:
+
+- **IPsec lane.** Every rotation reauthenticates the IKE SA (VICI `rekey` with
+  `reauth=yes`, in `services/arnika-vici/repositories/strongswan-vici.go`), so
+  each rotation starts a new key epoch. Rotating every 30 s makes no single
+  recovery harder; it makes each recovery worth one 30 s epoch of traffic.
+- **WireGuard lane.** arnika only overwrites the peer's preshared key, and
+  nothing forces a handshake. The new PSK enters the session keys at WireGuard's
+  next handshake, which the initiator starts about every 120 s
+  (`REKEY_AFTER_TIME`) while traffic flows, and the nodes' 25 s keepalive keeps
+  it flowing. So the epoch here is WireGuard's rekey interval, and the 30 s
+  `ARNIKA_INTERVAL` does not shorten it: most PSKs installed at that cadence are
+  replaced before any handshake uses them. arnika's v1.x design document
+  recommends a 120 s interval for exactly this alignment (see
+  [`references.md`](references.md) section 3).
+
+Worth stating explicitly, because "we rotate often" otherwise reads as hygiene
+rather than as the counter to a specific adversary model, and because the
+cadence buys the property on one lane and not on the other.
 
 **Where the paper stops, and where this project begins.** It names "the
 absence of in-band ephemeral rekeying in TLS 1.3 and QUIC" as a critical
@@ -105,6 +119,30 @@ from a fixed one, and this document should not borrow strength it does not have.
 Read these as a distribution over expert belief, not a forecast. The honest
 statement is that the estimates have compressed, not that a year is known.
 
+**Physical resource estimates have fallen too, and they bear on the classical
+halves of both lanes.** Those halves are elliptic-curve: ECP-256 (NIST P-256)
+in the IPsec lane's IKE exchange and X25519 in WireGuard's handshake, both
+prime-field curves of about 256 bits. The 2025-2026 preprints, each under stated hardware
+assumptions and none of them a demonstration:
+
+| Preprint | Target | Estimate | Assumptions |
+|---|---|---|---|
+| Gidney, [arXiv:2505.15917](https://arxiv.org/abs/2505.15917) (2025-05) | RSA-2048 | under a week, fewer than a million noisy qubits | square grid, 0.1 % gate error, 1 µs cycle, 10 µs reaction |
+| Webster et al., "Pinnacle", [arXiv:2602.11457](https://arxiv.org/abs/2602.11457) (2026-02) | RSA-2048 | fewer than 100 000 physical qubits | QLDPC codes, $`10^{-3}`$ error, 1 µs cycle, 10 µs reaction |
+| Webster, Peham, Cohen, [arXiv:2609.21249](https://arxiv.org/abs/2609.21249) (2026-09) | RSA-2048 | one month, about 120 000 physical qubits | as Pinnacle, with fixed degree-8 connectivity |
+| Babbush, Zalcman, Gidney et al., [arXiv:2603.28846](https://arxiv.org/abs/2603.28846) (2026-03) | 256-bit ECDLP (secp256k1) | fewer than 1200 logical qubits and 90 million Toffoli gates; minutes with fewer than half a million physical qubits | superconducting, $`10^{-3}`$ error, planar connectivity |
+| Cain et al., [arXiv:2603.28627](https://arxiv.org/abs/2603.28627) (2026-03) | P-256 discrete log | "just a few days" with 26 000 physical qubits; Shor with as few as 10 000 | reconfigurable neutral atoms, "under plausible assumptions" |
+| Häner et al., [arXiv:2609.05625](https://arxiv.org/abs/2609.05625) (2026-09) | 256-bit ECDLP (secp256k1) | 26 days with 20 000 qubits, about 1450 logical qubits | trapped ions, Walking Cat architecture |
+
+The secp256k1 figures are a proxy for P-256 and Curve25519, not an estimate for
+them: Shor's cost is of the same order for any prime-field curve of that size,
+but the circuits were built for secp256k1. Cain et al. is the one row computed for
+P-256 itself and the lowest physical count here. None of this dates a CRQC. It
+does say that the elliptic-curve halves of both lanes are no harder a target
+than RSA-2048 on current preprints (Cain et al. put RSA-2048 one to two orders
+of magnitude slower than P-256), which is the case for mixing post-quantum
+material into both.
+
 ## 4. Why hybrid, specifically
 
 Two independent hardness assumptions, combined so that breaking either alone is
@@ -115,16 +153,33 @@ insufficient:
 | QKD | BB84 decoy-state, ETSI GS QKD 014 delivery | a computational break of any kind — its security is information-theoretic, conditioned on the device model |
 | PQC | Rosenpass (Classic McEliece 460896 + Kyber512) | a break of *both* a code-based and a lattice-based assumption |
 
-`arnika` derives the tunnel key as `HKDF-SHA3-256(QKD ‖ PQC)`, so an attacker
-needs both. See [`vici-ppk.md`](vici-ppk.md) for how that key reaches IKEv2, and
-for the SP 800-227 combiner analysis — including where this construction does
-**not** meet the approved form.
+`arnika` derives the tunnel key as
+$`\mathrm{HKDF\text{-}SHA3\text{-}256}(\mathrm{QKD} \parallel \mathrm{PQC})`$, so an
+attacker needs both. See [`vici-ppk.md`](vici-ppk.md) for how that key reaches
+IKEv2, and for the SP 800-227 combiner analysis — including where this
+construction does **not** meet the approved form.
 
 **The mitigation this buys is specific.** Kyber512 is the pre-standardisation
 parameter set and is not approved under FIPS 203 or CNSA 2.0. What limits the
 damage is that Classic McEliece is a *different* hardness assumption — code
 based, not lattice based — so the composite survives a Kyber512 break. That is
 an argument for the hybrid construction, not an excuse for the parameter set.
+
+**The KEM code in that lane is liboqs 0.8.0, not the liboqs pin.** Rosenpass
+v0.2.3 depends on `oqs-sys` 0.8, which vendors and statically compiles liboqs
+0.8.0 (2023) into the `rosenpass` binary; the `submodules/liboqs` pin (0.16.0)
+is built only into the `pqc-validator` and `pqc-tls-demo` images and does not
+reach this lane. liboqs 0.9.1, 0.9.2 and 0.10.1 were security releases for
+non-constant-time Kyber code (KyberSlash), and 0.8.0 predates all three. What
+was found in this build: a disassembly of the `rosenpass` binary in the
+x86-64 node image (built 2026-08-22) shows no `div`/`idiv` instruction in the
+reference Kyber512 functions the KyberSlash timing channel lives in
+(`poly_tomsg`, `poly_compress`, `polyvec_compress`), and the AVX2 variants are
+compiled in. That is a property of this compiler and target, not of the source,
+and it does not stand in for the upstream fixes. The upgrade belongs upstream:
+moving `oqs-sys` past 0.8 breaks Rosenpass wire compatibility (rosenpass#880),
+so it is not a local bump. Licences and advisories are recorded in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ### 4.1 The code-based half is under active analysis, as of September 2026
 
@@ -187,10 +242,25 @@ reason this section reports estimates rather than conclusions.
 
 ## 5. Migration mandates in force
 
-Dates matter here because they bound $`Y`$ for anyone deploying this.
+Dates matter here because they bound $`Y`$ for anyone deploying this. One row
+per instrument, each read at its source:
 
-**Two 2026 policy documents point opposite ways about this design, and both
-are quoted rather than summarised because the disagreement is the point.**
+| Instrument | Scope | Dates | Force |
+|---|---|---|---|
+| EO 14412 (2026-06-22) and OMB [M-26-15](https://www.whitehouse.gov/wp-content/uploads/2026/06/M-26-15-Execution-of-the-Migration-to-Post-Quantum-Cryptography.pdf) (2026-06-24) | US federal High Value Assets and high-impact systems, **excluding** National Security Systems | PQC key establishment by **2030-12-31**; PQC digital signatures by **2031-12-31** | binding on agencies |
+| FAR proposed rule directed by EO 14412 | covered federal contractors | comply with NIST's FIPS, including the PQC FIPS, by **2030-12-31** | the EO orders the FAR Council to *publish a proposed rule* within 180 days; not in force |
+| NSA CNSA 2.0 / CNSS Policy 15 | US National Security Systems | new acquisitions support CNSA 2.0 from **2027-01-01**; VPNs and routers exclusive by **2030**; all NSS by **2035** (NSM-10) | mandated for NSS |
+| DoW CIO memo, *Preparing for Migration to Post Quantum Cryptography* (2025-11-18) | DoW Components (the QKD prohibition, item 2, is scoped to DoW networks and communications; the phase-outs, item 3, are not) | PSK-for-quantum-resistance and symmetric key distribution phased out by **2030-12-31** (**2031-12-31** for NSA CSfC-registered solutions); no new commercial procurement of either, effective immediately | binding within DoW; the prohibition and phase-outs name a waiver path, the no-procurement sentences do not |
+| EU NIS Cooperation Group, *Coordinated Implementation Roadmap* (2025-06) and its [FAQ](https://ec.europa.eu/newsroom/dae/redirection/document/132120) (2026-04-15) | EU Member States | initial national roadmaps by **end-2026**; high-risk use cases by **end-2030**; medium-risk by **end-2035** | coordinated roadmap, not legislation |
+| UK NCSC, [PQC migration timelines](https://www.ncsc.gov.uk/guidance/pqc-migration-timelines) | UK organisations | discovery and an initial plan by **2028**; highest-priority migrations by **2031**; complete by **2035** | guidance, not statute |
+| Japan, inter-ministerial liaison council on PQC use in government agencies, [interim summary](https://www.cas.go.jp/jp/seisaku/pqc/pdf/report_202511.pdf) (2025-11) | Japanese government agencies | migrate "in principle" by **2035**; a roadmap is to follow | interim, government-internal |
+| Singapore CSA, *Quantum-Safe Migration Handbook V1* (2026-07-16) | Critical Information Infrastructure operators | migration plan **2027-03-31**; procurement **2028-01-01**; complete **2031-12-31** | guidance; the enforcing instrument is the CCoP |
+
+The Japanese report is in Japanese, and its phrases below are this project's
+translation.
+
+**These instruments do not agree about this design, and the disagreement is
+quoted rather than summarised because it is the point.**
 
 **Against, from the US.** OMB **M-26-15**, *Execution of the Migration to
 Post-Quantum Cryptography* (2026-06-24, executing EO 14412 of 2026-06-22),
@@ -210,30 +280,107 @@ left out, because a reader who finds it independently should not find it as a
 surprise. Neither EO 14412 nor its companion EO 14413 mentions QKD at all; the
 EO anchors "key establishment" to FIPS 203.
 
+**A second US instrument says the same thing explicitly, within its scope.**
+The DoW CIO memo prohibits using QKD (item 2.a, quoted in
+[`references.md`](references.md) section 4) *"for the purposes of providing
+confidentiality, authenticity, or integrity in DoW networks and
+communications"*; that phrase belongs to item 2. Item 3 is not
+scoped by it. It binds DoW Components directly -- they *"will phase out and
+replace all of the following types of cryptographic solutions"* -- and its
+only qualifier of purpose is quantum resistance. It names two classes:
+
+> "a. Use of cryptographic pre-shared keys (PSK) for providing quantum
+> resistance in solutions where the PSK is not provisioned through NSA KMI for
+> Type 1 devices. These solutions will be phased out and replaced with
+> solutions using NIST-approved (respectively, CNSA 2.0-listed for National
+> Security Systems) asymmetric PQC algorithms for key establishment no later
+> than December 31, 2030, unless otherwise directed or provided exception by
+> the point of contact above.
+>
+> Additionally, DoW Components will not test, pilot, use, or procure
+> commercial PSK-based solutions for quantum resistance effective
+> immediately."
+>
+> "b. Symmetric key establishment protocols, symmetric key agreement
+> protocols, and symmetric key distribution protocols. These solutions shall
+> be phased out and replaced no later than December 31, 2030 (or no later than
+> December 31, 2031, for solutions currently registered with NSA CSfC), unless
+> otherwise directed or provided exception by the point of contact above.
+>
+> Use cases where symmetric key distribution protocols have been in use prior
+> to 2010 are exempt from this requirement as not introducing new risks.
+> [...]
+>
+> Additionally, DoW Components will not test, pilot, use, or procure
+> commercial solutions of this type (i. e., symmetric key establishment
+> protocols, symmetric key agreement protocols, and symmetric key distribution
+> protocols) for quantum resistance effective immediately."
+
+The elided sentence adds that upgrading those pre-2010 use cases to asymmetric
+PQC key establishment "should be investigated". The final paragraphs of 3.a
+and 3.b are the source of the table's "no new commercial procurement of
+either, effective immediately"; unlike the phase-out dates, neither carries a
+waiver clause of its own.
+
+The memo names no protocol, so applying it here is this project's reading:
+item 3.a covers the RFC 8784 PPK on the IPsec lane, which supplies a
+pre-shared key for quantum resistance, and the WireGuard preshared key that
+arnika installs is the same kind of mechanism. For DoW Components both lanes
+are therefore phase-out and no-new-procurement by default, whatever their
+cryptographic merits, and the pre-2010 exemption does not reach a new
+deployment. This does not resolve the ambiguity in OMB's sentence -- it is a
+separate instrument with a narrower scope -- but it points the same way, and
+it does so in words that leave no room for the reading that only symmetric
+primitives are meant.
+
 **For, from Singapore.** CSA's *Quantum-Safe Migration Handbook V1*
 (2026-07-16) is the one national instrument found that endorses this exact
 shape: it treats QKD substantively, says **"QKD should be considered for
 layered defence or niche use cases"**, endorses hybrid PQC + classical + QKD as
 a fail-safe, and states that **"PSK with AES-256 is among the strongest options
 for CII operators with existing secure distribution infrastructure"** -- which
-is the PPK lane described. It sets CII deadlines of 2027-03-31 (migration plan),
-2028-01-01 (procurement) and 2031-12-31 (complete). It self-describes as *"not
-mandatory, prescriptive or exhaustive"*; the enforcing instrument is the CCoP.
+is the PPK lane described. It self-describes as *"not mandatory, prescriptive
+or exhaustive"*; the enforcing instrument is the CCoP.
+
+**Conditionally open, from Japan.** The interim summary asks for
+crypto-agility and adds that, "depending on the usage environment", one could
+consider "combined use of PQC with currently mainstream cryptography rather
+than a complete migration to PQC", or "introducing quantum key distribution
+(QKD) as a technology that quantum computers cannot break". That lists QKD as
+an option, and a PQC-plus-classical hybrid as another. It does not endorse the
+composite this project builds, and it is weaker than an endorsement: the
+original says such options "could be considered". Japan's approved list moved
+the same way on the PQC side only: [CRYPTREC LS-0001-2022R2](https://www.cryptrec.go.jp/list/cryptrec-ls-0001-2022r2.pdf)
+(updated 2026-03-30) adds a PQC table whose only key-establishment entries are
+ML-KEM-768 and ML-KEM-1024 -- no Classic McEliece and no ML-KEM-512.
+
+**Against, from the EU, more explicitly than the roadmap itself.** The NIS
+Cooperation Group's roadmap never mentions QKD; its FAQ does. It defines a
+hybrid as a post-quantum algorithm combined with a quantum-vulnerable one and
+says *"The EU Roadmap on PQC does not consider hybrids mechanisms using quantum
+key distribution (QKD) or using more than one PQC mechanism"* (section 3.1),
+and it concludes that *"QKD is currently not considered a viable quantum-safe
+alternative"* (section 5.6). Under that definition neither arnika's QKD ‖ PQC
+combination nor Rosenpass's McEliece + Kyber pairing counts as a hybrid; the
+IPsec lane's ECP-256 + ML-KEM-768 exchange is the one construction here that
+does.
 
 **How to hold these together.** No authority surveyed endorses the whole
 construction. BSI recommends the McEliece parameter set this ships and does not
 recommend QKD ([`references.md`](references.md)); OMB is wary of both hybrid
-complexity and symmetric-key protocols; Singapore endorses layered QKD and
-AES-256 PSK. A proposal that quotes only the supportive one is overclaiming,
-and the honest framing is the **crypto-agility and implementation-gap** case --
-which no authority disputes -- rather than QKD advocacy.
+complexity and symmetric-key protocols, and the DoW memo phases PSK-based
+quantum resistance out across its Components; the EU treats QKD as not viable;
+Singapore endorses layered QKD and AES-256 PSK; Japan lists QKD as something
+that could be considered. A reading that quotes only the supportive ones is
+overclaiming, and the honest framing is the **crypto-agility and
+implementation-gap** case -- which no authority disputes -- rather than QKD
+advocacy.
 
 **NSA does not recommend QKD for National Security Systems**, and says so on
-the same page that announces its PQC selections. Read in a browser 2026-09-02,
-and in a Wayback snapshot of 2026-09-08 (`nsa.gov` and `media.defense.gov`
-return 403 to scripted fetches; earlier rounds recorded this as unverifiable,
-and this paragraph used to say the Internet Archive was refused too, which is
-wrong -- its snapshots are readable):
+the same page that announces its PQC selections. Read in a browser on
+2026-09-02 and in a Wayback snapshot of 2026-09-08 (`nsa.gov` and
+`media.defense.gov` refuse non-interactive fetches; the Internet Archive's
+snapshots are readable, which this paragraph once denied):
 
 > "NSA continues to evaluate the usage of cryptography solutions to secure the
 > transmission of data in National Security Systems. **NSA does not recommend
@@ -243,19 +390,23 @@ wrong -- its snapshots are readable):
 
 The page's PQC section points at **CNSS Policy 15, released 4 March 2025**, and
 the CNSA 2.0 FAQ. Nothing dated after that appears on it, so the CNSA 2.0
-timeline is unchanged as far as this page shows -- which is the question three
-earlier rounds could not answer.
+timeline is unchanged as far as this page shows.
 
-That makes **three of the four authorities surveyed sceptical of QKD** and none
-endorsing the whole construction: NSA does not recommend it for NSS, BSI does
-not recommend it at all, OMB's stack never mentions it, and only Singapore's
-CSA endorses it for layered defence. The conditional matters -- NSA's objection
-is "unless the limitations are overcome", not "never" -- but a proposal that
-cites Singapore without citing these three is selecting its evidence.
+Counting the instruments in this section and in [`references.md`](references.md)
+section 4: of eight surveyed, **five are sceptical of QKD** (NSA, BSI, the DoW,
+the EU NIS Cooperation Group, the UK NCSC), **one never mentions it** (OMB and
+EO 14412), and **two treat it as an option** (Singapore for layered defence,
+Japan as something that could be considered). None endorses the whole
+construction. The conditionals matter -- NSA's objection is "unless the
+limitations are overcome", not "never" -- but a reading that cites Singapore
+without the other seven is selecting its evidence.
 
-**CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** and
-**ML-DSA-87** — and only those. Every new NSS acquisition must support CNSA 2.0
-from **1 January 2027**; software and firmware signing and networking equipment
+**CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** for key
+establishment and **ML-DSA-87** for signatures as its only general-purpose
+public-key algorithms, alongside AES-256 and SHA-384/512; LMS and XMSS
+(SP 800-208) and SHA3-384/512 are allowed in specific applications such as
+firmware signing. Every new NSS acquisition must support CNSA 2.0 from
+**1 January 2027**; software and firmware signing and networking equipment
 target exclusive use by **2030**; operating systems, custom applications and
 cloud services by **2033**, ahead of the **2035** goal in NSM-10. For this
 repository's category the algorithms advisory is specific: *"Traditional
@@ -266,11 +417,20 @@ prefer CNSA 2.0 by 2026, and exclusively use CNSA 2.0 by 2030."* The FAQ
 time without consulting NSA directly."* Both read from Wayback copies of the
 NSA PDFs on 2026-09-25.
 
-**This repository's IKEv2 lane negotiates `ke1_mlkem768`.** That is
-NIST-approved and IETF-conformant, and it is **outside CNSA 2.0 scope**, which
-approves only the 1024 parameter set. `IKE_PROPOSALS` in
-`docker-compose.strongswan.yml` is environment-driven, so `ke1_mlkem1024` is a
-one-variable change. Stated as available, not as done.
+**This repository's IKEv2 lane negotiates `ecp256-ke1_mlkem768`.** ML-KEM-768
+is NIST-approved and IETF-conformant, and it is **outside CNSA 2.0 scope**,
+which approves only the 1024 parameter set. Moving toward CNSA 2.0 is not a
+one-variable change. The FAQ's IKEv2 answer is that *"NSA's profile of this
+solution will continue the use of CNSA 1.0 key establishment algorithms, but
+fortified by key establishment using ML-KEM-1024"*. CNSA 1.0 key
+establishment is, for example, ECDH over P-384; DH and RSA with a modulus of
+3072 bits or more are also permitted (Table V, "CNSA 1.0 algorithms", of
+*Announcing the CNSA 2.0 Algorithms*, listed under Sources). Keeping ECDH,
+both `IKE_PROPOSALS` and `ESP_PROPOSALS` in `docker-compose.strongswan.yml`
+would change curve and KEM together (`ecp384-ke1_mlkem1024`). Even then the
+lane would not conform: it authenticates with a PSK and a PPK rather than
+ML-DSA-87, and it mixes in a QKD-derived key, which the same FAQ tells NSS
+owners not to use without consulting NSA. Stated as a direction, not as done.
 
 ## 6. What this project does not claim
 
@@ -289,16 +449,24 @@ one-variable change. Stated as available, not as done.
 |---|---|
 | CRQC probability 28–49 % in 10 years, 51–70 % in 15; optimistic 34 % (2024) to 49 % (2025), pessimistic 14 % to 28 %; panel 37 (2023) / 32 (2024) / 26 (2025) | Mosca and Piani, *Quantum Threat Timeline Report 2025*, Global Risk Institute / evolutionQ, 9 March 2026. Re-verified against the publishers 2026-08-28. [globalriskinstitute.org](https://globalriskinstitute.org/publication/quantum-threat-timeline-report-2025b/) · [evolutionq.com](https://www.evolutionq.com/publications/quantum-threat-timeline-research-report-2025) |
 | Mosca's inequality $`X + Y > Z`$ | M. Mosca, *Cybersecurity in an era with quantum computers: will we be ready?*, IEEE Security & Privacy 16(5), 2018 |
-| CNSA 2.0 algorithms and dates | NSA, *CNSA 2.0 FAQ*, Ver. 2.1, December 2024 ([Wayback 2026-09-13](http://web.archive.org/web/20260913123116/https://media.defense.gov/2022/Sep/07/2003071836/-1/-1/0/CSI_CNSA_2.0_FAQ_.PDF)); NSA, *Announcing the CNSA 2.0 Algorithms* ([Wayback 2024-12-15](http://web.archive.org/web/20241215203633/https://media.defense.gov/2022/Sep/07/2003071834/-1/-1/0/CSA_CNSA_2.0_ALGORITHMS_.PDF)). This row cited a news site until 2026-09-25; `media.defense.gov` refuses scripted fetches, the archived copies do not. |
+| CNSA 2.0 algorithms and dates | NSA, *CNSA 2.0 FAQ*, Ver. 2.1, December 2024 ([Wayback 2026-09-13](http://web.archive.org/web/20260913123116/https://media.defense.gov/2022/Sep/07/2003071836/-1/-1/0/CSI_CNSA_2.0_FAQ_.PDF)); NSA, *Announcing the CNSA 2.0 Algorithms* ([Wayback 2024-12-15](http://web.archive.org/web/20241215203633/https://media.defense.gov/2022/Sep/07/2003071834/-1/-1/0/CSA_CNSA_2.0_ALGORITHMS_.PDF)). This row cited a news site until 2026-09-25; `media.defense.gov` refuses non-interactive fetches, the archived copies do not. |
+| DoW items 2 and 3 | DoW CIO, *Preparing for Migration to Post Quantum Cryptography*, memorandum of 2025-11-18 ([PDF](https://dowcio.war.gov/Portals/0/Documents/Library/PreparingForMigrationPQC.pdf)), read 2026-09-25 |
+| US federal dates | EO 14412 (2026-06-22), sections 4(b) and 6(c); OMB M-26-15 (2026-06-24) ([PDF](https://www.whitehouse.gov/wp-content/uploads/2026/06/M-26-15-Execution-of-the-Migration-to-Post-Quantum-Cryptography.pdf)) |
+| EU hybrid definition and QKD position | NIS Cooperation Group, *EU Roadmap on PQC -- Frequently Asked Questions*, 2026-04-15, sections 3.1, 5.6 and 6 ([PDF](https://ec.europa.eu/newsroom/dae/redirection/document/132120)) |
+| Japan | Inter-ministerial liaison council on PQC use in government agencies, interim summary, November 2025 ([PDF](https://www.cas.go.jp/jp/seisaku/pqc/pdf/report_202511.pdf), in Japanese); CRYPTREC LS-0001-2022R2, updated 2026-03-30 |
+| Physical resource estimates | the arXiv preprints linked in section 3, each read at its abstract page 2026-09-25 |
 
 
 ## 7. Relationship to QCI-CAT, and what this repository does not implement
 
-`submodules/arnika`'s README states that arnika was developed within the EU
-EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
-(<https://qci-cat.at/hsm-backup-using-qkd>). Because this repository vendors
-arnika and cites that lineage, a reader could reasonably assume it implements
-that use case. It does not, and the difference is worth stating precisely.
+`submodules/arnika`'s README states that arnika **v1.x** was developed within
+the EU EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
+(<https://qci-cat.at/hsm-backup-using-qkd>). The pinned `main` is later work:
+upstream credits CANCOM Converged Services GmbH with the initial prototype and
+earlier versions, and says development has continued at XBC Digital GmbH since
+Q2 2026. Because this repository vendors arnika and cites that lineage, a
+reader could reasonably assume it implements that use case. It does not, and
+the difference is worth stating precisely.
 
 **What QCI-CAT's use case is**, from its own page (re-verified in a browser 2026-08-28; the page's own text confirms HSM-to-backup-HSM over a QKD-protected VPN, ETSI 014 inside conventional VPN frameworks, PKCS#11, HA partition cloning and the Demo App):
 cryptographic material is transferred from a Hardware Security Module to a
@@ -325,6 +493,17 @@ conventional VPN frameworks explicitly.
 | HA partition synchronisation / cloning | yes, the actual payload | **none** |
 | Real QKD hardware | yes | **no** — simulated, see `docs/LIMITATIONS.md` |
 
+**The reference deployment, as QCI-CAT deliverable D6.1 records it** (facts
+only; see [`references.md`](references.md) section 3 for the document):
+
+| Item | D6.1 |
+|---|---|
+| Sites | a CANCOM data centre at Euro Plaza, Vienna, and NTT's "Vienna 1" data centre, about 3.8 km apart |
+| QKD | ID Quantique Cerberis XG, provided by AIT; arnika reads keys over ETSI 014 from its embedded KMS |
+| HSMs | two Thales Luna A700 network HSMs, firmware LunaSA 7.8.4 |
+| VPN | WireGuard only; IPsec was evaluated and not chosen |
+| arnika | v1.x; D6.1 v1.0 is dated 2025-02-17 in its revision history |
+
 So the honest statement of scope is: **this project implements the transport
 half of that architecture and none of the HSM half.** Its claim is "a WireGuard
 or IPsec key was rotated from QKD-derived material". QCI-CAT's is "HSM key
@@ -336,8 +515,14 @@ cloning and has no cross-instance replication — the very thing the use case is
 about. Standing one up and calling the result "HSM backup over QKD" would
 manufacture exactly the overstatement this document exists to prevent.
 
-**Licence position.** Nothing from qci-cat.at is reproduced here — no text, no
-diagram. The use case is described in this project's own words and cited by URL.
+**Licence position.** Nothing from qci-cat.at is reproduced here beyond short,
+attributed quotations from the public deliverable D6.1 in
+[`references.md`](references.md) section 3 — no page text, no diagram, no
+figure. The use case is described in this project's own words and is
+cited by URL, and the reference-deployment table above records facts only. D6.1's own
+copyright statement grants no right or licence in the document, so those
+quotations rest on ordinary citation, and are kept short for that reason, not
+on any permission.
 
 That is the right posture regardless of terms, and it is deliberately not
 justified by a claim about what those terms are. An earlier version of this
@@ -352,10 +537,12 @@ browser 2026-08-28:
 | `qci-cat.at/legal-notice` | 404 — but this path is not linked from anywhere |
 
 The 404 came from a guessed path, not from the link the site actually
-publishes. The imprint resolves; its contents could not be read programmatically
-because AIT serves a bot-check to automated fetches, so this document does not
-characterise them either way.
+publishes. The imprint resolves, but AIT serves a bot check to non-browser
+clients. An Internet Archive copy of the imprint body carries company-register
+details and no licence clause; the surrounding footer, though, links AIT's
+General Terms and Conditions and a disclaimer page that this document has not
+reviewed, so it does not characterise AIT's terms either way.
 
 Which leaves the honest position: **the terms are unread, not absent.** Since
-nothing is reproduced, no permission is being relied on and none needs to be
-established.
+nothing beyond short citations is reproduced, no permission is being relied on
+and none needs to be established.

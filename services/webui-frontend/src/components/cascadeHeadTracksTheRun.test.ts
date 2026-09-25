@@ -1,92 +1,121 @@
 /**
- * The cascade head must not advance while the simulation is stopped.
+ * The cascade head and the cascade markers must run on ONE clock, and that
+ * clock must stop whenever the simulation is not running.
  *
- * `FailureCascadeTimeline` drove its head from a bare 500 ms wall-clock
- * ticker:
+ * Two defects, each the mirror of the other:
  *
- *     const [now, setNow] = useState(Date.now() / 1000);
- *     useEffect(() => {
- *       const t = setInterval(() => setNow(Date.now() / 1000), 500);
- *       return () => clearInterval(t);
- *     }, []);
- *     const tElapsed = startedAt ? Math.min(max, now - startedAt) : 0;
+ *  1. The head ran on `FailureCascadeTimeline`'s own 500 ms wall-clock ticker
+ *     with no reference to the run state, while the markers' `fired` flags were
+ *     recomputed only in `PaperSim.snapshot()`. Measured on the deployed build,
+ *     qkd failure injected then paused:
  *
- * with no reference to the run state. The `fired` flags on each cascade event
- * do NOT advance that way -- they are recomputed only inside
- * `PaperSim.snapshot()`, which runs while the simulation runs. So a paused
- * page showed the head walking past markers that stayed dashed grey: elapsed
- * simulation time that had not elapsed.
+ *         status: paused   t = 14.4s -> 28.4s -> 57.4s, no interaction
+ *         status: paused   t = 257.4s, and the 180s and 240s markers still
+ *                          dashed -- unfired. Only 0s is solid.
  *
- * Measured on the deployed build, /paper-flow, qkd failure injected then
- * paused, before this change:
+ *  2. Gating the head's ticker on the run state fixed that direction and
+ *     reversed it. `fired` was `Date.now() >= triggered_at` -- wall clock --
+ *     so after an injection and a paused wait, a Step or a hop-slider change
+ *     re-emitted the snapshot and flipped markers to fired while the head sat
+ *     frozen at the time it had reached.
  *
- *     status: paused   t = 14.4s -> 28.4s -> 57.4s, no interaction
- *     status: paused   t = 257.4s, and the 180s and 240s markers still carry
- *                      stroke-dasharray "2 3" -- unfired. Only 0s is solid.
- *
- * The second line is the one that establishes the defect's consequence, and it
- * needed the wait: the first cascade event after t=0 is at 180s, so every
- * observation below that threshold shows a drifting clock without yet showing
- * it overtake anything. An earlier version of this comment asserted the
- * overtaking from the 21.6 -> 28.6 pair alone, which could not support it.
- *
- * This file asserts the source shape rather than mounting React, matching how
- * the other component guards in this suite work. The property it pins is
- * narrow and mechanical: the ticker must be gated on the run state, and the
- * elapsed value must be accumulated rather than recomputed from wall clock.
+ * Both came from having two clocks. PaperSim now keeps the only one
+ * (`failure.elapsed_s`, accumulated in its tick while running), derives
+ * `fired` from it, and the timeline draws its head from the same value.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { PaperSim, type PaperFlowState } from "../lib/sim/paperSim";
+
 const HERE = new URL(".", import.meta.url).pathname;
 const SRC = readFileSync(join(HERE, "FailureCascadeTimeline.tsx"), "utf8");
-const PAGE = readFileSync(
-  join(HERE, "../pages/PaperDataExchange.tsx"), "utf8");
+const PAGE = readFileSync(join(HERE, "../pages/PaperDataExchange.tsx"), "utf8");
 
-describe("the cascade head is gated on the run state", () => {
-  it("the component takes the simulation status", () => {
-    expect(SRC).toMatch(/status:\s*"idle"\s*\|\s*"running"\s*\|\s*"paused"/);
-    expect(SRC).toContain("activeLayer, startedAt, events, status,");
+describe("the timeline has no clock of its own", () => {
+  it("takes the simulator's cascade clock as a prop", () => {
+    expect(SRC).toMatch(/elapsedS: number;/);
+    expect(SRC).toContain("activeLayer, startedAt, elapsedS, events, status,");
+    expect(SRC).toMatch(/Math\.min\(max, elapsedS\)/);
   });
 
-  it("the ticker does nothing unless the simulation is running", () => {
-    expect(SRC).toMatch(/if \(status !== "running"/);
-    // The interval must be created AFTER that guard, not before it.
-    const guard = SRC.indexOf('status !== "running"');
-    const timer = SRC.indexOf("setInterval");
-    expect(guard).toBeGreaterThan(-1);
-    expect(timer).toBeGreaterThan(guard);
+  it("runs no timer and keeps no elapsed state", () => {
+    expect(SRC).not.toMatch(/setInterval|useState|useEffect/);
   });
 
-  it("the effect re-runs when the status changes", () => {
-    // Without `status` in the dependency array the guard is evaluated once on
-    // mount and a later pause never tears the interval down.
-    expect(SRC).toMatch(/\}, \[status, startedAt\]\)/);
-  });
-
-  it("elapsed time is accumulated, not derived from the wall clock", () => {
-    // `now - startedAt` counts the time the simulation spent paused, which is
-    // the whole defect. It must not come back.
-    expect(SRC, "elapsed is computed from wall clock again")
-      .not.toMatch(/Math\.min\(max,\s*now - startedAt\)/);
-    expect(SRC).toMatch(/setElapsed\(\(e\) => e \+ /);
-  });
-
-  it("resuming does not credit the time spent paused", () => {
-    // lastTick must be cleared when the ticker stops, or the first tick after
-    // a resume adds the whole gap in one step.
-    expect(SRC).toMatch(/lastTick\.current = null/);
-  });
-
-  it("a new injection restarts the cascade clock", () => {
-    expect(SRC).toMatch(/setElapsed\(0\)/);
+  it("the page passes the simulator's clock and status", () => {
+    expect(PAGE).toMatch(/<FailureCascadeTimeline\s+status=\{status\}/);
+    expect(PAGE).toContain("elapsedS={state?.failure.elapsed_s ?? 0}");
   });
 });
 
-describe("the page supplies the status", () => {
-  it("passes it to the timeline", () => {
-    expect(PAGE).toMatch(/<FailureCascadeTimeline\s+status=\{status\}/);
+describe("the simulator's cascade clock", () => {
+  // ensureLoop() calls window.setInterval; route it to the faked global timers.
+  const realWindow = (globalThis as { window?: unknown }).window;
+  beforeAll(() => {
+    (globalThis as { window?: unknown }).window = {
+      setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
+      clearInterval: (id: number) => clearInterval(id),
+    };
+  });
+  afterAll(() => {
+    if (realWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = realWindow;
+  });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date", "performance"] });
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function driven() {
+    let last: PaperFlowState | null = null;
+    const sim = new PaperSim((s) => { last = s; });
+    const state = () => last as unknown as PaperFlowState;
+    const fired = () => state().failure.cascade.filter((c) => c.fired).map((c) => c.t_offset_s);
+    return { sim, state, fired };
+  }
+
+  it("does not advance while idle: a wait then a Step fires nothing new", () => {
+    const { sim, state, fired } = driven();
+    sim.injectFailure("qkd");
+    vi.advanceTimersByTime(300_000);
+    sim.step();
+    expect(state().failure.elapsed_s).toBe(0);
+    expect(fired()).toEqual([0]);
+    sim.dispose();
+  });
+
+  it("advances while running, and fires exactly the stages it has reached", () => {
+    const { sim, state, fired } = driven();
+    sim.injectFailure("qkd");
+    sim.start();
+    vi.advanceTimersByTime(200_000);
+    expect(state().failure.elapsed_s).toBeGreaterThan(199);
+    expect(state().failure.elapsed_s).toBeLessThan(201);
+    expect(fired()).toEqual([0, 180]);
+    sim.dispose();
+  });
+
+  it("stops while paused, and a Step or a hop change does not move it", () => {
+    const { sim, state, fired } = driven();
+    sim.injectFailure("qkd");
+    sim.start();
+    vi.advanceTimersByTime(200_000);
+    sim.pause();
+    const frozen = state().failure.elapsed_s;
+    vi.advanceTimersByTime(1_000_000);
+    sim.step();
+    sim.setHopCount(3);
+    expect(state().failure.elapsed_s).toBe(frozen);
+    expect(fired()).toEqual([0, 180]);
+
+    // Resuming does not credit the paused gap.
+    sim.resume();
+    vi.advanceTimersByTime(50_000);
+    expect(state().failure.elapsed_s).toBeLessThan(frozen + 51);
+    expect(fired()).toEqual([0, 180, 240]);
+    sim.dispose();
   });
 });

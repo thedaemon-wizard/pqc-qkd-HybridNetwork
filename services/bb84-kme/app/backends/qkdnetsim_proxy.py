@@ -1,10 +1,18 @@
 """qkdnetsim proxy backend — fetches keys from the qkdnetsim-kme container.
 
 With SIMULATOR_BACKEND=qkdnetsim_proxy this backend pulls /enc_keys from the
-`qkdnetsim-kme` service instead of producing keys itself, exercising the ETSI
-GS QKD 014 REST contract against a second, independently written server: same
-routes, same field names, same key_ID round-trip. `tests/test_etsi014_contract.py`
-is what runs it.
+`qkdnetsim-kme` service instead of producing keys itself: the GET form of ETSI
+GS QKD 014 `enc_keys`, answered by a second, independently written server.
+
+That service exists only in the `crossvalidate` compose overlay. `preflight`
+checks its /health before a live switch is accepted, because without it every
+round fails and the key pool arnika draws from stops refilling.
+
+Nothing automated runs the ETSI 014 contract suite against that server. This
+docstring used to name `tests/test_etsi014_contract.py` as what does; CI points
+that suite at bb84-kme-a/b, no CI job or Makefile target starts the overlay,
+and the facade registers its key routes GET-only, so the suite's POST-form
+cases would get 405 there.
 
 What this docstring used to claim, and why it was wrong
 
@@ -22,8 +30,8 @@ What this docstring used to claim, and why it was wrong
     property, it is an impossible one. Two KMEs agreeing on key MATERIAL would
     mean one of them was not generating any.
 
-    The facade's own docstring is honest about being a facade. Only this file,
-    pointing at it, overstated what it pointed at.
+    What the facade does is in its code, not its prose: key routes that mint
+    material with `secrets.token_bytes` and answer GET only.
 """
 from __future__ import annotations
 
@@ -39,6 +47,16 @@ from .base import BackendConfig, KeyProducer, RoundOutcome
 
 log = logging.getLogger(__name__)
 
+# How long a live switch waits for qkdnetsim-kme's /health. It has to stay well
+# under the 5 s the webui-backend fan-out allows each KME (sim_backend_proxy),
+# or the refusal below would reach the page as a timeout rather than as a 503
+# carrying its reason.
+HEALTH_PROBE_TIMEOUT_S = 2.0
+NOT_DEPLOYED_HINT = (
+    "qkdnetsim-kme is not deployed on this host (it runs only with the "
+    "`crossvalidate` compose profile, docker-compose.qkdnetsim.yml)"
+)
+
 
 class QKDNetSimProxyBackend(KeyProducer):
     backend_name = "qkdnetsim_proxy"
@@ -46,6 +64,24 @@ class QKDNetSimProxyBackend(KeyProducer):
     def __init__(self, cfg: BackendConfig):
         super().__init__(cfg)
         self._url = cfg.qkdnetsim_proxy_url or "http://qkdnetsim-kme:80"
+
+    async def preflight(self) -> None:
+        """Refuse the switch unless qkdnetsim-kme answers /health.
+
+        The switch used to be accepted unconditionally. On a host without the
+        overlay, `qkdnetsim-kme` does not resolve, every round then failed and
+        was recorded as aborted, the pool stopped refilling, and arnika's
+        enc_keys eventually answered 503 -- while /physics reported the switch
+        as requested.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=HEALTH_PROBE_TIMEOUT_S) as client:
+                r = await client.get(f"{self._url}/health")
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"{NOT_DEPLOYED_HINT}: {self._url}/health: {e}") from e
+        if r.status_code != httpx.codes.OK:
+            raise RuntimeError(
+                f"{NOT_DEPLOYED_HINT}: {self._url}/health answered HTTP {r.status_code}")
 
     async def run_round(self) -> RoundOutcome:
         t0 = time.perf_counter()

@@ -9,12 +9,18 @@ step 2 as:
     over its ETSI 014 endpoint.
 
 There is no `QuantumChannel`. The container's entrypoint is
-`services/qkdnetsim-kme/kme_facade.py`, a Flask app, and its own module
-docstring says the keys "are produced by a small CSPRNG calibrated to a
-`keyRate_bps` value". It imports no NS-3 binding, spawns no process, and
+`services/qkdnetsim-kme/kme_facade.py`, a Flask app whose keys come from
+`secrets.token_bytes` -- the CODE is the evidence, which is what the first class
+below asserts on. It imports no NS-3 binding, spawns no process, and
 constructs no simulator object. The image genuinely compiles NS-3 v3.46 and
 qkdnetsim -- and since 2026-08-28 fails the build when that compile fails --
 but nothing at runtime executes the result.
+
+The facade's own docstring is not evidence, and this file used to lean on it as
+if it were. It said the facade "exposes qkdnetsim's QKD-derived key material",
+was "bug-compatible" with the C++ KMS and indistinguishable from it to arnika --
+the same overclaim, in the one file every other correction pointed to as the
+honest source. It is scanned now like any other document.
 
 Two more places carried the same claim:
 
@@ -36,6 +42,7 @@ NS-3 could be reached, and that no shipped prose promises one.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -54,9 +61,37 @@ ARCHITECTURE = ROOT / "ARCHITECTURE.md"
 # two more: docs/phases.md called the proxy "ETSI 014 reference (NS-3 v3.46)"
 # and the composite "Physical layer feeds network layer", while the SAME FILE
 # refuted both 430 lines later; ARCHITECTURE.md said the rate was "injected
-# into qkdnetsim". Picking the files by hand is how a claim moves rather than
-# dies, so the list now covers every document that mentions the service.
-SCANNED = [COMPOSITE, LIMITATIONS, README, PHASES, ARCHITECTURE]
+# into qkdnetsim". The list was then extended by hand to five and described as
+# covering "every document that mentions the service" -- while the facade's own
+# docstring, the backend registry, the Dockerfile, NOTICE and the roadmap all
+# mentioned it and none was scanned. Picking files by hand is how a claim moves
+# rather than dies, so the scope is now DERIVED: every tracked file outside
+# tests/ and submodules/ that names the service. tests/ is left out because this
+# file and its neighbours quote the claims in order to forbid them.
+KNOWN = [FACADE, COMPOSITE, LIMITATIONS, README, PHASES, ARCHITECTURE, DOCKERFILE]
+_TEXT_SUFFIXES = {".md", ".py", ".ts", ".tsx", ".yml", ".yaml", ".sh", ".example", ""}
+
+
+def _documents_that_name_the_service() -> list[Path]:
+    out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT,
+                         capture_output=True, text=True, check=False).stdout
+    found = []
+    for rel in (r for r in out.split("\0") if r):
+        if rel.startswith(("tests/", "submodules/")):
+            continue
+        p = ROOT / rel
+        if p.suffix not in _TEXT_SUFFIXES or not p.is_file():
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "qkdnetsim" in text.lower():
+            found.append(p)
+    return sorted(found)
+
+
+SCANNED = _documents_that_name_the_service()
 
 
 def _read(p: Path) -> str:
@@ -119,10 +154,11 @@ class TestNoShippedTextPromisesARunningSimulator:
     # this test filtered line by line and duly failed on its own correction.
     # Match on a character window instead, which does not care about wrapping.
     RETRACTION = re.compile(
-        r"previously|used to say|this line previously|no longer", re.I)
+        r"previously|used to (?:say|claim|name)|this line previously|no longer"
+        r"|an earlier (?:version|docstring)|said otherwise", re.I)
     WINDOW = 400
 
-    @pytest.mark.parametrize("path", SCANNED, ids=lambda p: p.name)
+    @pytest.mark.parametrize("path", SCANNED, ids=lambda p: str(p.relative_to(ROOT)))
     def test_no_ns3_runtime_api_is_claimed(self, path: Path) -> None:
         text = _read(path)
         offending = []
@@ -134,6 +170,47 @@ class TestNoShippedTextPromisesARunningSimulator:
             f"{path.relative_to(ROOT)} claims NS-3 runtime machinery outside "
             f"any retraction:\n  " + "\n  ".join(offending)
         )
+
+    # The facade-specific overclaims. Narrow on purpose: "QKD-derived" alone is
+    # the right phrase for arnika's output all over this repository, so only
+    # the forms that describe THIS server as NS-3's are matched.
+    FACADE_OVERCLAIM = re.compile(
+        r"qkdnetsim(?:'s)?\s+QKD-derived"
+        r"|qkdnetsim\s+network"
+        r"|\bNS-3\s+KME\b"
+        r"|bug-compatible"
+        r"|byte-for-byte\s+ETSI"
+        r"|cannot\s+tell\s+whether\s+it\s+is\s+talking\s+to\s+NS-3", re.I)
+
+    @pytest.mark.parametrize("path", SCANNED, ids=lambda p: str(p.relative_to(ROOT)))
+    def test_no_document_presents_the_facade_as_ns3(self, path: Path) -> None:
+        text = _read(path)
+        offending = []
+        for m in self.FACADE_OVERCLAIM.finditer(text):
+            around = text[max(0, m.start() - self.WINDOW): m.end() + self.WINDOW]
+            if not self.RETRACTION.search(around):
+                offending.append(text[max(0, m.start() - 80): m.end() + 80])
+        assert not offending, (
+            f"{path.relative_to(ROOT)} presents the Flask facade as NS-3 or as "
+            f"serving qkdnetsim's keys:\n  " + "\n  ".join(offending)
+        )
+
+    def test_the_facade_patterns_match_the_claims_they_exist_for(self) -> None:
+        for claim in ("exposes qkdnetsim's QKD-derived key material",
+                      "composite  -- SimQN physical + qkdnetsim network",
+                      "proxy to external NS-3 KME (cross-validation)",
+                      "behaviour is bug-compatible with the C++ implementation",
+                      "a byte-for-byte ETSI 014 compatible HTTP server"):
+            assert self.FACADE_OVERCLAIM.search(claim), claim
+        for honest in ("arnika installs the QKD-derived PSK",
+                       "a Flask facade, not the NS-3 C++ KMS"):
+            assert not self.FACADE_OVERCLAIM.search(honest), honest
+
+    def test_the_derived_scope_is_not_vacuous(self) -> None:
+        missing = [str(p.relative_to(ROOT)) for p in KNOWN if p not in SCANNED]
+        assert not missing, (
+            f"the derived scope lost files known to name the service: {missing}. "
+            "The derivation broke, or a document stopped naming it.")
 
     def test_that_window_rule_is_not_vacuous(self) -> None:
         # A window wide enough to swallow every mention would make the test

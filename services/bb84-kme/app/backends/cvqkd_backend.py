@@ -1,12 +1,15 @@
 """CV-QKD backend — GG02 protocol on Strawberry Fields.
 
-Adds **continuous-variable** modality (Grosshans-Grangier 2002, PRL 88 057902)
-to address the §12 limitation about discrete-variable-only physics.
+Adds a **continuous-variable** modality (Grosshans-Grangier 2002, PRL 88 057902)
+beside the discrete-variable backends; the backends are listed in
+docs/LIMITATIONS.md section 1.
 
-Note (2026-01): Xanadu announced cloud-hardware decommissioning. The real-
-hardware backend (`X8`/`Borealis`) is no longer accessible. Local simulation
-remains valid for research; HIL mode is achieved instead via the ETSI 014
-bridge to commercial discrete-variable hardware (ID Quantique / Toshiba).
+Note: Xanadu's photonic cloud was decommissioned on 2026-01-16 and Strawberry
+Fields was archived the same day (docs/LIMITATIONS.md section 2). That cloud was
+a CV quantum-computing service, not QKD hardware; this backend only ever uses
+the local Gaussian simulator, which is unaffected. Real QKD hardware attaches
+through ETSI 014 instead, and section 2 says what that still needs -- no device
+has been tested against this PoC.
 
 License: Apache-2.0.
 """

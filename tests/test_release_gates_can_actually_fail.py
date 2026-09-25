@@ -301,3 +301,24 @@ esac
         "the branch extractor is reaching past this arm's `;;` again, so a "
         "null rate_limit could stop failing the script without this test "
         "noticing")
+
+
+def test_the_hardening_script_fails_when_live_overrides_are_on():
+    """The shared-KME controls are opt-in; an enabled public host must fail.
+
+    Same shape as the rate-limit check above: /api/config reports the posture,
+    and the arm that sees it enabled has to change the exit code, not merely
+    print. The route probe beside it accepts only the refusal body, and the
+    log allow-list probe only a 404.
+    """
+    body = (ROOT / "scripts" / "verify-demo-hardening.sh").read_text(
+        encoding="utf-8")
+    assert '"live_param_overrides":true' in body, (
+        "the script no longer checks live_param_overrides, so it would certify "
+        "a host where any visitor can change the live KMEs for everyone")
+    assert "fail=1" in _case_branch(body, '*\'"live_param_overrides":true\'*'), (
+        "the enabled case reports but does not fail")
+    assert "live parameter overrides are disabled" in body, (
+        "the route probe no longer identifies the refusal by its body")
+    assert "/api/logs/caddy" in body, (
+        "the log allow-list is no longer probed from outside")

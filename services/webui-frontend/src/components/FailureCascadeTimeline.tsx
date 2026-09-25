@@ -1,38 +1,29 @@
 /**
- * Failure cascade timeline (Phase 14).
+ * Failure cascade timeline.
  *
- * Renders the 7-stage 0-720s cascade described in arXiv:2604.05599, in the
+ * Renders the 0-720s cascade described in arXiv:2604.05599, in the
  * "Fail-Safe Mechanism" subsection of Implementation: a component stops no
  * earlier than 60s after the previous layer fails and no later than 180s, so
  * loss of the QKD plane reaches the data path in 240-720s. Test 5 (Simulated
- * QKD malfunction) is the paper's empirical check of it. NOT Table 1, which
- * gives packet and byte budgets and says nothing about timing.
+ * QKD malfunction) is the paper's empirical check of it, and its stages are
+ * the markers. NOT Table 1, which gives packet and byte budgets and says
+ * nothing about timing.
  *
  * Shown when a layer failure has been injected. The head moves along the
  * timeline while the simulation runs; events flip from "pending" to "fired"
  * as the head crosses them.
  *
- * The head is frozen whenever the simulation is not running. It used to be
- * driven by a bare 500 ms wall-clock ticker with no reference to the run
- * state, so it kept advancing while the page was paused or idle -- and the
- * `fired` flags do NOT, because they are recomputed only in
- * `PaperSim.snapshot()`.
- *
- * Measured on the deployed build, /paper-flow, qkd failure injected then
- * paused. Two observations, because the first one alone did not establish the
- * consequence:
- *
- *   status: paused   t = 14.4s -> 28.4s -> 57.4s      (clock never stopped)
- *   status: paused   t = 257.4s, markers 180s and 240s still stroke-dasharray
- *                    "2 3" -- unfired. Only the 0s marker is solid.
- *
- * The second observation is the one that matters and it needed the wait. Up to
- * 57.4s the head had passed nothing, because the first cascade event after
- * t=0 is at 180s; "the head walks past markers that stay grey" was an
- * inference at that point, not a measurement. Past 240s it is a measurement:
- * the head is two markers ahead of a cascade that has not advanced.
+ * ONE clock. The head and the markers both read PaperSim's cascade clock
+ * (`failure.elapsed_s`), which advances only while the simulation is running.
+ * They used to run on two: the head on this component's own ticker, the
+ * markers on `Date.now() >= triggered_at` recomputed in every snapshot. First
+ * the head walked on while paused and passed markers that stayed grey
+ * (measured on the deployed build: status paused, t = 257.4s, the 180s and
+ * 240s markers still dashed). Gating the ticker fixed that direction and
+ * reversed it: a Step or a hop-slider change after a paused wait re-emitted
+ * the snapshot and flipped markers to fired while the head stayed frozen.
+ * Two clocks cannot be kept in step by gating one of them.
  */
-import { useEffect, useRef, useState } from "react";
 import Panel from "./Panel";
 import { colors } from "../lib/commonStyles";
 
@@ -40,6 +31,7 @@ export interface CascadeEvent {
   t_offset_s: number;
   layer: string;
   description: string;
+  /** Wall-clock epoch seconds at which the cascade clock reached it, or null. */
   triggered_at: number | null;
   fired: boolean;
 }
@@ -47,47 +39,22 @@ export interface CascadeEvent {
 export interface FailureCascadeProps {
   activeLayer: string | null;
   startedAt: number | null;       // epoch seconds
+  /** The simulator's cascade clock: running seconds since the injection. */
+  elapsedS: number;
   events: CascadeEvent[];
-  /** Simulation run state. The head only advances while this is "running",
-   *  so `stepped` freezes it exactly like `paused` and `idle` do -- a manual
-   *  step advances the machine by one phase, not by wall-clock time. */
+  /** Simulation run state, shown with the head so a frozen head reads as
+   *  paused rather than as stuck. */
   status: "idle" | "running" | "paused" | "stepped";
 }
 
 export default function FailureCascadeTimeline({
-  activeLayer, startedAt, events, status,
+  activeLayer, startedAt, elapsedS, events, status,
 }: FailureCascadeProps) {
-  // Elapsed time is ACCUMULATED while running rather than derived from
-  // `Date.now() - startedAt`, so a pause genuinely stops the clock instead of
-  // hiding time that passed while stopped.
-  const [elapsed, setElapsed] = useState(0);
-  const lastTick = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (status !== "running" || startedAt === null) {
-      lastTick.current = null;      // resume must not count the paused gap
-      return;
-    }
-    const id = setInterval(() => {
-      const now = Date.now() / 1000;
-      const prev = lastTick.current ?? now;
-      lastTick.current = now;
-      setElapsed((e) => e + (now - prev));
-    }, 500);
-    return () => clearInterval(id);
-  }, [status, startedAt]);
-
-  // A new injection restarts the cascade clock.
-  useEffect(() => {
-    setElapsed(0);
-    lastTick.current = null;
-  }, [startedAt]);
-
   const max = 720;
   const W = 920, H = 130;
   const padL = 80, padR = 30, padT = 30, padB = 30;
   const innerW = W - padL - padR;
-  const tElapsed = startedAt ? Math.min(max, elapsed) : 0;
+  const tElapsed = startedAt ? Math.min(max, elapsedS) : 0;
   const headX = padL + (tElapsed / max) * innerW;
 
   // The paper has no Roman-numeral headings: they are Arabic, and the 240-720 s
@@ -143,7 +110,7 @@ export default function FailureCascadeTimeline({
             <line x1={headX} y1={padT} x2={headX} y2={H - padB}
                   stroke={colors.warn} strokeWidth={2} />
             <text x={headX + 4} y={padT + 12} fill={colors.warn} fontSize={10}>
-              t = {tElapsed.toFixed(1)}s
+              t = {tElapsed.toFixed(1)}s{status === "running" ? "" : ` (${status})`}
             </text>
           </g>
         )}

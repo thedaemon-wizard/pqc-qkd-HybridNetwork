@@ -8,7 +8,9 @@ COMPOSE ?= docker compose
 # Compose file selection
 COMPOSE_FILES ?= -f docker-compose.yml
 # Append override files manually, e.g.:
-#   make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.boringtun.yml"
+#   make up COMPOSE_FILES="-f docker-compose.yml -f docker-compose.qkdnetsim.yml"
+# A host without the WireGuard kernel module needs no override: the node
+# entrypoint falls back to the wireguard-go binary the image ships.
 
 DC = $(COMPOSE) $(COMPOSE_FILES)
 

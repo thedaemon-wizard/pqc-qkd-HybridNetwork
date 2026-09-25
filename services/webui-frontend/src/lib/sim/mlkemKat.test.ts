@@ -78,7 +78,9 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
  *
  * Cross-derived 2026-08-22: liboqs in the pqc-validator image and
  * @noble/post-quantum 0.7.0 in Node produced identical bytes for all three
- * parameter sets.
+ * parameter sets. The digests below are fixed, so every `npm test` re-checks
+ * them against whatever version is installed (0.7.1 since the dependency
+ * bump); the date and version above are the history of the derivation.
  *
  * Public-key lengths are FIPS 203 **Table 3**, "Sizes (in bytes) of keys and
  * ciphertexts of ML-KEM" -- not Table 2, which is "Approved parameter sets"

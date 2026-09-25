@@ -96,9 +96,29 @@ class TestSave:
         assert "\x00" not in written[0].name
 
     def test_a_hostile_extension_cannot_smuggle_a_path(self, client, tmp_path):
+        # Sanitised to "sh", which is not an export type at all: refused, and
+        # nothing is written anywhere.
         r = _save(client, ext="../../sh")
-        assert r.status_code == 200
-        assert list(tmp_path.iterdir())[0].parent == tmp_path
+        assert r.status_code == 415
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("ext", ["json", "csv", "png", "gif", "webm", "log", "txt"])
+    def test_every_type_the_frontend_saves_is_accepted(self, client, ext):
+        """exporters.ts saves json, csv, png, gif and webm."""
+        assert _save(client, ext=ext).status_code == 200
+
+    @pytest.mark.parametrize("ext", ["html", "svg", "js", "exe", "bin", "", "php"])
+    def test_anything_else_is_refused(self, client, tmp_path, ext):
+        """The store is public; an arbitrary extension made it a file drop that
+        served e.g. an .html page back to anyone with the link."""
+        r = _save(client, ext=ext)
+        assert r.status_code == 415, f".{ext} was accepted"
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_saved_webm_is_served_as_video(self, client):
+        name = _save(client, ext="webm", payload=b"\x1aE\xdf\xa3").json()["filename"]
+        r = client.get(f"/api/exports/download/{name}")
+        assert r.headers["content-type"].startswith("video/webm")
 
     def test_names_are_bounded_in_length(self, client, tmp_path):
         _save(client, name="a" * 500)
@@ -125,6 +145,34 @@ class TestCapacity:
         listed = client.get("/api/exports/list").json()["exports"]
         assert len(listed) == 2
         assert all("url" in e and "size" in e for e in listed)
+
+    def test_the_whole_store_is_capped_in_bytes(self, client, tmp_path, monkeypatch):
+        """Count x size alone still let the public store reach gigabytes."""
+        monkeypatch.setattr(main, "EXPORT_MAX_TOTAL_BYTES", 10)
+        for i in range(4):
+            assert _save(client, name=f"f{i}", payload=b"x" * 4).status_code == 200
+        sizes = [f.stat().st_size for f in tmp_path.iterdir()]
+        assert sum(sizes) <= 10
+        assert len(sizes) == 2, "the newest files are kept until the cap binds"
+
+    def test_a_file_larger_than_the_whole_store_is_refused(self, client, tmp_path, monkeypatch):
+        """Otherwise it would be evicted as it landed, behind a URL that 404s."""
+        monkeypatch.setattr(main, "EXPORT_MAX_TOTAL_BYTES", 8)
+        assert _save(client, payload=b"x" * 9).status_code == 413
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_bounds_do_not_depend_on_demo_mode(self):
+        """The public host runs without the demo overlay, so the defaults are
+        what it gets: they must be the tight ones."""
+        import os
+        limits = {"EXPORT_MAX_BYTES": 25 * 1024 * 1024,
+                  "EXPORT_MAX_FILES": 100,
+                  "EXPORT_MAX_TOTAL_BYTES": 512 * 1024 * 1024}
+        overridden = [v for v in limits if v in os.environ]
+        if overridden:
+            pytest.skip(f"{overridden} set in this environment; defaults not in force")
+        for var, ceiling in limits.items():
+            assert getattr(main, var) <= ceiling, var
 
     def test_listing_an_absent_store_is_empty_not_an_error(self, client, monkeypatch, tmp_path):
         monkeypatch.setattr(main, "EXPORT_DIR", str(tmp_path / "never-created"))
@@ -158,10 +206,12 @@ class TestDownloadAndDelete:
         r = client.delete(f"/api/exports/{hostile}")
         assert r.status_code in (400, 404)
 
-    def test_deleting_something_absent_is_not_an_error(self, client):
-        # The picker deletes optimistically; a 500 here would surface as a
-        # broken gallery for a file already gone.
-        assert client.delete("/api/exports/20260101-000000-gone.png").status_code == 200
+    def test_deleting_something_absent_is_404_not_a_success(self, client):
+        # It answered {"ok": true} whether or not anything was removed, so a
+        # delete that removed nothing read as a deletion. Still not a 500: the
+        # picker deletes optimistically, and "not found" is the honest answer
+        # for a file another visitor already removed.
+        assert client.delete("/api/exports/20260101-000000-gone.png").status_code == 404
 
 
 class TestTraversalGuardDirectly:

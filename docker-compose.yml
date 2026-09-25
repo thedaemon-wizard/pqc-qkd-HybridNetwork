@@ -59,9 +59,10 @@ services:
       PEER_KME_URL: http://bb84-kme-b:8080
       QKD_PARAMS_FILE: /etc/pqcqkd/qkd_params.yaml
       # Optional override of the default QKD backend (empty -> use qkd_params.yaml,
-      # i.e. simqn). Deploy scripts set this to `qutip` automatically when the
-      # heavy backend submodules aren't checked out, so the KME boots on the
-      # always-present built-in backend instead of crashing.
+      # i.e. simqn). Read when the KME starts, so a change needs the container
+      # recreated. The image installs all four heavy backends at build time and
+      # the build fails if one does not install; if the chosen backend still
+      # fails to construct, KeyPool logs it and falls back to built-in `qutip`.
       SIMULATOR_BACKEND: ${SIMULATOR_BACKEND:-}
       # NumPy/SciPy/QuTiP load OpenBLAS, which auto-detects the CPU and may emit
       # instructions a cloud vCPU doesn't expose -> "Illegal instruction" SIGILL
@@ -264,6 +265,18 @@ services:
       # Reported by /api/config so the Overview states the configured rotation
       # interval instead of a literal. Same default as the arnika services.
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
+      # Live parameter overrides are OPT-IN, like container control.
+      #
+      # POST /api/sim/params, /api/sim/params/reset and /api/sim/backend change
+      # process-global state on BOTH KMEs -- the simulator backend, Eve, the
+      # QBER abort threshold, link length -- and those KMEs feed arnika's key
+      # supply. On a shared host one visitor's edit therefore reaches every
+      # other visitor and both VPN lanes, last write wins. Off (the default),
+      # the three routes answer 403, /api/config reports
+      # `live_param_overrides: false`, and /physics edits only the in-browser
+      # model it already computes key rates from. Set true on a single-user
+      # local stack to drive the live KMEs from the page.
+      ENABLE_LIVE_PARAM_OVERRIDES: ${ENABLE_LIVE_PARAM_OVERRIDES:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - pqcqkd-logs:/var/log/pqcqkd

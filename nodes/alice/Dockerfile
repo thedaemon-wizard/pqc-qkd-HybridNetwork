@@ -74,6 +74,15 @@ COPY submodules/rosenpass /src/rosenpass
 WORKDIR /src/rosenpass
 # Real build — oqs-sys (Kyber) + libsodium. No fallback stub: if this fails
 # the image build fails loudly rather than shipping fake random PSKs.
+#
+# Which liboqs this links is NOT the submodules/liboqs pin. rosenpass's
+# Cargo.lock resolves oqs-sys 0.8.0, which vendors liboqs 0.8.0 (2023) and
+# builds it statically into this binary. That release predates the liboqs
+# 0.9.1, 0.9.2 and 0.10.1 security releases for non-constant-time Kyber code,
+# so fixes tracked against the liboqs pin do not reach this lane. Moving it
+# means changing rosenpass's own dependency, which is an upstream change: its
+# Classic McEliece parameters changed in liboqs 0.9.0, so a local bump would
+# break wire compatibility with every other rosenpass peer.
 RUN cargo build --release --bin rosenpass
 
 # ---- Stage 3: runtime (Debian / glibc) --------------------

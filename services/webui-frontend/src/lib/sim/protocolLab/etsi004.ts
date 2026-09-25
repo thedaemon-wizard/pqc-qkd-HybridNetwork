@@ -35,7 +35,6 @@ export function statusById(code: number): { code: number; id: string; paraphrase
 
 export const SPEC_VERSION = `${SPEC.standard} ${SPEC.version}`;
 export const INDEX_ORIGIN: number = SPEC.binding.index_origin;
-export const UINT32_MAX: number = SPEC.uint32_max;
 
 export type Side = "A" | "B";
 const other = (s: Side): Side => (s === "A" ? "B" : "A");

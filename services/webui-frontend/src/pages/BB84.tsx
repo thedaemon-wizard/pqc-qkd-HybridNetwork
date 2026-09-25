@@ -38,10 +38,25 @@ const DEFAULT_PARAMS = BUNDLED_PARAMS;
  */
 const EVE_SLIDER_START = 1.0;
 
+/** Rounds kept for the charts and the exports; `roundsTotal` counts them all. */
+const HISTORY_ROUNDS = 60;
+
+/**
+ * The Shor-Preskill BB84 bound, about 11 %. The chart names it only when the
+ * configured ceiling IS it: the label said "Shor-Preskill" whatever
+ * protocol.qber_threshold_abort was set to. Half a per-mille of tolerance
+ * covers the rounding of a hand-entered 0.11.
+ */
+const SHOR_PRESKILL_QBER = 0.11;
+const SHOR_PRESKILL_TOLERANCE = 0.0005;
+
 export default function BB84() {
   // Read once; the URL does not change under the page.
   const pinnedSeed = seedFromLocation();
-  const [qberHistory, setQberHistory] = useState<number[]>([]);
+  // null entries are rounds that sifted nothing: no QBER was measured.
+  const [qberHistory, setQberHistory] = useState<(number | null)[]>([]);
+  /** Rounds since the page loaded; the histories hold the last HISTORY_ROUNDS. */
+  const [roundsTotal, setRoundsTotal] = useState(0);
   const [poolHistory, setPoolHistory] = useState<number[]>([]);
   const [frames, setFrames] = useState<Bb84Frame[]>([]);
   const [eveOn, setEveOn] = useState(false);
@@ -59,8 +74,9 @@ export default function BB84() {
 
   useEffect(() => {
     const eng = new Bb84Engine((u) => {
-      setQberHistory((h) => [...h.slice(-59), u.qber]);
-      setPoolHistory((h) => [...h.slice(-59), u.pool_size]);
+      setQberHistory((h) => [...h.slice(-(HISTORY_ROUNDS - 1)), u.qber]);
+      setPoolHistory((h) => [...h.slice(-(HISTORY_ROUNDS - 1)), u.pool_size]);
+      setRoundsTotal((n) => n + 1);
       setFrames(u.frames);
       setEngineName(u.engine);
       setPps(u.pulsesPerSec);
@@ -121,12 +137,15 @@ export default function BB84() {
       `# throughput:  ${pps === null ? "(not reported yet)" : pps.toLocaleString()} pulses/s`,
       `# eve:         ${eveOn ? `on, P(intercept)=${eveProb}` : "off"}`,
       `# abort thr.:  ${qberThreshold}`,
-      `# rounds:      ${qberHistory.length}`,
+      // The window, and the whole run: the table below is the last rounds
+      // only, numbered by their round in the run, not from 0 in the window.
+      `# rounds:      last ${qberHistory.length} of ${roundsTotal}`,
       "#",
       "# round\tqber\tpool_size",
     ];
+    const first = roundsTotal - qberHistory.length;
     qberHistory.forEach((q, i) => {
-      lines.push(`${i}\t${q.toFixed(6)}\t${poolHistory[i] ?? ""}`);
+      lines.push(`${first + i}\t${q === null ? "n/a (nothing sifted)" : q.toFixed(6)}\t${poolHistory[i] ?? ""}`);
     });
     lines.push("#", "# last photon frames (i, a_bit, a_basis, b_basis, b_bit, match)");
     frames.forEach((f) => {
@@ -159,15 +178,29 @@ export default function BB84() {
             qber_threshold_abort: qberThreshold,
             last_qber: lastQber,
             pool_size: pool,
+            rounds_total: roundsTotal,
             qber_history: qberHistory,
             pool_history: poolHistory,
             frames,
           })}
           csvProvider={() => qberHistory.map((q, i) => ({
-            round: i, qber: q, pool_size: poolHistory[i] ?? null,
+            round: roundsTotal - qberHistory.length + i, qber: q, pool_size: poolHistory[i] ?? null,
           }))}
         />
       </div>
+
+      {/* The channel this page samples, stated. docs/keyrate.md's model is a
+          weak-coherent source with mean photon number mu; the four engines
+          here draw one photon per pulse and give a dark count Alice's bit. */}
+      <p style={{ color: "#9aa9d8", fontSize: 12, maxWidth: 760, margin: "0 0 12px" }}>
+        This Monte-Carlo models an <b>ideal single-photon source</b>: each pulse is
+        detected with probability &eta;<sub>total</sub> + Y<sub>0</sub>, and a detection
+        carries Alice&apos;s bit with misalignment error e<sub>d</sub>, dark counts included.
+        It is not the weak-coherent decoy-state channel of <code>docs/keyrate.md</code>{" "}
+        (Q<sub>&mu;</sub> = Y<sub>0</sub> + 1 &minus; e<sup>&minus;&eta;&mu;</sup>, dark counts
+        at 50 % error) that <code>/physics</code> computes, so its gain and QBER are not
+        that model&apos;s, especially at long distance where dark counts dominate.
+      </p>
 
       {/* Controls */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
@@ -217,7 +250,7 @@ export default function BB84() {
 
       {/* Plots */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <ChartCard title="QBER (last 60 rounds)">
+        <ChartCard title={`QBER (last ${HISTORY_ROUNDS} rounds; gaps are rounds that sifted nothing)`}>
           <Plot
             data={[{ y: qberHistory, type: "scatter", mode: "lines+markers", line: { color: "#ff5e7e" } }]}
             layout={{
@@ -238,7 +271,9 @@ export default function BB84() {
                 // config/qkd_params.yaml states this; the chart did not, so a
                 // reader watching Eve push QBER to 0.257 with nothing happening
                 // had no way to know which of the two conditions this line is.
-                text: `hard abort ceiling ${(qberThreshold * 100).toFixed(1)} % (Shor-Preskill; not the accept criterion)`,
+                text: `hard abort ceiling ${(qberThreshold * 100).toFixed(1)} % (`
+                  + (Math.abs(qberThreshold - SHOR_PRESKILL_QBER) < SHOR_PRESKILL_TOLERANCE ? "Shor-Preskill; " : "")
+                  + "not the accept criterion)",
                 font: { color: "#9aa9d8", size: 10 },
               }],
             }}
@@ -246,7 +281,7 @@ export default function BB84() {
             style={{ width: "100%" }}
           />
         </ChartCard>
-        <ChartCard title="Key pool size">
+        <ChartCard title="Key pool (bits)">
           <Plot
             data={[{ y: poolHistory, type: "scatter", mode: "lines", line: { color: "#3ddc84" }, fill: "tozeroy" }]}
             layout={{ ...plotLayout, height: 240, yaxis: { color: "#9aa9d8" } }}
@@ -289,7 +324,8 @@ export default function BB84() {
   ...(pinnedSeed !== null ? { seed: pinnedSeed, reproducible: true } : {}),
   pulses_per_sec: pps,
   last_qber: lastQber === null ? null : Number(lastQber.toFixed(4)),
-  key_pool: pool,
+  key_pool_bits: pool,
+  rounds: roundsTotal,
   eve: eveOn ? `on (p=${eveProb.toFixed(2)})` : "off",
 }, null, 2)}
           </pre>

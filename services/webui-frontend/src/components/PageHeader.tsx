@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 
 /** No `exports` slot. This component used to accept an ExportToolbarProps and
  *  render the toolbar in a top-right flex slot; no page ever passed it, because
- *  the layout it encoded was reversed early on -- every one of the nine toolbar
- *  pages renders ExportToolbar BELOW the description instead, so the buttons do
+ *  the layout it encoded was reversed early on -- every toolbar page renders
+ *  ExportToolbar BELOW the description instead, so the buttons do
  *  not collide with the subtitle. The prop, the import and the branch were dead
  *  code that documented a layout the project had decided against. */
 export interface PageHeaderProps {

@@ -280,8 +280,10 @@ class BackendSwitch(BaseModel):
 
 @app.post("/sim/backend")
 async def sim_backend(req: BackendSwitch):
+    """Swap the simulator backend; 400 for an unknown name, 503 when the
+    backend's dependency is not reachable (the current backend stays)."""
     try:
-        app.state.pool.switch_backend(req.name)
+        await app.state.pool.switch_backend(req.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -493,10 +495,11 @@ async def keyrate_crosscheck():
 # demo -- and no caller anywhere in the repository. /physics does the same job
 # as a client-side grid search.
 #
-# `optimize_from_yaml()` stays importable for offline use: it is exercised by
-# tests/test_backend_cross_qber.py and documented in docs/phases.md. Removing
-# the module too would have deleted a working research capability to fix an
-# exposure that deleting one route already fixes.
+# `optimize_from_yaml()` stays importable for offline use: docs/phases.md runs
+# it from the command line, and tests/test_backend_cross_qber.py exercises the
+# module's `optimize_closed_form()`. Removing the module too would have deleted
+# a working research capability to fix an exposure that deleting one route
+# already fixes.
 @app.websocket("/ws/frames")
 async def ws_frames(ws: WebSocket) -> None:
     await ws.accept()

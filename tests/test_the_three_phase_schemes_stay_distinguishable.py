@@ -1,22 +1,24 @@
 """Three unrelated numbering schemes were all called "phase".
 
   build phases        0, 2-4, 8-14   this project's milestones, docs/phases.md
-  protocol phases     1-5            THE PAPER'S, arXiv:2604.05599 Table 1
+  protocol phases     1-5            this project's split of the paper's
+                                     stages (1)-(4), arXiv:2604.05599 4.3 and
+                                     Figure 3, used to lay out Table 1
   /e2e orchestration  1-4            this project's own invention
 
 A reader seeing "Phase 8" in the docs and "Phase 5" in the UI had no way to
-know they were unrelated. The instruction to remove the labels was given four
-times across successive rounds and never actioned, because the reason not to
-was never recorded -- so it kept coming back.
+know they were unrelated.
 
-The paper's scheme cannot be renamed. `paper_budgets.py` quotes "Table 1:
-per-phase handshake cost", `/paper-flow` reproduces that table per phase, and
-`tests/test_paper_budgets.py` pins the totals. Putting this project's
-vocabulary between a reader and the source it claims to reproduce would be a
-worse defect than the collision.
+This file used to say the protocol scheme was THE PAPER'S and could not be
+renamed, because paper_budgets.py "quotes 'Table 1: per-phase handshake
+cost'". Checked against the paper on 2026-09-25, that was wrong: the paper
+never uses the word "phase". Table 1 is captioned "Packets and Traffic per
+Handshake or Key Negotiation", and the components are numbered (1)-(4) and
+called stages. The five-way split is this repository's.
 
-So: /e2e's scheme -- ours alone -- became "step", and /paper-flow keeps the
-word but qualifies it. This file stops either half from drifting back.
+So: /e2e's scheme became "step", and /paper-flow keeps "phase" only as its own
+label, next to the paper's stage numbers so the two cannot be confused. This
+file stops either half from drifting back.
 """
 from __future__ import annotations
 
@@ -44,27 +46,24 @@ def test_e2e_calls_its_own_scheme_a_step():
     assert "Active phase:" not in src
 
 
-def test_paper_flow_keeps_the_papers_word_but_qualifies_it():
+def test_paper_flow_names_the_papers_stages_next_to_its_own_phases():
     src = _read(PAPER)
-    # Keeping the word is the point -- assert it is still there.
-    assert "phase" in src.lower(), (
-        "/paper-flow no longer uses the paper's own term for its own table"
-    )
-    assert "paper phase 5" in src, "the payload panel no longer says whose phase 5"
-    assert re.search(r"paper'?s 5 protocol phases", src), (
-        "the sequence diagram title no longer attributes the numbering"
-    )
-    # And it must not have been renamed away.
-    assert "5-Phase Sequence Diagram (paper" not in src
+    assert "paper stage (4)" in src, (
+        "the payload panel no longer says which of the paper's stages phase 5 is")
+    assert "splitting the paper's stages (1)-(4)" in src, (
+        "the sequence diagram title no longer says the five phases are this "
+        "page's split of the paper's four stages")
+    # The attribution that was wrong: the paper has no phase 5.
+    assert "paper phase" not in src.lower()
+    assert not re.search(r"paper'?s 5 protocol phases", src)
 
 
-def test_the_papers_terminology_is_still_what_the_backend_quotes():
-    # The premise for refusing to rename. If the quote changes, the decision
-    # needs revisiting rather than silently surviving.
-    assert "per-phase handshake cost" in _read(BUDGETS), (
-        "paper_budgets.py no longer quotes the paper as saying 'per-phase'; "
-        "re-check whether the protocol scheme still has to keep that word"
-    )
+def test_the_backend_quotes_table_1_by_its_real_caption():
+    src = _read(BUDGETS)
+    assert "Packets and Traffic per Handshake or Key Negotiation" in src, (
+        "paper_budgets.py no longer quotes Table 1's caption")
+    assert "per-phase handshake cost" not in src, (
+        "the invented caption is back; the paper does not say 'phase'")
 
 
 def test_the_decision_is_written_down():

@@ -1,17 +1,24 @@
 # ============================================================================
-# Public-demo profile (sim-only) — Round 5.
+# Public-demo profile (sim-only).
 #
-# The E2E / Paper / Physics / BB84 pages now run ENTIRELY CLIENT-SIDE (browser
-# JS + Web Worker / WebGPU, real @noble crypto), so a public multi-user demo
-# puts ~no load on the backend. This overlay runs only the lightweight services
-# the client-side UI still needs:
+# The E2E / Paper / Physics / BB84 pages run ENTIRELY CLIENT-SIDE (browser JS +
+# Web Worker / WebGPU, real @noble crypto), so a public multi-user demo puts
+# ~no load on the backend. This overlay runs only the lightweight services the
+# client-side UI still needs:
 #     webui-frontend  — serves the client-side bundle
-#     webui-backend   — DEMO_MODE=1: functionally EQUIVALENT to full mode except
-#                       container lifecycle control (/api/stack/*, a DoS vector)
-#                       which stays 403; per-IP rate-limited. Backend switching,
-#                       param overrides and (capacity-bounded) server-side export
-#                       saves are ALLOWED — all reversible / bounded / rate-limited.
-#     bb84-kme-a/b    — /verify TNO cross-check + the backend-selector physics
+#     webui-backend   — DEMO_MODE=1 vetoes container lifecycle control
+#                       (/api/stack/* answers 403). The rest is not DEMO_MODE's
+#                       doing and holds on every host: mutating requests are
+#                       per-IP rate-limited, and live parameter overrides
+#                       (backend switching, POST /api/sim/params and its reset)
+#                       are OFF unless ENABLE_LIVE_PARAM_OVERRIDES=true, which
+#                       this overlay does not set. They change process-global
+#                       state on the shared KMEs, so on a multi-user host one
+#                       visitor's edit would reach everyone; /physics computes
+#                       in the browser instead. Server-side export saves are
+#                       allowed, within the bounds below.
+#     bb84-kme-a/b    — /verify TNO cross-check, and the parameters and
+#                       statistics /bb84, /physics and /benchmarks read
 #     pqc-validator   — /verify crypto-agility matrix
 #
 # The privileged WireGuard nodes (alice/bob) and the docker.sock mount are
@@ -20,9 +27,13 @@
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
 #     up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
 #
-# Even leaner (static-only): the four sim pages need no backend at all — the
-# webui-frontend image (or its dist/) can be served standalone on GitHub /
-# Cloudflare / Netlify Pages for a near-$0 demo; only /verify is then disabled.
+# Even leaner (static-only): the webui-frontend bundle (its dist/) can be served
+# from any static host. Five pages then work unchanged, three fall back to
+# bundled defaults, and six lose their content; docs/deployment-economics.md
+# has the page-by-page table.
+#
+# Which backend variables .env can set, and which only an overlay like this one
+# can: docs/BUILD.md section 7.
 # ============================================================================
 services:
   webui-backend:
@@ -30,14 +41,16 @@ services:
       DEMO_MODE: "1"
       DEMO_RATE_MAX: "120"
       DEMO_RATE_WINDOW_S: "60"
-      # Bound the (now-enabled) server-side export store on the public host:
-      # at most 100 files, 25 MB each (≈2.5 GB worst case, FIFO-purged).
+      # The export store's bounds, stated here at the backend's own defaults so
+      # a change of default cannot loosen a host running this overlay
+      # unnoticed: at most 100 files of 25 MiB each, and
+      # EXPORT_MAX_TOTAL_BYTES (512 MiB, code default) for the whole store;
+      # the oldest files are deleted first.
       EXPORT_MAX_FILES: "100"
       EXPORT_MAX_BYTES: "26214400"
     # Drop ONLY the docker.sock mount for the public demo (container control is
     # 403 in DEMO_MODE; no need to expose the socket). Keep the logs + exports
-    # volumes so the now-enabled server-side export gallery persists (bounded by
-    # EXPORT_MAX_FILES/BYTES above).
+    # volumes so the server-side export gallery persists (bounded as above).
     volumes: !override
       - pqcqkd-logs:/var/log/pqcqkd
       - pqcqkd-exports:/var/lib/pqcqkd-exports

@@ -64,7 +64,9 @@ describe("the Rust kernel and the worker agree exactly", () => {
     // the same ratio, so comparing the quotient alone would let drift through.
     expect(got.sifted).toBe(want.sifted);
     expect(got.errors).toBe(want.errors);
-    expect(got.qber).toBeCloseTo(want.qber, 12);
+    // Both non-null here: every case sifts thousands of bits.
+    expect(got.qber).not.toBeNull();
+    expect(got.qber!).toBeCloseTo(want.qber!, 12);
   });
 
   it("produces a non-trivial result, so the agreement is not both-zero", () => {

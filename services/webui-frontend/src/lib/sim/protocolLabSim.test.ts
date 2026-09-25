@@ -77,7 +77,7 @@ describe("run controls", () => {
   });
 
   it("paces itself with its own dwell, distinct from /e2e and /paper-flow", () => {
-    expect(NOMINAL_TICK_DWELL_MS).toBe(250);
+    expect(NOMINAL_TICK_DWELL_MS).toBe(300);
   });
 });
 

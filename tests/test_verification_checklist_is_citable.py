@@ -25,6 +25,17 @@ from pathlib import Path
 import pytest
 
 CHECKLIST = Path(__file__).resolve().parents[1] / "VERIFICATION_CHECKLIST.md"
+CI_WORKFLOW = CHECKLIST.parent / ".github" / "workflows" / "ci.yml"
+
+# "CI job `ipsec`" and "CI `python`": the two ways a row names the job that
+# asserts it. They are also what the automation count below credits as
+# machine-checked, so the name has to be a job that exists.
+# `CI `python``, `CI job `ipsec``, `CI's `secrets``, and lists such as
+# `CI `images`, `go`` or `CI `python` and `frontend``: every name in the list
+# is a citation, not only the first.
+CI_JOB_CITATION = re.compile(
+    r"\bCI(?:'s)? (?:job )?(`[^`]+`(?:(?:,\s*|\s+and\s+|\s+or\s+)`[^`]+`)*)")
+CI_JOB_NAME = re.compile(r"`([^`]+)`")
 
 # `4.2.1`, `2.8b`, `4.4b.4`, `7.10`
 ROW_ID = re.compile(r"^\d+[a-z]?(\.\d+[a-z]?)*$")
@@ -358,4 +369,40 @@ def test_every_row_the_ipsec_prose_names_carries_the_marker():
     )
     assert "2.7" not in marked, (
         "2.7 (IKE_INTERMEDIATE actually runs) is not asserted by the ipsec job"
+    )
+
+
+def test_every_ci_job_a_row_names_is_a_job_in_the_workflow():
+    """A row credited to a CI job is only verified if that job exists.
+
+    The counts above take "CI job `<name>`" as proof that a row is automated,
+    and nothing checked the name. A renamed or deleted job would leave its rows
+    counted as machine-checked with nothing running them. The job ids are read
+    from the workflow itself, not restated here.
+    """
+    yaml = pytest.importorskip(
+        "yaml",
+        reason="pyyaml absent; it ships in services/bb84-kme/requirements.txt, "
+               "which the CI python job installs, so this runs there",
+    )
+    jobs = set(yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"])
+
+    cited = [
+        (n, name)
+        for n, line in enumerate(CHECKLIST.read_text(encoding="utf-8").splitlines(), 1)
+        for group in CI_JOB_CITATION.findall(line)
+        for name in CI_JOB_NAME.findall(group)
+    ]
+    # A floor, so a reworded citation form cannot turn this into a loop over
+    # nothing that passes.
+    assert cited, "no row names a CI job any more; has the citation form changed?"
+
+    unknown = [f"line {n}: CI job `{name}`" for n, name in cited if name not in jobs]
+    # The list form must be read as a list, or a job cited only second is
+    # never checked.
+    assert [CI_JOB_NAME.findall(g) for g in CI_JOB_CITATION.findall(
+        "CI `images`, `go` and CI's `secrets`")] == [["images", "go"], ["secrets"]]
+    assert not unknown, (
+        f"rows name CI jobs that {CI_WORKFLOW.name} does not define "
+        f"(it has {sorted(jobs)}):\n  " + "\n  ".join(unknown)
     )

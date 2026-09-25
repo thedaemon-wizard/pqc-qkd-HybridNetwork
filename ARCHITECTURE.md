@@ -18,21 +18,30 @@
 | Layer 1 — Hop encryption                                           |
 | WireGuard wg0 between alice and bob (or alice-charlie-bob)       |
 | ChaCha20-Poly1305 + Noise + PSK                                  |
-| PSK rotated by arnika every `ARNIKA_INTERVAL` (30s default)      |
+| PSK written by arnika every `ARNIKA_INTERVAL` (30s default);     |
+| WireGuard mixes it in at its next handshake (section 3)          |
 +---------------------------------------------------------------------+
 ```
 
 ## 2. Container topology
 
-| Container | Image source | Networks | Capabilities |
-|---|---|---|---|
-| `bb84-kme-a` | `services/bb84-kme/` | qkd-net, mgmt-net | none |
-| `bb84-kme-b` | `services/bb84-kme/` | qkd-net, mgmt-net | none |
-| `alice` | `nodes/alice/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
-| `bob` | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
-| `charlie` | same | wan-net | NET_ADMIN, SYS_MODULE |
-| `webui-backend` | `services/webui-backend/` | mgmt-net, qkd-net | docker.sock RO |
-| `webui-frontend` | `services/webui-frontend/` | mgmt-net | none |
+| Container | Compose file (profile) | Image source | Networks | Privileges |
+|---|---|---|---|---|
+| `bb84-kme-a` | `docker-compose.yml` | `services/bb84-kme/` | qkd-net, mgmt-net | none |
+| `bb84-kme-b` | `docker-compose.yml` | `services/bb84-kme/` (same image) | qkd-net, mgmt-net | none |
+| `alice` | `docker-compose.yml` | `nodes/alice/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
+| `bob` | `docker-compose.yml` | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
+| `webui-backend` | `docker-compose.yml` | `services/webui-backend/` | mgmt-net, qkd-net | docker.sock read-only |
+| `webui-frontend` | `docker-compose.yml` | `services/webui-frontend/` | mgmt-net | none |
+| `pqc-validator` | `docker-compose.yml` | `services/pqc-validator/Dockerfile` | mgmt-net, qkd-net | none; no published port |
+| `alice-ipsec` | `docker-compose.strongswan.yml` (`ipsec`) | `nodes/strongswan/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
+| `bob-ipsec` | `docker-compose.strongswan.yml` (`ipsec`) | `nodes/strongswan/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
+| `charlie` | `docker-compose.multihop.yml` (`multihop`) | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
+| `qkdnetsim-kme` | `docker-compose.qkdnetsim.yml` (`crossvalidate`) | `services/qkdnetsim-kme/Dockerfile` | qkd-net, mgmt-net | none; no published port |
+| `caddy` | `deploy/docker-compose.cloud.yml` | upstream `caddy:2-alpine` | mgmt-net | publishes 80 and 443 |
+
+Only the first seven start with a plain `docker compose up`. The rest come from
+an overlay and, where shown, its profile.
 
 Each KME serves two key-delivery interfaces over one key pool: ETSI GS QKD 014
 (`/api/v1/keys/...`, what arnika uses) and ETSI GS QKD 004 V2.1.1
@@ -42,358 +51,153 @@ the host.
 
 Networks:
 - `qkd-net` — `internal: true`. KME ↔ arnika, KME-KME key sync, and the 004 stream exchange (`/internal/etsi004/...`). No host bridge.
-- `wan-net` — simulated public Internet. WireGuard endpoints.
+- `wan-net` — simulated public Internet. WireGuard and IKEv2 endpoints.
 - `mgmt-net` — WebUI plane. Exposes 5173 and 8000 to host.
 
-## 3. Data flow (a single PSK rotation)
+## 3. Data flow (one PSK rotation on the WireGuard lane)
 
 ```
-T+0 bb84-kme-a runs a BB84 round (QuTiP photon simulation)
+T+0   bb84-kme-a runs a key-production round with the configured simulator
+      backend (`simulator.backend` in config/qkd_params.yaml; simqn by default)
 T+0.1 reconciliation produces a 256-bit secret key, base64-encoded
 T+0.1 KME-a stores key by UUID and POSTs /internal/sync to KME-b
-T+0.2 arnika@alice polls /api/v1/keys/BOB/enc_keys?number=1&size=256
-T+0.2 arnika receives {keys: [{key_ID, key}]}, opens TCP to bob:9999, sends key_ID
-T+0.3 arnika@bob receives key_ID, calls /api/v1/keys/ALICE/dec_keys?key_ID=...
+T+0.2 the PRIMARY arnika for this interval (re-elected every interval: bit 0
+      of the first byte of HMAC-SHA256(ARNIKA_PSK, interval) XOR ARNIKA_ID,
+      `config.go` IsPrimary) polls
+      /api/v1/keys/<peer SAE>/enc_keys?number=1&size=256
+T+0.2 it receives {keys: [{key_ID, key}]} and sends key_ID to the peer's
+      :9999 over UDP, AES-256-GCM encrypted and HMAC-SHA256 signed with
+      ARNIKA_PSK, with a timestamp window against replay
+T+0.3 the BACKUP arnika receives key_ID, calls .../dec_keys?key_ID=...
 T+0.3 Both sides now hold the SAME 256-bit QKD key
 T+0.3 Both read /var/lib/rosenpass/pqc.psk (independently produced by Rosenpass)
 T+0.3 Both compute HKDF-SHA3-256(qkd || pqc) -> 32B PSK
-T+0.3 Both `wg set wg0 peer <pub> preshared-key <psk>` via netlink
-T+0.4 WireGuard re-handshakes within ~5s; tunnel keys derive from new PSK
+T+0.3 Both write it as the wg0 peer's preshared key via netlink
+later The new PSK takes effect at WireGuard's NEXT handshake. arnika only
+      overwrites the peer entry; it triggers no handshake. The entrypoint sets
+      persistent-keepalive 25, so traffic always flows and the initiator
+      re-handshakes every REKEY_AFTER_TIME = 120 s. With ARNIKA_INTERVAL=30s,
+      roughly three of every four PSKs are replaced before any handshake uses
+      them; each handshake uses the PSK installed most recently before it.
 ```
 
-## 4. Critical reused arnika code paths
+## 4. The IPsec lane
+
+The strongSwan lane (`docker-compose.strongswan.yml`, profile `ipsec`) is a
+second consumer of the same key sources, not a second output of the WireGuard
+lane's arnika:
+
+- `alice-ipsec` and `bob-ipsec` run **their own** arnika instances
+  (`ARNIKA_ID` 11 and 12, UDP `:9998`) against the same KMEs, and read the PQC
+  half from the same Rosenpass output: they mount the `pqc-psk-alice` and
+  `pqc-psk-bob` volumes that alice's and bob's sidecars write.
+- Their arnika is built with the VICI key writer
+  (`services/arnika-vici/`, `-tags strongswan_vici`) instead of the netlink
+  one. It hands the HKDF output to charon over the VICI socket as an RFC 8784
+  Post-quantum Preshared Key (`load-shared`, type `ppk`), not as an IKEv2 PSK:
+  a PSK only authenticates, while a PPK is mixed into `SK_d`, `SK_pi` and
+  `SK_pr`.
+- A PPK applies to the initial IKE SA only, so each rotation is consumed by a
+  full reauthentication, which the initiator (`VICI_IKE_ROLE`) requests over
+  VICI after loading the new key. `ppk_required = yes` on both ends makes a
+  missing or mismatched PPK an authentication failure rather than a silent
+  fallback to `NO_PPK_AUTH`.
+- The key exchange itself is RFC 9370 hybrid IKEv2: ECP-256 plus ML-KEM-768
+  (`ke1_mlkem768`).
+
+The mechanism, the rotation sequence and the open issues are in
+[`docs/vici-ppk.md`](docs/vici-ppk.md).
+
+## 5. Critical reused arnika code paths
 
 These are the points we depend on; changing them in upstream arnika would require
-contract updates here:
+contract updates here. Line numbers are at the pinned submodule commit.
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|
-| `setPSK()` | `submodules/arnika/main.go:36-88` | Drives the rotation; logs we grep in smoke tests |
-| `KMSHandler.GetNewKey()` | `submodules/arnika/repositories/kms.go:94` | Defines `enc_keys?number=N&size=B` URL |
-| `KMSHandler.GetKeyByID()` | `submodules/arnika/repositories/kms.go:101` | Defines `dec_keys?key_ID=...` URL |
-| `type Key struct` | `submodules/arnika/repositories/kms.go:43-48` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-28` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
+| `setPSK()` | `submodules/arnika/main.go:30-88` | Drives the rotation; logs we grep in smoke tests |
+| `HTTPKMSRepository.GetNewKey()` | `submodules/arnika/repositories/kms.go:94-96` | Defines `enc_keys?number=1&size=256` URL |
+| `HTTPKMSRepository.GetKeyByID()` | `submodules/arnika/repositories/kms.go:98-104` | Defines `dec_keys?key_ID=...` URL (`:102`) |
+| `type kmsKey struct` | `submodules/arnika/repositories/kms.go:43-46` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract visualised in the Sankey/Manim |
+| `IsPrimary()` | `submodules/arnika/config/config.go:56-71` | Per-interval PRIMARY/BACKUP election; why the two `ARNIKA_ID`s must differ in parity |
 | Operational modes | `submodules/arnika/config/config.go:34` | 4 modes drive WebUI ControlPanel choices |
 
-## 5. Why this matches the paper
+## 6. Why this matches the paper
 
 | Paper claim | Implementation correspondence |
 |---|---|
 | WireGuard PSK rotated periodically per hop | `ARNIKA_INTERVAL` (default 30s in PoC, 120s in paper) |
-| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...`, which is the `KMS_URL` base arnika is configured with; arnika appends `/enc_keys?number=1&size=256` (`kms.go:94`) or `/dec_keys?key_ID=...` (`kms.go:101`) and issues the request at `kms.go:110` (`r.conn.Get(r.baseURL + path)`) |
+| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...`, which is the `KMS_URL` base arnika is configured with; arnika appends `/enc_keys?number=1&size=256` (`kms.go:95`) or `/dec_keys?key_ID=...` (`kms.go:102`) and issues the request at `kms.go:121` (`r.conn.Get(r.baseURL + path)`) |
 | PQC E2E via Rosenpass | `nodes/alice/rosenpass-sidecar.sh` produces pqc.psk; arnika fuses it via HKDF (`kdf/kdf.go`) |
 | Layered composability (compromise of one layer ≠ catastrophe) | Three Docker networks isolate planes; mode `QkdAndPqcRequired` enforces both layers |
-| Setup time scales with slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples ONE container's handshake age over time (`--container`, `--duration`; output `epoch,handshake_age_s`). It varies no chain length and has no hop dimension, so nothing in it could distinguish scaling-with-slowest-hop from scaling-cumulatively. `benchmarks/results/handshake_age.csv` does not exist in this tree and `paper_comparison.json` records `"ours": {"n": 0}` -- it has never captured a row. |
+| Setup time scales with slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples ONE container's handshake age over time (`--container`, `--duration`; output `epoch,handshake_age_s`). It varies no chain length and has no hop dimension, so nothing in it could distinguish scaling-with-slowest-hop from scaling-cumulatively. No handshake-age series has been captured, so `tools/compare_to_paper.py` reports this project's side as `"ours": {"n": 0}` with a note saying why. |
 | Forward secrecy at both QKD and PQC layers | Independent rotation: BB84 producer triggers QKD refresh, Rosenpass sidecar triggers PQC refresh |
+
+## 7. Repository layout
+
+The main tracked entries, from `git ls-files` and `.gitmodules`.
+
+```
+pqc-qkd-HybridNetwork/
+├── README.md                          # Entry point and documentation index
+├── ARCHITECTURE.md                    # This file
+├── VERIFICATION_CHECKLIST.md          # Manual and CI-backed verification rows
+├── LICENSE, NOTICE
+├── docker-compose.yml                 # Default topology (7 services)
+├── docker-compose.strongswan.yml      # IPsec lane (profile ipsec)
+├── docker-compose.multihop.yml        # Adds the Charlie relay (profile multihop)
+├── docker-compose.qkdnetsim.yml       # Second ETSI 014 server (profile crossvalidate)
+├── .env.example                       # Sample environment for a local stack
+├── Makefile                           # build / up / smoke / bench / lint / test
+├── .github/workflows/ci.yml           # CI
+├── references/                        # Reference papers (only where the licence permits)
+├── submodules/                        # Git submodules, pinned and unmodified
+│   ├── arnika/                        # Go; built into the node images
+│   ├── rosenpass/                     # PQC handshake daemon, built into the node image
+│   ├── strongswan/                    # IKEv2 daemon, built into the IPsec image
+│   ├── wgephemeralpeer/               # Mullvad ephemeral-peer reference (not built)
+│   ├── liboqs/                        # NIST PQC library for pqc-validator and pqc-tls-demo
+│   ├── oqs-provider/                  # OpenSSL provider for the pqc-tls-demo agility lane
+│   ├── SimQN/                         # BB84 simulator backend
+│   ├── SeQUeNCe/                      # Photonic discrete-event simulator backend
+│   ├── strawberryfields/              # CV-QKD (GG02) backend
+│   ├── tno-qkd-key-rate/              # TNO-Quantum decoy-state key-rate engine (cross-check)
+│   ├── qkdnetsim/                     # NS-3 qkdnetsim; compiled by qkdnetsim-kme, not run
+│   ├── openQKDsecurity/               # MATLAB SDP toolkit (vendored, not used)
+│   ├── qkd_kme_server/                # Rust ETSI 014 KME (vendored, not built)
+│   └── qkd-pqc-paper-supplementary/   # Spooren et al. containerlab supplementary files
+├── config/
+│   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
+│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
+├── services/
+│   ├── bb84-kme/                      # Python KME: pluggable QKD backends, ETSI 014 REST,
+│   │   │                              #   ETSI 004 V2.1.1 binding (off by default)
+│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
+│   ├── webui-backend/                 # FastAPI API behind the dashboard
+│   ├── webui-frontend/                # React/Vite dashboard, 14 routes incl. /e2e,
+│   │                                  #   /paper-flow and the /protocol-lab simulation
+│   ├── pqc-validator/                 # liboqs; @noble-vs-liboqs ML-KEM interop
+│   ├── pqc-tls-demo/                  # Two PQC TLS image builds (not compose services)
+│   ├── arnika-vici/                   # strongSwan VICI key writer for arnika (RFC 8784 PPK)
+│   └── qkdnetsim-kme/                 # 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
+├── nodes/
+│   ├── alice/                         # WireGuard node image; bob and charlie reuse it
+│   └── strongswan/                    # IPsec node image (alice-ipsec, bob-ipsec)
+├── deploy/                            # Single-host cloud and demo overlays, Caddy, deploy scripts
+├── scripts/                           # Release gates and external audits
+├── tools/                             # Precompute and paper-comparison scripts (Python)
+├── pki/                               # mTLS cert generation (`make pki`; nothing consumes the output yet)
+├── animations/                        # Manim scenes (.py)
+├── benchmarks/                        # Latency / throughput scripts
+├── tests/                             # pytest contract, unit and repository-guard tests
+└── docs/                              # keyrate, vici-ppk, references, roadmap,
+                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
+```
+
 ---
 
 ## Appendix A. Phase history
 
-How the system arrived at the shape described above, oldest first. These
-sections are a record of what was built when; where a phase has since been
-replaced, the replacement is noted inline. Read section 1-5 for what runs
-today.
-
-### A.1 Phase 8 — 7-backend pluggable QKD pipeline
-
-```
-                ┌─────────────────────────────────────────────────────────┐
-                │ WebUI (9 pages) Overview / BB84 / KeyFlow / Topology   │
-                │   Benchmarks / Console / PhysicsParams / PQCValidator   │
-                │   Hardware-In-Loop                                       │
-                └──────────────┬──────────────────────────────────────────┘
-                               │  REST + WebSocket
-                ┌──────────────▼──────────────────────────────────────────┐
-                │  webui-backend (FastAPI)                               │
-                │   /api/sim/params, /api/sim/backend                     │
-                │   /api/pqc/algorithms, /api/pqc/roundtrip               │
-                └──┬─────────────────────────────────────────────┬────────┘
-                   │                                             │
-                ┌──▼──────────────────────────────┐         ┌────▼────────┐
-                │  bb84-kme (per SAE)             │         │ pqc-validator│
-                │                                  │         │ liboqs vs    │
-                │  KeyProducer ABC                 │         │ PQClean      │
-                │  ┌──────┬─────┬────────┬───────┐│         └──────────────┘
-                │  │qutip │simqn│sequence│cvqkd  ││
-                │  └──────┴─────┴────────┴───────┘│
-                │  + composite_sim_to_net          │
-                │  + qkdnetsim_proxy               │
-                │                                  │
-                │  config/qkd_params.yaml          │
-                │   (hot-reload via watchdog)      │
-                │                                  │
-                │  optimizer.py                    │
-                │   scikit-optimize gp_minimize    │
-                │   ↔ closed-form Lo-Ma 2005       │
-                │   ↔ Lim 2014 finite-key 1311.7129 │
-                └────────┬───────────────────────┬─┘
-                         │                       │
-                         │ ETSI 014              │ ETSI 014 (cross-validate)
-                         ▼                       ▼
-                ┌────────────────┐      ┌────────────────────┐
-                │ arnika (Go)    │      │ qkdnetsim-kme      │
-                │ HKDF-SHA3-256  │      │ Flask ETSI 014 srv │
-                │ → WG PSK       │      │ (facade, not NS-3) │
-                └────────────────┘      └────────────────────┘
-```
-
-Backends (all implement `services/bb84-kme/app/backends/base.py::KeyProducer`):
-- `qutip_backend.py` — lightweight QuTiP photon physics (original PoC core)
-- `simqn_backend.py` — SimQN BB84 + QubitLossChannel + our Cascade+TPA
-- `sequence_backend.py` — SeQUeNCe physical layer (depolarising + measurement noise)
-- `cvqkd_backend.py` — Strawberry Fields homodyne / GG02 protocol
-- `qkdnetsim_proxy.py` — pulls keys from `qkdnetsim-kme`, a second ETSI 014 server
-  (a Flask facade, not the NS-3 C++ KMS); checks the REST contract, not key material
-- `composite_sim_to_net.py` — SimQN computes per-link SKR → POSTed to the second ETSI 014 server as a key-buffer fill rate. **Not** injected into an NS-3 simulation; nothing runs one
-- `tno_backend.py` — TNO-Quantum's independent decoy-state BB84/BBM92 key-rate
-  engine, used to cross-check this project's own rate model
-
-Parameter pipeline:
-- `config_loader.py` watches YAML and pushes `BackendConfig` on change
-- `_skr.py` holds the Lo-Ma 2005 asymptotic decoy bound and the Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129 finite-key key length. It was credited to arXiv:2511.21253, which contains no such term; the formula shipped was a mangled Hoeffding deviation that ignored the decoy inversion entirely.
-- `optimizer.py` calls `skopt.gp_minimize` on the closed-form objective
-  to maximise the secret key rate per pulse over $`(\mu, \nu_1, \nu_2, p_z)`$
-
-Tests (host venv):
-- `test_no_hardcoded_params.py` — AST guard against magic numbers in backends
-- `test_backend_cross_qber.py` — every backend's QBER stays under threshold
-- `test_bb84_simulator.py` — QuTiP simulator sanity (Eve/no-Eve QBER bands)
-
-### A.2 Phase 9 — Real Quantum-Secure VPN (RFC 9370 + crypto agility)
-
-```
-                ┌─────────────────────────────────────────────────────────┐
-                │ WebUI 10 pages (Phase 9-WebUI)                          │
-                │  Overview / BB84 / KeyFlow / Topology / Benchmarks      │
-                │  Console / PhysicsParams / PQCValidator / HIL / VPN     │
-                └──────────────┬──────────────────────────────────────────┘
-                               │
-                ┌──────────────▼──────────────────────────────────────────┐
-                │  webui-backend (FastAPI orchestrator)                   │
-                │   /api/vpn/protocols      — both lanes' live status     │
-                │   /api/vpn/ppk-rotations  — operator/curl only, no page │
-                │        calls it. Windowed (30 s..max), TTL-cached.      │
-                │        Reports distinct_ids beside count, so            │
-                │        reinstalling one credential cannot inflate the   │
-                │        total; count: null + error means "could not      │
-                │        look", which is not zero. See checklist 2.14     │
-                │   (mu/nu optimisation runs client-side on /physics)     │
-                │   /api/pqc/{algorithms,roundtrip}                       │
-                └──┬───────────────────────────────────────────────┬──────┘
-                   │                                               │
-        ┌──────────▼──────────┐                       ┌────────────▼─────────┐
-        │ alice + bob (WG)    │                       │ alice-ipsec +        │
-        │  arnika → wgctrl    │                       │ bob-ipsec (strongSwan)│
-        │  Curve25519+Noise   │                       │ RFC 9370 hybrid IKE  │
-        │  + PSK rotation     │                       │ ECP-256 + ML-KEM-768 │
-        │  every 30 s         │                       │ + vici PSK injection │
-        └──────────┬──────────┘                       └─────────┬────────────┘
-                   │                                            │
-                   └────────────── arnika HKDF(QKD‖PQC) ────────┘
-                                              │
-                ┌─────────────────────────────▼─────────────────────────────┐
-                │ Phase 8: 7 QKD backends + paper supplementary             │
-                │ ┌──────┬─────┬────────┬───────┬──────────┬──────────┬───┐│
-                │ │qutip │simqn│sequence│cvqkd  │qkdnetsim │composite │tno││
-                │ └──────┴─────┴────────┴───────┴──────────┴──────────┴───┘│
-                │ precompute_keyrate_table_fallback.py (offline SKR table) │
-                │ aparcar/qkd-pqc-paper-supplementary (Phase 9-B baseline) │
-                └───────────────────────────────────────────────────────────┘
-```
-
-PQC TLS lanes (Phase 9-C, crypto agility per RFC 7696; **not** SP 800-131A
-Rev. 3, which `docs/references.md` records as an initial public draft that has
-never gone final -- citing it as a conformance target here contradicted this
-repository's own reference table):
-- `Dockerfile.oqs-provider` — broadest algorithm space (ML-KEM, ML-DSA, SLH-DSA,
-  Falcon, HQC, Classic McEliece) for research and crypto agility
-- `Dockerfile.openssl35-native` — FIPS-stable native ML-KEM / ML-DSA (OpenSSL 3.5+)
-- Both are **build artefacts only** — neither is a service in any
-  `docker-compose*.yml`, so neither runs. A `PQC_PROVIDER={oqs|native}` switch
-  was previously documented here; it does not exist. See the correction in
-  [`docs/phases.md`](docs/phases.md) for what agility is actually implemented.
-
-### A.3 Phase 10 — Quantum-Secure E2E live simulation
-
-A single WebUI page (`/e2e`) drives an actual background simulation through the
-4-phase Data Exchange depicted in the reference architecture image:
-
-```
-   ┌─────────────────────────────────────────────────────────────────┐
-   │ services/webui-frontend/src/pages/QuantumSecureE2E.tsx          │
-   │  SVG arch (Site A / Site B, ARNIKA/ROSENPASS/WIREGUARD, KMS)    │
-   │  Mode A/B/C buttons + Run/Pause/Resume/Reset/Step + 4 KPI cards │
-   └────────────────────────────┬────────────────────────────────────┘
-                                │ REST + WS
-   ┌────────────────────────────▼────────────────────────────────────┐
-   │ (deleted -- see the Superseded note below)                      │
-   │  state: idle → running ↔ paused; reset → idle                   │
-   │  cycle: phase1 → phase2 → phase3 → phase4 → phase1 …            │
-   │  pub/sub WS at ~4 Hz                                             │
-   └─────┬──────────────┬───────────────┬──────────────────┬──────────┘
-         │              │               │                  │
-   Phase 1 Phase 2 Phase 3 Phase 4
-   Poll KME ETSI 014 HKDF-SHA3-256 ChaCha20-Poly1305
-   /status enc/dec_keys (qkd ‖ pqc)        × 64 packets
-   (bb84-kme-a/b) (arnika sim) (Rosenpass sim) (WireGuard sim)
-```
-
-REST surface:
-- `GET /api/e2e/state`
-- `POST /api/e2e/{start,pause,resume,reset,step,mode}`
-- `WS /ws/e2e` (~4 Hz live snapshots)
-
-> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
-> simulation (`services/webui-frontend/src/lib/sim/e2eSim.ts` and
-> `paperSim.ts`); the frontend opens no WebSocket at all. The backend
-> orchestrators and the REST/WebSocket surface described above have been
-> deleted. The paper budgets survive in
-> `services/webui-backend/app/paper_budgets.py`, which is what
-> `/api/verify/paper-budgets` now reads.
-
-
-Mode mapping:
-- `A` → `mode_label = "QKD-only"` (skips PQC in Phase 3)
-- `B` → `mode_label = "PQC-only"` (skips QKD in Phase 2)
-- `C` → `mode_label = "Hybrid (QKD ‖ PQC)"` (default — both phases active)
-
-Detailed image-to-code mapping: see
-[`docs/IMAGE1_VPN_SCOPE.md`](docs/IMAGE1_VPN_SCOPE.md) for the single-tunnel
-scope and [`docs/IMAGE2_MULTIHOP.md`](docs/IMAGE2_MULTIHOP.md) for the
-trusted-node multi-hop chain. The second was reachable only by knowing the
-filename -- nothing in the tree linked it.
-
-### A.4 Phase 12 — File-backed logger + shared UI + per-page exports
-
-```
-   ┌─────────────────────────────────────────────────────────────────┐
-   │   webui-frontend                                                │
-   │   <PageHeader title=... exports={ logService, jsonProvider,     │
-   │                                    csvProvider, ... }>          │
-   │     └─ <ExportToolbar>                                          │
-   │           Logs /  PNG /  JSON /  CSV /  Animation     │
-   │             │                                                   │
-   │             ├─ lib/exporters.ts (lazy-loads html-to-image,      │
-   │             │                    GIF encoder on demand)        │
-   │             └─ Blob → URL.createObjectURL → <a download>        │
-   └─────────────────────────────────────────────────────────────────┘
-                                  │ /api/logs/{files,download/<svc>}
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────────┐
-   │   webui-backend                                                 │
-   │   logging_setup.configure("webui-backend") on startup           │
-   │     - stdout handler (for `docker logs`)                       │
-   │     - RotatingFileHandler /var/log/pqcqkd/webui-backend.log     │
-   │     - list_log_files() + read_tail() used by HTTP endpoints     │
-   └────────────────────────┬────────────────────────────────────────┘
-                            │ /var/log/pqcqkd (shared volume)
-   ┌────────────────────────┼────────────────────────────────────────┐
-   │  pqcqkd-logs volume    │                                        │
-   │   alice.log / bob.log / webui-backend.log                       │
-   │   (10 MB × 5 backups each, .log.1 / .log.2 / ... on rotation)   │
-   └─────────────────────────────────────────────────────────────────┘
-```
-
-Shared UI under `services/webui-frontend/src/components/`:
-- `PageHeader`, `Panel`, `Row`, `Badge`, `Button`, `KPI`, `ExportToolbar`
-- Dark theme tokens centralised in `services/webui-frontend/src/lib/commonStyles.ts`
-- Phase 10/11 SVG inside the Quantum-Secure E2E page is left untouched
-
-### A.5 Phase 14 — Paper Data Exchange page + Rust ETSI 014 KME (vendored, not built)
-
-```
-   ┌──────────────────────────────────────────────────────────────────┐
-   │  webui-frontend                                                   │
-   │  ┌──────────────────────────┐    ┌──────────────────────────┐    │
-   │  │ /e2e (image 1, polished) │    │ /paper-flow (image 2)    │    │
-   │  │ single-tunnel concept    │    │ multi-hop daisy chain    │    │
-   │  │ Phase 11 v2 SVG + label  │    │ 5 phases + cascade       │    │
-   │  │ y-coords adjusted        │    │ 4 sub-components         │    │
-   │  └──────────────────────────┘    └─────────────┬────────────┘    │
-   └────────────────────────────────────────────────┬─────────────────┘
-                                                    │ REST + /ws/paper-flow
-                                ┌───────────────────▼──────────────────┐
-                                │ services/webui-backend/app/          │
-                                │   paper_flow.py                      │
-                                │     - 5-phase state machine          │
-                                │     - PHASE_BUDGETS constant         │
-                                │       (paper, Evaluation Test 1, Table 1)        │
-                                │     - 7-stage cascade scheduler      │
-                                │     - WS pub/sub                     │
-                                └────────────┬──────────────────────────┘
-                                             │
-                              ┌──────────────┴──────────────────┐
-                              │  2 ETSI 014 servers RUNNING     │
-                              │  - bb84-kme (Python + SimQN)    │
-                              │  - qkdnetsim-kme (Flask facade) │
-                              │  vendored, not wired in:        │
-                              │  - submodules/qkd_kme_server    │
-                              │      (Rust, 2026-04-01 active)  │
-                              └─────────────────────────────────┘
-```
-
-> **Superseded.** The `/e2e` and `/paper-flow` pages moved to client-side
-> simulation, and `paper_flow.py` was deleted with the rest of the WebSocket
-> orchestrators. Only its literature constants survive, in
-> [`paper_budgets.py`](services/webui-backend/app/paper_budgets.py), which
-> `/api/verify/paper-budgets` still serves. The diagram above is kept as the
-> record of Phase 14; it is not how the pages work now. See
-> [`docs/phases.md`](docs/phases.md).
-
----
-
-## 6. Repository Layout
-
-Moved here from `README.md` section 3 on 2026-08-29. It is reference material
--- you consult it when looking for a file, not when learning what the project
-is -- and at 47 lines it was longer than the README introduction and
-architecture sections together.
-
-
-```
-pqc-qkd-hybrid/
-├── README.md                          # ← you are here
-├── ARCHITECTURE.md                    # Detailed design & paper mapping
-├── docker-compose.yml                 # Main topology
-├── docker-compose.boringtun.yml       # WG kernel fallback (userspace)
-├── docker-compose.multihop.yml        # Adds Charlie relay (paper, 3.2 Routing and Composition)
-├── .env.example                       # Sample environment
-├── Makefile                           # build / up / smoke / bench
-├── references/                        # Reference papers (only where the licence permits)
-├── submodules/                        # Git submodules (unmodified)
-│   ├── arnika/                     # Go binary baked into node image
-│   ├── liboqs/                        # NIST PQC (ML-KEM, ML-DSA, SLH-DSA, Falcon)
-│   ├── oqs-provider/                  # OpenSSL 3.x provider for PQC TLS
-│   ├── rosenpass/                     # (after `make init`) PQC handshake daemon
-│   ├── SimQN/                         # (Phase 8) Python BB84 + Cascade + TPA (2026-05-25)
-│   ├── SeQUeNCe/                      # (Phase 8) Argonne photonic-realism DES (2026-05-12)
-│   ├── qkdnetsim/                     # (Phase 8) NS-3 v3.46 ETSI 014/004 reference KMS
-│   ├── openQKDsecurity/               # (Phase 8) MATLAB SDP — vendored, not yet used
-│   ├── strawberryfields/              # (Phase 8) CV-QKD GG02
-│   ├── tno-qkd-key-rate/             # (Phase 8) TNO-Quantum decoy-state BB84/BBM92 key-rate (Apache-2.0, v2.0.4)
-│   ├── PQClean/                       # (Phase 8) NIST PQC reference implementations
-│   ├── qkd_kme_server/               # (Phase 14) Rust ETSI GS QKD 014 KME server
-│   └── qkd-pqc-paper-supplementary/  # (Phase 14) Spooren et al. containerlab multi-hop emulation
-├── config/                            # (Phase 8) Central tunables
-│   ├── qkd_params.yaml                # Single source of truth (hot-reloaded)
-│   └── qkd_keyrate_table.json         # Pre-computed SKR table (Lo-Ma 2005 + Lim 2014)
-├── services/
-│   ├── bb84-kme/                      # Python: 7-backend BB84/CV-QKD + ETSI-014 REST
-│   │                                  #   + ETSI-004 V2.1.1 (app/etsi004*.py, off by default)
-│   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
-│   ├── webui-backend/                 # FastAPI orchestrator
-│   ├── webui-frontend/                # React/Vite/Plotly/D3 dashboard (14 pages incl.
-│   │                                  #   /e2e, /paper-flow and the /protocol-lab simulation)
-│   ├── pqc-tls-demo/                  # Optional: oqs-provider TLS sanity
-│   ├── pqc-validator/                 # (Phase 8) liboqs; @noble-vs-liboqs ML-KEM interop
-│   └── qkdnetsim-kme/                 # (Phase 8) 2nd ETSI 014 server (Flask; image builds NS-3, does not run it)
-├── tools/                             # (Phase 8) Precompute scripts (Python; no MATLAB script here)
-├── nodes/{alice,strongswan}/          # Docker contexts. NOT per-node: bob and
-│                                      #   charlie reuse nodes/alice's image
-├── pki/                               # mTLS cert generation (`make pki`; nothing consumes the output yet)
-├── animations/                        # Manim scenes (.py)
-├── benchmarks/                        # Latency / throughput scripts
-├── tests/                             # pytest contract & unit tests
-└── docs/                              # keyrate, vici-ppk, references, roadmap,
-                                       #   phases, paper_mapping, THIRD_PARTY_NOTICES, ...
-```
+How the system arrived at this shape, phase by phase, is kept in
+[`docs/phases.md`](docs/phases.md); sections 1-7 above describe what runs today.

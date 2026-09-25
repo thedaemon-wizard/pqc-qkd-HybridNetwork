@@ -1,23 +1,28 @@
 # =====================================================================
-# qkdnetsim-kme — NS-3 v3.46 + qkdnetsim contrib (ETSI GS QKD 014 reference)
+# qkdnetsim-kme — Flask ETSI GS QKD 014 facade (kme_facade.py). The image also
+#                 compiles NS-3 v3.46 + qkdnetsim, which is NOT executed.
 #
 # Build stages:
 #   1) builder : compile NS-3 + qkdnetsim from source
-#   2) runtime : ubuntu:22.04 with just the binaries + minimal libs
+#   2) runtime : ubuntu:22.04 with the build output and the Flask facade
 #
-# This image is used by the `composite_sim_to_net` backend and exercised by
-# tests/test_etsi014_contract.py, which checks the ETSI GS QKD 014 REST
-# contract.
+# The runtime entrypoint is kme_facade.py, a Flask app that mints keys with
+# `secrets.token_bytes`. It is used by the `composite_sim_to_net` and
+# `qkdnetsim_proxy` backends as a second, independently written ETSI 014
+# server, which exercises bb84-kme's client code against a server it was not
+# written alongside. What that checks is the REST contract, never key material.
 #
-# It previously named tests/test_etsi014_crossvalidate.py, "to cross-check the
-# Python KME against the reference C++ implementation". That test has never
-# existed, and the runtime entrypoint is kme_facade.py -- a Flask app -- so
-# there is no C++ KME on the other side to compare against. What gets checked
-# is the contract, not key material. See the note on the build step below: the
-# same shape, one layer down, where a failed NS-3 compile still produced a
-# green image because the healthcheck probed a Flask route.
+# Nothing runs tests/test_etsi014_contract.py against this container. CI points
+# that suite at bb84-kme-a and bb84-kme-b, no CI job or Makefile target starts
+# the `crossvalidate` overlay, and the facade implements only the GET forms, so
+# the suite's POST-form cases would get 405 here. This header used to name that
+# suite as the one exercising the image; an earlier version named a
+# cross-validation test that has never existed. See the note on the build step
+# below for the same shape one layer down, where a failed NS-3 compile still
+# produced a green image because the healthcheck probed a Flask route.
 #
-# NOTE: First build is ~10-15 min. Subsequent builds are cached.
+# NOTE: First build is ~10-15 min. Subsequent builds are cached. CI does not
+# build this image, so whether it still builds is checked only by hand.
 # =====================================================================
 FROM ubuntu:22.04 AS builder
 
@@ -63,7 +68,13 @@ WORKDIR /src/ns-3-dev
 # turned this from a silently NS-3-less image into a red build.
 RUN ./ns3 configure --enable-examples --enable-modules='core;network;internet;applications;point-to-point;mobility;aodv;dsdv;olsr;qkdnetsim' 2>&1 | tail -n 5 || true
 
-# Build — the qkdnetsim ETSI 014 example produces a binary we can invoke.
+# Build the qkdnetsim module library.
+#
+# `./ns3 build qkdnetsim` builds the module target, not the qkdnetsim example
+# programs, and nothing in the runtime stage invokes an NS-3 binary either. The
+# examples also need modules the list above leaves out (netanim, flow-monitor,
+# internet-apps and, for the emulation variants, fd-net-device), so a binary
+# built from them should not be assumed to exist in this image.
 #
 # `pipefail` is required for the `||` below to mean anything. Without it this
 # stage runs under `/bin/sh -c` and takes the PIPELINE's status, which is
@@ -85,8 +96,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip libxml2 libgtk-3-0 \
         libcrypto++8 uuid libsqlite3-0 libboost-all-dev \
         ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir flask==3.0.3 pyyaml==6.0.2
+    rm -rf /var/lib/apt/lists/*
+COPY services/qkdnetsim-kme/requirements.txt /opt/qkdnetsim-kme/requirements.txt
+RUN pip install --no-cache-dir -r /opt/qkdnetsim-kme/requirements.txt
 
 COPY --from=builder /src/ns-3-dev/build /opt/ns3/build
 COPY --from=builder /src/ns-3-dev/contrib/qkdnetsim /opt/ns3/contrib/qkdnetsim
@@ -94,7 +106,9 @@ ENV LD_LIBRARY_PATH=/opt/ns3/build/lib
 
 COPY services/qkdnetsim-kme/kme_facade.py /opt/qkdnetsim-kme/kme_facade.py
 WORKDIR /opt/qkdnetsim-kme
-EXPOSE 80 81
+# Port 80 only. 81 was also exposed for an ETSI 004 endpoint that was
+# withdrawn; nothing listens there.
+EXPOSE 80
 HEALTHCHECK --interval=5s --timeout=3s --retries=20 --start-period=10s \
     CMD curl -sf http://localhost:80/health || exit 1
 

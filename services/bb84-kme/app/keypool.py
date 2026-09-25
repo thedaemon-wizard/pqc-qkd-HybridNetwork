@@ -160,14 +160,19 @@ class KeyPool:
         self._withdrawn: dict[str, None] = {}
 
         self._backend_name = backend_name or resolve_default_backend_name()
-        # Boot resilience: the configured backend may need a heavy submodule
-        # (SimQN / SeQUeNCe / Strawberry Fields / TNO) whose editable install
-        # was skipped — e.g. the submodule wasn't checked out before
-        # `docker compose build`. Rather than crash the whole KME on startup
-        # (which surfaces as "container is unhealthy / dependency failed to
-        # start"), fall back to the always-present built-in `qutip` backend
-        # and log loudly. Operators can switch to the real backend at runtime
-        # via POST /sim/backend once its submodule is present.
+        # Boot resilience: the configured backend may fail to construct. The
+        # bb84-kme image installs all four heavy backends (SimQN / SeQUeNCe /
+        # Strawberry Fields / TNO) at BUILD time and fails the build if one
+        # does not install, so inside that image this is a backend whose
+        # constructor raised; outside it (a local run of this app) it is also
+        # a heavy package that is simply not installed. Rather than crash the
+        # whole KME on startup (which surfaces as "container is unhealthy /
+        # dependency failed to start"), fall back to the built-in `qutip`
+        # backend and log loudly. Another backend is selected with
+        # SIMULATOR_BACKEND and a recreated container (a plain restart keeps
+        # the old environment under compose), or live through this KME's
+        # POST /sim/backend, which the WebUI forwards (POST /api/sim/backend)
+        # only where ENABLE_LIVE_PARAM_OVERRIDES is set.
         try:
             self.backend: KeyProducer = make_backend(self._backend_name, cfg_from_yaml())
         except Exception as e:
@@ -240,6 +245,23 @@ class KeyPool:
                 continue
             outcome: RoundOutcome = await self.backend.run_round()
             await self._record(outcome)
+            if not outcome.accepted and (outcome.backend_meta or {}).get("error"):
+                # The backend could not run a round at all -- the backends
+                # that catch their own exceptions (simqn, sequence, cvqkd,
+                # qkdnetsim_proxy, and composite through the proxy) report them
+                # as `backend_meta["error"]`, and for qkdnetsim_proxy that
+                # means its service is unreachable -- as
+                # distinct from a round that ran and aborted on QBER, which
+                # carries no error and is retried at once as before. Without a
+                # pause this loop retried a failing backend at once, forever:
+                # a pool below the watermark never waits, so one unreachable
+                # dependency meant a spinning producer and a warning per turn.
+                # Waits on `_stopped`, not `_wake`: enc_keys sets `_wake` on
+                # every empty-pool request, which would cut the pause short.
+                try:
+                    await asyncio.wait_for(self._stopped.wait(), timeout=idle_timeout_s)
+                except TimeoutError:
+                    pass
 
     async def stop(self) -> None:
         self._stopped.set()
@@ -442,9 +464,19 @@ class KeyPool:
     def set_eve(self, enabled: bool, prob: float) -> None:
         self.backend.set_eve(enabled, prob)
 
-    def switch_backend(self, name: str) -> None:
-        """Live backend swap (called from /api/backend)."""
-        self.backend = make_backend(name, cfg_from_yaml())
+    async def switch_backend(self, name: str) -> None:
+        """Live backend swap (called from POST /sim/backend).
+
+        The candidate is built and preflighted BEFORE it replaces the running
+        backend. ValueError (unknown name) and RuntimeError (a dependency that
+        is not there, e.g. qkdnetsim-kme without its overlay) propagate, and
+        the backend in use is left exactly as it was -- the route maps them to
+        400 and 503. The swap used to be unconditional, so one request could
+        leave the producer on a backend that fails every round.
+        """
+        candidate = make_backend(name, cfg_from_yaml())
+        await candidate.preflight()
+        self.backend = candidate
         self._backend_name = name
         self._stats.backend = self.backend.backend_name
         log.info("switched backend → %s", name)

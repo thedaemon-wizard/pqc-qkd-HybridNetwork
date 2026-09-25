@@ -16,7 +16,12 @@ numpy==2.5.3
 qutip==5.3.1
 uvicorn==0.32.1
 pydantic==2.10.4
+# Same as requirements.txt, where the reason is recorded: SeQUeNCe's install
+# moved pyyaml past the old pin, and pandas had none.
+pyyaml==6.0.3
+pandas==3.0.6
 # Strawberry Fields (cvqkd backend) imports the legacy `pkg_resources`, which
 # setuptools >=81 removed. SeQUeNCe's install otherwise upgrades setuptools to
 # 82 and breaks the cvqkd backend ("No module named 'pkg_resources'"). Hold it.
+# Permanent while Strawberry Fields is a dependency: upstream is archived.
 setuptools<81

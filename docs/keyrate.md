@@ -134,10 +134,17 @@ and the single-photon error rate above by Eq. (22):
 e_1^{U} \;=\; \frac{E_{\nu_1}Q_{\nu_1}e^{\nu_1} - E_{\nu_2}Q_{\nu_2}e^{\nu_2}}{(\nu_1 - \nu_2)\,Y_1^{L}}
 ```
 
+The single-photon gain follows from $`Y_1^L`$:
+
+```math
+Q_1 \;=\; \mu e^{-\mu} Y_1^{L}
+```
+
 At $`\nu_2 = 0`$ (the shipped default) the second decoy is the vacuum,
-$`Q_{\nu_2} = Y_0`$ and $`E_{\nu_2} = e_0 = \tfrac12`$, and the two expressions
-reduce to the vacuum-plus-weak forms, with denominator $`\mu\nu_1 - \nu_1^2`$
-and $`e_1^U = (E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0)/(Y_1^L\nu_1)`$. This
+$`Q_{\nu_2} = Y_0`$ and $`E_{\nu_2} = e_0 = \tfrac12`$, and $`Y_1^L`$ and
+$`e_1^U`$ reduce to the vacuum-plus-weak forms, with denominator
+$`\mu\nu_1 - \nu_1^2`$ and
+$`e_1^U = (E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0)/(Y_1^L\nu_1)`$. This
 section showed only those reduced forms until 2026-09-25, while `_skr.py` and
 `keyrate.ts` implement the general ones; the code is what
 `tests/test_keyrate_ports_agree.py` checks, including cases with
@@ -145,17 +152,13 @@ $`\nu_2 > 0`$.
 
 **In these asymptotic expressions $`Y_0`$ is the configured dark-count yield,
 not an estimate:** $`Y_0 = \text{dark\_count\_rate\_hz} / \text{pulse\_rate\_hz}`$.
-A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). The finite-key
-rate of section 5 -- the rate the backends and `/physics` report -- does bound
-the vacuum contribution from the decoy counts ($`s_{X,0}`$); what it inherits
-instead is the caveat stated there, that those counts are expected under the
-channel model rather than observed.
-
-giving the single-photon gain
-
-```math
-Q_1 \;=\; \mu e^{-\mu} Y_1^{L}
-```
+A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). This asymptotic
+rate is the one `/physics` and `/verify` display (checklist row 4.7.3). The
+finite-key rate of section 5 -- the rate the KME backends and `/protocol-lab`
+use -- does bound the vacuum contribution from the decoy counts ($`s_{X,0}`$);
+what it inherits instead is the caveat stated there, that those counts are
+expected under the channel model rather than observed. The two are different
+numbers, and at the same parameters the finite-key one is lower.
 
 Both bounds are clamped to physical ranges ($`Y_1^L \geq 0`$,
 $`0 \leq e_1^U \leq \tfrac12`$); the rate is clamped at $`0`$, since a negative
@@ -302,7 +305,7 @@ the comparison worth anything -- see section 5 and the `verdict` field.
 | [ConicQKD.jl](https://github.com/araujoms/ConicQKD.jl) | Finite-size rates from Renyi entropies via non-symmetric conic optimisation | MIT | 2026-08-24 |
 | [Renyi-security-framework](https://github.com/Optical-Quantum-Communication-Theory/Renyi-security-framework) | Decoy BB84, 1- and 2-decoy, against **coherent** attacks | MIT | 2026-08-09 |
 | [1-decoy BB84 key-rate simulation](https://github.com/JeromeWiesemann/Quantum-key-distribution-secure-key-rate-simulation-1-decoy-BB84) | Reference implementation for Wiesemann et al., arXiv:2405.16578 | MIT | 2026-01-20 |
-| [LDPC4QKD](https://github.com/XQP-Munich/LDPC4QKD) | Rate-adaptive LDPC reconciliation -- would **measure** $`f_{EC}`$ instead of assuming it | GPL-3.0 | 2026-08-22 |
+| [LDPC4QKD](https://github.com/XQP-Munich/LDPC4QKD) | Rate-adaptive LDPC reconciliation -- would **measure** $`f_{\mathrm{EC}}`$ instead of assuming it | GPL-3.0 | 2026-08-22 |
 
 Several more sit in the same Waterloo group as `openQKDsecurity` (numerical
 security proofs, entropy-accumulation finite-size analysis), all MIT, all
@@ -310,7 +313,8 @@ MATLAB.
 
 ### Why none of them replaced the code here
 
-**Language.** Four of the five are MATLAB or Julia. This is a Python service
+**Language.** Of the four above, two are Julia or MATLAB, as are the
+Waterloo packages, and LDPC4QKD is C++. This is a Python service
 with a TypeScript port that runs the same model in the browser, and
 `tests/test_keyrate_ports_agree.py` holds the two within a relative $`10^{-9}`$. Adding a third
 runtime to a container that currently needs none would cost more than the
@@ -328,10 +332,10 @@ is copyleft but this repository already documents how it handles GPL components
 
 ### The one that would change a real claim
 
-`LDPC4QKD` is the interesting entry. `f_EC = 1.16` is currently an **assumed
-constant** -- `docs/roadmap.md` lists "no real error correction" as a known gap,
+`LDPC4QKD` is the interesting entry. $`f_{\mathrm{EC}}`$ (`protocol.ec_efficiency_f`) is
+currently an **assumed constant** -- `docs/roadmap.md` lists "no real error correction" as a known gap,
 and the leakage is never measured. A rate-adaptive LDPC reconciliation would
-turn $`f_{EC}`$ from an assumption into a measurement, which is the kind of
+turn $`f_{\mathrm{EC}}`$ from an assumption into a measurement, which is the kind of
 change that makes a claim stronger rather than merely different. It is
 recorded here rather than scheduled: it is a substantial piece of work, and
 GPL-3.0 in the key path is a decision for the maintainer.

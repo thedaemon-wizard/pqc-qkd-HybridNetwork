@@ -48,6 +48,10 @@ class CompositeBackend(KeyProducer):
         self._proxy = QKDNetSimProxyBackend(cfg)
         self._last_pushed_rate = -1.0
 
+    async def preflight(self) -> None:
+        """Every round goes through the proxy, so its dependency is this one's."""
+        await self._proxy.preflight()
+
     async def _push_rate_to_net(self) -> float:
         """Compute keyRate from physical model and inform qkdnetsim KME."""
         Y0 = self.cfg.dark_count_rate_hz / max(self.cfg.pulse_rate_hz, 1.0)

@@ -1,10 +1,14 @@
 # =====================================================================
 # OpenSSL 3.5+ native PQC TLS demo.
 #
-# 2025-07 released OpenSSL 3.5.0 ships ML-KEM-{512,768,1024} and ML-DSA
-# natively. This is the "FIPS-stable" PQC path — recommended for production.
-# Complementary to the oqs-provider stack which keeps algorithm agility
-# (HQC, Falcon, SLH-DSA, Classic McEliece for research).
+# OpenSSL 3.5.0 (released 2025-04-08) ships ML-KEM-{512,768,1024}, ML-DSA and
+# SLH-DSA in its default provider, so this lane needs no plugin. It is the
+# standardised-algorithm lane, not a certified one: it runs Debian's default
+# provider, not a FIPS 140-3 validated module in FIPS mode, and nothing in this
+# repository is fit for production (docs/LIMITATIONS.md). An earlier header
+# called it "FIPS-stable" and "recommended for production"; neither held.
+# The oqs-provider lane (Dockerfile.oqs-provider) runs on the same OpenSSL and
+# adds non-standard KEM groups through the provider mechanism.
 #
 # Usage:
 #   make pqc-tls-demo-both
@@ -37,7 +41,8 @@ RUN openssl req -x509 -newkey rsa:2048 -keyout /etc/ssl/private/server.key \
 
 EXPOSE 4433
 
-# Group selection per IETF Draft draft-kwiatkowski-tls-ecdhe-mlkem-02
+# The three PQ/T hybrid groups of RFC 10024 (August 2026), which this line
+# previously cited as the individual draft draft-kwiatkowski-tls-ecdhe-mlkem-02.
 ENV TLS_GROUPS="X25519MLKEM768:SecP256r1MLKEM768:SecP384r1MLKEM1024"
 
 CMD ["sh", "-c", "openssl s_server -tls1_3 -groups ${TLS_GROUPS} \

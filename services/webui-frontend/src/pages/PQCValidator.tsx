@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Button from "../components/Button";
 import ExportToolbar from "../components/ExportToolbar";
 import {
-  KEM_NAMES, SIG_NAMES, PQC_PROVIDER,
+  KEM_NAMES, SIG_NAMES, PQC_PROVIDER, policyStanding,
   kemRoundtrip, sigRoundtrip, SIG_FAMILY, kemInterop, type InteropResult,
   type KemName, type SigName, type KemResult, type SigResult,
 } from "../lib/sim/pqc";
@@ -22,6 +22,8 @@ export default function PQCValidator() {
   const [kem, setKem] = useState<KemResult | null>(null);
   const [sig, setSig] = useState<SigResult | null>(null);
   const [server, setServer] = useState<any>(null);
+  /** Why the liboqs round-trip returned nothing, when it failed. */
+  const [serverErr, setServerErr] = useState<string | null>(null);
   const [interop, setInterop] = useState<InteropResult | null>(null);
   const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,8 +34,9 @@ export default function PQCValidator() {
   // Titling from `kem?.algo` stops the heading lying, but leaving a stale
   // result body under a picker set to something else is still a mismatch a
   // reader has to notice. Clearing makes the page say "press Run", which is
-  // the truth. Same for the interop row, which is keyed to the KEM.
-  useEffect(() => { setKem(null); setInterop(null); }, [kemName]);
+  // the truth. Same for the interop row and the liboqs round-trip, which are
+  // keyed to the KEM -- the liboqs panel kept the previous algorithm's JSON.
+  useEffect(() => { setKem(null); setInterop(null); setServer(null); setServerErr(null); }, [kemName]);
   useEffect(() => { setSig(null); }, [sigName]);
 
   // Probe the optional server-side validator once. Its absence is a normal
@@ -61,7 +64,11 @@ export default function PQCValidator() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ algo: kemName }),
         });
-        setServer(r.ok ? await r.json() : null);
+        // A refused round-trip is shown as one. Storing null here rendered
+        // "Press Run round-trips" right after Run had been pressed.
+        const body = await r.json().catch(() => null);
+        setServer(r.ok ? body : null);
+        setServerErr(r.ok ? null : `HTTP ${r.status}${body?.detail ? `: ${body.detail}` : ""}`);
 
         // The real cross-check: liboqs encapsulates to a key this browser
         // generated, and we decapsulate what comes back. Agreement here cannot
@@ -169,6 +176,7 @@ export default function PQCValidator() {
             <>
               <Row k="Shared secrets agree" v={<Verdict ok={kem.sharedSecretMatch} />} />
               <Row k="NIST category" v={String(kem.category)} />
+              <Row k="Policy standing" v={policyStanding(kem.algo)} />
               <Row k="Public key" v={`${kem.publicKeyLen} B`} />
               <Row k="Secret key" v={`${kem.secretKeyLen} B`} />
               <Row k="Ciphertext" v={`${kem.cipherTextLen} B`} />
@@ -188,6 +196,7 @@ export default function PQCValidator() {
               <Row k="Signature verifies" v={<Verdict ok={sig.verified} />} />
               <Row k="Rejects tampered message" v={<Verdict ok={sig.rejectsTamperedMessage} />} />
               <Row k="NIST category" v={String(sig.category)} />
+              <Row k="Policy standing" v={policyStanding(sig.algo)} />
               <Row k="Public key" v={`${sig.publicKeyLen} B`} />
               <Row k="Secret key" v={`${sig.secretKeyLen} B`} />
               <Row k="Signature" v={`${sig.signatureLen} B`} />
@@ -214,6 +223,10 @@ export default function PQCValidator() {
                      v={lengthsAgree === null ? "—" : <Verdict ok={lengthsAgree} />} />
                 <pre style={preBox}>{JSON.stringify(server, null, 2)}</pre>
               </>
+            ) : serverErr ? (
+              <p role="status" style={{ color: "#f5a623", fontSize: 12, margin: 0 }}>
+                The liboqs round-trip was refused: {serverErr}.
+              </p>
             ) : <Idle />
           ) : (
             <p style={{ color: "#9aa9d8", fontSize: 12, margin: 0 }}>
@@ -253,9 +266,9 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
     // minimum gap the label and value ABUT, and at a 700px content width /vpn
     // rendered `ProposalAES_GCM_16-256/PRF_HMAC_SHA2_384/...` as one unreadable
     // token. Measured in the browser on 2026-08-27; first collision at ~900px.
-    // Four near-identical Row components exist (here, PQCValidator,
-    // QuantumSecureE2E, and an UNUSED components/Row.tsx); all are fixed the
-    // same way. Consolidating them is a separate change.
+    // Three near-identical Row components exist (VpnProtocols, PQCValidator,
+    // QuantumSecureE2E; an unused fourth in components/ was deleted); all are
+    // fixed the same way. Consolidating them is a separate change.
     <div style={{ display: "flex", justifyContent: "space-between",
                    gap: 12, padding: "3px 0", fontSize: 13 }}>
       <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>

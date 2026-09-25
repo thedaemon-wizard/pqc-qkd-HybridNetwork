@@ -202,10 +202,11 @@ the spec file's transition table:
 ## 8. Limits
 
 - **No authentication.** Like ETSI 014 on this stack and `/internal/sync`, the
-  binding is reachable only on the internal compose networks: no KME port is
-  published, the frontend proxies only `/api/`, and webui-backend has no route
-  that reaches it (`tests/test_the_004_binding_is_not_public.py`). mTLS is not
-  implemented.
+  binding is reachable from any container on `qkd-net` or `mgmt-net` (the KMEs
+  sit on both) and from the Docker host, but not from outside it: no KME port
+  is published, the frontend proxies only `/api/`, and webui-backend has no
+  route that reaches it (`tests/test_the_004_binding_is_not_public.py`). mTLS
+  is not implemented.
 - **In memory, one worker.** Streams live in the KME process; a restart
   forgets them, and the peer then closes its side on the next call (T15). Run
   the KME as a single uvicorn worker.

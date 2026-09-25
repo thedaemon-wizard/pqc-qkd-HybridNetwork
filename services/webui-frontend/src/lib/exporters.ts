@@ -103,7 +103,22 @@ export function takeExportNotice(): string {
   return n;
 }
 
-/** Deliver the file from memory, then ALSO offer it to the backend's catalogue.
+/** Per-export options. */
+export interface ExportOptions {
+  /**
+   * Also POST a copy to the shared saved-exports gallery. Off unless the user
+   * asks for it.
+   *
+   * Every export -- 10-60 s WebM captures included -- used to be base64-encoded
+   * and uploaded as a side effect of downloading it, so the server became a
+   * bandwidth and storage dependency for work the browser had already
+   * finished, and visitors' files landed in a gallery every other visitor sees
+   * without anyone choosing that.
+   */
+  gallery?: boolean;
+}
+
+/** Deliver the file from memory, then (only if asked) offer it to the backend's catalogue.
  *
  *  The order used to be the other way round: upload first, then download from
  *  the URL the backend returned. Two costs, and the second is the one the
@@ -123,10 +138,11 @@ export function takeExportNotice(): string {
  *  convenience on top, so `takeExportNotice` now says the saved-exports list
  *  did not get a copy rather than that the download fell back to local. */
 async function saveToBackendAndDownload(
-  blob: Blob, name: string, ext: string, filenameFallback: string,
+  blob: Blob, name: string, ext: string, filenameFallback: string, opts: ExportOptions,
 ): Promise<void> {
   // The file the visitor asked for, before anything can go wrong.
   triggerDownload(blob, filenameFallback);
+  if (!opts.gallery) return;
   try {
     const buf = await blob.arrayBuffer();
     // Chunked base64 — spreading a multi-MB byte array into String.fromCharCode
@@ -166,10 +182,24 @@ async function saveToBackendAndDownload(
  *  could set it — so a reader who opens an old artefact sees a key the current
  *  build never writes, with nothing in the file to say which build made it.
  *  That is not a defect in the old artefact; it is history. The version makes
- *  it legible as history rather than as a contradiction. */
-export const EXPORT_SCHEMA_VERSION = 2;
+ *  it legible as history rather than as a contradiction.
+ *
+ *  3: /e2e's run state renamed `current_phase`, `phase_name` and
+ *     `history[].phase` to `current_step`, `step_name` and `history[].step`
+ *     (its numbering is its own, not /paper-flow's phases); /paper-flow's
+ *     cascade `triggered_at` now means "when the cascade clock reached the
+ *     stage" (null while pending) instead of a scheduled wall-clock time;
+ *     /bb84: key_pool renamed key_pool_bits; rounds (total) added -- both in
+ *     the on-screen engine-stats JSON; the JSON export gained `rounds_total`.
+ *     A round that sifted nothing now has `last_qber` / `qber_history[]` /
+ *     the CSV's `qber` null (the log prints n/a) where it was 0, and the
+ *     CSV's and log's `round` count from the start of the run instead of
+ *     from 0 in the kept window. */
+export const EXPORT_SCHEMA_VERSION = 3;
 
-export async function downloadJSON(name: string, data: unknown): Promise<void> {
+export async function downloadJSON(
+  name: string, data: unknown, opts: ExportOptions = {},
+): Promise<void> {
   // Stamped here rather than at each call site, so no page can forget it and
   // no page can disagree with another about the number.
   //
@@ -186,15 +216,18 @@ export async function downloadJSON(name: string, data: unknown): Promise<void> {
     [JSON.stringify(stamped, null, 2)],
     { type: "application/json" },
   );
-  await saveToBackendAndDownload(blob, name, "json", `${name}-${timestamp()}.json`);
+  await saveToBackendAndDownload(blob, name, "json", `${name}-${timestamp()}.json`, opts);
 }
 
-export async function downloadCSV(name: string, rows: Record<string, any>[]): Promise<void> {
-  if (!rows.length) {
-    await saveToBackendAndDownload(new Blob(["# empty\n"], { type: "text/csv" }),
-                                     name, "csv", `${name}-${timestamp()}.csv`);
-    return;
-  }
+/**
+ * The CSV text `downloadCSV` saves for a non-empty row set.
+ *
+ * One column per key, in the order keys first appear across the rows, so a
+ * key that only a later row carries still gets a column. Separate from the
+ * download so a test can read the header a page actually ships rather than a
+ * list of keys assembled beside it.
+ */
+export function csvText(rows: Record<string, any>[]): string {
   const cols = Array.from(
     rows.reduce((acc: Set<string>, r) => { Object.keys(r).forEach(k => acc.add(k)); return acc; },
                 new Set<string>()),
@@ -204,12 +237,22 @@ export async function downloadCSV(name: string, rows: Record<string, any>[]): Pr
     const s = String(v).replace(/"/g, '""');
     return /[",\n]/.test(s) ? `"${s}"` : s;
   };
-  const csv = [
+  return [
     cols.join(","),
     ...rows.map(r => cols.map(c => esc(r[c])).join(",")),
   ].join("\n");
-  await saveToBackendAndDownload(new Blob([csv], { type: "text/csv" }),
-                                   name, "csv", `${name}-${timestamp()}.csv`);
+}
+
+export async function downloadCSV(
+  name: string, rows: Record<string, any>[], opts: ExportOptions = {},
+): Promise<void> {
+  if (!rows.length) {
+    await saveToBackendAndDownload(new Blob(["# empty\n"], { type: "text/csv" }),
+                                     name, "csv", `${name}-${timestamp()}.csv`, opts);
+    return;
+  }
+  await saveToBackendAndDownload(new Blob([csvText(rows)], { type: "text/csv" }),
+                                   name, "csv", `${name}-${timestamp()}.csv`, opts);
 }
 
 /**
@@ -267,7 +310,8 @@ async function svgToPngDataUrl(svg: SVGSVGElement,
 }
 
 export async function downloadPNG(name: string,
-                                   target: HTMLElement | SVGSVGElement): Promise<void> {
+                                   target: HTMLElement | SVGSVGElement,
+                                   opts: ExportOptions = {}): Promise<void> {
   if (target instanceof SVGSVGElement) {
     // Prefer the explicit viewBox dimensions so the exported PNG matches the
     // architecture diagram's full canvas, not the squashed on-screen size.
@@ -276,14 +320,14 @@ export async function downloadPNG(name: string,
     const h = vb && vb.height ? vb.height : (target.getBoundingClientRect().height || 620);
     const dataUrl = await svgToPngDataUrl(target, Math.round(w), Math.round(h));
     const blob = await (await fetch(dataUrl)).blob();
-    await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`);
+    await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`, opts);
     return;
   }
   const mod = await import("html-to-image");
   // pixelRatio 2 → high-DPI/retina-quality PNG (default ~1 was low quality).
   const dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17", pixelRatio: 2 });
   const blob = await (await fetch(dataUrl)).blob();
-  await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`);
+  await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`, opts);
 }
 
 /**
@@ -303,6 +347,7 @@ export async function downloadGif(
   target: HTMLElement | SVGSVGElement,
   durationMs: number = DEFAULT_CAPTURE_MS,
   fps: number = DEFAULT_GIF_FPS,
+  opts: ExportOptions = {},
 ): Promise<void> {
   if (fps <= 0) throw new Error(`gif fps must be positive, got ${fps}`);
   const intervalMs = 1000 / fps;
@@ -348,7 +393,7 @@ export async function downloadGif(
 
   await saveToBackendAndDownload(
     new Blob([output as BlobPart], { type: "image/gif" }),
-    name, "gif", `${name}-${timestamp()}.gif`,
+    name, "gif", `${name}-${timestamp()}.gif`, opts,
   );
 }
 
@@ -398,6 +443,7 @@ export async function downloadWebM(
   durationMs: number = DEFAULT_CAPTURE_MS,
   fps: number = DEFAULT_WEBM_FPS,
   bitsPerSecond: number = DEFAULT_WEBM_BITRATE,
+  opts: ExportOptions = {},
 ): Promise<void> {
   const captureStream = (HTMLCanvasElement.prototype as any).captureStream;
   if (typeof MediaRecorder === "undefined" || !captureStream) {
@@ -460,7 +506,7 @@ export async function downloadWebM(
   await stopped;
   const blob = new Blob(chunks, { type: "video/webm" });
   if (!blob.size) throw new Error("WebM capture produced no data");
-  await saveToBackendAndDownload(blob, name, "webm", `${name}-${timestamp()}.webm`);
+  await saveToBackendAndDownload(blob, name, "webm", `${name}-${timestamp()}.webm`, opts);
 }
 
 export async function downloadServiceLog(service: string, lines: number = 1000): Promise<void> {
@@ -470,12 +516,9 @@ export async function downloadServiceLog(service: string, lines: number = 1000):
   if (!r.ok) {
     throw new Error(`server log ${service} unavailable (HTTP ${r.status})`);
   }
+  // A missing file is a 404 now (the backend used to answer 200 with a
+  // "# log file ... not found" body, which this function had to sniff for).
   const text = await r.text();
-  // The backend answers 200 with this literal when the file is absent, so a
-  // status check alone is not enough to tell "no log" from "here is the log".
-  if (text.startsWith("# log file") && text.includes("not found")) {
-    throw new Error(`server has no log for ${service} yet`);
-  }
   triggerDownload(new Blob([text], { type: "text/plain" }),
                   `${service}-${timestamp()}.log`);
 }

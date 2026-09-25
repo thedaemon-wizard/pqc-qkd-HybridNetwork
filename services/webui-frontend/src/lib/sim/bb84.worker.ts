@@ -13,7 +13,7 @@
  * photon table is the run by construction. The key-pool model is shared with
  * them via bb84Channel.ts, where it used to be a third verbatim copy.
  */
-import { advanceKeyPool } from "./bb84Channel";
+import { advanceKeyPool, PULSES_PER_ROUND, roundQber } from "./bb84Channel";
 import { BUNDLED_PARAMS, bundledChannel } from "./keyrate";
 
 interface Cfg {
@@ -31,7 +31,7 @@ interface Frame {
 // to the configured one; it is now the same bundled set the page falls back to.
 let cfg: Cfg = {
   ...bundledChannel(),
-  eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
+  eveOn: false, eveProb: 1.0, pulsesPerRound: PULSES_PER_ROUND,
   qberAbort: BUNDLED_PARAMS.qberThresholdAbort,
 };
 let running = false;
@@ -48,7 +48,7 @@ function rnd(): number {
 }
 const bit = () => (rnd() < 0.5 ? 0 : 1);
 
-function runRound(): { qber: number; pool_size: number; frames: Frame[]; pulses: number } {
+function runRound(): { qber: number | null; pool_size: number; frames: Frame[]; pulses: number } {
   const { etaTotal, eD, Y0, eveOn, eveProb, pulsesPerRound } = cfg;
   let sifted = 0, errors = 0;
   const frames: Frame[] = [];
@@ -79,8 +79,8 @@ function runRound(): { qber: number; pool_size: number; frames: Frame[]; pulses:
         bob_basis: bBasis, bob_bit: bBit, basis_match: match });
     }
   }
-  const qber = sifted > 0 ? errors / sifted : 0;
-    pool = advanceKeyPool(pool, sifted, qber, cfg.qberAbort);
+  const qber = roundQber(sifted, errors);
+  pool = advanceKeyPool(pool, sifted, qber, cfg.qberAbort);
   return { qber, pool_size: pool, frames, pulses: pulsesPerRound };
 }
 

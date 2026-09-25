@@ -62,7 +62,12 @@ export interface PresetLink {
   id: string;
   a: string;
   b: string;
-  /** `non-qkd-keystore`: keys from a local store, not QKD. Never routed. */
+  /**
+   * `non-qkd-keystore`: a hop fed from previously generated keys in a local
+   * store rather than a live QKD link. The source does not say how those keys
+   * were generated, so this does not claim they were not QKD output. Never
+   * routed.
+   */
   kind: "qkd" | "non-qkd-keystore";
   /** The system as the source names it. */
   system: string | null;
@@ -137,6 +142,20 @@ export function quantityValue(q: Quantity): number {
   const n = Number(q.printed);
   if (!Number.isFinite(n)) throw new Error(`not a single number: "${q.printed}" (${q.ref})`);
   return n * TO_BASE[q.unit];
+}
+
+/**
+ * Half a unit in the last digit the source printed, in the same base unit as
+ * `quantityValue`: "6.1" % gives 0.0005, because the source's 6.1 stands for
+ * anything from 6.05 to 6.15. A comparison closer than this is not settled by
+ * the printed number. Only plain decimals are accepted; anything else throws
+ * rather than guessing a precision the source did not print.
+ */
+export function quantityHalfStep(q: Quantity): number {
+  const m = /^-?\d+(?:\.(\d+))?$/.exec(q.printed);
+  if (!m) throw new Error(`not a plain decimal: "${q.printed}" (${q.ref})`);
+  const decimals = m[1]?.length ?? 0;
+  return 0.5 * Math.pow(10, -decimals) * TO_BASE[q.unit];
 }
 
 const q = (printed: string, unit: Unit, ref: string, provenance: Provenance,
@@ -527,12 +546,18 @@ const thuringia: TopologyPreset = {
       medium: "fibre", endpoints: { ref: `${THU}, Table I`, provenance: "table" },
       length: q("70", "km", `${THU}, Table I`, "table"), lengthAlt: [],
       loss: q("17", "dB", `${THU}, Table I (section IV.B: "approximately 17 dB")`, "table", { qualifier: ">" }),
-      rate: q("12.7", "bps", `${THU}, Table I`, "table", { sd: "10.3" }),
-      qber: q("13.3", "%", `${THU}, Table I`, "table", { sd: "9.6" }),
+      // "average": the source's word for both (section IV.A: the QBERs are
+      // "averages over the respective measurement campaigns", and this link's
+      // rate is "the reported average SKR").
+      rate: q("12.7", "bps", `${THU}, Table I`, "table", { qualifier: "average", sd: "10.3" }),
+      qber: q("13.3", "%", `${THU}, Table I`, "table", { qualifier: "average", sd: "9.6" }),
       aerial: q("51", "km", `${THU}, section IV.B`, "text"),
       buried: q("19", "km", `${THU}, Fig. 1(a)`, "figure-label"),
       campaign: q("22", "days", `${THU}, section IV.A`, "text"),
-      notes: ["Mostly aerial fibre; QBER variation tracks wind speed (section IV.B)."],
+      notes: [
+        "Mostly aerial fibre; QBER variation tracks wind speed (section IV.B).",
+        "Its rate is the average of per-interval rates: intervals whose QBER exceeded the security threshold produced no key, although the campaign-mean QBER is itself above that threshold (section IV.A). Free play here generates at this mean continuously.",
+      ],
     },
     {
       id: "ERF-IOF", a: "ERF", b: "IOF", kind: "qkd", system: "Entangled photons (BBM92)",
@@ -541,8 +566,10 @@ const thuringia: TopologyPreset = {
       length: q("69", "km", `${THU}, Table I`, "table"),
       lengthAlt: [q("75", "km", `${THU}, section IV.A (the 2022 route, "approximately 75-km")`, "text", { qualifier: "approximately" })],
       loss: q("21", "dB", `${THU}, Table I (section IV.B: "approximately 21 dB")`, "table", { qualifier: ">" }),
+      // The QBER is an average in so many words (section IV.A). The rate is
+      // not called one explicitly, so it keeps no qualifier.
       rate: q("22.2", "bps", `${THU}, Table I`, "table", { sd: "4.7" }),
-      qber: q("6.1", "%", `${THU}, Table I`, "table", { sd: "0.8" }),
+      qber: q("6.1", "%", `${THU}, Table I`, "table", { qualifier: "average", sd: "0.8" }),
       aerial: q("4", "km", `${THU}, section IV.B`, "text"),
       buried: q("65", "km", `${THU}, section IV.B`, "text", { qualifier: "approximately" }),
       campaign: q("2", "days", `${THU}, section IV.A`, "text"),
@@ -553,12 +580,13 @@ const thuringia: TopologyPreset = {
       protocol: "none", protocolRef: null,
       medium: null, endpoints: { ref: `${THU}, section III`, provenance: "text" },
       length: null, lengthAlt: [], loss: null, rate: null, qber: null,
-      notes: ["Keys came from a local keystore, not QKD, 'owing to hardware-availability constraints' (section III). Never routed here."],
+      notes: ["'previously generated keys from a local keystore were used instead, owing to hardware-availability constraints' (section III); Fig. 1(c) labels both ends 'QKD Device (Pre-Shared Keys)'. The paper does not say how the stored keys were generated. Never routed here."],
     },
   ],
   notes: [
     "The two QKD rates come from separate campaigns, two and 22 days long; the links were not run at the same time (section IV.A).",
-    "The deployment ran hop-by-hop QKD tunnels with one end-to-end PQC tunnel on top -- the same layering as this repository. Relaying key across this chain exists only in the simulation.",
+    "Table I's ± values are temporal standard deviations over each campaign, not measurement uncertainties (section IV.A).",
+    "The paper runs arnika with QKD keys only on each hop and carries post-quantum protection in a separate end-to-end tunnel (QuantShake, SND to UKJ) that the trusted nodes forward without holding its key (sections III and V). This repository instead mixes a Rosenpass key into each hop's WireGuard PSK through arnika (also per leg in docker-compose.multihop.yml, where the relay node holds both legs' keys); a separate end-to-end layer exists here only in the /paper-flow simulation. Relaying key across this chain exists only in the simulation.",
   ],
   freePlay: { accounting: "keys", why: "Both QKD links have a reported rate; the keystore hop is never routed." },
   defaultDemand: { from: "SND", to: "IOF" },

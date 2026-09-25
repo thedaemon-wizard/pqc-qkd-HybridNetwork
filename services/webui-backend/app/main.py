@@ -4,14 +4,18 @@ Endpoints:
     GET  /api/health
     GET  /api/stack          : container status (alice/bob/bb84-kme-*)
     GET  /api/stats          : aggregated KME + arnika stats
-    GET  /api/logs/{name}    : last N log lines from a container
-    GET  /api/wg/{node}      : redacted `wg show wg0` for the node. NOT `dump`:
-                               that form emits the interface private key and the
-                               preshared key in plaintext. See WG_SHOW_CMD.
+    GET  /api/logs/{name}    : last N log lines from one of LOG_CONTAINERS; any
+                               other name is 404 before Docker is asked
+    GET  /api/wg/{node}      : redacted `wg show wg0` for one of WG_NODES. NOT
+                               `dump`: that form emits the interface private key
+                               and the preshared key in plaintext. See WG_SHOW_CMD.
     POST /api/stack/{action}/{name} : start|stop|restart a service
                              ^^^^^^^ the {name} segment is not optional. Omitting
                              it here is what made scripts/verify-demo-hardening.sh
                              probe a route that does not exist and pass on the 404.
+    POST /api/sim/backend, /api/sim/params, /api/sim/params/reset
+                             : live KME overrides; 403 unless
+                               ENABLE_LIVE_PARAM_OVERRIDES is set
     GET  /api/topology       : graph nodes/edges for D3
 
     This module serves no bench route, and never has. The ping benchmark is
@@ -29,7 +33,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -83,13 +87,18 @@ def _truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 # When DEMO_MODE is on (public multi-user host) the demo is functionally
-# EQUIVALENT to full mode EXCEPT the one genuinely dangerous operation —
-# container lifecycle control (/api/stack/*), which could take the shared demo
-# offline — and a per-IP token-bucket rate-limit on POSTs (abuse protection).
-# Backend switching, parameter overrides and (bounded) server-side export saves
-# are all ALLOWED: they are reversible / capacity-bounded / rate-limited and
-# cannot damage the shared host. Local full-stack and the cloud real-WG deploy
-# run with DEMO_MODE OFF (unchanged behaviour).
+# EQUIVALENT to full mode EXCEPT container lifecycle control (/api/stack/*),
+# which could take the shared demo offline. Every mutating verb is rate-limited
+# whatever DEMO_MODE says (see demo_rate_limit). Local full-stack and the cloud
+# real-WG deploy run with DEMO_MODE OFF.
+#
+# This comment used to add that backend switching and parameter overrides were
+# "reversible ... and cannot damage the shared host". They cannot damage it, but
+# they are not private to the visitor who makes them: both KMEs hold ONE
+# process-global override set (last write wins), and those KMEs feed arnika's
+# QKD half on both live VPN lanes. One visitor's `eve.enabled` or
+# `link_length_km: 300` was every visitor's, and every lane's. They are now
+# opt-in; see LIVE_PARAM_OVERRIDES_ENABLED.
 DEMO_MODE = _truthy(os.environ.get("DEMO_MODE"))
 DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / window
 DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
@@ -113,10 +122,51 @@ CONTAINER_CONTROL_ENABLED = (
     _truthy(os.environ.get("ENABLE_CONTAINER_CONTROL")) and not DEMO_MODE
 )
 
+# Live KME overrides are OPT-IN, for the same reason and in the same shape.
+#
+# POST /api/sim/backend, /api/sim/params and /api/sim/params/reset write to
+# state that is process-global on BOTH KMEs: the simulator backend, the
+# in-memory override set (eve.enabled, eve.intercept_prob,
+# protocol.qber_threshold_abort, link length, ...), and its reset. Those KMEs
+# are not a sandbox. They fill the key pool arnika draws the QKD half of every
+# PSK from, on both live VPN lanes. On a host with more than one visitor, the
+# last writer silently decides what everyone else sees and what both lanes run
+# on, which is the multi-user data conflict the public demo must avoid.
+#
+# /physics already computes key rates in the browser, so turning these routes
+# off costs a visitor nothing but the ability to change the shared KMEs. The
+# three routes answer 403 with LIVE_PARAM_OVERRIDES_DISABLED_DETAIL; the GET
+# routes are unchanged, and GET /api/config reports the flag as
+# `live_param_overrides` so the page can say which model its edits reach.
+# Parsed exactly like ENABLE_CONTAINER_CONTROL; a missing or misspelled
+# variable yields the safe deployment.
+LIVE_PARAM_OVERRIDES_ENABLED = _truthy(os.environ.get("ENABLE_LIVE_PARAM_OVERRIDES"))
+LIVE_PARAM_OVERRIDES_DISABLED_DETAIL = (
+    "live parameter overrides are disabled on this host "
+    "(ENABLE_LIVE_PARAM_OVERRIDES=false); edits apply to the in-browser model only"
+)
+
+
+def _require_live_param_overrides() -> None:
+    """403 unless this host opted in to shared, process-global KME overrides.
+
+    Attached to the three routes as a dependency, not called from their bodies:
+    FastAPI resolves dependencies before it validates the request body, so a
+    bodyless POST, or one whose JSON does not match the parameter, is refused
+    with the same 403 as a valid one instead of a 422 that says nothing about
+    the switch. A body that is not JSON at all still fails in the parser,
+    which runs first, with 422.
+
+    Reads the module global at call time, so a test (or an operator poking a
+    running process) sees the value that is actually in force.
+    """
+    if not LIVE_PARAM_OVERRIDES_ENABLED:
+        raise HTTPException(403, LIVE_PARAM_OVERRIDES_DISABLED_DETAIL)
+
 
 @app.middleware("http")
 async def demo_rate_limit(request, call_next):
-    """Per-IP token-bucket on POST requests. ALWAYS ON.
+    """Per-IP token-bucket on POST, PUT, PATCH and DELETE requests. ALWAYS ON.
 
     This was gated on DEMO_MODE. The public demo runs with DEMO_MODE unset --
     `GET /api/config` returns `{"demo_mode": false, "rate_limit": null}` -- so
@@ -182,6 +232,9 @@ async def config() -> dict[str, Any]:
         # host that has one, which is the shape of claim this project keeps
         # removing. scripts/verify-demo-hardening.sh reads this field.
         "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S},
+        # Whether POST /api/sim/{backend,params,params/reset} reach the shared
+        # KMEs. False means /physics edits change only the in-browser model.
+        "live_param_overrides": LIVE_PARAM_OVERRIDES_ENABLED,
         # The rotation interval arnika was started with, as configured
         # (ARNIKA_INTERVAL, e.g. "30s"). The Overview used to print "30 s" as a
         # literal; this is the value compose actually passed. None when unset,
@@ -203,9 +256,11 @@ async def config() -> dict[str, Any]:
 # absence-rendered-as-a-measurement defect this project treats as a bug
 # everywhere else.
 #
-# Derived from the compose files rather than asserted here; the values are
-# checked against them by tests/test_optional_services_are_labelled.py, so this
-# dict cannot drift from `profiles:` without the build noticing.
+# Derived from the compose files rather than asserted here. This comment used to
+# say the values were already checked by tests/test_optional_services_are_labelled.py
+# when no such file existed, so nothing did. It exists now: it reads every
+# compose file at the repository root and fails if a profile-gated service is
+# missing here, or if an entry names the wrong profile or file.
 PROFILE_GATED: dict[str, tuple[str, str]] = {
     "qkdnetsim-kme": ("crossvalidate", "docker-compose.qkdnetsim.yml"),
     "alice-ipsec": ("ipsec", "docker-compose.strongswan.yml"),
@@ -236,25 +291,40 @@ def stack() -> list[dict[str, Any]]:
     return _store("stack", _stack_uncached())
 
 
-def _stack_uncached() -> list[dict[str, Any]]:
-    names = ["alice", "bob", "bb84-kme-a", "bb84-kme-b", "webui-backend",
-             "webui-frontend", "pqc-validator", "alice-ipsec", "bob-ipsec",
-             "qkdnetsim-kme"]
+# The containers /api/stack reports on, in display order.
+STACK_SERVICES: tuple[str, ...] = (
+    "alice", "bob", "bb84-kme-a", "bb84-kme-b", "webui-backend",
+    "webui-frontend", "pqc-validator", "alice-ipsec", "bob-ipsec",
+    "qkdnetsim-kme",
+)
 
-    def gating(n: str) -> dict[str, Any]:
-        """Why this row may legitimately be absent. Empty for required ones."""
+
+def _stack_uncached() -> list[dict[str, Any]]:
+    names = STACK_SERVICES
+
+    def gating(n: str, status: str) -> dict[str, Any]:
+        """Why this row may legitimately be absent. Empty for required ones.
+
+        The explanation of absence is attached only to an absent row. It used
+        to ride on every optional row, so a green `running` chip for
+        alice-ipsec carried the tooltip "Absent here means the overlay was not
+        started" -- a note contradicting the chip it was attached to.
+        """
         if n not in PROFILE_GATED:
             return {}
         profile, compose = PROFILE_GATED[n]
+        where = (f"not in the default stack: defined only in {compose} behind "
+                 f"`profiles: [\"{profile}\"]`.")
+        if status == "absent":
+            note = (f"{where} Absent here means the overlay was not started on "
+                    f"this host, not that anything failed.")
+        else:
+            note = where
         return {
             "optional": True,
             "profile": profile,
             "compose_file": compose,
-            "note": (
-                f"not in the default stack: defined only in {compose} behind "
-                f"`profiles: [\"{profile}\"]`. Absent here means the overlay "
-                f"was not started, not that anything failed."
-            ),
+            "note": note,
         }
 
     out: list[dict[str, Any]] = []
@@ -262,14 +332,25 @@ def _stack_uncached() -> list[dict[str, Any]]:
     if cli is None:
         # `unknown`, not `absent`: we could not look. Keep the gating metadata
         # so the page can still explain the optional rows.
-        return [{"name": n, "status": "unknown", **gating(n)} for n in names]
+        return [{"name": n, "status": "unknown", **gating(n, "unknown")} for n in names]
     for n in names:
         try:
             c = cli.containers.get(n)
-        except Exception:
-            # The container genuinely is not there. This is the only path that
-            # may say "absent".
-            out.append({"name": n, "status": "absent", **gating(n)})
+        except docker.errors.NotFound:
+            # The container genuinely is not there: Docker answered 404 for
+            # the name. This is the only path that may say "absent".
+            out.append({"name": n, "status": "absent", **gating(n, "absent")})
+            continue
+        except Exception as e:
+            # Anything else -- an APIError, a socket timeout, a daemon that is
+            # restarting -- means we could not look, which is not the same
+            # fact as "not there". This branch used to share the absent one
+            # (`except Exception:`), so a transient Docker error painted
+            # bb84-kme-a as missing, and qkdnetsim-kme as absent "not that
+            # anything failed" when something had.
+            log.warning("docker lookup of %s failed: %s", n, e)
+            out.append({"name": n, "status": "unknown", "error": str(e)[:200],
+                        **gating(n, "unknown")})
             continue
 
         # Reading the image is a SEPARATE failure from the container being
@@ -300,23 +381,39 @@ def _stack_uncached() -> list[dict[str, Any]]:
             "status": c.status,
             "image": image,
             "started_at": c.attrs.get("State", {}).get("StartedAt"),
-            **gating(n),
+            **gating(n, c.status),
         })
     return out
 
 
 # ----------------------- Stats -----------------------
+# /benchmarks polls this once a second per open tab (usePoll(..., 1000)), and
+# each poll was two KME round trips. One second of cache collapses any number
+# of viewers onto one sample per second without making the chart visibly
+# staler than its own poll interval.
+STATS_TTL_S = float(os.environ.get("STATS_TTL_S", "1.0"))
+
+
 @app.get("/api/stats")
 async def stats():
+    hit, _ = _cached("stats", STATS_TTL_S)
+    if hit is not None:
+        return hit
     async with httpx.AsyncClient(timeout=2.0) as client:
         results: dict[str, Any] = {}
         for label, url in (("alice", KME_A_URL), ("bob", KME_B_URL)):
             try:
                 r = await client.get(f"{url}/sim/stats")
-                results[label] = r.json()
+                # A KME that answers 4xx/5xx has not reported stats. Its
+                # FastAPI error body `{"detail": ...}` used to be passed on as
+                # though it were the stats object.
+                if r.status_code >= 400:
+                    results[label] = {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
+                else:
+                    results[label] = r.json()
             except Exception as e:
                 results[label] = {"error": str(e)}
-        return results
+        return _store("stats", results)
 
 
 # ----------------------- Log redaction and bounds -----------------------
@@ -406,9 +503,35 @@ def download_log(service: str, lines: int = Query(1000, ge=1, le=LOGS_MAX_TAIL))
 # Persist artefacts (PNG, JSON, CSV, GIF, log) into a shared volume, then offer
 # them for download via a stable URL. Lets users save/share simulation outputs
 # beyond a single browser session.
+#
+# The store is public: anyone who can reach the host can list, download and
+# delete what is in it. So its bounds are set HERE, whatever DEMO_MODE says.
+# They used to be tightened only by deploy/docker-compose.demo.yml, and the
+# public host does not run that overlay, so it ran on the looser defaults
+# (50 MiB x 200 files, roughly 10 GB of disk reachable by anonymous POSTs).
+_MIB = 1024 * 1024
 EXPORT_DIR = os.environ.get("EXPORT_DIR", "/var/lib/pqcqkd-exports")
-EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", 50 * 1024 * 1024))
-EXPORT_MAX_FILES = int(os.environ.get("EXPORT_MAX_FILES", 200))
+# Per file and file count: the values the demo overlay already used. The whole
+# public store, recordings included, was 12.7 MB on 2026-09-25, well inside one
+# file's limit.
+EXPORT_MAX_BYTES = int(os.environ.get("EXPORT_MAX_BYTES", 25 * _MIB))
+EXPORT_MAX_FILES = int(os.environ.get("EXPORT_MAX_FILES", 100))
+# The whole store. Count x size alone still allowed 2.5 GB; this caps the disk
+# the catalogue can occupy. The public store held 60 files / 12.7 MB on
+# 2026-09-25, so this is ample headroom for real use.
+EXPORT_MAX_TOTAL_BYTES = int(os.environ.get("EXPORT_MAX_TOTAL_BYTES", 512 * _MIB))
+# What the frontend actually saves (exporters.ts: json, csv, png, gif, webm),
+# plus the two plain-text forms the download route already typed. Anything
+# else was accepted verbatim before, which made the store a public file drop.
+EXPORT_CONTENT_TYPES: dict[str, str] = {
+    "json": "application/json",
+    "csv": "text/csv",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webm": "video/webm",
+    "log": "text/plain",
+    "txt": "text/plain",
+}
 
 
 def _ensure_export_dir():
@@ -419,41 +542,68 @@ def _ensure_export_dir():
 
 
 def _gc_export_dir() -> None:
-    """Keep only the most recent EXPORT_MAX_FILES files (oldest deleted first)."""
+    """Keep the store inside EXPORT_MAX_FILES and EXPORT_MAX_TOTAL_BYTES.
+
+    The newest files are kept for as long as both bounds hold; from the first
+    file that would break either, it and everything older is deleted.
+    """
     from pathlib import Path
     d = Path(EXPORT_DIR)
     if not d.exists():
         return
     files = sorted(d.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old in files[EXPORT_MAX_FILES:]:
-        try: old.unlink()
+    kept_files, kept_bytes, full = 0, 0, False
+    for f in files:
+        try:
+            size = f.stat().st_size
+        except FileNotFoundError:
+            continue
+        full = full or (kept_files + 1 > EXPORT_MAX_FILES
+                        or kept_bytes + size > EXPORT_MAX_TOTAL_BYTES)
+        if not full:
+            kept_files += 1
+            kept_bytes += size
+            continue
+        try: f.unlink()
         except Exception: pass
 
 
+# Plain `def`: decoding and writing up to EXPORT_MAX_BYTES is blocking work, and
+# under `async def` it ran on the event loop that serves every other route.
 @app.post("/api/exports/save")
-async def export_save(req: dict):
+def export_save(req: dict):
     """Body: {name: str, ext: str, content_b64: str}
     Saves <timestamp>-<safe_name>.<ext> into EXPORT_DIR.  Returns the URL.
-    Allowed in DEMO_MODE: the store is capacity-bounded (EXPORT_MAX_FILES FIFO +
-    EXPORT_MAX_BYTES/file — tightened via env in the demo profile), names are
-    sanitised (no path traversal), and POSTs are per-IP rate-limited."""
+    Bounded in code, not by DEMO_MODE: EXPORT_CONTENT_TYPES extensions only
+    (415 otherwise), EXPORT_MAX_BYTES per file, and EXPORT_MAX_FILES /
+    EXPORT_MAX_TOTAL_BYTES for the store, oldest evicted first. Names are
+    sanitised (no path traversal), and POSTs are rate-limited."""
     import base64
     import re
     import time
     raw_name = str(req.get("name", "export"))
-    ext = str(req.get("ext", "bin")).lstrip(".").lower()
+    ext = str(req.get("ext", "")).lstrip(".").lower()
     content_b64 = req.get("content_b64")
     if not content_b64:
         raise HTTPException(400, "content_b64 required")
+    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext)[:8]
+    if safe_ext not in EXPORT_CONTENT_TYPES:
+        # Checked before decoding, so a refused upload costs no base64 work.
+        raise HTTPException(
+            415, f"extension {safe_ext or '(none)'!r} not accepted; "
+                 f"allowed: {sorted(EXPORT_CONTENT_TYPES)}")
     try:
         data = base64.b64decode(content_b64, validate=False)
     except Exception as e:
         raise HTTPException(400, f"invalid base64: {e}")
-    if len(data) > EXPORT_MAX_BYTES:
-        raise HTTPException(413, f"payload {len(data)} > limit {EXPORT_MAX_BYTES}")
+    # The store cap as well: a file larger than the whole store would be
+    # evicted by _gc_export_dir the moment it landed, and the URL returned
+    # below would name a file that no longer exists.
+    limit = min(EXPORT_MAX_BYTES, EXPORT_MAX_TOTAL_BYTES)
+    if len(data) > limit:
+        raise HTTPException(413, f"payload {len(data)} > limit {limit}")
 
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_name)[:80] or "export"
-    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext)[:8] or "bin"
     ts = time.strftime("%Y%m%d-%H%M%S")
     filename = f"{ts}-{safe_name}.{safe_ext}"
 
@@ -499,12 +649,11 @@ async def export_download(filename: str):
     p = Path(EXPORT_DIR) / safe
     if not p.exists():
         raise HTTPException(404, "not found")
-    ct_map = {".png": "image/png", ".gif": "image/gif",
-              ".json": "application/json", ".csv": "text/csv",
-              ".log": "text/plain", ".txt": "text/plain"}
-    return FileResponse(p, media_type=ct_map.get(p.suffix.lower(),
-                                                  "application/octet-stream"),
-                        filename=safe)
+    # Same table the save route admits by. Files written before the allow-list
+    # existed can carry any extension; those are served as opaque bytes.
+    media_type = EXPORT_CONTENT_TYPES.get(p.suffix.lower().lstrip("."),
+                                          "application/octet-stream")
+    return FileResponse(p, media_type=media_type, filename=safe)
 
 
 @app.delete("/api/exports/{filename}")
@@ -515,22 +664,78 @@ async def export_delete(filename: str):
     if safe != filename or ".." in safe:
         raise HTTPException(400, "invalid filename")
     p = Path(EXPORT_DIR) / safe
-    if p.exists():
+    # 404 for a file that is not there. This answered {"ok": true} either way,
+    # so a delete that removed nothing -- a typo, or a file another visitor had
+    # already deleted -- read as a successful deletion.
+    try:
         p.unlink()
+    except FileNotFoundError:
+        raise HTTPException(404, "not found")
     return {"ok": True}
 
 
-# ----------------------- Logs (Docker stdout, dynamic by container name) -----------------------
+# ----------------------- Logs (Docker stdout, allow-listed by container name) -----------------------
+# The containers a public route may reach through the Docker socket, and the
+# only ones. ONE table for both routes that take a container name from the URL,
+# so they cannot drift apart.
+#
+# `/api/logs/{name}` used to call `cli.containers.get(name)` for ANY name. On
+# the public demo that served the stdout of every container on the host --
+# measured 2026-09-25: `/api/logs/caddy` answered 200 with the reverse proxy's
+# access log, visitor IPs and User-Agents included. `/api/wg/{node}` ran
+# `docker exec wg show wg0` in any container named in the path, including
+# webui-frontend. The download route beside them was already allow-listed.
+#
+# WG_NODES: the two containers that own a wg0 interface.
+# LOG_CONTAINERS: what /console tails (Console.tsx NAMES, same order).
+WG_NODES: tuple[str, ...] = ("alice", "bob")
+LOG_CONTAINERS: tuple[str, ...] = WG_NODES + (
+    "bb84-kme-a", "bb84-kme-b", "alice-ipsec", "bob-ipsec",
+)
+
+
+def _require_known_container(name: str, allowed: tuple[str, ...]) -> None:
+    """404 for a name outside `allowed`, before Docker or the cache is touched.
+
+    404 rather than 403: from outside, a container this route will not serve
+    and a container that does not exist are the same answer, and saying which
+    one it is would itself be a probe of the host.
+    """
+    if name not in allowed:
+        raise HTTPException(404, f"unknown container {name!r}; allowed: {list(allowed)}")
+
+
+def _prune_expired(prefix: str, ttl: float) -> None:
+    """Drop cache entries under `prefix` older than `ttl`.
+
+    The log cache is keyed per (name, tail), and `tail` ranges over
+    1..LOGS_MAX_TAIL, so without pruning the entries of a sweep over `tail`
+    would stay in memory for the life of the process, each holding up to
+    LOGS_MAX_TAIL lines.
+    """
+    now = time.monotonic()
+    # `list(...)` first: this runs in the threadpool while other handlers write
+    # the same dict, and iterating a dict that changes size raises. Copying
+    # the items is a single C call, so no other thread can interleave with it.
+    for k, v in list(_pure_cache.items()):
+        if k.startswith(prefix) and now - v["at"] >= ttl:
+            _pure_cache.pop(k, None)
+
+
 @app.get("/api/logs/{name}")
 def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str, Any]:
     """Container stdout, redacted and bounded (see _redact_log).
 
+    Only for LOG_CONTAINERS; any other name is 404 before Docker is asked.
+
     Plain `def`: the Docker SDK blocks, and /console polls this every 1.5 s.
     """
+    _require_known_container(name, LOG_CONTAINERS)
     key = f"logs:{name}:{tail}"
     hit, _ = _cached(key, LOGS_TTL_S)
     if hit is not None:
         return hit
+    _prune_expired("logs:", LOGS_TTL_S)
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
@@ -591,6 +796,9 @@ def _redact_wg(text: str) -> str:
 
 @app.get("/api/wg/{node}")
 async def wg_show(node: str):
+    # alice and bob only (WG_NODES): the route used to exec in whatever
+    # container the path named.
+    _require_known_container(node, WG_NODES)
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
@@ -639,12 +847,33 @@ async def stack_action(action: str, name: str):
     return {"ok": True, "action": action, "name": name}
 
 
+# ----------------------- Upstream bodies -----------------------
+def _upstream_json(r: Any, source: str) -> Any:
+    """The JSON body of an upstream 2xx answer, or an HTTPException.
+
+    Several proxies below returned `r.json()` without looking at the status, so
+    an upstream 4xx/5xx -- whose FastAPI body `{"detail": ...}` is valid JSON --
+    went out as HTTP 200 and was rendered, or cached, as data. The upstream
+    status is passed through, as `/api/pqc/interop` already did.
+    """
+    if r.status_code >= 400:
+        raise HTTPException(
+            r.status_code, f"{source} answered HTTP {r.status_code}: {r.text[:200]}")
+    try:
+        return r.json()
+    except ValueError as e:
+        raise HTTPException(502, f"{source} answered with a body that is not JSON: {e}")
+
+
 # ----------------------- Physics params (proxy to KME A) -----------------------
 @app.get("/api/sim/params")
 async def sim_params_proxy():
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        r = await client.get(f"{KME_A_URL}/sim/params")
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{KME_A_URL}/sim/params")
+    except httpx.HTTPError as e:
+        raise HTTPException(503, f"kme unavailable: {e}")
+    return _upstream_json(r, "kme")
 
 
 # ----------------------- Simulator control fan-out -----------------------
@@ -709,25 +938,74 @@ async def _post_both(client: httpx.AsyncClient, path: str,
     return outcomes
 
 
-@app.post("/api/sim/backend")
+def _raise_unless_every_peer_applied(outcomes: dict[str, dict[str, Any]],
+                                     action: str) -> None:
+    """Raise unless every KME applied the change, naming what each peer did.
+
+    Used by the backend switch only. A KME that refused (4xx/5xx) makes the
+    route answer with that status; a KME that could not be reached, with 502.
+    Wrapping either in HTTP 200 is how /physics came to print "Backend switch
+    to qkdnetsim_proxy requested." while both KMEs had answered 503.
+
+    Stricter than the parameter routes, which report an unreachable peer
+    in-band (`ok: false`): a switch that reached one KME leaves the two on
+    different backends, and no reader of a 200 should have to look inside the
+    body to learn that.
+
+    The detail is a string, not the per-node dict: the frontend renders
+    `body.detail` into a sentence. Every peer is named in it, so a half-applied
+    change (alice took it, bob did not) is still visible.
+    """
+    if all(o["ok"] for o in outcomes.values()):
+        return
+    refused = [o["status"] for o in outcomes.values()
+               if o["status"] is not None and o["status"] >= 400]
+    parts = []
+    for n, o in outcomes.items():
+        if o["ok"]:
+            parts.append(f"{n}: applied")
+        elif o["status"] is None:
+            parts.append(f"{n}: unreachable ({o['error']})")
+        else:
+            parts.append(f"{n}: HTTP {o['status']} {o['error']}")
+    raise HTTPException(refused[0] if refused else 502,
+                        f"{action} not applied on every KME: " + "; ".join(parts))
+
+
+@app.post("/api/sim/backend", dependencies=[Depends(_require_live_param_overrides)])
 async def sim_backend_proxy(req: dict[str, Any]):
+    """Switch the simulator backend on BOTH KMEs. Opt-in; see
+    LIVE_PARAM_OVERRIDES_ENABLED.
+
+    Anything short of both KMEs applying it is an HTTP error: the refusing
+    KME's status (400 unknown backend, 503 dependency not deployed), or 502 for
+    a KME that could not be reached -- see _raise_unless_every_peer_applied.
+    """
     async with httpx.AsyncClient(timeout=5.0) as client:
         outcomes = await _post_both(client, "/sim/backend", req)
+    # Invalidated before any raise: a half-applied switch has still changed the
+    # config of the peer that took it.
     _invalidate_keyrate_cache()
+    _raise_unless_every_peer_applied(outcomes, "backend switch")
     return _fanout_result(outcomes)
 
 
 @app.get("/api/sim/params/editable")
 async def sim_params_editable_proxy():
     """Editable parameter descriptors + current effective values (from KME A)."""
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        r = await client.get(f"{KME_A_URL}/sim/params/editable")
-        return r.json()
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(f"{KME_A_URL}/sim/params/editable")
+    except httpx.HTTPError as e:
+        raise HTTPException(503, f"kme unavailable: {e}")
+    return _upstream_json(r, "kme")
 
 
-@app.post("/api/sim/params")
+@app.post("/api/sim/params", dependencies=[Depends(_require_live_param_overrides)])
 async def sim_params_set_proxy(req: dict[str, Any]):
-    """Apply UI parameter overrides to BOTH KMEs (in-memory; config is default)."""
+    """Apply UI parameter overrides to BOTH KMEs (in-memory; config is default).
+
+    Opt-in; see LIVE_PARAM_OVERRIDES_ENABLED."""
     last: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=5.0) as client:
         outcomes = await _post_both(client, "/sim/params", req)
@@ -745,9 +1023,12 @@ async def sim_params_set_proxy(req: dict[str, Any]):
     return {**_fanout_result(outcomes), "kme": last}
 
 
-@app.post("/api/sim/params/reset")
+@app.post("/api/sim/params/reset", dependencies=[Depends(_require_live_param_overrides)])
 async def sim_params_reset_proxy():
-    """Drop UI overrides on both KMEs — revert to config defaults."""
+    """Drop UI overrides on both KMEs — revert to config defaults.
+
+    Gated with the other two: a reset writes to the same shared override set,
+    so an open reset would let any visitor wipe overrides someone else set."""
     async with httpx.AsyncClient(timeout=5.0) as client:
         outcomes = await _post_both(client, "/sim/params/reset")
     _invalidate_keyrate_cache()
@@ -769,9 +1050,9 @@ async def pqc_algos():
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"{PQC_VALIDATOR_URL}/api/algorithms")
-            return r.json()
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
+    return _upstream_json(r, "pqc-validator")
 
 
 @app.post("/api/pqc/interop")
@@ -797,37 +1078,52 @@ async def pqc_roundtrip(req: dict[str, Any]):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{PQC_VALIDATOR_URL}/api/roundtrip", json=req)
-            return r.json()
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
+    # A 400 for an unsupported algorithm is the validator's answer, not a
+    # roundtrip result; it used to come back as HTTP 200 `{"detail": ...}`.
+    return _upstream_json(r, "pqc-validator")
 
 
 # Two endpoints that are PURE FUNCTIONS of things that rarely change, and were
 # recomputed from scratch on every page load.
 #
-# Measured against the live demo 2026-08-28:
+# Measured 2026-09-26 against the pqc-validator and bb84-kme images run on a
+# development workstation, uncached (a small hosted VM is slower):
 #
-#     POST /api/pqc/agility    4.0 s      -- 3 ML-KEM + 3 ML-DSA + 3 SLH-DSA
-#                                            keygen/sign/verify in liboqs
-#     GET  /api/verify/keyrate 1.1 s      -- closed form (microseconds) plus a
-#                                            scipy optimise in the TNO engine
+#     POST /api/pqc/agility    1.7 s      -- 3 ML-KEM + 3 HQC keygen/encap/decap
+#                                            and 3 ML-DSA + 4 SLH-DSA keygen/
+#                                            sign/verify/reject-tampered in
+#                                            liboqs, median of six calls; the
+#                                            three SLH-DSA "s" sets are about
+#                                            1.6 s of it
+#     GET  /api/verify/keyrate 1.0 s      -- closed form (microseconds) plus a
+#                                            scipy optimise in the TNO engine;
+#                                            first call, then 0.2 s once the
+#                                            engine is imported
 #
-# /verify fetches both on mount, so every visitor cost ~5 s of server CPU
-# before seeing anything. The agility matrix does not depend on the request at
-# all -- it runs a fixed algorithm list -- and the key-rate cross-check depends
-# only on config, which POST /api/sim/params changes.
+# /verify fetches both on mount, so uncached, every visitor costs the sum of
+# the two in server CPU before seeing anything. The agility matrix does not
+# depend on the request at all -- it runs a fixed algorithm list -- and the
+# key-rate cross-check depends only on config, which POST /api/sim/params
+# changes.
 #
-# CACHED RATHER THAN MOVED TO THE BROWSER, deliberately. `lib/sim/pqc.ts`
-# already has an `agilityMatrix()` that computes the same thing with
-# @noble/post-quantum, and it is never called. Wiring it in would be the bigger
-# saving -- and would make the panel title ("Crypto-Agility Matrix (liboqs ...)")
-# and the citable export line ("# Crypto-agility matrix (liboqs)") FALSE, because
-# the numbers would then come from a different library. Provenance is the point
-# of that page. A cache buys most of the time back and costs no honesty.
+# CACHED RATHER THAN MOVED TO THE BROWSER, deliberately. `lib/sim/pqc.ts` has an
+# `agilityMatrix()` that computes the same matrix with @noble/post-quantum, and
+# /verify runs it only as an on-demand cross-check BESIDE the liboqs rows
+# (`lib/sim/agilityCrossCheck.ts`). Using it as a replacement would be the
+# bigger saving -- and would make the panel title ("Crypto-Agility Matrix
+# (liboqs ...)") and the citable export line ("# Crypto-agility matrix
+# (liboqs)") FALSE, because the numbers would then come from a different
+# library. Provenance is the point of that page. A cache buys most of the time
+# back and costs no honesty.
 #
-# Failures are cached too, briefly: an unreachable validator should not mean a
-# 20-second httpx timeout per viewer.
+# Failures are cached too, briefly, under their own key and TTL: an unreachable
+# or failing validator should not mean a 20-second httpx timeout per viewer.
+# The upstream status is read before anything is cached, so a validator's 4xx or
+# 5xx body is never stored as the matrix.
 PQC_AGILITY_TTL_S = float(os.environ.get("PQC_AGILITY_TTL_S", "300.0"))
+PQC_AGILITY_ERROR_TTL_S = float(os.environ.get("PQC_AGILITY_ERROR_TTL_S", "10.0"))
 KEYRATE_TTL_S = float(os.environ.get("KEYRATE_TTL_S", "10.0"))
 _pure_cache: dict[str, dict[str, Any]] = {}
 
@@ -861,30 +1157,119 @@ def _invalidate_keyrate_cache() -> None:
     _pure_cache.pop("keyrate", None)
 
 
-@app.post("/api/pqc/agility")
-async def pqc_agility(req: dict[str, Any] | None = None):
-    """Crypto-agility matrix (ML-KEM, ML-DSA and SLH-DSA across levels).
+# The request body `/api/pqc/agility` accepts: an optional list of names per
+# family, keyed as the validator keys them, mapped to the `family` value its
+# matrix rows carry.
+AGILITY_REQUEST_FAMILIES: dict[str, str] = {"kems": "KEM", "sigs": "SIG"}
 
-    Cached: the validator runs a FIXED algorithm list, so the response is the
-    same for every caller and every request body.
+
+def _agility_request(req: dict[str, Any] | None) -> dict[str, list[str]] | None:
+    """The per-family name lists a caller asked for, or None for the default.
+
+    Shape only; which names are acceptable is decided against the default
+    matrix in _select_agility_rows. An empty or missing list means "that whole
+    family", as it does in the validator.
     """
-    # Only the default (bodyless) call is cacheable -- a caller who supplies an
-    # explicit algorithm list is asking for something else.
-    cacheable = not req
-    if cacheable:
-        value, at = _cached("agility", PQC_AGILITY_TTL_S)
-        if value is not None:
-            return {**value, "cached": True,
-                    "cache_age_s": round(time.monotonic() - at, 3)}
+    if not req:
+        return None
+    unknown = sorted(set(req) - set(AGILITY_REQUEST_FAMILIES))
+    if unknown:
+        raise HTTPException(422, f"unknown field(s) {unknown}; accepted: "
+                                 f"{sorted(AGILITY_REQUEST_FAMILIES)}")
+    wanted: dict[str, list[str]] = {}
+    for key in AGILITY_REQUEST_FAMILIES:
+        names = req.get(key)
+        if names is None or names == []:
+            continue
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise HTTPException(422, f"{key} must be a list of algorithm names")
+        wanted[key] = names
+    return wanted or None
+
+
+def _select_agility_rows(out: dict[str, Any],
+                         wanted: dict[str, list[str]]) -> dict[str, Any]:
+    """Answer an explicit request from the default matrix, by selecting rows.
+
+    The allow-list is the default matrix itself -- the validator's own default
+    lists, as it reported them -- so there is one list of acceptable names and
+    it lives in services/pqc-validator. A list longer than the family is 422
+    before its names are read; a name outside the family is 422; repeats are
+    dropped, first occurrence kept.
+
+    Every row is computed independently of the others, so a selected row is the
+    row the validator would return for that name alone. What a selection can no
+    longer do is make the validator run something new, which is what made this
+    route expensive: an unbounded list forwarded verbatim costs about 0.6 s of
+    validator CPU per SLH-DSA entry, and one request could hold a threadpool
+    worker for hours.
+    """
+    matrix = out.get("matrix") or []
+    selected: list[dict[str, Any]] = []
+    for key, family in AGILITY_REQUEST_FAMILIES.items():
+        available = {r["algo"]: r for r in matrix if r.get("family") == family}
+        names = wanted.get(key)
+        if names is None:
+            selected.extend(available.values())
+            continue
+        if len(names) > len(available):
+            raise HTTPException(
+                422, f"{key}: {len(names)} names requested; at most "
+                     f"{len(available)} ({list(available)})")
+        outside = [n for n in names if n not in available]
+        if outside:
+            raise HTTPException(
+                422, f"{key}: {outside} not in the matrix; accepted: {list(available)}")
+        selected.extend(available[n] for n in dict.fromkeys(names))
+    passed = sum(1 for r in selected if r.get("ok"))
+    return {
+        **out,
+        "matrix": selected,
+        "summary": {"total": len(selected), "passed": passed,
+                    "all_pass": passed == len(selected)},
+    }
+
+
+async def _fetch_default_agility() -> dict[str, Any]:
+    """Run the validator's default matrix. Raises HTTPException on any failure."""
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.post(f"{PQC_VALIDATOR_URL}/api/agility", json=req or {})
-            out = r.json()
-            if cacheable:
-                _store("agility", out)
-            return {**out, "cached": False} if isinstance(out, dict) else out
-    except Exception as e:
+            r = await client.post(f"{PQC_VALIDATOR_URL}/api/agility", json={})
+    except httpx.HTTPError as e:
         raise HTTPException(503, f"pqc-validator unavailable: {e}")
+    out = _upstream_json(r, "pqc-validator")
+    if not isinstance(out, dict) or not isinstance(out.get("matrix"), list):
+        raise HTTPException(502, "pqc-validator answered without a `matrix` list")
+    return out
+
+
+@app.post("/api/pqc/agility")
+async def pqc_agility(req: dict[str, Any] | None = None):
+    """Crypto-agility matrix (ML-KEM, HQC, ML-DSA and SLH-DSA across levels).
+
+    The validator is only ever asked for its DEFAULT matrix, and that answer is
+    cached. A body naming `kems` and/or `sigs` is served by selecting rows from
+    it (_select_agility_rows) rather than forwarded. /verify posts no body.
+    """
+    wanted = _agility_request(req)
+    value, at = _cached("agility", PQC_AGILITY_TTL_S)
+    if value is not None:
+        out = {**value, "cached": True,
+               "cache_age_s": round(time.monotonic() - at, 3)}
+    else:
+        failed, _ = _cached("agility:error", PQC_AGILITY_ERROR_TTL_S)
+        if failed is not None:
+            raise HTTPException(failed["status"], failed["detail"])
+        try:
+            fresh = await _fetch_default_agility()
+        except HTTPException as e:
+            # Stored under its own key, so a failure never stands in for the
+            # matrix and expires on its own, shorter clock.
+            _store("agility:error", {"status": e.status_code, "detail": e.detail})
+            raise
+        _store("agility", fresh)
+        out = {**fresh, "cached": False}
+    return out if wanted is None else _select_agility_rows(out, wanted)
 
 
 # ----------------------- Implementation verification -----------------------
@@ -904,13 +1289,15 @@ async def verify_keyrate():
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"{KME_A_URL}/sim/keyrate/crosscheck")
-            out = r.json()
-            if isinstance(out, dict):
-                _store("keyrate", out)
-                return {**out, "cached": False}
-            return out
-    except Exception as e:
+    except httpx.HTTPError as e:
         raise HTTPException(503, f"kme unavailable: {e}")
+    # Status first. `isinstance(out, dict)` was the only gate, and a FastAPI
+    # error body is a dict, so a KME 5xx was cached as the cross-check result.
+    out = _upstream_json(r, "kme")
+    if not isinstance(out, dict):
+        raise HTTPException(502, "kme answered the cross-check with a non-object body")
+    _store("keyrate", out)
+    return {**out, "cached": False}
 
 
 @app.get("/api/verify/paper-budgets")
@@ -924,20 +1311,45 @@ async def verify_paper_budgets():
     """
     budgets = paper_budgets.as_dict()
     phases = budgets["phases"]
+    by_phase = {int(p["phase"]): p for p in phases}
     total_pkts = sum(int(p.get("packets", 0)) for p in phases)
     total_bytes = sum(int(p.get("bytes", 0)) for p in phases)
-    # Compared against the separately transcribed paper totals, NOT against
-    # `total_handshake_*`, which is the sum of these very phases. That earlier
-    # comparison was a sum against itself -- always true, whatever the paper
-    # says -- and /verify displayed it as evidence.
+    # Row by row, against Table 1's rows as transcribed separately in
+    # paper_budgets.TABLE_1_ROWS. The totals alone could not catch two
+    # compensating per-phase edits, and the "paper totals" they were compared
+    # with are sums of those same rows -- Table 1 prints no total.
+    rows = []
+    for r in budgets["table1_rows"]:
+        phase = by_phase.get(int(r["phase"]), {})
+        rows.append({
+            "component": r["component"],
+            "phase": r["phase"],
+            "paper_packets": r["packets"],
+            "paper_bytes": r["bytes"],
+            "phase_packets": phase.get("packets"),
+            "phase_bytes": phase.get("bytes"),
+            "packets_match": phase.get("packets") == r["packets"],
+            "bytes_match": phase.get("bytes") == r["bytes"],
+        })
+    # Phases the table has no row for must carry no traffic, or the totals
+    # would hide a budget that the per-row check never looks at.
+    tabled = {int(r["phase"]) for r in budgets["table1_rows"]}
+    untabled_quiet = all(int(p.get("packets", 0)) == 0 and int(p.get("bytes", 0)) == 0
+                         for n, p in by_phase.items() if n not in tabled)
     return {
         "phases": phases,
+        "table1_rows": rows,
         "computed_total_packets": total_pkts,
         "computed_total_bytes": total_bytes,
+        # Kept under their old names for existing readers; see
+        # `paper_totals_source` for what they are.
         "paper_total_packets": budgets["paper_total_packets"],
         "paper_total_bytes": budgets["paper_total_bytes"],
-        "packets_match": total_pkts == budgets["paper_total_packets"],
-        "bytes_match": total_bytes == budgets["paper_total_bytes"],
+        "paper_totals_source": paper_budgets.PAPER_TOTALS_SOURCE,
+        "packets_match": untabled_quiet and all(r["packets_match"] for r in rows)
+                         and total_pkts == budgets["paper_total_packets"],
+        "bytes_match": untabled_quiet and all(r["bytes_match"] for r in rows)
+                       and total_bytes == budgets["paper_total_bytes"],
         "reference": "Spooren et al. arXiv:2604.05599 Evaluation Test 1, Table 1",
     }
 
@@ -1517,8 +1929,9 @@ def _parse_ipsec_sas(sas: str, conns: str) -> dict[str, Any]:
         "ppk_id": ppk.group(1) if ppk else None,
         "ppk_required": (ppk.group(2) == "required") if ppk else None,
         # ESP counters and SPIs, per CHILD_SA. `swanctl --list-sas` has always
-        # carried these; nothing parsed them, so VERIFICATION_CHECKLIST rows
-        # 2.3 and 2.11 could only be executed over SSH.
+        # carried these; nothing parsed them, so VERIFICATION_CHECKLIST row
+        # 2.11 (and the SPI-pairing half of the both-ends check) could only be
+        # executed over SSH. Row 2.3 is served by `ppk_required`, not by these.
         "child_sas": _parse_child_sas(sas),
     }
 

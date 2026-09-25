@@ -59,7 +59,7 @@ describe("a manual step is distinguishable from doing nothing", () => {
   it("and the machine really did advance, so the badge was wrong before", () => {
     const { s, last } = sim();
     s.step();
-    expect(last().current_phase).toBeGreaterThan(0);
+    expect(last().current_step).toBeGreaterThan(0);
   });
 
   it("a step is not reported as a pause", () => {
