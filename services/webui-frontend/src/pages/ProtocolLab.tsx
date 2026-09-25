@@ -158,7 +158,9 @@ export default function ProtocolLab() {
         <KPI label="Route hops (relays)" value={state?.route ? `${state.route.hops} (${state.route.relays})` : "none"} />
         <KPI label="Simulated time (s)" value={state?.sim_time_s ?? 0} />
         <KPI label="Route changes" value={state ? Math.max(0, state.reroutes.length - 1) : 0} />
-        <KPI label="Requests ok / failed" value={state ? `${state.requests_ok} / ${state.requests_failed}` : "--"} />
+        <KPI label="Requests ok / failed" value={!state ? "--"
+          : state.requests_ok === null ? `not counted (${state.accounting} accounting)`
+          : `${state.requests_ok} / ${state.requests_failed}`} />
       </div>
 
       <Panel title={`Topology: ${preset.meta.title} (this project's layout, not the source's figure)`} style={{ marginBottom: 12 }}>
