@@ -549,7 +549,35 @@ failing run.
 which BACKUP waited without a `key_id` (bob's `PRIMARY` 12,536 plus `[RCV]`
 12,713 is exactly its 25,249 rotations) and no `[STOP]`, `no ACK`, `failed to
 retrieve`, `psk mismatch` or `random PSK` line in any of the four containers.
-So this fault has not been seen outside CI, and its cause is still open.
+So this fault has not been seen outside CI, and its cause is still open --
+narrowed on the same day, below, to the PQC half.
+
+**2026-09-25: the next failing run named it, and it is not the `key_id`
+handover.** The `strongswan-lane` job failed on a pull request that touched
+only frontend code and documentation, with **8 authentication failures in 17
+rotations on both nodes -- intervals 0 to 7, every one, then 9 clean.** With
+the widened alternation, both nodes' dumps show every failing interval
+complete:
+
+| interval | sender (`[SND]`) | receiver (`[RCV]`, same `key_id`) | both load generation |
+|---|---|---|---|
+| 0 | bob | alice, +1 ms | `qkd-alice-1` / `qkd-bob-1` |
+| 1, 2, 4, 7 | alice | bob, +1 ms | $`n+1`$ within 2-5 ms |
+| 3, 5, 6 | bob | alice, +1 ms | $`n+1`$ within 2-5 ms |
+
+No `[STOP]`, `no ACK`, `failed to retrieve`, `failed to send key_id`, `psk
+mismatch` or `random PSK` line appears on either node, and no BACKUP interval
+waits without its `[RCV]`. So both sides fed HKDF the **same QKD half** in every
+failing interval -- the same `key_id` resolved through the same pair of KMEs --
+and the static IKE PSK is the one that authenticates cleanly from interval 8
+onward. **What is left is the other HKDF input, the PQC half written by the
+Rosenpass sidecar**, which this dump does not capture: the failures stop about
+four minutes after start, and a sidecar pair that has not yet converged on
+one output key would produce exactly this. That is the leading hypothesis, not
+a finding -- the 2026-08-22 run that compared the PQC halves found them equal,
+but it compared them once, at the end. Capturing a per-write fingerprint of
+`pqc.psk` would decide it; it is not done, because that fingerprint would land
+in container logs the WebUI serves.
 
 Widening the overlap does **not** fix it. Keeping both generations loaded makes
 two credentials answer one `PPK_ID`, and charon's `get_ppk_r` resolves that to
