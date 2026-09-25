@@ -12,12 +12,17 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 // Each call runs the FULL matrix, including four SLH-DSA parameter sets.
 // Measured at 5.9 s on a desktop, so vitest's 5 s default times out. That
 // cost is also why /verify runs this on a button rather than on mount.
 const SLOW = 60_000;
 
 import { assumptionOf, crossCheckAgility, fipsName, type ServerRow } from "./agilityCrossCheck";
+
+const REPO = join(new URL(".", import.meta.url).pathname, "../../../../..");
 
 /** Shape of one real row, taken from the deployed demo's response. */
 const KEM: ServerRow = {
@@ -148,7 +153,22 @@ describe("SLH-DSA rows meet across the two spellings", () => {
 
   it("names the hardness assumption per family", () => {
     expect(assumptionOf("ML-KEM-512")).toMatch(/lattice/);
+    expect(assumptionOf("HQC-3")).toMatch(/codes/);
     expect(assumptionOf("SLH_DSA_PURE_SHA2_192S")).toMatch(/hash/);
     expect(assumptionOf("Kyber512")).toBeNull();
+  });
+
+  it("has an assumption for every algorithm the validator runs by default", () => {
+    // Read from the validator itself, so a family added there without a line
+    // here shows up as a failure rather than as "not recorded" on /verify --
+    // which is how HQC first appeared on the deployed page.
+    const src = readFileSync(join(REPO, "services/pqc-validator/app/main.py"), "utf8");
+    const names = ["DEFAULT_KEM_ALGOS", "DEFAULT_SIG_ALGOS"].flatMap((v) => {
+      const m = new RegExp(`^${v}\\s*=\\s*\\[([\\s\\S]*?)\\]`, "m").exec(src);
+      expect(m, `${v} not found`).not.toBeNull();
+      return [...m![1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    });
+    expect(names.length).toBeGreaterThanOrEqual(13);
+    expect(names.filter((n) => assumptionOf(n) === null)).toEqual([]);
   });
 });

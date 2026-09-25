@@ -126,6 +126,11 @@ describe("the values the review flagged", () => {
     expect(text).not.toMatch(/\bnot QKD\b/);
     expect(text).toMatch(/previously generated keys from a local keystore/);
     expect(text).toMatch(/does not say how the stored keys were generated/);
+    // The model column is the other place the hop is described.
+    const why = modelRateFor(l);
+    expect(why.bps).toBeNull();
+    expect("why" in why ? why.why : "").not.toMatch(/\bnot (a )?QKD\b/);
+    expect("why" in why ? why.why : "").toMatch(/not live QKD/);
   });
 
   it("does not claim the Thuringia layering is this repository's", () => {

@@ -788,10 +788,46 @@ dated deferred table in [`roadmap.md`](roadmap.md).
   the unusable boringtun overlay removed, the oqs-provider TLS image fixed (it
   never contained `oqsprovider.so`). CI actions moved to their current majors
   and `runs-on` is pinned to `ubuntu-24.04`.
+- **`qkdnetsim-kme` builds again.** Its NS-3 compile had stopped at
+  `'FILLEDCURVE' is not a member of 'ns3::Gnuplot2dDataset'`: qkdnetsim's own
+  installation steps patch NS-3's gnuplot module first, and the Dockerfile did
+  not. Built and started by hand on 2026-09-26; CI still does not build this
+  image, which only the `crossvalidate` overlay uses.
 - **Published-text scan**: commit messages and pull-request text are checked
   with the same matchers as the tree, private names by digest only.
 - **Documents**: `ARCHITECTURE.md`'s phase history moved here; corrections to
   the threat model, notices, references and limitations; the checklist is 290
   rows.
+
+### Deploy (2026-09-26)
+
+The pull-request branch was deployed before merging, so the deployed build
+could be measured and the results recorded in the same change. The rebuilt
+images were `webui-frontend`, `webui-backend`, `bb84-kme` (both KMEs),
+`pqc-validator` and the two WireGuard nodes; Caddy was restarted to read the
+new Caddyfile. No `ARNIKA_PSK` rotation was needed: nothing in this batch
+exposed it.
+
+The ten minutes after the KME restart showed four authentication failures per
+end on the IPsec lane (20 rotations, 16 applied). A restarted KME's pool starts
+empty, which would leave a key id handed over just before the restart
+unresolvable; that is the likely cause, not a measured one. The next window
+had 20 rotations, 20 applied and none failed.
+
+### Browser verification (deployed build)
+
+Every row the checklist marked pending on the deployed build is now measured
+and dated 2026-09-26 in place: all 14 routes (0 unlabelled controls, 0 Japanese
+text), the Protocol Lab rows 4.4c.1-16, the 10 s WebM and GIF exports on
+`/e2e`, `/paper-flow` and `/protocol-lab` (rows 4.5.7 and 4.5.8), the rate
+limiter (121 x 403, then 19 x 429), log redaction and the allow-lists, and the
+cache headers. `/physics` applied an edit in the browser with no request to the
+server, and its backend buttons were disabled with the reason. `/verify` passed
+13 of 13 liboqs rows, every signature row with the tampered message rejected.
+
+Three things the pass found were corrected in the same change: the HQC rows'
+hardness assumption read `not recorded`, Thuringia's keystore hop was called
+`not a QKD link` in the model column, and the `/vpn` WireGuard card still named
+boringtun.
 
 ---

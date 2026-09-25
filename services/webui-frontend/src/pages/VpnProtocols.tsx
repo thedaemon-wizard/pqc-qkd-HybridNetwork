@@ -33,7 +33,7 @@ const ESP_PROBE_INTERVAL_S = 15;
  * VPN Protocols page.
  *
  * Displays the two parallel quantum-secure VPN lanes:
- *   - WireGuard tunnel (kernel/boringtun)
+ *   - WireGuard tunnel (kernel module, or wireguard-go where the host has none)
  *   - strongSwan IPsec/IKEv2, RFC 9370 hybrid KE + RFC 8784 PPK
  *
  * The arnika HKDF(QKD ‖ PQC) output is consumed by BOTH lanes, through
@@ -231,7 +231,7 @@ export default function VpnProtocols() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
-        <Panel title="WireGuard (kernel / boringtun)" color="#3ddc84">
+        <Panel title="WireGuard (kernel / wireguard-go)" color="#3ddc84">
           {wg ? (
             <>
               <Row k="Status" v={<Badge text={wg.status} color={statusColor(wg.status)} />} />

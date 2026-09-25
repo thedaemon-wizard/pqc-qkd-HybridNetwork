@@ -79,6 +79,7 @@ export function fipsName(algo: string): string {
  */
 const ASSUMPTION_BY_PREFIX: [string, string][] = [
   ["ML-KEM-", "module lattice (MLWE)"],
+  ["HQC-", "quasi-cyclic codes (QCSD)"],
   ["ML-DSA-", "module lattice (MLWE / MSIS)"],
   ["SLH-DSA-", "hash functions only"],
 ];

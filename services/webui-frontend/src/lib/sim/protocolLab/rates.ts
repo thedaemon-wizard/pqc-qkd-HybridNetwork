@@ -34,7 +34,10 @@ export type ModelRate =
   | { bps: null; why: string };
 
 export function modelRateFor(link: PresetLink): ModelRate {
-  if (link.kind !== "qkd") return { bps: null, why: "not a QKD link" };
+  // The only non-"qkd" kind is Thuringia's keystore hop, whose source says the
+  // keys were previously generated and stored, not how -- so this names what the
+  // hop is ("not live QKD") rather than calling it "not QKD".
+  if (link.kind !== "qkd") return { bps: null, why: "keystore hop (not live QKD): no key-rate model applies" };
   if (!MODEL_ELIGIBLE.includes(link.protocol)) {
     return { bps: null, why: `${link.protocol}: the model describes decoy-state BB84 only` };
   }

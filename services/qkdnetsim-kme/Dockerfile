@@ -22,7 +22,8 @@
 # produced a green image because the healthcheck probed a Flask route.
 #
 # NOTE: First build is ~10-15 min. Subsequent builds are cached. CI does not
-# build this image, so whether it still builds is checked only by hand.
+# build this image, so whether it still builds is checked only by hand (last
+# built and started 2026-09-26: /health and the ETSI 014 status call answer).
 # =====================================================================
 FROM ubuntu:22.04 AS builder
 
@@ -47,6 +48,20 @@ RUN git clone --depth 1 -b ${NS3_REF} https://gitlab.com/nsnam/ns-3-dev.git ns-3
 COPY submodules/qkdnetsim /src/ns-3-dev/contrib/qkdnetsim
 
 WORKDIR /src/ns-3-dev
+# qkdnetsim's installation steps (its README, steps 4-5) patch NS-3's own
+# gnuplot module before configuring: model/qkd-graph.cc uses
+# Gnuplot2dDataset::FILLEDCURVE, which exists only after that patch. Without it
+# the build stops at
+#
+#     error: 'FILLEDCURVE' is not a member of 'ns3::Gnuplot2dDataset'
+#
+# which is how this image failed when it was last built by hand (2026-09-26).
+# `--check` first, so a patch that no longer applies to the pinned NS-3 fails
+# here with git's message rather than as a compile error later.
+RUN git apply --check contrib/qkdnetsim/patches/gnuplot_h.patches && \
+    git apply --check contrib/qkdnetsim/patches/gnuplot_cc.patches && \
+    git apply contrib/qkdnetsim/patches/gnuplot_h.patches && \
+    git apply contrib/qkdnetsim/patches/gnuplot_cc.patches
 # Configure with examples + the qkdnetsim module.
 #
 # The three routing modules are not optional. qkdnetsim's model headers include
