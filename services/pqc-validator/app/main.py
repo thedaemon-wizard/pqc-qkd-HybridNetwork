@@ -120,8 +120,15 @@ class AgilityRequest(BaseModel):
 
 
 
+# Plain `def`, not `async def`. The matrix is nine synchronous liboqs calls with
+# no await between them -- SLH-DSA-256s signing alone is slow -- and under
+# `async def` they ran ON the only event loop, so every other request queued
+# behind them. That is where the demo's 503s on GET /api/pqc/algorithms came
+# from (2026-09-25: the backend's 3 s timeout fired, and the validator logged
+# the same GETs as 200 only after each agility POST finished). A plain `def`
+# runs in FastAPI's threadpool.
 @app.post("/api/agility")
-async def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
+def agility(req: AgilityRequest | None = None) -> dict[str, Any]:
     """Crypto-agility evidence: exercise a matrix of liboqs algorithms and
     report pass/fail per algorithm.
 

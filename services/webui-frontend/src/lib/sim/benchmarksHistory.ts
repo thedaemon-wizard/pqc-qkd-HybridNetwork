@@ -39,3 +39,30 @@ export function isNewRound(previous: number | null, s: BenchSample): boolean {
 export function reading(value: number | undefined): number | null {
   return typeof value === "number" ? value : null;
 }
+
+/** One KME round as plotted and exported: both readings belong to `round`. */
+export interface RoundRec {
+  round: number;
+  ms: number | null;
+  qber: number | null;
+}
+
+/** Rounds kept for the charts and the export. */
+export const ROUND_HISTORY_LIMIT = 120;
+
+/**
+ * Append one round, keeping the last ROUND_HISTORY_LIMIT.
+ *
+ * One array keyed by round, because two did not line up: latency and QBER were
+ * kept in separate arrays, each appended only when its own reading was present,
+ * and the CSV zipped them by position. After a round with one reading missing,
+ * every later row paired the latency of one round with the QBER of another.
+ */
+export function appendRound(h: RoundRec[], r: RoundRec): RoundRec[] {
+  return [...h, r].slice(-ROUND_HISTORY_LIMIT);
+}
+
+/** CSV rows: each row's round_ms and qber come from the same round. */
+export function benchmarksCsvRows(h: RoundRec[]): Record<string, unknown>[] {
+  return h.map((r) => ({ round: r.round, round_ms: r.ms, qber: r.qber }));
+}

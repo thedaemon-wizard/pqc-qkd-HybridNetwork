@@ -1,0 +1,12 @@
+# Build context for every image built from the repository root.
+#
+# Host build and cache artefacts must never reach an image. `COPY
+# services/bb84-kme/app/ ./app/` once carried a host __pycache__ whose .pyc had
+# the same size and mtime second as the source it was compiled from, so Python
+# took it as current and the KME ran bytecode older than its own source.
+**/__pycache__
+**/*.py[co]
+**/node_modules
+.venv
+# The context is sent to the Docker daemon; nothing built here needs the keys.
+.env

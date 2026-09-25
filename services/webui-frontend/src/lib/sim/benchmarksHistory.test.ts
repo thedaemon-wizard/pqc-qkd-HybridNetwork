@@ -19,7 +19,10 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { isNewRound, reading, type BenchSample } from "./benchmarksHistory";
+import {
+  ROUND_HISTORY_LIMIT, appendRound, benchmarksCsvRows, isNewRound, reading,
+  type BenchSample, type RoundRec,
+} from "./benchmarksHistory";
 
 /**
  * Replays polls through the SAME functions the page calls.
@@ -81,5 +84,28 @@ describe("what the average means", () => {
     expect(pts).toEqual([0.10, 0.02]);
     expect(mean).toBeCloseTo(0.06, 10);
     expect(mean).not.toBeCloseTo(0.092, 3);
+  });
+});
+
+describe("the CSV pairs each round's readings with each other", () => {
+  it("keeps latency and QBER of one round on one row, even when a reading is missing", () => {
+    // Round 11 has no latency. Zipping two separate arrays by position put
+    // round 12's latency beside round 11's QBER from here on.
+    let h: RoundRec[] = [];
+    h = appendRound(h, { round: 10, ms: 220, qber: 0.01 });
+    h = appendRound(h, { round: 11, ms: null, qber: 0.02 });
+    h = appendRound(h, { round: 12, ms: 300, qber: 0.03 });
+    expect(benchmarksCsvRows(h)).toEqual([
+      { round: 10, round_ms: 220, qber: 0.01 },
+      { round: 11, round_ms: null, qber: 0.02 },
+      { round: 12, round_ms: 300, qber: 0.03 },
+    ]);
+  });
+
+  it("keeps the last ROUND_HISTORY_LIMIT rounds", () => {
+    let h: RoundRec[] = [];
+    for (let i = 0; i < ROUND_HISTORY_LIMIT + 7; i++) h = appendRound(h, { round: i, ms: i, qber: 0 });
+    expect(h).toHaveLength(ROUND_HISTORY_LIMIT);
+    expect(h[0].round).toBe(7);
   });
 });

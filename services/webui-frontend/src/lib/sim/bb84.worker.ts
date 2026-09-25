@@ -14,11 +14,12 @@
  * them via bb84Channel.ts, where it used to be a third verbatim copy.
  */
 import { advanceKeyPool } from "./bb84Channel";
-import { bundledChannel } from "./keyrate";
+import { BUNDLED_PARAMS, bundledChannel } from "./keyrate";
 
 interface Cfg {
   etaTotal: number; eD: number; Y0: number;
   eveOn: boolean; eveProb: number; pulsesPerRound: number;
+  qberAbort: number;
 }
 interface Frame {
   i: number; alice_bit: number; alice_basis: number;
@@ -31,6 +32,7 @@ interface Frame {
 let cfg: Cfg = {
   ...bundledChannel(),
   eveOn: false, eveProb: 1.0, pulsesPerRound: 1_000_000,
+  qberAbort: BUNDLED_PARAMS.qberThresholdAbort,
 };
 let running = false;
 let pool = 0;
@@ -78,7 +80,7 @@ function runRound(): { qber: number; pool_size: number; frames: Frame[]; pulses:
     }
   }
   const qber = sifted > 0 ? errors / sifted : 0;
-    pool = advanceKeyPool(pool, sifted, qber);
+    pool = advanceKeyPool(pool, sifted, qber, cfg.qberAbort);
   return { qber, pool_size: pool, frames, pulses: pulsesPerRound };
 }
 

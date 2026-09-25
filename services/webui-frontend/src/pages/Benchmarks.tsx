@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { isNewRound, reading } from "../lib/sim/benchmarksHistory";
+import { useRef, useState } from "react";
+import {
+  appendRound, benchmarksCsvRows, isNewRound, reading, type RoundRec,
+} from "../lib/sim/benchmarksHistory";
+import { usePoll } from "../lib/usePoll";
 import Plot from "react-plotly.js";
+import { PLOT_CONFIG } from "../lib/plotConfig";
 import { getStats } from "../api";
 import KPI from "../components/KPI";
 import PageHeader from "../components/PageHeader";
@@ -10,8 +14,9 @@ import ExportToolbar from "../components/ExportToolbar";
 const BENCH_NODE = "alice" as const;
 
 export default function Benchmarks() {
-  const [roundMsHist, setRoundMsHist] = useState<number[]>([]);
-  const [qberHist, setQberHist] = useState<number[]>([]);
+  const [rounds, setRounds] = useState<RoundRec[]>([]);
+  const roundMsHist = rounds.filter((r) => r.ms !== null);
+  const qberHist = rounds.filter((r) => r.qber !== null);
   // `null` until a poll actually reports the counters. `useState(0)` made an
   // unreachable KME render "Rounds accepted 0", which is also what a reachable
   // KME that has run zero rounds renders -- and that difference is the whole
@@ -41,8 +46,7 @@ export default function Benchmarks() {
   // kept rendering its last values as though they were current.
   const [unreachable, setUnreachable] = useState<string | null>(null);
 
-  useEffect(() => {
-    const t = setInterval(async () => {
+  usePoll(async () => {
       let s: Awaited<ReturnType<typeof getStats>>;
       try {
         s = await getStats();
@@ -97,11 +101,9 @@ export default function Benchmarks() {
       // a perfect one.
       const ms = reading(a.last_round_ms);
       const qber = reading(a.last_qber);
-      if (ms !== null) setRoundMsHist((h) => [...h.slice(-119), ms]);
-      if (qber !== null) setQberHist((h) => [...h.slice(-119), qber]);
-    }, 1000);
-    return () => clearInterval(t);
-  }, []);
+      if (ms === null && qber === null) return;
+      setRounds((h) => appendRound(h, { round: a.rounds_total as number, ms, qber }));
+  }, 1000);
 
   return (
     <div>
@@ -124,15 +126,13 @@ export default function Benchmarks() {
             // of four arrays with no node, no backend and no synthetic flag is
             // not citable evidence of anything.
             node: BENCH_NODE,
-            accepted, aborted, roundMsHist, qberHist,
+            accepted, aborted, rounds,
             last_round_synthetic: prov.synthetic,
             modelled_skr_bps: prov.modelledBps,
             skr_provenance: prov.provenance,
             skr_reflects_current_config: prov.current,
           })}
-          csvProvider={() => roundMsHist.map((ms, i) => ({
-            i, round_ms: ms, qber: qberHist[i] ?? null,
-          }))}
+          csvProvider={() => benchmarksCsvRows(rounds)}
         />
       </div>
 
@@ -164,31 +164,31 @@ export default function Benchmarks() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
         <KPI label="Rounds accepted" value={accepted ?? "—"} />
         <KPI label="Rounds aborted" value={aborted ?? "—"} />
-        <KPI label="Avg round ms" value={roundMsHist.length ? (roundMsHist.reduce((a,b)=>a+b,0) / roundMsHist.length).toFixed(0) : "—"} />
-        <KPI label="Avg QBER" value={qberHist.length ? (qberHist.reduce((a,b)=>a+b,0) / qberHist.length).toFixed(3) : "—"} />
+        <KPI label="Avg round ms" value={roundMsHist.length ? (roundMsHist.reduce((a, b) => a + b.ms!, 0) / roundMsHist.length).toFixed(0) : "—"} />
+        <KPI label="Avg QBER" value={qberHist.length ? (qberHist.reduce((a, b) => a + b.qber!, 0) / qberHist.length).toFixed(3) : "—"} />
       </div>
 
       <Plot
         data={[
-          { y: roundMsHist, type: "scatter", mode: "lines", name: "round ms", line: { color: "#5b8def" } },
+          { x: roundMsHist.map((r) => r.round), y: roundMsHist.map((r) => r.ms), type: "scatter", mode: "lines", name: "round ms", line: { color: "#5b8def" } },
         ]}
         layout={{
           ...common, height: 260,
           title: { text: "BB84 round latency (ms)", font: { color: "#9aa9d8", size: 14 } },
         }}
         style={{ width: "100%" }}
-        config={{ displaylogo: false }}
+        config={PLOT_CONFIG}
       />
       <Plot
         data={[
-          { y: qberHist, type: "scatter", mode: "lines", name: "QBER", line: { color: "#ff5e7e" }, fill: "tozeroy" },
+          { x: qberHist.map((r) => r.round), y: qberHist.map((r) => r.qber), type: "scatter", mode: "lines", name: "QBER", line: { color: "#ff5e7e" }, fill: "tozeroy" },
         ]}
         layout={{
           ...common, height: 260, yaxis: { range: [0, 0.5], color: "#9aa9d8" },
           title: { text: "QBER history", font: { color: "#9aa9d8", size: 14 } },
         }}
         style={{ width: "100%" }}
-        config={{ displaylogo: false }}
+        config={PLOT_CONFIG}
       />
     </div>
   );

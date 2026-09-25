@@ -59,8 +59,8 @@ CASES = [
 ]
 
 
-def _run_ts(cases) -> list[dict]:
-    """Transpile keyrate.ts with the real tsc and evaluate it in node.
+def _run_driver(driver_js: str):
+    """Transpile keyrate.ts with the real tsc and run `driver_js` against it.
 
     Using the actual compiler rather than stripping types with string
     substitution: the module uses inline object type annotations, which no
@@ -82,26 +82,7 @@ def _run_ts(cases) -> list[dict]:
         assert build.returncode == 0, f"tsc failed:\n{build.stdout}{build.stderr}"
 
         driver = tmp_path / "driver.mjs"
-        driver.write_text(textwrap.dedent(f"""
-            import {{ gainQmu, qberEmu, asymptoticSkrPerPulse, skrFinite }}
-              from "./keyrate.js";
-            const cases = {json.dumps(cases)};
-            // The FINITE cases too. Until this was added the guard compared
-            // only the asymptotic rate, so when the Python side moved to Lim
-            // et al. and the TypeScript side still carried sqrt(2/N), the two
-            // ports disagreed by 3.5x on the number /physics actually shows --
-            // and this file passed.
-            const out = cases.map(([etaTotal, Y0, eD, mu, nu1, nu2, fEC]) => ({{
-              gain: gainQmu(Y0, etaTotal, mu),
-              qber: qberEmu(Y0, etaTotal, eD, mu),
-              rate: asymptoticSkrPerPulse({{ Y0, etaTotal, eD, mu, nu1, nu2, fEC }}),
-              finite: [1e7, 1e9, 1e12].map((N) => skrFinite({{
-                Y0, etaTotal, eD, mu, nu1, nu2, fEC, N, eps: 1e-10,
-                qx: 0.5, pMu: 0.70, pNu1: 0.15, pNu2: 0.15, epsCor: 1e-15,
-              }})),
-            }}));
-            console.log(JSON.stringify(out));
-        """))
+        driver.write_text(textwrap.dedent(driver_js))
         res = subprocess.run(
             ["node", str(driver)], cwd=tmp_path,
             capture_output=True, text=True, timeout=30,
@@ -110,6 +91,29 @@ def _run_ts(cases) -> list[dict]:
         # comparison silently stops happening and the ports can drift again.
         assert res.returncode == 0, f"could not run keyrate.js:\n{res.stderr}"
         return json.loads(res.stdout)
+
+
+def _run_ts(cases) -> list[dict]:
+    return _run_driver(f"""
+        import {{ gainQmu, qberEmu, asymptoticSkrPerPulse, skrFinite }}
+          from "./keyrate.js";
+        const cases = {json.dumps(cases)};
+        // The FINITE cases too. Until this was added the guard compared
+        // only the asymptotic rate, so when the Python side moved to Lim
+        // et al. and the TypeScript side still carried sqrt(2/N), the two
+        // ports disagreed by 3.5x on the number /physics actually shows --
+        // and this file passed.
+        const out = cases.map(([etaTotal, Y0, eD, mu, nu1, nu2, fEC]) => ({{
+          gain: gainQmu(Y0, etaTotal, mu),
+          qber: qberEmu(Y0, etaTotal, eD, mu),
+          rate: asymptoticSkrPerPulse({{ Y0, etaTotal, eD, mu, nu1, nu2, fEC }}),
+          finite: [1e7, 1e9, 1e12].map((N) => skrFinite({{
+            Y0, etaTotal, eD, mu, nu1, nu2, fEC, N, eps: 1e-10,
+            qx: 0.5, pMu: 0.70, pNu1: 0.15, pNu2: 0.15, epsCor: 1e-15,
+          }})),
+        }}));
+        console.log(JSON.stringify(out));
+    """)
 
 
 def test_typescript_port_matches_python_reference():
@@ -150,3 +154,105 @@ def test_the_finite_comparison_is_not_vacuous():
     assert len(nonzero) >= 3, (
         f"only {len(nonzero)} non-zero finite rates across "
         f"{len(CASES)} cases x 3 block sizes")
+
+
+# ---- the per-link helper /protocol-lab uses ---------------------------------
+# Lengths straddling the finite-key zero, which the shipped configuration puts
+# between 98.5 and 99 km (19.69-19.70 dB at 0.2 dB/km).
+LINK_KM = [0.5, 5.0, 10.6, 25.0, 50.0, 80.0, 98.0, 99.0, 120.0]
+
+
+@pytest.fixture
+def repo_cfg():
+    """The shipped YAML as a BackendConfig, built the way the backend builds it.
+
+    config_loader captures CONFIG_PATH at import time; pointing it at the
+    repository file and restoring it afterwards keeps this test from depending
+    on import order (see tests/test_a_modelled_rate_is_named_as_one.py).
+    """
+    cl = importlib.import_module("bb84_kme_app.config_loader")
+    base = importlib.import_module("bb84_kme_app.backends.base")
+    saved = cl.CONFIG_PATH
+    cl.CONFIG_PATH = REPO_ROOT / "config" / "qkd_params.yaml"
+    cl.reload()
+    try:
+        yield base.cfg_from_yaml()
+    finally:
+        cl.CONFIG_PATH = saved
+        cl.reload()
+
+
+def _params_from_cfg(cfg) -> dict:
+    return {
+        "detectorEfficiency": cfg.detector_efficiency,
+        "fiberAttenuationDbPerKm": cfg.fiber_attenuation_db_per_km,
+        "darkCountRateHz": cfg.dark_count_rate_hz,
+        "pulseRateHz": cfg.pulse_rate_hz,
+        "misalignmentErrorEd": cfg.misalignment_error_ed,
+        "intensitySignalMu": cfg.intensity_signal_mu,
+        "intensityDecoy1Nu1": cfg.intensity_decoy_1_nu1,
+        "intensityDecoy2Nu2": cfg.intensity_decoy_2_nu2,
+        "basisBiasPz": cfg.basis_bias_pz,
+        "probSignalMu": cfg.prob_signal_mu,
+        "probDecoy1Nu1": cfg.prob_decoy_1_nu1,
+        "probDecoy2Nu2": cfg.prob_decoy_2_nu2,
+        "ecEfficiencyF": cfg.ec_efficiency_f,
+        "blockSizeN": cfg.block_size_N,
+        "securityEpsilon": cfg.security_epsilon,
+        "correctnessEpsilon": cfg.correctness_epsilon,
+    }
+
+
+def _link_rates(params_js: str, alpha_js: str) -> dict:
+    return _run_driver(f"""
+        import {{ skrBpsForLink, BUNDLED_PARAMS }} from "./keyrate.js";
+        const p = {params_js};
+        const alpha = {alpha_js};
+        const kms = {json.dumps(LINK_KM)};
+        console.log(JSON.stringify({{
+          byKm: kms.map((km) => skrBpsForLink(p, {{ km }})),
+          byLoss: kms.map((km) => skrBpsForLink(p, {{ lossDb: alpha * km }})),
+        }}));
+    """)
+
+
+def test_link_rate_helper_matches_the_backend_rate(repo_cfg):
+    """skrBpsForLink(config, span) == skr_bps_from_config(config at that length).
+
+    Both span forms: by length, and by the equivalent stated loss. The second is
+    the one /protocol-lab uses on published links, and it goes through a
+    different transmittance expression, so agreement by length alone would not
+    cover it.
+    """
+    from dataclasses import replace
+    p = _params_from_cfg(repo_cfg)
+    got = _link_rates(json.dumps(p), json.dumps(repo_cfg.fiber_attenuation_db_per_km))
+    for km, ts_km, ts_loss in zip(LINK_KM, got["byKm"], got["byLoss"], strict=True):
+        py = _skr.skr_bps_from_config(replace(repo_cfg, link_length_km=km))
+        assert ts_km == pytest.approx(py, rel=1e-9, abs=1e-9), f"by length @ {km} km"
+        assert ts_loss == pytest.approx(py, rel=1e-9, abs=1e-9), f"by loss @ {km} km"
+
+
+def test_bundled_params_give_the_backend_rate(repo_cfg):
+    """The same comparison with BUNDLED_PARAMS as the browser passes it.
+
+    The mapping test checks each bundled value against the YAML; this checks
+    that the helper reads the right field for each of them.
+    """
+    from dataclasses import replace
+    got = _link_rates("BUNDLED_PARAMS", "BUNDLED_PARAMS.fiberAttenuationDbPerKm")
+    for km, ts in zip(LINK_KM, got["byKm"], strict=True):
+        py = _skr.skr_bps_from_config(replace(repo_cfg, link_length_km=km))
+        assert ts == pytest.approx(py, rel=1e-9, abs=1e-9), f"bundled @ {km} km"
+
+
+def test_the_link_rate_comparison_is_not_vacuous(repo_cfg):
+    """Non-zero where the model has key, zero past the finite-key cut-off.
+
+    Comparing zeros to zeros would pass while checking nothing.
+    """
+    got = _link_rates("BUNDLED_PARAMS", "BUNDLED_PARAMS.fiberAttenuationDbPerKm")
+    nonzero = [v for v in got["byKm"] if v > 0.0]
+    assert len(nonzero) >= 5, got["byKm"]
+    assert got["byKm"][LINK_KM.index(99.0)] == 0.0
+    assert got["byKm"][LINK_KM.index(98.0)] > 0.0

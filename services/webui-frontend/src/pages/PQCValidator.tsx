@@ -95,6 +95,7 @@ export default function PQCValidator() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="pqc-validator"
+          animated={false}
           logProvider={() => [
             "# PQC validator run",
             `# generated: ${new Date().toISOString()}`,

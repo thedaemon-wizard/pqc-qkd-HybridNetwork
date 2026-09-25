@@ -63,6 +63,17 @@ MAPPING = {
     "bb84BatchSize": "simulator.bb84_batch_size",
     "eveEnabled": "eve.enabled",
     "eveInterceptProb": "eve.intercept_prob",
+    # The nine /protocol-lab reads: the finite-key inputs of skrBpsForLink and
+    # the KeyPool rules its buffers follow.
+    "probSignalMu": "source.prob_signal_mu",
+    "probDecoy1Nu1": "source.prob_decoy_1_nu1",
+    "probDecoy2Nu2": "source.prob_decoy_2_nu2",
+    "blockSizeN": "protocol.block_size_N",
+    "securityEpsilon": "protocol.security_epsilon",
+    "correctnessEpsilon": "protocol.correctness_epsilon",
+    "outBitsPerKey": "protocol.out_bits_per_key",
+    "poolLowWatermark": "simulator.pool_low_watermark",
+    "poolMaxSize": "simulator.pool_max_size",
 }
 
 

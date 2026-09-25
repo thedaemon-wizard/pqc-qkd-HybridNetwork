@@ -1,0 +1,102 @@
+{
+  "standard": "ETSI GS QKD 004",
+  "version": "V2.1.1",
+  "published": "2020-08",
+  "pdf_url": "https://www.etsi.org/deliver/etsi_gs/QKD/001_099/004/02.01.01_60/gs_qkd004v020101p.pdf",
+  "wording": "Names, types, units and numeric codes are the specification's. Every description here is this project's paraphrase; no ETSI text is reproduced and the PDF is not bundled.",
+  "edition_note": "Edition 3 (work item RGS/QKD-004ed3_AppIntf) was a stable draft, V3.1.1, dated 2026-05-23 and unpublished when this file was written. It renumbers the status codes, so nothing here mixes the two editions.",
+  "uint32_max": 4294967295,
+  "mimetype_max_bytes": 256,
+  "functions": [
+    {
+      "name": "OPEN_CONNECT",
+      "ref": "cl. 6.1, Table 1 and the interface syntax",
+      "params": [
+        {"name": "source", "dir": "in"},
+        {"name": "destination", "dir": "in"},
+        {"name": "QoS", "dir": "inout"},
+        {"name": "Key_stream_ID", "dir": "inout"},
+        {"name": "status", "dir": "out"}
+      ]
+    },
+    {
+      "name": "GET_KEY",
+      "ref": "cl. 6.1, Table 1 and the interface syntax",
+      "params": [
+        {"name": "Key_stream_ID", "dir": "in"},
+        {"name": "index", "dir": "inout"},
+        {"name": "Key_buffer", "dir": "out"},
+        {"name": "Metadata", "dir": "inout"},
+        {"name": "status", "dir": "out"}
+      ]
+    },
+    {
+      "name": "CLOSE",
+      "ref": "cl. 6.1, Table 1 and the interface syntax",
+      "params": [
+        {"name": "Key_stream_ID", "dir": "in"},
+        {"name": "status", "dir": "out"}
+      ]
+    }
+  ],
+  "qos_fields": [
+    {"name": "Key_chunk_size", "type": "uint32", "unit": "bytes", "ref": "cl. 6.1, Table 2", "note": "Bytes. ETSI GS QKD 014 sizes keys in bits; this is the easiest place to mix the two up."},
+    {"name": "Max_bps", "type": "uint32", "unit": "bps", "ref": "cl. 6.1, Table 2", "note": "Guidance on the expected maximum demand; the KM may do its best below it or reject."},
+    {"name": "Min_bps", "type": "uint32", "unit": "bps", "ref": "cl. 6.1, Table 2", "note": "The minimum rate the application needs; the KM may reject a request it cannot meet."},
+    {"name": "Jitter", "type": "uint32", "unit": "bps", "ref": "cl. 6.1, Table 2", "note": "Maximum expected deviation of the delivery rate."},
+    {"name": "Priority", "type": "uint32", "unit": null, "ref": "cl. 6.1, Table 2", "note": "Guidance only; handling is left to the implementation (consideration 4)."},
+    {"name": "Timeout", "type": "uint32", "unit": "ms", "ref": "cl. 6.1, Table 2", "note": "A call not completed within this time returns the timeout status."},
+    {"name": "TTL", "type": "uint32", "unit": "s", "ref": "cl. 6.1, Table 2", "note": "Lifetime of keys reserved for a Key_stream_ID; a clean-up for applications that leave keys behind."},
+    {"name": "Metadata_mimetype", "type": "char[256]", "unit": null, "ref": "cl. 6.1, Table 2", "note": "An IANA media type; application/json must be supported. An empty value means no metadata."}
+  ],
+  "status_codes": [
+    {"code": 0, "id": "SUCCESSFUL", "applies_to": ["OPEN_CONNECT", "GET_KEY", "CLOSE"], "paraphrase": "The call succeeded.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 1, "id": "PEER_NOT_CONNECTED", "applies_to": ["OPEN_CONNECT"], "paraphrase": "The association was created, but the peer application has not connected yet.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 2, "id": "INSUFFICIENT_KEY", "applies_to": ["GET_KEY"], "paraphrase": "Not enough key was available to serve the request.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 3, "id": "PEER_APP_NOT_CONNECTED", "applies_to": ["GET_KEY"], "paraphrase": "The peer application has not connected to this stream yet.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 4, "id": "NO_QKD_CONNECTION", "applies_to": ["OPEN_CONNECT", "GET_KEY"], "paraphrase": "No QKD connection is available.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 5, "id": "KSID_IN_USE", "applies_to": ["OPEN_CONNECT"], "paraphrase": "The requested Key_stream_ID is already in use.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 6, "id": "TIMEOUT", "applies_to": ["OPEN_CONNECT", "GET_KEY", "CLOSE"], "paraphrase": "The call did not complete within the QoS Timeout.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 7, "id": "QOS_NOT_MET", "applies_to": ["OPEN_CONNECT"], "paraphrase": "The requested QoS could not be met; the returned QoS is a counter-proposal.", "ref": "cl. 6.1, Table 2, Status"},
+    {"code": 8, "id": "METADATA_TOO_SMALL", "applies_to": ["GET_KEY"], "paraphrase": "The metadata buffer was too small; no key was delivered and the returned Metadata_size is the size needed.", "ref": "cl. 6.1, Table 2, Status and consideration 9"}
+  ],
+  "metadata_keys": [
+    {"name": "age", "type": "uint32", "unit": "ms", "paraphrase": "Time since the chunk became available for delivery.", "ref": "cl. 6.1, Table 3"},
+    {"name": "hops", "type": "uint32", "unit": null, "paraphrase": "Trusted nodes the chunk passed through; 0 means a direct link.", "ref": "cl. 6.1, Table 3"}
+  ],
+  "states": ["ABSENT", "PENDING_PEER", "ESTABLISHED", "CLOSING", "CLOSED"],
+  "transitions": [
+    {"id": "T1", "from": "ABSENT", "call": "OPEN_CONNECT", "condition": "Key_stream_ID null, QoS acceptable, peer KM reachable", "to": "PENDING_PEER", "status": 1, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "cl. 6.2.2; Table 2, Status 1", "rationale": null},
+    {"id": "T2", "from": "ABSENT", "call": "OPEN_CONNECT", "condition": "requested QoS cannot be met", "to": "ABSENT", "status": 7, "basis": "inference", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 7; NOTE under the interface syntax", "rationale": "The specification defines the status and says the returned QoS is the closest the system can provide; which values are counter-proposed is this project's choice."},
+    {"id": "T3", "from": "ABSENT", "call": "OPEN_CONNECT", "condition": "no QKD path to the peer, or the peer KM is unreachable", "to": "ABSENT", "status": 4, "basis": "inference", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 4", "rationale": "Status 4 is defined without saying when it applies; an unreachable peer or a route with no working link is the plainest case of no QKD connection."},
+    {"id": "T4", "from": "ABSENT", "call": "OPEN_CONNECT", "condition": "the KM's stream limit is reached", "to": "ABSENT", "status": 4, "basis": "inference", "scope": ["endpoint"], "ref": "Table 2, Status 4; consideration 3", "rationale": "V2.1.1 has no code for a resource limit; 4 is the closest defined meaning and keeps the 0-8 range intact."},
+    {"id": "T5", "from": "PENDING_PEER", "call": "OPEN_CONNECT", "condition": "the peer application opens the Key_stream_ID returned by T1", "to": "ESTABLISHED", "status": 0, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "cl. 6.2.2; NOTE under the interface syntax", "rationale": null},
+    {"id": "T6", "from": "ABSENT", "call": "OPEN_CONNECT", "condition": "a predefined Key_stream_ID; blocks until the peer application opens it or Timeout passes", "to": "ESTABLISHED", "status": 0, "status_on_timeout": 6, "basis": "inference", "scope": ["endpoint"], "ref": "cl. 6.2.4; Table 1, OPEN_CONNECT", "rationale": "Blocking up to Timeout is the specification's; rolling the half-open association back on both KMs after a timeout is this project's choice."},
+    {"id": "T7", "from": "any", "call": "OPEN_CONNECT", "condition": "the Key_stream_ID is held by a different application pair", "to": "unchanged", "status": 5, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 5; NOTE under the interface syntax", "rationale": null},
+    {"id": "T8", "from": "ESTABLISHED", "call": "OPEN_CONNECT", "condition": "a second OPEN_CONNECT of the same Key_stream_ID at the same KM", "to": "unchanged", "status": 5, "basis": "inference", "scope": ["endpoint"], "ref": "Table 2, Status 5", "rationale": "Each side opens a stream once; a repeat at the same KM is treated as the Key_stream_ID being in use."},
+    {"id": "T9", "from": "CLOSED", "call": "OPEN_CONNECT", "condition": "reuse of a closed Key_stream_ID", "to": "unchanged", "status": 5, "basis": "inference", "scope": ["endpoint"], "ref": "consideration 2", "rationale": "A Key_stream_ID identifies one key stream; reopening a closed one would let two streams share an identifier."},
+    {"id": "T10", "from": "PENDING_PEER", "call": "GET_KEY", "condition": "the peer application has not opened the stream", "to": "unchanged", "status": 3, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 3", "rationale": null},
+    {"id": "T11", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "a chunk is available, confirmed at the peer, and any metadata fits", "to": "unchanged", "status": 0, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 1, GET_KEY", "rationale": null},
+    {"id": "T12", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "Metadata_size is non-zero and smaller than needed", "to": "unchanged", "status": 8, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 1, GET_KEY; Table 2, Status 8; consideration 9", "rationale": null},
+    {"id": "T13", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "no chunk can be supplied now", "to": "unchanged", "status": 2, "basis": "inference", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 2", "rationale": "Returning 2 at once, rather than waiting up to Timeout, is this project's policy: a call that returns has completed, so the Timeout row does not apply, and a held request would occupy the worker that also serves ETSI GS QKD 014."},
+    {"id": "T14", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "the peer KM did not store or acknowledge the chunk within Timeout", "to": "unchanged", "status": 6, "basis": "spec", "scope": ["endpoint"], "ref": "cl. 6.2.3, 6.2.5; Table 2, Status 6", "rationale": null},
+    {"id": "T15", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "the peer KM is unreachable during allocation, or no longer knows the stream", "to": "unchanged or CLOSED", "status": 4, "basis": "inference", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 4", "rationale": "The link the stream depends on is gone, which is the no-QKD-connection case; a peer that lost the stream cannot serve it again, so this side closes it."},
+    {"id": "T16", "from": "ESTABLISHED", "call": "CLOSE", "condition": "the local application closes", "to": "CLOSING", "status": 0, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 1, CLOSE", "rationale": null},
+    {"id": "T17", "from": "CLOSING", "call": "CLOSE", "condition": "the peer application closes too", "to": "CLOSED", "status": 0, "basis": "spec", "scope": ["sim", "endpoint"], "ref": "Table 1, CLOSE", "rationale": null},
+    {"id": "T18", "from": "any open state", "call": "(timer)", "condition": "TTL passes with no activity on the stream, or since a chunk was allocated", "to": "CLOSED", "status": null, "basis": "inference", "scope": ["endpoint"], "ref": "Table 2, TTL", "rationale": "The specification makes TTL the lifetime of reserved keys; measuring it from the last activity for the stream is this project's reading."},
+    {"id": "T19", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "the peer application closed while this side is still open", "to": "unchanged", "status": 0, "status_otherwise": 2, "basis": "inference", "scope": ["endpoint"], "ref": "Table 1, CLOSE", "rationale": "Unused keys are held until the other side closes, so a chunk already allocated can still be delivered; nothing new is allocated."},
+    {"id": "T20", "from": "ABSENT", "call": "GET_KEY or CLOSE", "condition": "a Key_stream_ID this KM does not know", "to": "unchanged", "status": null, "http": 404, "basis": "inference", "scope": ["endpoint"], "ref": "binding.unknown_ksid_http", "rationale": "V2.1.1 has no code for an unknown stream; a vendor code would break the 0-8 range, so the binding answers at the HTTP layer, as ETSI GS QKD 014 does for an unknown key_ID."},
+    {"id": "T21", "from": "ESTABLISHED", "call": "GET_KEY", "condition": "an index already delivered to this side", "to": "unchanged", "status": 2, "basis": "inference", "scope": ["sim", "endpoint"], "ref": "Table 2, Status 2", "rationale": "A chunk is read once on each side and erased after delivery, so asking for it again finds no key."},
+    {"id": "T22", "from": "CLOSED", "call": "(timer)", "condition": "the closed stream's record expires", "to": "ABSENT", "status": null, "basis": "inference", "scope": ["endpoint"], "ref": "consideration 5", "rationale": "The record of a closed stream is kept long enough to refuse reuse (T9), then dropped."}
+  ],
+  "binding": {
+    "note": "V2.1.1 defines the abstract interface only, with no wire format. This HTTP/JSON binding is this project's own, and every choice below is labelled as such.",
+    "prefix": "/etsi004/v2.1.1",
+    "index_origin": 0,
+    "index_origin_rationale": "Table 2 puts a key at index multiplied by Key_chunk_size, which places the first chunk at index 0.",
+    "index_null_means": "the KM chooses the next index not yet delivered to this side",
+    "unknown_ksid_http": 404,
+    "preferred_metadata_mimetype": "application/json",
+    "uri_max_length": 2048
+  }
+}

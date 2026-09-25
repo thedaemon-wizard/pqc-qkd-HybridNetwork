@@ -59,24 +59,32 @@ build-tag change, so they cannot be done against an unmodified checkout.
 
 ### The upstream build-tag change
 
-Upstream selects the netlink writer with:
+Upstream selects the netlink writer, at the pinned commit, with:
 
 ```go
-//go:build wireguard_netlink || !wireguard_mikrotik
+//go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)
 ```
 
-The trailing negation means the file is compiled in for any *new* adapter tag
-too, so `-tags strongswan_vici` yields two definitions of
-`getKeyWriterService`. `build.sh` narrows it to:
+The trailing negation means the file is compiled in for any adapter tag it
+does not name, so `-tags strongswan_vici` yields two definitions of
+`getKeyWriterService`. `build.sh` adds the missing conjunct in its temporary
+tree:
 
 ```go
-//go:build wireguard_netlink || (!wireguard_mikrotik && !strongswan_vici)
+//go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns && !strongswan_vici)
 ```
 
-`0001-make-key-writer-adapters-mutually-exclusive.patch` is the same change
-formatted for submission upstream. `build.sh` asserts on the exact upstream
-line and fails loudly if it changes, so a submodule bump cannot silently
-produce a binary with the wrong adapter.
+`build.sh` asserts on the exact upstream line and fails loudly if it changes,
+so a submodule bump cannot silently produce a binary with the wrong adapter;
+`tests/test_the_build_tag_narrowing_is_exhaustive.py` fails too, rather than
+skipping, if the writer files move -- upstream PR #51 renames them to
+`wire_*.go`.
+
+A standalone patch proposing this narrowing upstream was carried here until
+2026-09-25 and was never submitted. It is withdrawn: upstream's `KEYCONTROL.md`
+now tells whoever adds a writer to extend the default's negation themselves
+("Update the default constraint", step 3 of "Adding a new key writer"), so the
+change belongs in an adapter PR, not on its own.
 
 ## Configuration
 

@@ -40,6 +40,10 @@ def make_pool(capacity: int = 4) -> KeyPool:
     pool._lock = asyncio.Lock()
     pool._wake = asyncio.Event()
     pool._stats = PoolStats()
+    # Added with the ETSI GS QKD 004 support; zero reproduces the pre-004 gate.
+    pool._extra_target = 0
+    pool._round_ms_total = 0.0
+    pool._withdrawn = {}
     return pool
 
 

@@ -28,6 +28,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 log() { printf '\033[1;35m[deploy-demo]\033[0m %s\n' "$*"; }
+# shellcheck source=deploy/lib.sh
+DEPLOY_NAME=deploy-demo
+source "$REPO_ROOT/deploy/lib.sh"
 
 ensure_swap() {
   local mem_mb swap_kb
@@ -77,51 +80,7 @@ fi
 # half-updated with no one at the keyboard, and a --hard reset would discard
 # exactly the local state the operator may be relying on.
 if [[ "$PULL" -eq 1 ]]; then
-  log "fetching origin/${DEPLOY_BRANCH}"
-  git fetch --prune origin "${DEPLOY_BRANCH}"
-
-  # Report local modifications, but do NOT refuse on their mere existence.
-  #
-  # An earlier version aborted on any dirty file. Tested against the real demo
-  # host, that made the script unusable: the box carries a deliberate local
-  # Caddyfile edit serving a second project's domain, plus a submodule pointer
-  # and some stray untracked files. None of them are touched by the update. A
-  # guard that blocks the correct action pushes the operator into running the
-  # git commands by hand, which is strictly less safe than the script.
-  #
-  # `git merge --ff-only` below already refuses precisely when it matters -- it
-  # will not overwrite a locally-modified file that the incoming commits change
-  # -- and it is exact about which files those are, which a blanket
-  # `git diff --quiet` cannot be.
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    log "note: local modifications present; they are preserved unless the update touches them"
-    git status --short >&2
-  fi
-
-  current="$(git rev-parse --abbrev-ref HEAD)"
-  if [[ "$current" != "${DEPLOY_BRANCH}" ]]; then
-    log "switching from ${current} to ${DEPLOY_BRANCH}"
-    git checkout "${DEPLOY_BRANCH}"
-  fi
-
-  before="$(git rev-parse HEAD)"
-  # --ff-only: fail loudly rather than create a merge commit on a deploy host,
-  # and it aborts before touching anything if a locally-modified file would be
-  # overwritten. That is the real safety check; see the note above.
-  if ! git merge --ff-only "origin/${DEPLOY_BRANCH}"; then
-    echo "[deploy-demo] fast-forward refused. Either the branch has diverged, or" >&2
-    echo "[deploy-demo] the update would overwrite a locally-modified file." >&2
-    echo "[deploy-demo] Nothing has been changed. Resolve, then re-run." >&2
-    exit 1
-  fi
-  after="$(git rev-parse HEAD)"
-
-  if [[ "$before" == "$after" ]]; then
-    log "already up to date at ${after:0:8}"
-  else
-    log "updated ${before:0:8} -> ${after:0:8}"
-    git --no-pager log --oneline "${before}..${after}" | sed 's/^/  /'
-  fi
+  fast_forward_to_branch
 fi
 
 # ---- 1) Docker engine + compose plugin ---------------------
@@ -132,16 +91,9 @@ fi
 docker compose version >/dev/null 2>&1 || { echo "[deploy-demo] docker compose plugin missing" >&2; exit 1; }
 systemctl enable --now docker
 
-# ---- 2) Firewall (UFW): 22/80/443 only — no WG module needed ----
+# ---- 2) Firewall: add ssh/80/443, keep existing rules — no WG module needed ----
 apt-get update -y && apt-get install -y --no-install-recommends ca-certificates git || true
-if command -v ufw >/dev/null 2>&1; then
-  log "configuring UFW (allow 22/80/443)"
-  ufw --force reset >/dev/null
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow 22/tcp; ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 443/udp
-  ufw --force enable
-fi
+configure_firewall
 
 # ---- 3) Submodules (bb84-kme + pqc-validator builds need them) ----
 log "syncing git submodules"

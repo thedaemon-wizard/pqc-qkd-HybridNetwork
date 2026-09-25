@@ -15,7 +15,7 @@
  *     body.scrollWidth  1713
  *     window.innerWidth 1280      -> 433px of horizontal scroll
  *
- * `<main>` is shared by all thirteen routes, so the defect was global;
+ * `<main>` is shared by all fourteen routes, so the defect was global;
  * /console was just the page whose content was wide enough to expose it.
  * Found by measuring geometry in the browser rather than by reading the page,
  * which is the only way this shows up -- nothing about the source looks wrong.

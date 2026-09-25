@@ -17,7 +17,7 @@
  *     a negative link length gives eta_total > 1 and more than one secret bit
  *     per pulse, styled identically to a real figure.
  *  4. `/physics` captioned its panel "from the current parameters" while
- *     reading ten of the fourteen shown.
+ *     reading ten of the fifteen shown.
  *
  * None of these could fail a test: every one is a string or a missing bound.
  */

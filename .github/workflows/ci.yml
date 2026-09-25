@@ -185,6 +185,14 @@ jobs:
           python3 -m pip install --quiet pytest
           python3 -m pytest tests/test_the_build_tag_narrowing_is_exhaustive.py -q
 
+      # Same reason, same tree: it fails if the pinned arnika stops reading
+      # PQC_PSK_FILE while the lane still sets it -- the PQC-HPKE migration of
+      # upstream PR #51, which would otherwise drop the PQC half of the key
+      # without an error anywhere.
+      - name: PQC_PSK_FILE is still read by the pinned arnika
+        run: |
+          python3 -m pytest tests/test_pqc_psk_file_is_read_by_the_pinned_arnika.py -q
+
       # This guard derives its claims from two pinned trees -- strongSwan's
       # notify_payload.h (which Status Types exist, and that 16444 is still the
       # highest) plus ike_auth.c (that `ppk_required` is enforced on the
@@ -325,7 +333,7 @@ jobs:
             '
 
   live-stack:
-    name: ETSI GS QKD 014 contract tests (live KMEs)
+    name: ETSI GS QKD 014 and 004 contract tests (live KMEs)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -335,6 +343,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest pytest-asyncio httpx
+
+      # Off in the shipped config (nothing on the public demo drives it). The
+      # grep fails the step if the sed matched nothing, so a renamed key cannot
+      # leave the 004 contract skipping here.
+      - name: Switch the ETSI GS QKD 004 binding on
+        run: |
+          sed -i 's/^  endpoint_enabled: false$/  endpoint_enabled: true/' config/qkd_params.yaml
+          grep -q '^  endpoint_enabled: true$' config/qkd_params.yaml
 
       - name: Start the two KMEs
         run: |
@@ -361,13 +377,15 @@ jobs:
           PEER_KME_URL: http://127.0.0.1:18081
           SAE_ID: ALICE
           PEER_SAE_ID: BOB
+          # A disabled 004 binding fails here instead of skipping.
+          ETSI004_REQUIRED: "1"
         run: |
           docker run -d --name kme-a-proxy --network host alpine/socat \
             TCP-LISTEN:18080,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-a):8080
           docker run -d --name kme-b-proxy --network host alpine/socat \
             TCP-LISTEN:18081,fork,reuseaddr TCP:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{break}}{{end}}' bb84-kme-b):8080
           sleep 3
-          pytest tests/test_etsi014_contract.py -v
+          pytest tests/test_etsi014_contract.py tests/test_etsi004_contract.py -v
 
       # SimQN and SeQUeNCe are listed as COMMENTS in
       # services/bb84-kme/requirements.txt ("pulled in via submodule install in
@@ -489,11 +507,12 @@ jobs:
             # NOT -eq 0. Rotating a PPK under a stable PPK_ID cannot be atomic
             # across two hosts: the initiator reauthenticates microseconds after
             # its own load, and the responder's load of the same generation can
-            # land a few hundred microseconds later. Measured at 1 failure in 45
-            # rotations on a LONG run, self-correcting. Note this job sees only
+            # land milliseconds later. Measured at 1 failure in 45 rotations on a
+            # LONG two-node run, and 16 in 25,249 over 8.8 days on the live demo
+            # (strongSwan 6.1.0); self-correcting. Note this job sees only
             # 6-8 rotations in its 240s window, so the ceiling below tolerates
-            # ONE failure, not nine. See the "sub-millisecond rotation race"
-            # section in docs/vici-ppk.md.
+            # ONE failure, not nine. See "the rotation race" in
+            # docs/vici-ppk.md.
             #
             # Asserting zero would make this job flake, and a flaky guard is one
             # that gets ignored. What must still fail the build is SYSTEMATIC
@@ -541,9 +560,8 @@ jobs:
             # bob still held 2), not the fault.
             #
             # That is neither of the two hypotheses previously written here. Not
-            # a sub-millisecond rotation race: the gap is 60s, not microseconds,
-            # and the failures resolve by bob catching up rather than by a
-            # retry. Not a systematic mismatch either: rotations 5-8 all
+            # the rotation race: the gap is 60s, not milliseconds, and the
+            # failures resolve by bob catching up. Not a systematic mismatch either: rotations 5-8 all
             # succeed with no intervention.
             #
             # What it looks like instead: bob was BACKUP for those intervals and

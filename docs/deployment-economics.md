@@ -6,7 +6,8 @@ The simulation work in this project runs in the browser, so the interesting
 question is not "how big a server" but "how little server". This document
 answers that with the page-by-page reality rather than a slogan.
 
-Reviewed 2026-08-21.
+Reviewed 2026-08-21. Route table updated 2026-09-25 for route 14, `/protocol-lab`,
+and for `/physics`, which gained a bundled-default fallback after the review.
 
 ---
 
@@ -25,15 +26,16 @@ seven pages.
 | `/hil` | none | **Fully works** (static) |
 | `/bb84` | `GET /api/sim/params` once at mount | **Works**, falls back to bundled defaults |
 | `/pqc` | `GET /api/pqc/algorithms`, `POST /api/pqc/roundtrip` | **Works client-side**; the server cross-check is skipped and the UI says so |
+| `/physics` | 5 endpoints, incl. 5 s poll | **Works**: the form falls back to bundled defaults and the live key rate is computed in the browser; Apply, Reset and the backend selector need the backend |
+| `/protocol-lab` | none | **Fully works.** Relay, re-routing and the ETSI 014 / 004 timeline are simulated in the browser from published data |
 | `/` | `GET /api/stack` (3 s poll) | Degrades: container status is empty |
 | `/benchmarks` | `GET /api/stats` (1 s poll) | Degrades: no live statistics |
 | `/console` | `GET /api/logs/<name>` (1.5 s poll) | Degrades: no container logs |
 | `/topology` | `GET /api/topology` | Degrades: no graph data |
 | `/vpn` | `GET /api/vpn/protocols` (3 s poll) | Degrades: no lane status |
-| `/physics` | 5 endpoints, incl. 5 s poll | Degrades: stuck on "Loading parameters…" |
 | `/verify` | `/api/pqc/agility`, `/api/verify/keyrate`, `/api/verify/paper-budgets` | Degrades: no verification evidence |
 
-**Six of thirteen routes are fully self-contained. Seven need the backend.**
+**Eight of fourteen routes are fully self-contained. Six need the backend.**
 
 The four pages that carry the project's actual argument — the E2E hybrid
 exchange, the paper reproduction, BB84 and the PQC validator — are all in the
@@ -62,7 +64,7 @@ Requires SPA fallback (rewrite unknown paths to `index.html`); the router uses
 real paths, not hashes. Without it, deep links such as `/paper-flow` return 404
 on reload.
 
-Loses the seven backend pages above.
+Loses the six backend pages above.
 
 ### B. Static edge plus a small backend
 
@@ -70,7 +72,7 @@ Serve `dist/` from a static host and run only `webui-backend` (plus
 `bb84-kme-a/b` and `pqc-validator` if `/verify` matters) on a small VPS,
 pointing the frontend's `/api` at it via CORS or a proxy.
 
-This keeps all thirteen pages and moves the bandwidth — the part that scales
+This keeps all fourteen pages and moves the bandwidth — the part that scales
 with visitors — off the metered host. A single-region VPS cannot match a
 300-plus-location edge for static delivery, so paying a VPS to serve bundles is
 the wrong way round; paying it to serve the handful of API calls is not.

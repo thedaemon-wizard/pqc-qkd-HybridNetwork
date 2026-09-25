@@ -127,7 +127,11 @@ export const NOMINAL_PHASE_DWELL_MS = 450;
  */
 export function e2eCsvRows(history: PhaseRec[]): Record<string, unknown>[] {
   return history.map((h) => ({
-    phase: h.phase,
+    // `step`, the word the page uses for its own scheme (it said `phase`,
+    // the paper's word for a different numbering). The CSV carries no schema
+    // version -- EXPORT_SCHEMA_VERSION is injected into JSON only -- so the
+    // column name is the only signal of the change.
+    step: h.phase,
     name: h.name,
     started_at: new Date(h.started_at * 1000).toISOString(),
     completed_at: h.completed_at

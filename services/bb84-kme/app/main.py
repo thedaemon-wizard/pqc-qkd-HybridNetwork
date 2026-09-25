@@ -2,7 +2,10 @@
 
 Mounts:
     /api/v1/keys/...            ETSI GS QKD 014 (arnika-compatible)
+    /etsi004/v2.1.1/...         ETSI GS QKD 004 V2.1.1, this project's HTTP/JSON
+                                binding (404 unless etsi004.endpoint_enabled)
     /internal/sync              Peer KME key sync (Alice<->Bob)
+    /internal/etsi004/...       Peer KME 004 stream exchange (not in the schema)
     /sim/eve                    Toggle Eve attack (POST)
     /sim/rotate                 Force immediate BB84 round
     /sim/stats                  Pool & sim statistics
@@ -27,7 +30,9 @@ from prometheus_client import (
 )
 from pydantic import BaseModel
 
-from . import config_loader, etsi014, logging_setup
+from . import config_loader, etsi004, etsi014, logging_setup
+from .etsi004_engine import Etsi004Engine
+from .etsi004_peer import HttpPeerLink
 from .keypool import KeyPool
 
 log = logging_setup.configure(os.environ.get("SAE_ID", "bb84-kme").lower())
@@ -57,12 +62,24 @@ async def lifespan(app: FastAPI):
         backend_name=os.environ.get("SIMULATOR_BACKEND"),
     )
     app.state.pool = pool
+    # Validate the etsi004 section now, so a bad share fails the start rather
+    # than the first request.
+    etsi004.limits()
+    app.state.etsi004 = Etsi004Engine(
+        sae_id=sae_id,
+        peer_sae_id=os.environ["PEER_SAE_ID"],
+        keys=pool,
+        peer=HttpPeerLink(peer_url),
+        clock=asyncio.get_running_loop().time,
+        limits=etsi004.limits,
+    )
     app.state.frame_subs: set[asyncio.Queue] = set()
     # Last totals seen by _metrics_loop, so cumulative stats can be turned into
     # the monotonic deltas a Prometheus Counter needs.
     app.state.metric_totals: dict[str, int] = {}
     task = asyncio.create_task(pool.run(), name="bb84-producer")
     metrics_task = asyncio.create_task(_metrics_loop(app), name="metrics-loop")
+    sweep_task = asyncio.create_task(_etsi004_sweep_loop(app), name="etsi004-sweep")
     log.info("BB84-KME started: SAE=%s peer=%s", sae_id, peer_url)
     try:
         yield
@@ -71,7 +88,8 @@ async def lifespan(app: FastAPI):
         await pool.stop()
         task.cancel()
         metrics_task.cancel()
-        for t in (task, metrics_task):
+        sweep_task.cancel()
+        for t in (task, metrics_task, sweep_task):
             try:
                 await t
             except asyncio.CancelledError:
@@ -80,6 +98,21 @@ async def lifespan(app: FastAPI):
                 # Anything else means the task died of something real, and
                 # shutdown must not be what hides it.
                 log.exception("background task %r raised during shutdown", t.get_name())
+
+
+async def _etsi004_sweep_loop(app: FastAPI) -> None:
+    """Apply 004 TTLs (T18) and drop expired closed-stream records (T22).
+
+    Runs whether or not the binding is enabled: with it off no stream exists
+    and a sweep is an empty loop.
+    """
+    while True:
+        try:
+            for ksid, transition in app.state.etsi004.sweep():
+                log.info("etsi004 %s: stream %s", transition, ksid)
+        except Exception:    # pragma: no cover
+            log.exception("etsi004 sweep failed")
+        await asyncio.sleep(float(config_loader.require("etsi004.sweep_interval_s")))
 
 
 async def _metrics_loop(app: FastAPI) -> None:
@@ -156,6 +189,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(etsi014.router)
+app.include_router(etsi004.router)
+app.include_router(etsi004.peer_router)
 
 
 @app.get("/health", response_class=PlainTextResponse)

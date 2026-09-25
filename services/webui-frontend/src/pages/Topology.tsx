@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { forceCenter, forceLink, forceManyBody, forceSimulation } from "d3-force";
 import { getTopology, type Topo } from "../api";
+import ExportToolbar from "../components/ExportToolbar";
 
 const WIDTH = 760, HEIGHT = 460;
 
@@ -72,7 +73,11 @@ export default function Topology() {
         <code>/api/topology</code> has no multi-hop branch, so Charlie is not drawn here or
         anywhere else in the UI. Adding him needs a way to know the profile is active.
       </p>
-      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>
+      <div style={{ marginBottom: 12 }}>
+        <ExportToolbar name="topology" pngTargetSelector="#topology-svg"
+                       jsonProvider={() => ({ topology: topo, layout: positions })} />
+      </div>
+      <svg id="topology-svg" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>
         {topo.edges.map((e, i) => {
           const s = positions[e.source], t = positions[e.target];
           if (!s || !t) return null;

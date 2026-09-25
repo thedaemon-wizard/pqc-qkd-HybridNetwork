@@ -25,23 +25,39 @@ export type RuntimeConfig = {
    *  so "not a demo" does not imply "control is available". */
   container_control: boolean;
   rate_limit: { max: number; window_s: number } | null;
+  /** ARNIKA_INTERVAL as compose passed it (e.g. "30s"), or null if unset. */
+  arnika_interval: string | null;
 };
 
+/**
+ * The JSON body of a response, or an Error naming the status.
+ *
+ * Every helper below used to `return r.json()` unconditionally. FastAPI's error
+ * bodies are valid JSON, so a 404 or 503 RESOLVED as `{detail: ...}` and the
+ * page rendered it as data -- `/console` showed "loading..." forever for a
+ * container that does not exist.
+ */
+async function okJson(r: Response): Promise<any> {
+  const body = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`HTTP ${r.status}${body?.detail ? `: ${body.detail}` : ""}`);
+  return body;
+}
+
 export async function getConfig(): Promise<RuntimeConfig> {
-  const r = await fetch(`${BASE}/api/config`); return r.json();
+  return okJson(await fetch(`${BASE}/api/config`));
 }
 
 export async function getStack(): Promise<StackItem[]> {
-  const r = await fetch(`${BASE}/api/stack`); return r.json();
+  return okJson(await fetch(`${BASE}/api/stack`));
 }
 export async function getStats(): Promise<Stats> {
-  const r = await fetch(`${BASE}/api/stats`); return r.json();
+  return okJson(await fetch(`${BASE}/api/stats`));
 }
 export async function getTopology(): Promise<Topo> {
-  const r = await fetch(`${BASE}/api/topology`); return r.json();
+  return okJson(await fetch(`${BASE}/api/topology`));
 }
 export async function getLogs(name: string, tail = 200): Promise<{ name: string; log: string }> {
-  const r = await fetch(`${BASE}/api/logs/${name}?tail=${tail}`); return r.json();
+  return okJson(await fetch(`${BASE}/api/logs/${name}?tail=${tail}`));
 }
 /**
  * Start/stop/restart a container.

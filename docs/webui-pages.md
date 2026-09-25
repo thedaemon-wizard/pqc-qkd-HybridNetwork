@@ -1,6 +1,6 @@
 # WebUI pages
 
-The thirteen routes the dashboard serves, what each one computes in the
+The fourteen routes the dashboard serves, what each one computes in the
 browser, and what it needs the backend for.
 
 Moved out of `README.md` section 7 on 2026-08-29. The list is a page
@@ -27,6 +27,7 @@ different question -- see [`deployment-economics.md`](deployment-economics.md).
 11. **Verification** (`/verify`) — Research-implementation evidence: crypto-agility matrix across **two mathematical families** (ML-KEM 512/768/1024 and ML-DSA 44/65/87 on module lattices, SLH-DSA SHA2-128s/192s/256s hash-based), key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine), and arXiv:2604.05599 packet-budget match
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS)
 13. **VPN Protocols** (`/vpn`) — WireGuard + strongSwan IPsec/IKEv2 (RFC 9370 ML-KEM-768 hybrid) status
+14. **Protocol Lab** (`/protocol-lab`) — **client-side simulation**, labelled as such before anything runs: trusted-node key relay and re-routing over five published QKD networks (Cambridge 2019, SECOQC Vienna 2008, Tokyo 2010, MadQCI 2024, and the Thuringia medical-data chain of arXiv:2608.18869), with this stack's ETSI GS QKD 014 message shapes per hop and a simulated ETSI GS QKD 004 V2.1.1 stream end to end. Three cited scenarios replay the sources' own re-routing runs and state where the replay differs. Every reported number keeps the source's digits and reference; this project's key-rate model appears in the link table only
 
 Most pages provide per-page export buttons below the description — **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation, and logs; artefacts are stored on the backend and re-downloadable via the "Saved exports" picker.
 

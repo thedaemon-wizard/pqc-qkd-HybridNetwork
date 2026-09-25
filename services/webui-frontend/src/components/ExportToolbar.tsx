@@ -39,15 +39,24 @@ export interface ExportToolbarProps {
    * animation capture shows anything.
    *
    * The WebM and GIF tooltips ended with "Press Run first." unconditionally.
-   * Nine pages mount this toolbar and only two -- `/e2e` and `/paper-flow` --
-   * have a Run button, so on the other seven the hint told the reader to press
-   * a control that does not exist. Pages such as `/bb84` animate continuously
-   * and need no start.
+   * Ten pages mount this toolbar and only three -- `/e2e`, `/paper-flow` and
+   * `/protocol-lab` -- have a Run button, so on the other seven the hint would
+   * tell the reader to press a control that does not exist. Pages such as
+   * `/bb84` animate continuously and need no start.
    *
    * Default false, so a page opts in rather than inheriting an instruction
    * that happens to be wrong for it.
    */
   hasRunControl?: boolean;
+  /**
+   * Whether the page changes over time, so a WebM or GIF capture shows
+   * something a PNG does not. Default true. Pages whose content is a finished
+   * result table (`/pqc`, `/verify`) or a status page that changes only on its
+   * poll (`/vpn`) pass false, and the WebM and GIF buttons and their three
+   * selects are not rendered: ten seconds of video of a table that does not
+   * move is an artefact with nothing in it.
+   */
+  animated?: boolean;
 }
 
 export default function ExportToolbar(props: ExportToolbarProps) {
@@ -61,6 +70,7 @@ export default function ExportToolbar(props: ExportToolbarProps) {
   const [notice, setNotice] = useState<string>("");
   // Empty on pages with no Run button. See `hasRunControl`.
   const runHint = props.hasRunControl ? " Press Run first." : "";
+  const animated = props.animated ?? true;
   // User-selectable animation capture settings (WebM/GIF).
   const [durationSec, setDurationSec] = useState(DEFAULT_CAPTURE_MS / 1000);
   const [gifFps, setGifFps] = useState(DEFAULT_GIF_FPS);
@@ -131,6 +141,7 @@ export default function ExportToolbar(props: ExportToolbarProps) {
           📊 CSV
         </Button>
       )}
+      {animated && (<>
       <Button variant="ghost" size="sm" disabled={busy !== null}
               title={`High-quality animation — records ${durationSec}s as a WebM video (VP9).${runHint}`}
               onClick={() => wrap("webm", async () => {
@@ -195,6 +206,7 @@ export default function ExportToolbar(props: ExportToolbarProps) {
           ))}
         </select>
       </label>
+      </>)}
       {/* Server-side saved-exports gallery — available in demo too (the store is
           capacity-bounded + rate-limited, so it's safe on a public host). */}
       <span style={{ width: 1, height: 18, background: "#1d2741", margin: "0 4px" }} />

@@ -1,4 +1,5 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Overview from "./pages/Overview";
 import BB84 from "./pages/BB84";
 import KeyFlow from "./pages/KeyFlow";
@@ -12,6 +13,7 @@ import VpnProtocols from "./pages/VpnProtocols";
 import QuantumSecureE2E from "./pages/QuantumSecureE2E";
 import PaperDataExchange from "./pages/PaperDataExchange";
 import Verification from "./pages/Verification";
+import ProtocolLab from "./pages/ProtocolLab";
 
 const nav = [
   { to: "/",            label: "Overview" },
@@ -27,9 +29,13 @@ const nav = [
   { to: "/verify",      label: "Verification" },
   { to: "/hil",         label: "Hardware-In-Loop" },
   { to: "/vpn",         label: "VPN Protocols" },
+  // Appended last so no existing checklist row that counts sidebar entries
+  // is renumbered.
+  { to: "/protocol-lab", label: "Protocol Lab" },
 ];
 
 export default function App() {
+  const location = useLocation();
   return (
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "#0d1320", padding: "1.5rem 1rem", borderRight: "1px solid #1d2741" }}>
@@ -88,6 +94,7 @@ export default function App() {
         * With minWidth: 0 the track may shrink and the <pre> scrolls itself,
         * which is what its overflow-x was for. */}
       <main style={{ padding: "1.5rem 2rem", minWidth: 0 }}>
+        <ErrorBoundary key={location.pathname}>
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/bb84" element={<BB84 />} />
@@ -102,7 +109,9 @@ export default function App() {
           <Route path="/vpn" element={<VpnProtocols />} />
           <Route path="/e2e" element={<QuantumSecureE2E />} />
           <Route path="/paper-flow" element={<PaperDataExchange />} />
+          <Route path="/protocol-lab" element={<ProtocolLab />} />
         </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -117,10 +117,10 @@ The backend then only serves `/api/config`, `/api/sim/params` defaults and the
 POSTs are per-IP rate-limited (backend switching + bounded export-save allowed).
 Leaner still, the simulation pages need **no backend at all** and the bundle can
 be served statically for a near-$0 demo. Be precise about what that costs,
-though: **eight** pages call the API, not one. `/e2e`, `/paper-flow`,
-`/keyflow` and `/hil` are fully self-contained; `/bb84` and `/pqc` degrade to
-bundled defaults; `/`, `/benchmarks`, `/console`, `/physics`, `/topology`,
-`/verify` and `/vpn` need the backend. See
+though: **nine** pages call the API, not one. `/e2e`, `/paper-flow`,
+`/keyflow`, `/hil` and `/protocol-lab` are fully self-contained; `/bb84`,
+`/pqc` and `/physics` degrade to bundled defaults; `/`, `/benchmarks`,
+`/console`, `/topology`, `/verify` and `/vpn` need the backend. See
 [`docs/deployment-economics.md`](deployment-economics.md).
 
 ---
@@ -161,3 +161,30 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install httpx pytest qutip numpy manim matplotlib
 ```
+
+---
+
+## 7. Configuration
+
+Moved here from `README.md` section 6 on 2026-09-25.
+
+Deployment variables live in `.env` (copy from `.env.example`;
+`scripts/check_env_example.sh` checks it covers every mandatory variable).
+
+| Variable | Default | Purpose | Source of truth |
+|---|---|---|---|
+| `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 4 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired` | `submodules/arnika/config/config.go` |
+| `ARNIKA_INTERVAL` | `30s` | PSK rotation period (the paper uses 120 s) | `submodules/arnika/config/config.go` |
+| `ARNIKA_ID_*` | `1` / `2` (`4` for charlie) | Per-node ID in the primary election; peers must differ in **parity** | `.env.example` |
+| `ARNIKA_PSK` | none | Keys the arnika peer channel and the election; must be identical on both peers | `.env.example` |
+| `KMS_HTTP_TIMEOUT` | `10s` | ETSI 014 HTTP timeout | arnika config |
+| `WEBUI_BACKEND_PORT` | `8000` | Backend port (host) | docker-compose |
+| `WEBUI_FRONTEND_PORT` | `5173` | Frontend nginx port (host) | docker-compose |
+
+**Numeric BB84 tunables are not environment variables.** They come from
+`config/qkd_params.yaml`, which `services/bb84-kme/app/config_loader.py`
+declares the single source of truth, and which
+`tests/test_no_hardcoded_params.py` and
+`tests/test_frontend_defaults_match_config.py` enforce. An earlier version of
+this table listed seven `BB84_*` variables and an `ETSI_MTLS_ENABLED`, each
+naming a Python file as its source of truth; no Python file read any of them.

@@ -40,7 +40,14 @@ SRC = (ROOT / "services" / "webui-backend" / "app" / "main.py").read_text(encodi
 
 
 def _stack_handler() -> str:
-    i = SRC.index("async def stack(")
+    """The code that looks containers up and classifies them.
+
+    That was the body of `async def stack(`. Since 2026-09-25 `stack` is a plain
+    `def` that serves a short-lived cache, and the lookup lives in
+    `_stack_uncached` -- so find that, not the decorator, or this guard would
+    silently stop reading the code it exists to read.
+    """
+    i = SRC.index("def _stack_uncached(")
     j = SRC.index("\n@app.", i)
     return SRC[i:j]
 
