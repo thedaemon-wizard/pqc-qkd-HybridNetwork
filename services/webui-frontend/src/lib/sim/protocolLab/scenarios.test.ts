@@ -97,6 +97,17 @@ describe("SECOQC re-routing (Peev et al. 2009, section 5.1.2)", () => {
   });
 });
 
+describe("Request counts are not invented where nothing counts them", () => {
+  it("SECOQC's stores accounting reports null, not 0 / 0", () => {
+    const { sim, state } = run("secoqc-vienna-2008", "secoqc-reroute-2008");
+    for (let i = 0; i < 5; i++) sim.step();
+    expect(state().accounting).toBe("stores");
+    expect(state().delivered_bits).toBeGreaterThan(0);
+    expect(state().requests_ok).toBeNull();
+    expect(state().requests_failed).toBeNull();
+  });
+});
+
 describe("Tokyo switch-over (Sasaki et al. 2011, section 4)", () => {
   const { sim, state } = run("tokyo-2010", "tokyo-reroute-2010");
   sim.step();
