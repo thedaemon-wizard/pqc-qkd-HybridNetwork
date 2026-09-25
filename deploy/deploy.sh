@@ -14,8 +14,8 @@
 # — the 4 simulation pages run client-side, so the demo barely needs a backend.
 #
 # Idempotent: safe to re-run. Installs Docker + compose plugin, ensures
-# the WireGuard kernel module + IP forwarding, sets a minimal UFW policy
-# (22/80/443 only), adds swap if RAM is low, then builds & starts the stack
+# the WireGuard kernel module + IP forwarding, adds UFW rules for ssh/80/443
+# (keeping any others), adds swap if RAM is low, then builds & starts the stack
 # behind Caddy auto-TLS.
 #
 # Prereqs: run as root (or via sudo) on the VPS, with this repo already
@@ -24,7 +24,11 @@
 #   git clone --recurse-submodules <repo> pqc-qkd-hybrid
 #   cd pqc-qkd-hybrid
 #   cp deploy/.env.example .env && edit .env   # set PUBLIC_HOST, ACME_EMAIL
-#   sudo bash deploy/deploy.sh
+#   sudo bash deploy/deploy.sh                 # first install
+#   sudo bash deploy/deploy.sh --pull --ipsec  # redeploy, with the IPsec lane
+#
+# The firewall step ADDS rules (see deploy/firewall.sh); it no longer resets
+# UFW. Set SKIP_UFW=1 to leave the firewall alone.
 # ============================================================
 set -euo pipefail
 
@@ -32,6 +36,25 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 log() { printf '\033[1;34m[deploy]\033[0m %s\n' "$*"; }
+# shellcheck source=deploy/lib.sh
+DEPLOY_NAME=deploy
+source "$REPO_ROOT/deploy/lib.sh"
+
+# Options.
+#   --pull   fetch and fast-forward to origin/$DEPLOY_BRANCH (default main)
+#            before building -- the same routine as deploy-demo.sh
+#   --ipsec  also build and start the strongSwan lane
+#            (docker-compose.strongswan.yml, profile `ipsec`)
+PULL=0
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+COMPOSE_FILES=(-f docker-compose.yml -f deploy/docker-compose.cloud.yml)
+for arg in "$@"; do
+  case "$arg" in
+    --pull)  PULL=1 ;;
+    --ipsec) COMPOSE_FILES+=(-f docker-compose.strongswan.yml --profile ipsec) ;;
+    *) echo "[deploy] unknown option: $arg (known: --pull --ipsec)" >&2; exit 2 ;;
+  esac
+done
 
 # Add a swapfile when RAM is low so the heavy first build (liboqs / rosenpass /
 # strongSwan / scipy) doesn't get OOM-killed — the usual cause of a container
@@ -113,20 +136,13 @@ net.ipv4.conf.all.src_valid_mark=1
 EOF
 sysctl --system >/dev/null
 
-# ---- 4) Firewall (UFW): 22/80/443 only ---------------------
-if command -v ufw >/dev/null 2>&1; then
-  log "configuring UFW (allow 22/80/443, deny the rest)"
-  ufw --force reset >/dev/null
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow 22/tcp
-  ufw allow 80/tcp
-  ufw allow 443/tcp
-  ufw allow 443/udp     # HTTP/3
-  ufw --force enable
-fi
+# ---- 4) Firewall: add ssh/80/443, keep existing rules ------
+configure_firewall
 
 # ---- 5) Submodules ----------------------------------------
+if [[ "$PULL" == "1" ]]; then
+  fast_forward_to_branch
+fi
 log "syncing git submodules"
 git submodule update --init --recursive
 ensure_backend_submodules   # force-fetch KME backends; pick qutip if SimQN absent
@@ -136,8 +152,8 @@ ensure_swap
 
 # ---- 6) Build & start the full stack behind Caddy ----------
 log "building and starting the stack (this first build is slow: liboqs/rosenpass/strongSwan)"
-docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml up -d --build
+docker compose "${COMPOSE_FILES[@]}" up -d --build
 
 log "done. Watch logs with:"
-echo "    docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml logs -f caddy alice bob"
+echo "    docker compose ${COMPOSE_FILES[*]} logs -f caddy alice bob"
 log "Once DNS (A record) points at this host, https://\$PUBLIC_HOST will serve the WebUI."

@@ -114,6 +114,9 @@ const PHASE_FAIL: Record<Layer, number> = { qkd: 1, arnika: 2, wireguard: 3, ros
  */
 export const NOMINAL_PHASE_DWELL_MS = 350;
 
+/** Trusted-node hops a fresh run starts with; the page's slider starts here too. */
+export const DEFAULT_HOP_COUNT = 4;
+
 interface CascadeSched { t_offset_s: number; layer: Layer; description: string; triggered_at: number; }
 
 export interface PaperFlowState {
@@ -167,7 +170,7 @@ function b64(bytes: Uint8Array): string {
 export class PaperSim {
   private status: "idle" | "running" | "paused" | "stepped" = "idle";
   private phase = 0;
-  private hop = 4;
+  private hop = DEFAULT_HOP_COUNT;
   private cyclesTotal = 0; private cyclesSucceeded = 0;
   private packetsTotal = 0; private bytesTotal = 0;
   private lastPayload = "";

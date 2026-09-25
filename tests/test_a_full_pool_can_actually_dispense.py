@@ -76,6 +76,11 @@ def _pool(capacity: int = 64) -> KeyPool:
     p._stats = PoolStats()
     p.low_watermark = WATERMARK
     p.capacity = capacity
+    # The ETSI GS QKD 004 fields the producer gate and _record now read. At
+    # zero the gate is exactly the pre-004 one, which is what these tests pin.
+    p._extra_target = 0
+    p._round_ms_total = 0.0
+    p._withdrawn = {}
     # `run()` logs these on entry, so the driven tests need them present.
     p.sae_id = "ALICE"
     p.peer_kme_url = "http://peer.invalid"

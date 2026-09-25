@@ -56,21 +56,35 @@ export default function Verification() {
   const [budgets, setBudgets] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
+  // Why each panel has no data, when it has none. A 429 from the rate limiter
+  // or a 503 from pqc-validator used to be stored AS the data -- its JSON body
+  // `{"detail": ...}` -- and panel 1 then called `.map` on a matrix that was
+  // not there, which blanked the whole app.
+  const [failed, setFailed] = useState<{ agility?: string; keyrate?: string; budgets?: string }>({});
+
+  async function getJson(url: string, init?: RequestInit): Promise<any> {
+    const r = await fetch(url, init);
+    const body = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(`HTTP ${r.status}${body?.detail ? `: ${body.detail}` : ""}`);
+    return body;
+  }
 
   async function runAll() {
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setFailed({});
     try {
       const [a, k, b] = await Promise.allSettled([
-        fetch("/api/pqc/agility", { method: "POST" }).then((r) => r.json()),
-        fetch("/api/verify/keyrate").then((r) => r.json()),
-        fetch("/api/verify/paper-budgets").then((r) => r.json()),
+        getJson("/api/pqc/agility", { method: "POST" }),
+        getJson("/api/verify/keyrate"),
+        getJson("/api/verify/paper-budgets"),
       ]);
-      if (a.status === "fulfilled") setAgility(a.value);
-      if (k.status === "fulfilled") setKeyrate(k.value);
-      if (b.status === "fulfilled") setBudgets(b.value);
-      if (a.status === "rejected" && k.status === "rejected") {
-        setErr("Backend services unavailable.");
-      }
+      const why = (x: PromiseRejectedResult) => (x.reason instanceof Error ? x.reason.message : String(x.reason));
+      const f: typeof failed = {};
+      if (a.status === "fulfilled" && Array.isArray(a.value?.matrix)) setAgility(a.value);
+      else f.agility = a.status === "rejected" ? why(a) : "response carried no matrix";
+      if (k.status === "fulfilled") setKeyrate(k.value); else f.keyrate = why(k);
+      if (b.status === "fulfilled") setBudgets(b.value); else f.budgets = why(b);
+      setFailed(f);
+      if (f.agility && f.keyrate && f.budgets) setErr("Backend services unavailable.");
     } finally { setBusy(false); }
   }
 
@@ -93,6 +107,7 @@ export default function Verification() {
       <div style={{ marginBottom: 12 }}>
         <ExportToolbar
           name="verification"
+          animated={false}
           logProvider={() => {
             const lines = [
               "# Implementation verification evidence",
@@ -170,7 +185,7 @@ export default function Verification() {
           so the matrix is nine rows and the panel rendered three families
           under a heading naming two. */}
       <Panel title="1 · Crypto-Agility Matrix (liboqs — ML-KEM, ML-DSA, SLH-DSA)">
-        {!agility ? <Loading /> : (
+        {!agility ? (failed.agility ? <NotObserved why={failed.agility} /> : <Loading />) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)",
                            gap: 12, marginBottom: 12 }}>
@@ -275,7 +290,7 @@ export default function Verification() {
 
       {/* 2. Key-rate cross-check */}
       <Panel title="2 · Key-Rate Cross-Check (our closed form vs TNO-Quantum)">
-        {!keyrate ? <Loading /> : keyrate.error && !keyrate.tno ? (
+        {!keyrate ? (failed.keyrate ? <NotObserved why={failed.keyrate} /> : <Loading />) : keyrate.error && !keyrate.tno ? (
           <p style={{ color: colors.warn, fontSize: 12 }}>
             TNO engine unavailable: {keyrate.error}
           </p>
@@ -324,7 +339,7 @@ export default function Verification() {
 
       {/* 3. Paper packet-budget match */}
       <Panel title="3 · Paper Packet-Budget Match (arXiv:2604.05599 Table 1)">
-        {!budgets ? <Loading /> : (
+        {!budgets ? (failed.budgets ? <NotObserved why={failed.budgets} /> : <Loading />) : (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
                            gap: 12, marginBottom: 12 }}>
@@ -346,6 +361,15 @@ export default function Verification() {
         )}
       </Panel>
     </div>
+  );
+}
+
+/** A panel whose request failed: say so, and say why, instead of spinning. */
+function NotObserved({ why }: { why: string }) {
+  return (
+    <p role="status" style={{ color: colors.warn, fontSize: 12 }}>
+      Not observed -- the request failed: {why}. Re-run to try again.
+    </p>
   );
 }
 

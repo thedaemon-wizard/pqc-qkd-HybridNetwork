@@ -227,14 +227,24 @@ export function limCountsFromChannel(p: {
   };
 }
 
+/**
+ * Finite-key rate per pulse.
+ *
+ * Every field is required. `qx`, the three intensity probabilities and
+ * `epsCor` used to default to 0.5 / 0.70 / 0.15 / 0.15 / 1e-15 when omitted --
+ * the shipped YAML's values, copied as literals, so a caller that forgot one
+ * got a rate for the configured protocol without anything saying where the
+ * number came from, and a changed YAML would not reach it. Callers take them
+ * from BUNDLED_PARAMS or the backend's config instead.
+ */
 export function skrFinite(p: {
   Y0: number; etaTotal: number; eD: number;
   mu: number; nu1: number; nu2: number; fEC: number; N: number; eps: number;
-  qx?: number; pMu?: number; pNu1?: number; pNu2?: number; epsCor?: number;
+  qx: number; pMu: number; pNu1: number; pNu2: number; epsCor: number;
 }): number {
-  const qx = p.qx ?? 0.5;
-  const ps = [p.pMu ?? 0.70, p.pNu1 ?? 0.15, p.pNu2 ?? 0.15];
-  const epsCor = p.epsCor ?? 1.0e-15;
+  const qx = p.qx;
+  const ps = [p.pMu, p.pNu1, p.pNu2];
+  const epsCor = p.epsCor;
   if (p.N <= 0 || !(p.eps > 0 && p.eps < 1)) return 0.0;
   const mus = [p.mu, p.nu1, p.nu2];
   if (!(p.mu > p.nu1 + p.nu2 && p.nu1 > p.nu2 && p.nu2 >= 0)) return 0.0;
@@ -246,6 +256,53 @@ export function skrFinite(p: {
     mus, ps, epsSec: p.eps, epsCor, fEC: p.fEC,
   });
   return r.ell / p.N;
+}
+
+/** Transmittance of a span with a stated loss in dB: 10^(-loss/10). */
+export function transmittanceFromLossDb(lossDb: number): number {
+  return Math.pow(10, -lossDb / 10.0);
+}
+
+/**
+ * The inputs `skrBpsForLink` needs, named as in BUNDLED_PARAMS so that object
+ * can be passed directly.
+ */
+export interface LinkRateParams {
+  detectorEfficiency: number; fiberAttenuationDbPerKm: number;
+  darkCountRateHz: number; pulseRateHz: number; misalignmentErrorEd: number;
+  intensitySignalMu: number; intensityDecoy1Nu1: number; intensityDecoy2Nu2: number;
+  basisBiasPz: number; probSignalMu: number; probDecoy1Nu1: number; probDecoy2Nu2: number;
+  ecEfficiencyF: number; blockSizeN: number; securityEpsilon: number;
+  correctnessEpsilon: number;
+}
+
+/** A span given either by length (loss from the configured attenuation) or by a stated loss. */
+export type LinkSpan = { km: number } | { lossDb: number };
+
+/**
+ * This project's finite-key secret-key rate, in bit/s, for one span.
+ *
+ * Mirrors `skr_bps_from_config` in services/bb84-kme/app/backends/_skr.py
+ * argument for argument (Y0 = dark / max(pulse, 1); eta from the detector
+ * efficiency and either the configured attenuation times the length or the
+ * stated loss; every protocol probability passed explicitly), and
+ * tests/test_keyrate_ports_agree.py compares the two. It is this repository's
+ * decoy-BB84 model with this repository's source and detector parameters
+ * applied to a span -- not a prediction for any vendor's system on that span.
+ */
+export function skrBpsForLink(p: LinkRateParams, span: LinkSpan): number {
+  const etaTotal = "km" in span
+    ? totalTransmittance(p.detectorEfficiency, p.fiberAttenuationDbPerKm, span.km)
+    : p.detectorEfficiency * transmittanceFromLossDb(span.lossDb);
+  const Y0 = p.darkCountRateHz / Math.max(p.pulseRateHz, 1.0);
+  const perPulse = skrFinite({
+    Y0, etaTotal, eD: p.misalignmentErrorEd,
+    mu: p.intensitySignalMu, nu1: p.intensityDecoy1Nu1, nu2: p.intensityDecoy2Nu2,
+    fEC: p.ecEfficiencyF, N: p.blockSizeN, eps: p.securityEpsilon,
+    qx: p.basisBiasPz, pMu: p.probSignalMu, pNu1: p.probDecoy1Nu1,
+    pNu2: p.probDecoy2Nu2, epsCor: p.correctnessEpsilon,
+  });
+  return perPulse * p.pulseRateHz;
 }
 
 /** Convenience: derive Y0 (dark-count yield) and η_total from device params. */
@@ -304,6 +361,20 @@ export const BUNDLED_PARAMS = {
   bb84BatchSize: 2048,
   eveEnabled: false,
   eveInterceptProb: 0.0,
+
+  // The finite-key and key-pool settings, added for /protocol-lab's per-link
+  // model rate and its buffer rules. Same check, same reason: each one is
+  // compared to config/qkd_params.yaml, so the page cannot run a protocol the
+  // configuration does not describe.
+  probSignalMu: 0.70,
+  probDecoy1Nu1: 0.15,
+  probDecoy2Nu2: 0.15,
+  blockSizeN: 1e9,
+  securityEpsilon: 1e-10,
+  correctnessEpsilon: 1e-15,
+  outBitsPerKey: 256,
+  poolLowWatermark: 8,
+  poolMaxSize: 64,
 } as const;
 
 /**

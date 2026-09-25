@@ -39,7 +39,7 @@ const read = (f: string) => readFileSync(join(HERE, f), "utf8");
 const TOPOLOGY = read("Topology.tsx");
 
 /** Pages whose content comes from the backend and cannot be synthesised. */
-const BACKEND_PAGES = ["Topology.tsx", "VpnProtocols.tsx", "Benchmarks.tsx", "Console.tsx"];
+const BACKEND_PAGES = ["Topology.tsx", "VpnProtocols.tsx", "Benchmarks.tsx", "Console.tsx", "Overview.tsx", "Verification.tsx"];
 
 describe("/topology distinguishes cannot-look from still-looking", () => {
   it("handles the rejection instead of leaving it unhandled", () => {
@@ -85,6 +85,28 @@ describe("the other backend pages still have the path", () => {
     const src = read(file);
     expect(src, `${file} has no catch and no not-observed rendering`)
       .toMatch(/\.catch\(|catch\s*[({]|not observed/);
+  });
+
+  // A catch is not enough: /vpn caught its failure and rendered "Loading..."
+  // forever, and passed the assertion above. Each of these must RENDER a line
+  // that names the failed request.
+  it.each([
+    ["VpnProtocols.tsx", "GET /api/vpn/protocols failed"],
+    ["Overview.tsx", "GET /api/stack failed"],
+    ["Console.tsx", "GET /api/logs/${active} failed"],
+    ["Verification.tsx", "Not observed -- the request failed"],
+  ])("%s renders the failure it caught", (file, text) => {
+    expect(read(file)).toContain(text);
+  });
+
+  it("the API helpers throw on an error status instead of returning its body", () => {
+    const api = read("../api.ts");
+    expect(api).toMatch(/async function okJson/);
+    expect(api).toMatch(/if \(!r\.ok\) throw/);
+    for (const fn of ["getStack", "getStats", "getTopology", "getLogs", "getConfig"]) {
+      const body = api.slice(api.indexOf(`export async function ${fn}(`));
+      expect(body.slice(0, 200), fn).toMatch(/return okJson\(/);
+    }
   });
 
   it("Benchmarks.tsx handles the fetch rejecting, not only an error field", () => {

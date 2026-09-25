@@ -34,6 +34,7 @@ import { join } from "node:path";
 const HERE = new URL(".", import.meta.url).pathname;
 const PAPER = readFileSync(join(HERE, "paperSim.ts"), "utf8");
 const E2E = readFileSync(join(HERE, "e2eSim.ts"), "utf8");
+const LAB = readFileSync(join(HERE, "protocolLabSim.ts"), "utf8");
 const CASCADE = readFileSync(
   join(HERE, "../../components/FailureCascadeTimeline.tsx"), "utf8");
 
@@ -78,6 +79,18 @@ describe("the two simulators agree on the states they can be in", () => {
   it("paperSim and e2eSim expose the same status union", () => {
     // Divergence here is what let /paper-flow keep a bug /e2e had lost.
     expect(union(PAPER)).toEqual(union(E2E));
+  });
+
+  it("protocolLabSim exposes the same union, and refuses a step while running", () => {
+    // The third simulator, added for /protocol-lab. Same union, same step rule
+    // and the same paused-stays-paused restore, or the badge on one page means
+    // something different from the badge on the other two.
+    expect(union(LAB)).toEqual(union(PAPER));
+    expect(LAB).toMatch(/step\(\) \{\s*if \(this\.status === "running"\) return;/);
+    const fn = LAB.slice(LAB.indexOf("  step() {"), LAB.indexOf("  reset() {"));
+    expect(fn).toMatch(/this\.status = "stepped";/);
+    expect(fn).toMatch(/if \(before === "paused"\) this\.status = "paused";/);
+    expect(fn).not.toMatch(/^\s*this\.status = "paused";/m);
   });
 
   it("the cascade timeline accepts every state a simulator can report", () => {

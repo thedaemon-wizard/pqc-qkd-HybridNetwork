@@ -56,7 +56,10 @@ describe("an all-zero ESP reading explains itself", () => {
   });
 
   it("names the precondition rather than excusing the zero", () => {
-    expect(SRC).toMatch(/nothing on this\s*\n?\s*host sends traffic through the tunnel/);
+    // The two reasons a zero is legitimate now: a rotation has just reset the
+    // counters, and the health-check probe has not fired since.
+    expect(SRC).toMatch(/rotation installs a new CHILD_SA whose counters start at zero/);
+    expect(SRC).toMatch(/health check every 15 s/);
     expect(SRC).toMatch(/start_action = trap/);
     // The reproduction, so a reader can make it non-zero themselves.
     expect(SRC).toMatch(/ping -c3 10\.30\.0\.21/);

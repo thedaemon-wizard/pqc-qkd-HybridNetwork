@@ -1,4 +1,5 @@
 import Plot from "react-plotly.js";
+import { PLOT_CONFIG } from "../lib/plotConfig";
 import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
 /**
@@ -57,7 +58,7 @@ export default function KeyFlow() {
           font: { color: "#d8e1ff", size: 13 },
           height: 420, margin: { l: 0, r: 0, t: 10, b: 10 },
         }}
-        config={{ displaylogo: false }}
+        config={PLOT_CONFIG}
         style={{ width: "100%" }}
       />
       <p style={{ color: "#9aa9d8", maxWidth: 760, fontSize: 12, marginBottom: 4 }}>

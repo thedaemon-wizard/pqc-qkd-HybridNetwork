@@ -337,7 +337,7 @@ as a reference for the alternative "PQC-only PSK rotation" approach used in
 production by Mullvad VPN; see [`docs/IMAGE1_VPN_SCOPE.md`](IMAGE1_VPN_SCOPE.md)
 for a head-to-head comparison with arnika.
 
-Screenshots were reviewed for this layout but not committed. These specific captures were never committed; the files in `docs/images/screenshots/` are listed in the repository. Kept as a record of what was checked at the time, not as a pointer to an artefact.
+Screenshots were reviewed for this layout but not committed, and none are in the repository. Kept as a record of what was checked at the time, not as a pointer to an artefact.
 
 ---
 
@@ -485,7 +485,7 @@ Four coordinate fixes to remove subtle text-to-box collisions. Element count
 Browser verification confirmed the four labels render at the new
 coordinates: `QKD KEY y=[208,208], key_ID y=[288,288], VPN tunnel y=174`.
 
-### A third ETSI 014 KME (Rust, 2026-04-01 active)
+### Rust ETSI 014 KME (vendored, not built)
 
 `submodules/qkd_kme_server` is now part of the repo —
 [`thomasarmel/qkd_kme_server`](https://github.com/thomasarmel/qkd_kme_server)

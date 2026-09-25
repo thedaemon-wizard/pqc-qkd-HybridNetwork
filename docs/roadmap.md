@@ -24,6 +24,8 @@ here so the roadmap does not keep proposing work that already exists.
 | A written key-rate derivation | [`keyrate.md`](keyrate.md) |
 | Secret scanning in CI | `.github/workflows/ci.yml`, job `secrets` (was listed as "recommended" for months) |
 | Reproducible seeded simulation runs | `reconcile()` now takes an injectable RNG |
+| Protocol Lab: trusted-node key relay, re-routing, and the ETSI GS QKD 014 / 004 message sequence, over published networks | `/protocol-lab`, client-side and labelled a simulation; see the decision record below (2026-09-25) |
+| ETSI GS QKD 004 V2.1.1 application interface | `bb84-kme`, over this project's HTTP/JSON binding, off by default; [`etsi004-binding.md`](etsi004-binding.md) (2026-09-25) |
 
 ## Known gaps - model and protocol
 
@@ -37,6 +39,7 @@ Implementation gaps are tracked separately, under "Status" below.
 | ~~First-order finite-key term only~~ **CLOSED 2026-08-28** | Was "not a composable security proof". It now is one: Lim et al. PRA 89, 022307 (2014) with eps_sec and eps_cor tracked separately and a key LENGTH in bits. See [`keyrate.md`](keyrate.md) section 5. The residual caveat is different in kind and is stated there -- the counts fed to the estimators are EXPECTED under the channel model, not observed, so the output is an expected key length and the eps_sec guarantee does not attach to a simulated number. |
 | **Upstream has stated the file-based PQC handover will be removed** | arnika's maintainer, 2026-09-16: *"pls. note that we'll drop the PQC_FILE_PSK and replace it with PQC-HPKE"* and *"the concept of key handover via file is somehow odd"*. This PoC's PQC half IS that handover: Rosenpass writes `/var/lib/rosenpass/pqc.psk` and arnika reads it, wired in `nodes/alice/entrypoint.sh` (six references) and asserted in the `ipsec` CI job. Measured on the `feat/pqc-hpke` branch (`b4a832e`): **`PQC_PSK_FILE` is gone from `config/` entirely**, and the branch is +10,400/-1,249 across 68 files, including renaming every writer-selection file to `wire_*.go`. **Not urgent -- `main` still has `PQC_PSK_FILE`** and the pin is on `main`. What changes is the planning assumption: the Rosenpass-file integration now has a stated end of life rather than an open-ended one, and the `wire_*.go` rename will also move the build-tag surface that `services/arnika-vici/build.sh` asserts on. Re-read the branch before the next pin bump. |
 | Static channel model | Measured field data (arXiv:2608.18869) shows aerial fibre at twice the QBER of buried fibre despite lower loss, with variance tracking wind speed. The model cannot express that. |
+| The asymptotic decoy bound takes $`Y_0`$ as known | `asymptotic_skr_per_pulse` and its TypeScript port use the configured dark-count yield directly. A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). The finite-key rate the backends report already estimates the vacuum term from decoy counts; see [`keyrate.md`](keyrate.md) sections 4 and 5. Recorded 2026-09-25. |
 | Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
 | RFC 9867 not available on this lane | Stated as two reproducible observations rather than the flat "no open-source IKEv2 implementation has it" that stood here -- that claim is not checkable, and the supporting one ("strongSwan marks it unsupported in its own features table") pointed at a file that is **not in the pinned tree**: it lives in the separate `strongswan/strongswan-docs` repository. What can be established: (1) `USE_PPK_INT` (16445) and `PPK_IDENTITY_KEY` (16446) appear nowhere under `submodules/strongswan/src/`, and **16444 is the highest Status Type** in `notify_payload.h`, so they sit immediately above the top of the range; (2) the `IKE_SA_INIT` response on this lane carries `N(USE_PPK)`, and RFC 9867 §3.1 has a responder return either that or `USE_PPK_INT`, never both. Both are pinned by `tests/test_claims_about_the_pinned_strongswan_hold.py`. Consuming fresh QKD material therefore needs a full reauthentication per rotation. See [`vici-ppk.md`](vici-ppk.md). |
 | ETSI `key_ID` not bound to the ciphertext | arXiv:2607.06602 binds it into the AEAD AAD; neither arnika nor this project does. |
@@ -240,14 +243,79 @@ adopted as the general compute story.
 
 ---
 
+## Decision record: Protocol Lab (2026-09-25)
+
+**The commitment.** An early plan promised a "Protocol Lab" page: a side-by-side
+view of ETSI GS QKD 014 and 004, key buffers at each node, trusted-node relay,
+re-routing around a failed link, and a route controller's view, backed by an
+NS-3 / qkdnetsim simulation and a "Czech National 13-node" topology.
+
+**What shipped** is route 14, `/protocol-lab`, computed entirely in the browser
+and labelled a simulation before anything runs:
+
+- five published networks -- Cambridge 2019, SECOQC Vienna 2008, Tokyo 2010,
+  MadQCI 2024 and the Thuringia chain of arXiv:2608.18869 -- with every number
+  stored as the source printed it, with its reference;
+- three cited scenarios that replay the sources' own runs and state where the
+  replay departs from them (SECOQC section 5.1.2, Tokyo section 4, Cambridge
+  Fig. 3);
+- per-link key stores following this repository's KeyPool rules, a service-side
+  store, trusted-node relay with real one-time pads (prefixes only ever leave
+  the simulator), and a route controller panel that displays and does not act;
+- a timeline pairing this stack's 014 message shapes per hop (sizes in bits)
+  with a simulated 004 V2.1.1 stream end to end (sizes in bytes, status codes
+  from Table 2), driven by `etsi004SpecV211.json` -- the same file the KME's
+  real endpoint loads;
+- this project's key-rate model beside each reported rate in the link table,
+  never in the simulation.
+
+**What was withdrawn, and why.**
+
+- *NS-3 / qkdnetsim backend.* qkdnetsim is GPL-2.0 and no qkdnetsim binary is
+  run anywhere in this repository; `qkdnetsim-kme` is a Flask facade that builds
+  NS-3 and does not execute it. Running it for one page would change the
+  licence posture of the hosted demo for a view the browser can compute.
+- *A 004 endpoint on qkdnetsim-kme (port 81).* Depends on the above, and
+  qkdnetsim's own 004 application is partial: point to point, reads only
+  Key_chunk_size, returns no status codes and ignores a requested index. The
+  real 004 endpoint went into `bb84-kme` instead.
+- *Live buffers on `/topology` and a qkdnetsim statistics poller.* Nothing
+  produces those statistics, and a page that reports live state must not show
+  browser-simulated values.
+- *A re-routing API.* There is no route controller in the running stack.
+- *Benchmarks fed by qkdnetsim callbacks.* `/benchmarks` is a live-state page.
+- *Cross-validating relay and the 004 lifecycle against live KMEs.* The running
+  stack relays nothing; the 004 endpoint is tested by its own contract suite.
+- *Czech National 13-node.* No source for a 13-node network was found. The one
+  Czech paper models a six-node chain whose rates are calculated, not measured,
+  whose segment lengths do not add up to its stated spans, and which says itself
+  that no equipment data is available.
+- *Beijing-Shanghai backbone.* Paywalled, with no per-link table.
+
+Two citations were corrected on the way: the QKDNetSim+ paper is by Soler et
+al., not Mehic (checked on Crossref), and a claim that a DRCN 2023 paper was the
+basis of a route controller had never been verified and is not repeated.
+
+**Still open.**
+
+- MadQCI's Table 1 rates are per system, some per direction, and from different
+  periods; binding one to each span is left undone rather than guessed.
+- Maximum-flow capacity between two nodes (SECOQC section 5.2) and more than one
+  concurrent demand.
+- Edition 3 of GS QKD 004, once published, as a separate spec file.
+- qkdnetsim commit `7a99fc17` (2026-08-24) adds QKD+PQC key mixing to the key
+  management layer upstream; worth reading before any further qkdnetsim work.
+
 ## Status as of 2026-08-21
 
 Closed this round, with the evidence rather than the intention:
 
 - **VICI lane** verified in CI on `main`: both peers negotiate
   `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`, hold exactly
-  one IKE_SA, and rotate. The residual sub-millisecond race is **1 failure in
-  45 rotations** ([`vici-ppk.md`](vici-ppk.md)). This entry previously said
+  one IKE_SA, and rotate. The residual rotation race (milliseconds; the
+  responder loads its PPK after the initiator has sent IKE_AUTH) is **1 failure
+  in 45 rotations** on the first two-node run and **16 in 25,249** over 8.8 days
+  on the live demo under strongSwan 6.1.0 ([`vici-ppk.md`](vici-ppk.md)). This entry previously said
   "one per ~9 rotations" -- that is the rate measured while the un-retired
   bootstrap credential made two keys answer one `PPK_ID`, a defect that was
   fixed, not the race that remains. Note also that the CI job observes only
@@ -502,8 +570,8 @@ product name, so these survive every green CI run.
   Exactly one credential, correct generation, and the MAC still fails -- so the
   two peers hold **different 32 bytes**. That eliminates ordering, id
   namespacing and a missing credential by observation rather than by argument,
-  and it is not the documented sub-millisecond race, which is 1-in-45 and
-  self-correcting. The IKE_SA stays at `pqcqkd-vpn[1]` for the whole window.
+  and it is not the documented rotation race, which is 1-in-45 on the first
+  run, 16 in 25,249 on the live demo, and self-correcting. The IKE_SA stays at `pqcqkd-vpn[1]` for the whole window.
 
   A **passing** run, by contrast, retires the bootstrap credential and then
   establishes a *new* SA on every rotation -- `[2]`, `[3]`, `[4]`, `[5]` ... --

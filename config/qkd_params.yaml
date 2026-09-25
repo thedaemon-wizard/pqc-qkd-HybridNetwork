@@ -101,6 +101,24 @@ simulator:
   pool_max_size: 64
   rng_seed: 42                           # set to null for OS entropy
 
+# ETSI GS QKD 004 V2.1.1 endpoint on the KME (this project's HTTP/JSON binding;
+# see docs/etsi004-binding.md). Off on the public demo: nothing there drives it,
+# and CI switches it on for the contract test. Not editable from the WebUI.
+etsi004:
+  endpoint_enabled: false
+  max_streams: 8                         # open streams per KME
+  # Undelivered 004 chunks may hold at most this share of pool_max_size
+  # (16 of 64). Checked at start and on every call: 2*pool_low_watermark + share
+  # must fit in pool_max_size, so the 014 floor on this KME and the peer's
+  # replicas still fit beside the chunks.
+  max_pool_share: 0.25
+  default_timeout_ms: 5000               # QoS Timeout when the caller sends none
+  max_timeout_ms: 30000                  # a caller's Timeout is clamped to this
+  default_ttl_s: 60                      # QoS TTL when the caller sends none
+  max_ttl_s: 3600                        # a caller's TTL is clamped to this; also
+                                         # how long a closed Key_stream_ID stays refused
+  sweep_interval_s: 1.0                  # how often TTLs are applied
+
 optimizer:
   enabled: false
   method: "bayesian_gp"                  # bayesian_gp | closed_form | table_lookup

@@ -152,7 +152,9 @@ def test_a_missing_log_is_a_404_not_an_empty_file():
     with a populated LOG_DIR, which the host suite does not have.
     """
     src = BACKEND_MAIN.read_text(encoding="utf-8")
-    body = src.split("async def download_log", 1)
+    # `async def` until 2026-09-25, plain `def` since (the file read is
+    # blocking). Match either, so the handler is found whatever it is declared as.
+    body = re.split(r"(?:async )?def download_log", src, maxsplit=1)
     assert len(body) == 2, "download_log is gone; update this test"
     handler = body[1].split("\n@app.", 1)[0]
 

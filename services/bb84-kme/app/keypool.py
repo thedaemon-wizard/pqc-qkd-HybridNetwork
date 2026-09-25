@@ -146,6 +146,18 @@ class KeyPool:
         self._stats = PoolStats()
         self._wake = asyncio.Event()
         self._stopped = asyncio.Event()
+        # ETSI GS QKD 004 streams ask for keys ABOVE the 014 watermark; this is
+        # how many. Zero whenever no 004 stream is short, which leaves the
+        # producer gate exactly what it was before 004 existed.
+        self._extra_target = 0
+        # Sum of every round's duration, for the MEASURED production rate a
+        # 004 Min_bps is checked against (never the modelled skr_bps, which is
+        # about four orders of magnitude higher than what the demo emits).
+        self._round_ms_total = 0.0
+        # key_IDs the peer moved into a 004 stream, remembered so a replica
+        # that arrives AFTER its chunk is not admitted to the 014 index.
+        # Insertion-ordered and trimmed to `capacity`, like `_by_id`.
+        self._withdrawn: dict[str, None] = {}
 
         self._backend_name = backend_name or resolve_default_backend_name()
         # Boot resilience: the configured backend may need a heavy submodule
@@ -219,7 +231,7 @@ class KeyPool:
             # body, so the lane loses key material and IKEv2 reauth fails with
             # AUTH_FAILED. Fixing the gate removes the trigger regardless of
             # what upstream does.
-            if self.dispensable() >= self.low_watermark:
+            if self.dispensable() >= self.low_watermark + self._extra_target:
                 try:
                     await asyncio.wait_for(self._wake.wait(), timeout=idle_timeout_s)
                 except TimeoutError:
@@ -236,6 +248,7 @@ class KeyPool:
     async def _record(self, r: RoundOutcome) -> None:
         async with self._lock:
             self._stats.rounds_total += 1
+            self._round_ms_total += max(0.0, float(r.elapsed_ms or 0.0))
             self._stats.last_qber = r.qber
             self._stats.last_round_ms = r.elapsed_ms
             self._stats.modelled_skr_bps = r.skr_bps
@@ -292,7 +305,7 @@ class KeyPool:
 
     async def receive_synced(self, key_id: str, key_b64: str) -> None:
         async with self._lock:
-            if key_id in self._by_id:
+            if key_id in self._by_id or key_id in self._withdrawn:
                 return
             sk = StoredKey(key_id=key_id, key_b64=key_b64,
                            created_at=asyncio.get_event_loop().time(),
@@ -332,6 +345,65 @@ class KeyPool:
             log.info("dec_keys: unknown key_ID %s requested for master SAE %s",
                      key_id, master_sae_id)
         return sk
+
+    # ------------------------------------------------ ETSI GS QKD 004 support
+    async def take_local_for_stream(self, n: int) -> list[StoredKey] | None:
+        """Move `n` locally-produced keys into a 004 stream, or None.
+
+        The 014 FLOOR: never leaves fewer than `low_watermark` dispensable keys,
+        so arnika's `enc_keys` cannot be starved by a 004 stream.
+
+        Unlike `pop_for_enc`, the keys leave `_by_id` too. A key handed to a
+        004 stream must not be resolvable through 014 `dec_keys` afterwards --
+        on either KME; the peer drops its replicas when the chunk arrives.
+        """
+        async with self._lock:
+            local = [k for k in self._buf if not k.replicated]
+            if n <= 0 or len(local) - n < self.low_watermark:
+                return None
+            taken = local[:n]
+            for k in taken:
+                self._buf.remove(k)
+                self._by_id.pop(k.key_id, None)
+            self._stats.pool_size = len(self._buf)
+        self._wake.set()
+        return taken
+
+    def request_extra(self, n: int) -> None:
+        """Ask the producer for up to `n` keys above the 014 watermark."""
+        cap = self.capacity - 2 * self.low_watermark
+        self._extra_target = max(self._extra_target, min(max(0, n), cap))
+        self._wake.set()
+
+    def release_extra(self) -> None:
+        self._extra_target = 0
+
+    async def drop_replicas(self, key_ids: list[str]) -> None:
+        """Remove replicas of keys the peer moved into a 004 stream."""
+        async with self._lock:
+            for kid in key_ids:
+                sk = self._by_id.pop(kid, None)
+                if sk is not None and sk in self._buf:
+                    self._buf.remove(sk)
+                self._withdrawn[kid] = None
+            while len(self._withdrawn) > self.capacity:
+                del self._withdrawn[next(iter(self._withdrawn))]
+            self._stats.pool_size = len(self._buf)
+
+    def production_capacity_bps(self) -> float | None:
+        """Measured key production in bit/s, or None before any round.
+
+        Accepted rounds times key size over the total time spent in rounds. A
+        rate of what this KME actually emitted, which is what a Min_bps
+        promise has to be checked against.
+        """
+        if self._stats.rounds_accepted == 0 or self._round_ms_total <= 0:
+            return None
+        return self.key_size_bits * self._stats.rounds_accepted * 1000.0 / self._round_ms_total
+
+    @property
+    def key_bytes(self) -> int:
+        return self.key_size_bits // 8
 
     @property
     def key_size_bits(self) -> int:

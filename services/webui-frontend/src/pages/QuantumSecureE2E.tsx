@@ -4,6 +4,10 @@ import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
 import { colors } from "../lib/commonStyles";
 import { E2ESim, e2eCsvRows, type E2EState } from "../lib/sim/e2eSim";
+import { formatRate } from "../lib/formatRate";
+// Re-exported so existing importers (rateIsLegible.test.ts) keep one path; the
+// definition moved to lib/ so /protocol-lab can share it without importing a page.
+export { formatRate };
 
 /**
  * Quantum-Secure E2E Simulation.
@@ -100,7 +104,7 @@ export default function QuantumSecureE2E() {
       const started = new Date(h.started_at * 1000).toISOString();
       const dur = h.completed_at
         ? `${Math.round((h.completed_at - h.started_at) * 1000)}ms` : "open";
-      return `${started}  phase ${h.phase}  ${h.name}  (${dur})  ${JSON.stringify(h.detail)}`;
+      return `${started}  step ${h.phase}  ${h.name}  (${dur})  ${JSON.stringify(h.detail)}`;
     });
     return [...head, ...body, ""].join("\n");
   }
@@ -113,10 +117,10 @@ export default function QuantumSecureE2E() {
     <div>
       <PageHeader
         title="Quantum-Secure E2E Simulation"
-        subtitle={<>Run and visualise the live <b>4-phase Data Exchange</b> between Alice
+        subtitle={<>Run and visualise the live <b>4-step Data Exchange</b> between Alice
           and Bob. This runs <b>client-side in your browser</b>: a QKD key + key_ID are
           generated, the orchestrator fuses QKD ‖ PQC with <b>real HKDF-SHA3-256</b>, and
-          the final phase encrypts packets with <b>real ChaCha20-Poly1305</b> (via @noble)
+          the final step encrypts packets with <b>real ChaCha20-Poly1305</b> (via @noble)
           keyed by the derived PSK. Use Run / Pause / Resume / Step / Reset to drive the
           state machine.</>}
       />
@@ -137,7 +141,7 @@ export default function QuantumSecureE2E() {
 
       {/* Architecture diagram — Image 1 layout (PNG/GIF capture target) */}
       <div id="e2e-arch-svg-wrap">
-        <ArchSvg mode={mode} phase={phase} />
+        <ArchSvg mode={mode} phase={phase} aborted={state?.phase_name === "aborted"} />
         <ArchLegend />
       </div>
 
@@ -189,7 +193,9 @@ export default function QuantumSecureE2E() {
             ⚡ {state.engine}
           </span>
         )}
-        <Badge text={`status: ${status}`}
+        {/* An aborted run returns to idle with its counters kept; say which
+            idle this is, or it reads as a page that never ran. */}
+        <Badge text={`status: ${status}${state?.phase_name === "aborted" ? " (aborted)" : ""}`}
                color={status === "running" ? "#3ddc84"
                       : status === "paused" ? "#f5a623" : "#445"} />
       </div>
@@ -304,10 +310,20 @@ export default function QuantumSecureE2E() {
             <code>docs/vici-ppk.md</code> is about the <i>IKEv2</i> PSK and does
             not apply to this lane.
           </p>
+          <p style={{ color: colors.textMute, fontSize: 11, marginTop: 4 }}>
+            Derived with this page&apos;s own parameters: salt <code>pqcqkd-e2e</code>,
+            info <code>mode-{mode}</code>. arnika&apos;s <code>kdf.go</code> passes nil for
+            both (see <a href="/keyflow">Key Flow</a>), so the same two inputs give a
+            different key there. The construction is the same; the parameters differ.
+          </p>
         </Panel>
       </div>
 
-      {state?.last_error && (
+      {/* Shown once. The amber status line above already carries every
+          last_error; this red box repeated it -- including the non-fatal
+          "Degraded: ..." note, in the colour of a failure. It now appears only
+          when the failure is fatal for the current mode. */}
+      {state?.last_error && state.failure_is_fatal && (
         <div style={{ marginTop: 14, padding: 10, background: "#3a1818",
                        border: "1px solid #e25555", borderRadius: 6,
                        color: "#ffd6d6", fontSize: 12 }}>
@@ -320,7 +336,7 @@ export default function QuantumSecureE2E() {
         <table style={{ width: "100%", fontSize: 12, color: "#cbd6f5" }}>
           <thead>
             <tr style={{ color: "#6b7796" }}>
-              <th align="left">phase</th><th align="left">name</th>
+              <th align="left">step</th><th align="left">name</th>
               <th align="left">duration (ms)</th><th align="left">detail</th>
             </tr>
           </thead>
@@ -397,7 +413,7 @@ const LANE = {
 // Quadratic-bezier control-point y that yields the desired apex (curve midpoint).
 const ctrlY = (y0: number, apex: number) => 2 * apex - y0;
 
-function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
+function ArchSvg({ mode, phase, aborted }: { mode: string; phase: number; aborted: boolean }) {
   // Highlight rules:
   //   mode "A" (QKD-only) -> orange path active in phase 1-2
   //   mode "B" (PQC-only) -> pink path active in phase 3
@@ -549,7 +565,7 @@ function ArchSvg({ mode, phase }: { mode: string; phase: number }) {
                       active={phase === 1} />
       </svg>
       <div style={{ marginTop: 6, fontSize: 11, color: "#6b7796" }}>
-        Active step: <b style={{ color: "#e25555" }}>{phase || "idle"}</b>
+        Active step: <b style={{ color: "#e25555" }}>{phase || (aborted ? "aborted" : "idle")}</b>
         {" · "}Mode: <b style={{ color: MODE_COLOR[mode] }}>{mode}</b>
       </div>
     </div>
@@ -730,59 +746,6 @@ function KeyLegend({ x, flip, mode }:
       })}
     </g>
   );
-}
-
-/**
- * Pick a unit the measured rate is actually legible in.
- *
- * This card read `((rate_bps ?? 0) / 1e6).toFixed(2)`, and the rates this
- * simulator produces are a few kbps, so it had two decimal places to express a
- * number three orders of magnitude below its unit. Measured on the deployed
- * build 2026-08-28, the two Data Exchange phases in one run:
- *
- *     rate_mbps 0.003576858446018516  ->  3577 bps  ->  card read "0.00"
- *     rate_mbps 0.008981990806995938  ->  8982 bps  ->  card read "0.01"
- *
- * The card was showing `0.00` while the phase history beside it recorded a
- * measured rate: two panels on one screen, one saying throughput was measured
- * and the other saying there was none, with the wrong one in the larger font.
- *
- * The second line is the more instructive of the two. `0.01` is not a rescue --
- * it is a single significant figure that looks like a real reading, so it fails
- * quietly where `0.00` at least looks broken. Both are the same defect.
- *
- * Both of those are also THROTTLED readings, taken in a hidden tab. The caveat
- * is one file over, in `e2eSim.ts`: a foreground cycle is 4 x 450 ms and runs
- * at about 19.9 kbps, which the old card rendered `0.02`. So the fault was
- * never "always zero" -- it was one or two significant figures at every rate
- * this page produces, and the foreground case is the one that looks most like
- * a real measurement.
- *
- * The `?? 0` was the second half of the same fault: "the run has not reported a
- * rate yet" and "the rate is zero" rendered identically. That substitution is
- * the one this page's own comments reject for QBER, and
- * `provenanceReachesTheScreen.test.ts` pins it for the synthetic-round flags.
- * An absent rate is a dash.
- */
-export function formatRate(bps: number | null | undefined):
-    { value: string; unit: string } {
-  if (typeof bps !== "number" || !Number.isFinite(bps)) {
-    return { value: "—", unit: "not reported" };
-  }
-  // Thresholds are the ROUNDING boundaries, not the unit boundaries, because
-  // `toFixed` rounds after the branch has already been chosen. Picking the
-  // unit at 1e6 rendered 999_999 bps as "1000.00 kbps" -- a four-digit
-  // kilobit reading, which is the same class of nonsense this function exists
-  // to remove. 999_995 is the least value that rounds to 1.00 Mbps at two
-  // decimals; 999.5 is the least that rounds to 1.00 kbps.
-  // Gbps exists so Mbps is not the top unit. Without it a 1e9 rate rendered
-  // "1000.00 Mbps", which is the same four-digit-in-the-wrong-unit reading the
-  // thresholds above exist to prevent -- the guard would have had to exempt
-  // its own top tier, which is how an exception becomes the bug.
-  if (bps >= 999_999_500) return { value: (bps / 1e9).toFixed(2), unit: "Gbps" };
-  if (bps >= 999_995) return { value: (bps / 1e6).toFixed(2), unit: "Mbps" };
-  if (bps >= 999.5) return { value: (bps / 1e3).toFixed(2), unit: "kbps" };
-  return { value: bps.toFixed(0), unit: "bps" };
 }
 
 function KPI({ label, value }: { label: string; value: any }) {

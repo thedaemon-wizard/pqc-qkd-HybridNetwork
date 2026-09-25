@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -182,6 +182,11 @@ async def config() -> dict[str, Any]:
         # host that has one, which is the shape of claim this project keeps
         # removing. scripts/verify-demo-hardening.sh reads this field.
         "rate_limit": {"max": DEMO_RATE_MAX, "window_s": DEMO_RATE_WINDOW_S},
+        # The rotation interval arnika was started with, as configured
+        # (ARNIKA_INTERVAL, e.g. "30s"). The Overview used to print "30 s" as a
+        # literal; this is the value compose actually passed. None when unset,
+        # which the page renders as "not reported" rather than a default.
+        "arnika_interval": os.environ.get("ARNIKA_INTERVAL") or None,
     }
 
 
@@ -208,8 +213,16 @@ PROFILE_GATED: dict[str, tuple[str, str]] = {
 }
 
 
+# `/` polls this every 3 s from every open tab. The handler was `async def` while
+# calling the blocking Docker SDK, so each poll stalled the event loop that also
+# serves every other route -- the same defect `/api/vpn/protocols` already fixed
+# with a plain `def` and a short cache. Plain `def` lets FastAPI run it in its
+# threadpool; the cache means N viewers cost one Docker round-trip per window.
+STACK_TTL_S = float(os.environ.get("STACK_TTL_S", "3.0"))
+
+
 @app.get("/api/stack")
-async def stack() -> list[dict[str, Any]]:
+def stack() -> list[dict[str, Any]]:
     """Container status for the main services.
 
     `absent` means the container is not present. For a profile-gated service
@@ -217,6 +230,13 @@ async def stack() -> list[dict[str, Any]]:
     carry `optional: true` plus the profile and compose file that would create
     them. A consumer that ignores the flag renders exactly what it did before.
     """
+    hit, _ = _cached("stack", STACK_TTL_S)
+    if hit is not None:
+        return hit
+    return _store("stack", _stack_uncached())
+
+
+def _stack_uncached() -> list[dict[str, Any]]:
     names = ["alice", "bob", "bb84-kme-a", "bb84-kme-b", "webui-backend",
              "webui-frontend", "pqc-validator", "alice-ipsec", "bob-ipsec",
              "qkdnetsim-kme"]
@@ -299,6 +319,48 @@ async def stats():
         return results
 
 
+# ----------------------- Log redaction and bounds -----------------------
+# `GET /api/logs/{name}` served ARNIKA_PSK to anyone who asked. The pinned arnika
+# (3a8cc13) prints its whole configuration at startup, including
+# `Arnika PSK: <value>` verbatim (submodules/arnika/config/config.go:78), and the
+# route had no tail cap, so a large enough `?tail=` reached back past the
+# 129,319 lines alice had logged to the banner. Measured on the public demo on
+# 2026-09-25 by value LENGTH only (44 characters, a base64 32-byte key); the
+# value itself was never printed. Upstream replaced the print with
+# redactSecret() on arnika PR #51; until the pin moves past that, this is the
+# only thing between a GET and the key.
+#
+# The same missing cap let one request make the backend serialise alice-ipsec's
+# 3.4 million log lines.
+#
+# Two rules, because they guard different things:
+#   1. the arnika banner line is redacted whatever its value looks like -- a
+#      short test PSK is still the PSK;
+#   2. elsewhere, a key-ish label followed by something shaped like key material
+#      (24+ base64/hex characters) is redacted. The length floor is what keeps
+#      "failed to configure random PSK: <error text>" readable on /console.
+# See tests/test_logs_endpoint_redacts_secrets.py.
+LOGS_MAX_TAIL = int(os.environ.get("LOGS_MAX_TAIL", "2000"))
+LOGS_TTL_S = float(os.environ.get("LOGS_TTL_S", "1.5"))
+_ARNIKA_PSK_LINE = re.compile(r"(?im)^(.*?\bArnika PSK:[ \t]*)(\S.*)$")
+_KEYISH_VALUE = re.compile(
+    r"(?i)(\b(?:preshared key|private key|psk|secret)[ \t]*[:=][ \t]*)"
+    r"([A-Za-z0-9+/_-]{24,}={0,2})"
+)
+_REDACTED = "(redacted)"
+
+
+def _redact_log(text: str) -> tuple[str, int]:
+    """Remove key material from container or service logs.
+
+    Returns the redacted text and how many substitutions were made, so a caller
+    can report that something was withheld rather than silently shortening it.
+    """
+    text, n1 = _ARNIKA_PSK_LINE.subn(lambda m: m.group(1) + _REDACTED, text)
+    text, n2 = _KEYISH_VALUE.subn(lambda m: m.group(1) + _REDACTED, text)
+    return text, n1 + n2
+
+
 # ----------------------- Phase 12-A: file-backed log endpoints -----------------------
 # Registered BEFORE the dynamic /api/logs/{name} route so "files" and
 # "download/<svc>" are matched literally first.
@@ -309,7 +371,7 @@ async def list_log_files() -> dict[str, list]:
 
 
 @app.get("/api/logs/download/{service}")
-async def download_log(service: str, lines: int = 1000):
+def download_log(service: str, lines: int = Query(1000, ge=1, le=LOGS_MAX_TAIL)):
     """Return the last `lines` lines of <service>.log as a text/plain download.
 
     404 when the file is absent, rather than 200 with a comment standing in for
@@ -329,8 +391,13 @@ async def download_log(service: str, lines: int = 1000):
             status_code=404,
             detail=f"no log file {safe}.log; available: {sorted(known)}",
         )
+    # Redacted here too. Only the Python services write these files and none of
+    # them logs key material today, but "today" is not a property a download
+    # route should rely on; the Docker-stdout route below is where arnika's
+    # startup banner leaked.
+    text, _ = _redact_log(logging_setup.read_tail(safe, lines=int(lines)))
     return PlainTextResponse(
-        logging_setup.read_tail(safe, lines=int(lines)),
+        text,
         headers={"Content-Disposition": f'attachment; filename="{safe}.log"'},
     )
 
@@ -455,7 +522,15 @@ async def export_delete(filename: str):
 
 # ----------------------- Logs (Docker stdout, dynamic by container name) -----------------------
 @app.get("/api/logs/{name}")
-async def logs(name: str, tail: int = 200) -> dict[str, str]:
+def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str, Any]:
+    """Container stdout, redacted and bounded (see _redact_log).
+
+    Plain `def`: the Docker SDK blocks, and /console polls this every 1.5 s.
+    """
+    key = f"logs:{name}:{tail}"
+    hit, _ = _cached(key, LOGS_TTL_S)
+    if hit is not None:
+        return hit
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
@@ -464,7 +539,8 @@ async def logs(name: str, tail: int = 200) -> dict[str, str]:
         data = c.logs(tail=tail).decode("utf-8", errors="replace")
     except Exception as e:
         raise HTTPException(404, str(e))
-    return {"name": name, "log": data}
+    text, n = _redact_log(data)
+    return _store(key, {"name": name, "log": text, "redacted": n})
 
 
 # ----------------------- WireGuard show -----------------------
@@ -1074,14 +1150,16 @@ def _both_ends(alice: dict[str, Any], bob: dict[str, Any]) -> dict[str, Any]:
 
 # Sampling `/api/vpn/protocols` costs five `docker exec`s (wg show, and
 # list-sas + list-conns on each of the two IPsec nodes). The page polls every
-# 3 s per viewer, so on a public host that is five execs per viewer per poll.
+# 5 s per viewer (VPN_POLL_MS in VpnProtocols.tsx), matched by the 5 s default
+# below. At a 3 s poll against a 2 s TTL every poll from every viewer missed the
+# cache.
 # A short TTL collapses concurrent viewers onto one sample without introducing
 # a background task -- main.py deliberately has none.
 #
 # Failure shapes are cached too. Caching only successes would make a broken
 # lane the expensive case, which is precisely when the host is least able to
 # absorb it.
-VPN_SAMPLE_TTL_S = float(os.environ.get("VPN_SAMPLE_TTL_S", "2.0"))
+VPN_SAMPLE_TTL_S = float(os.environ.get("VPN_SAMPLE_TTL_S", "5.0"))
 _vpn_sample: dict[str, Any] = {}
 
 
@@ -1156,6 +1234,16 @@ def vpn_protocols():
 # supposed to avoid, and orders of magnitude more expensive than the five
 # `exec_run`s above.
 _ROTATION_RE = re.compile(r"PPK rotated \(id=(\S+?) ")
+# Rotation ATTEMPTS are not outcomes. arnika-vici logs "PPK rotated" when it
+# queues the reauthentication, before IKE_AUTH has run, so on the live demo the
+# 16 failed reauthentications of 2026-09-16..25 were invisible here: 25,249
+# rotations, 25,249 counted. These two count what happened next.
+#   N(AUTH_FAILED)       charon's message log for an IKE_AUTH carrying the
+#                        AUTHENTICATION_FAILED notify, on either role.
+#   using PPK for PPK_ID ike_auth.c, logged after derive_ike_keys_ppk()
+#                        succeeded -- the PPK was mixed into the IKE keys.
+_AUTH_FAILED_RE = re.compile(r"N\(AUTH_FAILED\)")
+_PPK_APPLIED_RE = re.compile(r"using PPK for PPK_ID")
 ROTATION_WINDOW_MAX_S = int(os.environ.get("VPN_ROTATION_WINDOW_MAX_S", "3600"))
 ROTATION_TTL_S = float(os.environ.get("VPN_ROTATION_TTL_S", "15.0"))
 _rotation_sample: dict[int, Any] = {}
@@ -1178,13 +1266,16 @@ def _count_rotations(cli, container: str, window_s: int) -> dict[str, Any]:
         text = raw.decode("utf-8", errors="replace")
     except Exception as e:
         log.warning("could not read %s logs: %s", container, e)
-        return {"count": None, "distinct_ids": None, "error": str(e)[:200]}
+        return {"count": None, "distinct_ids": None, "auth_failed": None,
+                "ppk_applied": None, "error": str(e)[:200]}
     ids = _ROTATION_RE.findall(text)
     return {
         "count": len(ids),
         # A rotation that reinstalls the SAME credential id is not a rotation.
         # Reporting both makes that visible instead of inflating the count.
         "distinct_ids": len(set(ids)),
+        "auth_failed": len(_AUTH_FAILED_RE.findall(text)),
+        "ppk_applied": len(_PPK_APPLIED_RE.findall(text)),
         "error": None,
     }
 
@@ -1196,15 +1287,21 @@ def vpn_ppk_rotations(window_s: int = 600):
     Bounded and cached: an unbounded window would read the entire log stream of
     two containers on every request.
     """
-    window_s = max(30, min(int(window_s), ROTATION_WINDOW_MAX_S))
+    # The window used is reported beside the one asked for. It was clamped
+    # silently: ?window_s=86400 answered with 3600 and nothing else, so a
+    # reader asking for a day of rotations got an hour's and could not tell.
+    requested = int(window_s)
+    window_s = max(30, min(requested, ROTATION_WINDOW_MAX_S))
     now = time.monotonic()
     cached = _rotation_sample.get(window_s)
     if cached is not None and (now - cached["at"]) < ROTATION_TTL_S:
-        return cached["value"]
+        return {**cached["value"], "requested_window_s": requested,
+                "capped": requested != window_s}
 
     cli = app.state.docker
     if cli is None:
-        nodes = {n: {"count": None, "distinct_ids": None, "error": "docker not available"}
+        nodes = {n: {"count": None, "distinct_ids": None, "auth_failed": None,
+                     "ppk_applied": None, "error": "docker not available"}
                  for n in ("alice-ipsec", "bob-ipsec")}
     else:
         nodes = {n: _count_rotations(cli, n, window_s)
@@ -1213,6 +1310,11 @@ def vpn_ppk_rotations(window_s: int = 600):
     value = {
         "window_s": window_s,
         "nodes": nodes,
+        "counts": {
+            "count": "'PPK rotated' lines: reauthentications QUEUED, not outcomes",
+            "auth_failed": "IKE_AUTH carrying AUTHENTICATION_FAILED (either role)",
+            "ppk_applied": "'using PPK for PPK_ID': the PPK was mixed into the IKE keys",
+        },
         "observed_at": time.time(),
         "cache_ttl_s": ROTATION_TTL_S,
         # What this endpoint does NOT establish, said here rather than left for
@@ -1229,7 +1331,7 @@ def vpn_ppk_rotations(window_s: int = 600):
         ),
     }
     _rotation_sample[window_s] = {"at": now, "value": value}
-    return value
+    return {**value, "requested_window_s": requested, "capped": requested != window_s}
 
 
 # `wg show wg0` renders one block per peer, e.g.

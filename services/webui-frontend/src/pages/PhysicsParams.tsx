@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { bundledEditableFields } from "../lib/sim/keyrate";
 import { asymptoticSkrPerPulse, channelFromParams, qberEmu } from "../lib/sim/keyrate";
 import { useDemoMode } from "../lib/useConfig";
+import { usePoll } from "../lib/usePoll";
 import ExportToolbar from "../components/ExportToolbar";
+import FieldReferencePanel from "../components/FieldReferencePanel";
 
 /**
  * Physics parameter editor.
@@ -93,6 +95,9 @@ const GROUPS: { title: string; prefix: string }[] = [
 
 const BACKENDS = ["qutip", "simqn", "sequence", "cvqkd", "tno", "composite_sim_to_net", "qkdnetsim_proxy"];
 
+/** The Optimize button's grid: this page's own, named so the result can cite it. */
+const OPT_GRID = { muFrom: 0.20, muTo: 0.90, nuFrom: 0.02, nuBelowMu: 0.01, step: 0.02 } as const;
+
 export default function PhysicsParams() {
   const [fields, setFields] = useState<EditableField[] | null>(null);
   const [backend, setBackend] = useState<string>("");
@@ -109,7 +114,13 @@ export default function PhysicsParams() {
     try {
       const r = await fetch("/api/sim/params/editable");
       const j = await r.json();
+      if (!r.ok || !Array.isArray(j?.fields)) throw new Error(`HTTP ${r.status}`);
       setFields(j.fields);
+      // Cleared HERE, as soon as live fields arrive. It was cleared only at the
+      // end of the config-default branch below, and the stats branch returns
+      // before reaching it -- so after one transient outage the "not observed"
+      // banner stayed up over live values for the rest of the visit.
+      setBundled(false);
       // Read the ACTUAL runtime backend (which `switch_backend` updates) from the
       // live stats — not the static config default in /api/sim/params, which the
       // runtime switch does not change (so the selector would never reflect it).
@@ -137,7 +148,7 @@ export default function PhysicsParams() {
       setBundled(true);
     }
   }
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
+  usePoll(load, 5000);
 
   function setEdit(path: string, v: number | boolean) {
     setEdits((e) => ({ ...e, [path]: v }));
@@ -185,8 +196,18 @@ export default function PhysicsParams() {
 
   async function switchBackend(name: string) {
     setBusy(true);
-    try { await fetch("/api/sim/backend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }); }
-    finally { setBusy(false); await load(); }
+    try {
+      // The response was discarded, so a refused switch (a 429 from the rate
+      // limiter, a 4xx for an unknown backend, a KME that did not answer)
+      // looked exactly like a successful one until the next poll quietly
+      // failed to show the new name.
+      const r = await fetch("/api/sim/backend", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      const body = await r.json().catch(() => null);
+      setNote(r.ok ? `Backend switch to ${name} requested.`
+        : `Backend switch to ${name} refused: HTTP ${r.status}${body?.detail ? ` -- ${body.detail}` : ""}.`);
+    } catch (e) {
+      setNote(`Backend switch to ${name} failed: ${e instanceof Error ? e.message : e}.`);
+    } finally { setBusy(false); await load(); }
   }
 
   if (!fields) return <div>Loading parameters…</div>;
@@ -213,18 +234,22 @@ export default function PhysicsParams() {
   const qber = qberEmu(Y0, etaTotal, eD, mu);
   const skrBps = skrPerPulse * pv("source.pulse_rate_hz");
 
-  // Client-side grid search over μ / ν₁ maximising the asymptotic SKR.
+  // Client-side grid search over μ / ν₁ maximising the asymptotic SKR, over
+  // OPT_GRID. That grid is this page's own and is not `optimizer.search_space`
+  // in config/qkd_params.yaml (μ 0.30-0.90, ν₁ 0.05-0.20), which the removed
+  // server optimiser used; the result names the grid it searched.
   function runOptimize() {
     setBusy(true); setOpt(null);
     let best = { mu, nu1, skr: skrPerPulse };
-    for (let m = 0.20; m <= 0.90; m += 0.02) {
-      for (let n = 0.02; n < m - 0.01; n += 0.02) {
+    for (let m = OPT_GRID.muFrom; m <= OPT_GRID.muTo; m += OPT_GRID.step) {
+      for (let n = OPT_GRID.nuFrom; n < m - OPT_GRID.nuBelowMu; n += OPT_GRID.step) {
         const r = asymptoticSkrPerPulse({ Y0, etaTotal, eD, mu: m, nu1: n, nu2, fEC });
         if (r > best.skr) best = { mu: m, nu1: n, skr: r };
       }
     }
     setOpt({
-      method: "client-side grid search (Lo-Ma closed form)",
+      method: "client-side grid search (Lo-Ma closed form, asymptotic)",
+      grid: `mu ${OPT_GRID.muFrom}-${OPT_GRID.muTo}, nu1 ${OPT_GRID.nuFrom} to mu-${OPT_GRID.nuBelowMu}, step ${OPT_GRID.step}; not optimizer.search_space`,
       mu: +best.mu.toFixed(3), nu1: +best.nu1.toFixed(3), nu2,
       skr_per_pulse: best.skr, skr_bps: best.skr * pv("source.pulse_rate_hz"),
     });
@@ -407,7 +432,7 @@ export default function PhysicsParams() {
         <p style={{ fontSize: 11, color: "#6b7796", marginBottom: 0 }}>
           Computed in the browser — no backend call. From the{" "}
           <b>{CLIENT_SIDE_INPUTS.size} parameters this panel reads</b>, not all
-          fourteen above: basis bias, QBER abort threshold, batch size and the
+          fifteen above: basis bias, QBER abort threshold, batch size and the
           two Eve fields do not enter these formulas and editing them will not
           move these numbers. They are not inert — the abort threshold gates the
           backend&apos;s accept decision and the Eve settings drive the
@@ -416,6 +441,8 @@ export default function PhysicsParams() {
           Edit a value above to see it update live.
         </p>
       </Panel>
+
+      <FieldReferencePanel />
 
       <div style={{ marginTop: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={runOptimize} disabled={busy} style={dis(primaryBtn, busy)}>

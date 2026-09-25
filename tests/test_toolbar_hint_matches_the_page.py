@@ -89,7 +89,7 @@ def test_exactly_the_expected_pages_opt_in():
     two pages could consistently lose their Run buttons together.
     """
     opted = {p.name for p in _pages() if OPT_IN.search(_read(p))}
-    assert opted == {"QuantumSecureE2E.tsx", "PaperDataExchange.tsx"}, (
+    assert opted == {"QuantumSecureE2E.tsx", "PaperDataExchange.tsx", "ProtocolLab.tsx"}, (
         f"pages opting into the Run hint changed: {sorted(opted)}. If a page "
         "gained or lost a Run control this is expected -- update the set."
     )

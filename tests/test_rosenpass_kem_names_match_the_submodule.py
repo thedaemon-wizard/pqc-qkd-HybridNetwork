@@ -67,7 +67,7 @@ LABEL = re.compile(r'"Rosenpass v1 ([^"]+)"')
 #
 # The window deliberately spans NEWLINES. The first version of this pattern
 # excluded them (`[^.\n|]`) and ran per line, and it missed a seventh instance:
-# the sidebar in services/webui-frontend/src/App.tsx, which renders on all 13
+# the sidebar in services/webui-frontend/src/App.tsx, which renders on all 14
 # pages and read
 #
 #     ML-KEM-768 + HKDF-SHA3-256<br />

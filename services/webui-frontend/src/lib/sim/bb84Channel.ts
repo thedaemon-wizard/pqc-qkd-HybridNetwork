@@ -181,7 +181,15 @@ export const KEY_POOL_YIELD = 0.25;
 /** Bits a notional consumer draws from the pool each round. */
 export const KEY_POOL_DRAIN_PER_ROUND = 64;
 
-export function advanceKeyPool(pool: number, sifted: number, qber: number): number {
-  const distilled = Math.floor(sifted * (1 - 2 * qber) * KEY_POOL_YIELD);
+/**
+ * One round's effect on the pool. `qberAbort` is protocol.qber_threshold_abort:
+ * a round above it is aborted and distils nothing, so only the drain applies.
+ *
+ * Without that gate the yield factor `1 - 2 QBER` stayed positive up to 50 %,
+ * so a round at Eve's 25 % still ADDED key -- the pool grew while the chart
+ * beside it showed QBER far above the ceiling it draws.
+ */
+export function advanceKeyPool(pool: number, sifted: number, qber: number, qberAbort: number): number {
+  const distilled = qber > qberAbort ? 0 : Math.floor(sifted * (1 - 2 * qber) * KEY_POOL_YIELD);
   return Math.max(0, Math.min(KEY_POOL_CAPACITY, pool + distilled - KEY_POOL_DRAIN_PER_ROUND));
 }

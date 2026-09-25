@@ -73,13 +73,15 @@ revision rather than being implemented here.
 
 | Work | Identifier | Why it matters here |
 |---|---|---|
-| Dosan, **Spooren**, … **Hühn**, de Vries, *Secure Medical Data Transmission Using QKD and PQC in Real-World Fiber Networks* | [arXiv:2608.18869](https://arxiv.org/abs/2608.18869) (2026-08-19) | The field-deployment sequel to the paper this PoC reproduces, by overlapping authors, and it uses **arnika** for exactly the role it plays here. Gives measured link numbers (below) that bound how fast a PSK can honestly be rotated. |
+| Dosan, **Spooren**, … **Hühn**, de Vries, *Secure Medical Data Transmission Using Quantum Key Distribution and Post-Quantum Cryptography in Real-World Fiber Networks* | [arXiv:2608.18869](https://arxiv.org/abs/2608.18869) (v1 2026-08-19, v2 2026-09-11, **CC BY 4.0**) | The field-deployment sequel to the paper this PoC reproduces, by overlapping authors. Entanglement-based BBM92 over about 140 km of mixed aerial and buried fibre in Thuringia, trusted nodes at Erfurt and Jena. **arnika** injects keys from the ETSI GS QKD 014 API into hop-by-hop WireGuard tunnels -- the role it plays in this repository's WireGuard lane -- but its post-quantum layer is **QuantShake**, not Rosenpass. QuantShake ran sntrup761 and ML-KEM-768 as its key exchange, renegotiating every 120 s. Its measured link values (below) are restated on `/physics` and `/protocol-lab`. |
 | Paixão, Tomkelski, Freire *et al.*, *Real-Time VPN Traffic over ETSI GS QKD 014 Key Delivery* | [arXiv:2607.06602](https://arxiv.org/abs/2607.06602) (2026-07-07) | Binds the ETSI `key_ID` into the AES-GCM **AAD**, cryptographically tying the key identifier to the ciphertext. A concrete hardening this project does not yet do. |
 | Malik, Anwar, Raza, *Beyond the Quantum Promise: A Security Analysis of Classical Control in QKD* | [arXiv:2608.07626](https://arxiv.org/abs/2608.07626) (2026-08-07) | Tamarin analysis of 23 ETSI/ITU-T QKD documents. Its finding **V3 (message reflection: MAC inputs lack role binding)** is worth checking against any shared-PSK control channel — see the open question in [`vici-ppk.md`](vici-ppk.md). |
 | Blanco-Romero, Almenares Mendoza, García Rubio, Campo, Díaz Sánchez, *On the Practical Feasibility of Harvest-Now, Decrypt-Later Attacks* | [arXiv:2603.01091](https://arxiv.org/abs/2603.01091) (2026-03-01, **CC BY 4.0**) | Recasts HNDL as adversary economics rather than a date, with a testbed over TLS 1.2/1.3, QUIC and SSH. Because "retaining intercepted traffic is economically trivial", the levers that act on the adversary alone are **rekeying frequency and key size** — the argument this project's 30 s cadence rests on, previously unstated. Names the absence of in-band ephemeral rekeying in TLS 1.3 and QUIC as a critical protocol gap (§1). **It does not discuss IPsec, IKEv2 or WireGuard**, so applying it to these lanes is this project's inference, marked as such in [`threat-model.md` §2.1](threat-model.md). |
-| Anon., *A Scenario-Based Evaluation of CRQC+AI Vulnerability Spectrum for TLS 1.3 Cryptographic Dependencies* | [arXiv:2608.23785](https://arxiv.org/abs/2608.23785) (2026-08-24, **CC BY 4.0**) | Puts RSA risk crossing **50% between 2030-2032** and PQC risk non-zero only after 2032-2035, and argues explicitly that **"crypto-agility and hybrid cryptographic deployment be considered necessary complements"**. The closest thing published in 2026-07/08 to a revised timeline, and it supports the hybrid thesis directly rather than by analogy. **No revised expert-elicitation survey exists in that window**, and the canonical RSA-2048 resource estimate (arXiv:2505.15917, Gidney) is **still unrevised at v1** -- so this is what moved, not the qubit counts. |
+| Anon., *A Scenario-Based Evaluation of CRQC+AI Vulnerability Spectrum for TLS 1.3 Cryptographic Dependencies* | [arXiv:2608.23785](https://arxiv.org/abs/2608.23785) (2026-08-24, **CC BY 4.0**) | Puts RSA risk crossing **50% between 2030-2032** and PQC risk non-zero only after 2032-2035, and argues explicitly that **"crypto-agility and hybrid cryptographic deployment be considered necessary complements"**. The closest thing published in 2026-07/08 to a revised timeline, and it supports the hybrid thesis directly rather than by analogy. **No revised expert-elicitation survey exists in that window**, and the canonical RSA-2048 resource estimate (arXiv:2505.15917, Gidney) is **still unrevised at v1**. The physical-qubit counts have moved in preprints, though -- see the next two rows. |
+| Webster, Peham, Cohen, RSA-2048 on fixed degree-8 connectivity | [arXiv:2609.21249](https://arxiv.org/abs/2609.21249) (2026-09-18, preprint, arXiv non-exclusive licence) | *"a 2048-bit RSA integer can be factored in one month with approximately 120 000 physical qubits"* at a physical error rate of $`10^{-3}`$, 1 µs code cycle and 10 µs reaction time. Builds on the QLDPC-based estimate that first went below $`10^{5}`$ physical qubits (arXiv:2602.11457, "Pinnacle"). Both are preprints under stated hardware assumptions, not demonstrations; they lower the count Gidney's 2025 estimate gave, which is unrevised. |
+| Google Quantum AI, ECDLP-256; ECDSA.Fail point-addition circuits | [arXiv:2603.28846](https://arxiv.org/abs/2603.28846) (2026-03); [arXiv:2609.09582](https://arxiv.org/abs/2609.09582) v2 (2026-09-19) and [arXiv:2609.28882](https://arxiv.org/abs/2609.28882) (2026-09-24), all **CC BY 4.0** | The classical half of the IPsec lane's ECP-256 + ML-KEM-768 hybrid. Google: 256-bit ECDLP in fewer than 1200 logical qubits and 90 million Toffoli gates, under half a million physical qubits. ECDSA.Fail reports point-addition circuits below Google's thresholds under different accounting, and says itself that the results *"concern individual window-selected additions, not complete Shor computations"*. |
 | Anon., *Mind the Gap: Policy vs Reality in Post-Quantum TLS Deployment* | [arXiv:2607.29005](https://arxiv.org/abs/2607.29005) (2026-07-31, **CC BY 4.0**) | 2 billion handshakes over 1M domains from 11 vantage points. Finds **"National timelines and sectoral priorities show limited correspondence with observed deployment patterns"** and no meaningful PQ-TLS latency penalty. Useful as feasibility evidence: the gap this project works in is measured, not asserted. |
-| Raubitzek, Strasser, Ramacher, Lebeth, **Neuhold**, Pacher, on national-scale QKD network planning | [arXiv:2604.06764](https://arxiv.org/abs/2604.06764) (2026-04-08, **CC BY 4.0**) | Monte-Carlo planning method giving **hop-length distributions and trusted-repeater counts** for a country-scale network. Shares an author with the paper this PoC reproduces. Relevant because `/paper-flow`'s hop-count control currently has no empirical basis for its range; this supplies one. **Not yet implemented** — recorded here as the source to use, not as something the UI reflects. |
+| Raubitzek, Strasser, Ramacher, Lebeth, **Neuhold**, Pacher, on national-scale QKD network planning | [arXiv:2604.06764](https://arxiv.org/abs/2604.06764) (2026-04-08, **CC BY 4.0**) | Monte-Carlo planning method giving **per-hop lengths and trusted-repeater counts** for a country-scale network: for Austria, a mean hop of 22.9 km and a maximum of 52.3 km after route adjustment (15.3 and 34.9 km raw). Shares an author with the paper this PoC reproduces. It gives **no distribution of hops per end-to-end path**, so it does not by itself justify `/paper-flow`'s 1-8 hop range; an earlier version of this row said it did. |
 
 ### European regulator position, and why it cuts both ways
 
@@ -108,9 +110,9 @@ Read directly 2026-08-29; both quotations are verbatim from the PDF text.
 submodule's own domain-separation label.
 
 **Read that endorsement with its date attached.** The current TR-02102-1 is
-dated **2026-01-23**, and a line of cryptanalysis preprints on Classic McEliece
-began in **August 2026** — seven months later. BSI has not revisited the
-Technical Guideline since, so the recommendation above is not a response to that
+dated **2026-01-23** (still Version 2026-01 on 2026-09-25), and a line of
+cryptanalysis preprints on Classic McEliece began in **August 2026** — seven
+months later. BSI has not revisited the Technical Guideline since, so the recommendation above is not a response to that
 work; it predates it. The estimates, their explicit "not close to practical"
 qualifiers, the objection to part of the line, and the designers' posting record
 are set out in [`threat-model.md`](threat-model.md) section 4.1 rather than
@@ -119,12 +121,12 @@ they depend on.
 
 | Source | Date | What it is |
 |---|---|---|
-| [ePrint 2026/1630](https://eprint.iacr.org/2026/1630) | recv. 2026-08-07 | Ghoshal, Ishai, Jain, Sun — the hold-out distinguisher the line starts from |
-| [ePrint 2026/1747](https://eprint.iacr.org/2026/1747) | 2026-08 | Vedenev — turns the relations into key recovery |
+| [ePrint 2026/1630](https://eprint.iacr.org/2026/1630) | recv. 2026-08-07, rev. 2026-08-27 | Ghoshal, Ishai, Jain, Sun — the hold-out distinguisher the line starts from |
+| [ePrint 2026/1747](https://eprint.iacr.org/2026/1747) | recv. 2026-08-20, 8 revisions, last 2026-09-06 | Vedenev — turns the relations into key recovery |
 | [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) | recv. 2026-08-24, rev. 7 on 2026-09-15 | Saarinen — per-parameter-set conditional arithmetic estimates, incl. `mceliece460896` |
 | [ePrint 2026/1810](https://eprint.iacr.org/2026/1810) | 2026-08-26 | Apon — algebraic-geometry lower bound **against** the Vedenev route |
-| [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) | 2026-09-11 | Weis — key recovery from the distinguisher, with the "not close to practical" qualifier |
-| [ePrint 2026/1986](https://eprint.iacr.org/2026/1986) | 2026-09-11 | Saarinen — solves the TII-254 **toy challenge**; makes no claim about any NIST parameter set |
+| [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) | 2026-09-11, rev. 2026-09-18 | Weis — key recovery from the distinguisher, with the "not close to practical" qualifier |
+| [ePrint 2026/1986](https://eprint.iacr.org/2026/1986) | 2026-09-11, rev. 2026-09-24 (abstract unchanged) | Saarinen — solves the TII-254 **toy challenge**; makes no claim about any NIST parameter set |
 
 All six are Creative Commons Attribution. IACR ePrint has had no default licence
 since 2022, so each was checked on its own page rather than assumed.
@@ -142,21 +144,31 @@ PQC has to say which half each authority is endorsing.
 
 ---
 
-**Measured field values from arXiv:2608.18869**, useful for calibrating a
-simulator against reality rather than lab conditions:
+**Measured field values from arXiv:2608.18869** (Table I). They are shown
+beside this project's model on `/physics` and used as the Thuringia preset on
+`/protocol-lab`, but never fitted into the model: fed these losses and QBERs,
+this project's weak-coherent decoy-BB84 model gives **0 bit/s on both links**
+(at 21 dB the link is past the model's finite-key cut-off of about 19.7 dB with
+the shipped parameters; at 17 dB a 13.3 % QBER is past its error threshold),
+against 12.7 and 22.2 bit/s measured by an entanglement-based BBM92 system the
+model does not describe. The two campaigns ran separately, for 22 and 2 days:
 
-| Link | Length | Loss | Secret key rate | QBER |
-|---|---|---|---|---|
-| Sundhausen–Erfurt (mostly aerial) | 70 km | > 17 dB | $`12.7 \pm 10.3`$ bit/s | $`13.3 \pm 9.6\,\%`$ |
-| Jena–Erfurt (mostly buried) | 69 km | > 21 dB | $`22.2 \pm 4.7`$ bit/s | $`6.1 \pm 0.8\,\%`$ |
+| Link | Length | Loss | Secret key rate | QBER | Coincidences |
+|---|---|---|---|---|---|
+| Sundhausen–Erfurt (51 km aerial, 19 km buried) | 70 km | > 17 dB | $`12.7 \pm 10.3`$ bit/s | $`13.3 \pm 9.6\,\%`$ | $`311.9 \pm 15.7`$ Hz |
+| Jena–Erfurt (4 km aerial, 65 km buried) | 69 km | > 21 dB | $`22.2 \pm 4.7`$ bit/s | $`6.1 \pm 0.8\,\%`$ | $`398.6 \pm 14.3`$ Hz |
 
-Two things follow. The aerial link shows **twice the QBER of the buried link
-despite lower attenuation**, with variance tracking wind speed — so loss alone
-is a poor predictor and this project's static channel model is optimistic. And
-at 12–22 bit/s a single 256-bit key takes **12–20 seconds** to accumulate,
-which means a rotation interval is bounded by the link's secret key rate, not
-chosen by policy. This project's 30 s default sits just above that floor; the
-paper's 120 s is the safer figure.
+Two things follow. The mostly aerial link shows **about twice the QBER of the
+mostly buried one despite lower attenuation**, and its QBER correlates with wind
+speed (r = 0.78 at 15-minute resolution, section IV.B) -- so loss alone is a
+poor predictor and this project's static channel model is optimistic. And at
+12-22 bit/s a single 256-bit key takes **12-20 seconds** to accumulate, so on
+links like these a rotation interval is bounded by the secret key rate, not
+chosen by policy; this project's 30 s default would sit just above that floor.
+The paper's **120 s is its PQC renegotiation interval** (QuantShake, section
+IV.B), not a QKD key rotation; it does not say how often arnika rotated the
+WireGuard PSK. arnika's own recommended default is also 120 s -- see section 3
+below -- which is a separate source for the same number.
 
 ### QKD physics and key-rate theory
 
@@ -178,9 +190,9 @@ The formulas actually implemented, and where, are set out in
 
 | Result | Work |
 |---|---|
-| 1002 km twin-field QKD — longest fibre QKD distance to date, on **spooled laboratory fibre** (<0.157 dB/km, 156.5 dB total), **not** deployed fibre. At that distance the rate is 9.53e-12 per pulse (~0.0034 bit/s) and **asymptotic only**; the longest finite-size distance in the PRL is 952 km. Finite-key security at the full 1002 km (3.11e-12 per pulse) is shown in the companion paper. | Y. Liu *et al.*, Phys. Rev. Lett. **130**, 210801 (2023), [doi:10.1103/PhysRevLett.130.210801](https://doi.org/10.1103/PhysRevLett.130.210801); finite-key: Y. Liu *et al.*, Quantum Front. **2**, 16 (2023), [doi:10.1007/s44214-023-00039-9](https://doi.org/10.1007/s44214-023-00039-9) |
+| 1002 km twin-field QKD — longest fibre QKD distance to date, on **spooled laboratory fibre** (<0.157 dB/km, 156.5 dB total), **not** deployed fibre. At that distance the rate is $`9.53 \times 10^{-12}`$ per pulse (~0.0034 bit/s) and **asymptotic only**; the longest finite-size distance in the PRL is 952 km. Finite-key security at the full 1002 km ($`3.11 \times 10^{-12}`$ per pulse) is shown in the companion paper. | Y. Liu *et al.*, Phys. Rev. Lett. **130**, 210801 (2023), [doi:10.1103/PhysRevLett.130.210801](https://doi.org/10.1103/PhysRevLett.130.210801); finite-key: Y. Liu *et al.*, Quantum Front. **2**, 16 (2023), [doi:10.1007/s44214-023-00039-9](https://doi.org/10.1007/s44214-023-00039-9) |
 | 254 km twin-field QKD over a **live commercial telecom network** (Frankfurt-Kehl), 110 bit/s, non-cryogenic detectors — the figure that matters for real-world deployment. Longer *installed dark-fibre* spans exist: a 428 km field test, and a 511 km Qingdao-Jinan link that is 430 km deployed trunk plus 81 km of added spool. | M. Pittaluga *et al.*, Nature **640**, 911 (2025), [doi:10.1038/s41586-025-08801-w](https://doi.org/10.1038/s41586-025-08801-w); J.-P. Chen *et al.*, Nat. Photon. **15**, 570 (2021), [doi:10.1038/s41566-021-00828-5](https://doi.org/10.1038/s41566-021-00828-5) |
-| 115.8 Mbit/s at 10 km — highest peer-reviewed secret-key rate for discrete-variable QKD as of 2026-08 (decoy-state BB84, 2.5 GHz clock, standard G.652 spooled fibre, composable finite-size security); the same system reaches 328 km of ultralow-loss fibre | W. Li, L. Zhang, F. Xu, J.-W. Pan *et al.*, Nat. Photon. **17**, 416 (2023), [doi:10.1038/s41566-023-01166-4](https://doi.org/10.1038/s41566-023-01166-4) |
+| 115.8 Mbit/s at 10 km — highest peer-reviewed secret-key rate for discrete-variable QKD as of 2026-09-25 (a Crossref title search of QKD papers published 2026-09-01 to 09-25 found no higher discrete-variable rate; not exhaustive) (decoy-state BB84, 2.5 GHz clock, standard G.652 spooled fibre, composable finite-size security); the same system reaches 328 km of ultralow-loss fibre | W. Li, L. Zhang, F. Xu, J.-W. Pan *et al.*, Nat. Photon. **17**, 416 (2023), [doi:10.1038/s41566-023-01166-4](https://doi.org/10.1038/s41566-023-01166-4) |
 | 64 Mbit/s at 10.0 km and 3.0 Mbit/s at 102.4 km (2.5 GHz time-bin QKD with real-time key distillation) — the companion paper in the same issue, pp. 422-426. This table previously labelled it "highest secret-key rate"; it was not the highest even in its own issue. | F. Grünenfelder, A. Boaron *et al.*, Nat. Photon. **17**, 422 (2023), [doi:10.1038/s41566-023-01168-2](https://doi.org/10.1038/s41566-023-01168-2) |
 | 12 900 km satellite QKD, portable ground station | Y. Li *et al.*, Nature **640** (2025), [doi:10.1038/s41586-025-08739-z](https://doi.org/10.1038/s41586-025-08739-z) |
 
@@ -192,11 +204,27 @@ The formulas actually implemented, and where, are set out in
 > hollow-core fibre -- exists in preprint only (arXiv:2607.14704, 2026-07) and is not
 > peer-reviewed. Verified against Crossref and arXiv on 2026-08-22.
 
+### Topology presets for `/protocol-lab`
+
+Numbers restated with references in
+`services/webui-frontend/src/lib/sim/protocolLab/publishedNetworks.ts`; licences
+and what is and is not reused are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). A "Czech National 13-node"
+network, named in an early plan, was not used: no source for one was found.
+
+| Network | Source |
+|---|---|
+| Cambridge quantum network (3 nodes, 2019) | Dynes et al., npj Quantum Inf. 5, 101 (2019), [doi:10.1038/s41534-019-0221-4](https://doi.org/10.1038/s41534-019-0221-4) |
+| SECOQC, Vienna (6 nodes, 2008) | Peev et al., New J. Phys. 11, 075001 (2009), [doi:10.1088/1367-2630/11/7/075001](https://doi.org/10.1088/1367-2630/11/7/075001) |
+| Tokyo QKD Network (6 nodes, 2010) | Sasaki et al., Opt. Express 19, 10387 (2011), [doi:10.1364/OE.19.010387](https://doi.org/10.1364/OE.19.010387) |
+| MadQCI, Madrid (9 nodes, 2024) | Martin et al., npj Quantum Inf. 10, 80 (2024), [doi:10.1038/s41534-024-00873-2](https://doi.org/10.1038/s41534-024-00873-2) |
+| Thuringia medical-data chain (4 nodes, 2026) | Dosan et al., [arXiv:2608.18869](https://arxiv.org/abs/2608.18869) (above) |
+
 ### Simulators
 
 | Work | Identifier |
 |---|---|
-| M. Mehic *et al.*, *QKDNetSim+*, SoftwareX **26** (2024) | [doi:10.1016/j.softx.2024.101685](https://doi.org/10.1016/j.softx.2024.101685) |
+| D. Soler *et al.*, *QKDNetSim+: Improvement of the quantum network simulator for NS-3*, SoftwareX **26** (2024). Earlier versions of this row credited M. Mehic, who wrote the original QKDNetSim; Crossref lists Soler, Cillero, Dafonte, Fernández-Veiga, Fernández Vilas and Nóvoa (checked 2026-09-25) | [doi:10.1016/j.softx.2024.101685](https://doi.org/10.1016/j.softx.2024.101685) |
 | X. Wu *et al.*, *SeQUeNCe: a customizable discrete-event simulator of quantum networks*, Quantum Sci. Technol. **6**, 045027 (2021) | [doi:10.1088/2058-9565/ac22f6](https://doi.org/10.1088/2058-9565/ac22f6) |
 
 ---
@@ -205,11 +233,11 @@ The formulas actually implemented, and where, are set out in
 
 ### ETSI — QKD
 
-| Standard | Version | Status (Aug 2026) |
+| Standard | Version | Status (re-checked 2026-09-25) |
 |---|---|---|
 | **GS QKD 014** — Protocol and data format of REST-based key delivery API | V1.1.1 (2019-02) | Current. Implemented by [`services/bb84-kme/app/etsi014.py`](../services/bb84-kme/app/etsi014.py). [PDF](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf) |
-| GS QKD 014 **Edition 2** | draft (`RGS/QKD-014ed2_KeyDeliv`) | Stable draft, unpublished. Breaking: paths move to `/kdapi/v2/`, GET is removed, SAE IDs move into the body, master/slave → initiator/target. **Not implemented here.** [forge](https://forge.etsi.org/rep/qkd/gs014-key-deliv) |
-| GS QKD 004 — Application interface | V2.1.1 (2020-08) | Current; Edition 3 in drafting. Stateful alternative to 014. |
+| GS QKD 014 **Edition 2** | draft (`RGS/QKD-014ed2_KeyDeliv`) | Stable draft since 2025-06-02 (ETSI work item 69542, v1.3.1), unpublished as of 2026-09-25. Breaking: paths move to `/kdapi/v2/`, GET is removed, SAE IDs move into the body, master/slave → initiator/target. **Not implemented here.** [forge](https://forge.etsi.org/rep/qkd/gs014-key-deliv) |
+| GS QKD 004 — Application interface | V2.1.1 (2020-08) | Current. Edition 3 (`RGS/QKD-004ed3_AppIntf`) was a stable draft, V3.1.1 dated 2026-05-23, unpublished on 2026-09-25 and incompatible (it renumbers the status codes). V2.1.1 is simulated on `/protocol-lab` and implemented in `bb84-kme` over this project's own HTTP/JSON binding, off by default -- see [`etsi004-binding.md`](etsi004-binding.md). The specification defines no wire format. [PDF](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/004/02.01.01_60/gs_qkd004v020101p.pdf) |
 | GS QKD 015 — Control interface for SDN | V2.1.1 (2022-04) | Current |
 | GS QKD 016 — Common Criteria Protection Profile | V2.1.1 (2024-01) | BSI-certified (PP-0120) |
 | GS QKD 018 — Orchestration interface for SDN | V1.1.1 (2022-04) | Published |
@@ -228,8 +256,8 @@ The formulas actually implemented, and where, are set out in
 | RFC 7296 | IKEv2 | §2.15 defines the AUTH payload, i.e. the only place a plain PSK is used |
 | RFC 7383 | IKEv2 Fragmentation | Required for ML-KEM-sized payloads |
 | RFC 7696 | Guidelines for Cryptographic Algorithm Agility | Crypto-agility framing |
-| draft-ietf-ipsecme-ikev2-mlkem-09 | ML-KEM in IKEv2 | IESG-approved 2026-07-07, in the RFC Editor queue (no number yet, "Awaiting First editor" as of 2026-08-13). Assigns transform IDs 35/36/37 to ML-KEM-512/768/1024 — the values this project's proposals already rely on. |
-| draft-ietf-ipsecme-ikev2-pqc-auth-11 | PQC signature authentication in IKEv2 | **Not approved.** Went to the 2026-08-20 IESG telechat and picked up a DISCUSS. strongSwan gates its ML-DSA release on this draft, so PQ *authentication* remains unavailable; this project uses PQ *key exchange* plus PPK, which do not depend on it. |
+| draft-ietf-ipsecme-ikev2-mlkem-09 | ML-KEM in IKEv2 | IESG-approved 2026-07-07, in the RFC Editor queue (no number yet, "Awaiting First editor"; unchanged from 2026-08-13 to 2026-09-25). Assigns transform IDs 35/36/37 to ML-KEM-512/768/1024 — the values this project's proposals already rely on. |
+| draft-ietf-ipsecme-ikev2-pqc-auth-12 | PQC signature authentication in IKEv2 | **IESG-approved 2026-08-24**, after the only DISCUSS (entered 2026-08-18) was cleared on -12 on 2026-08-21. In the RFC Editor queue since 2026-08-25; no RFC number as of 2026-09-25. strongSwan 6.1.0 ships no ML-DSA (nothing under `src/` at `b43f6bfe`); ML-DSA IKEv2 authentication exists only on the unmerged `ml-dsa` branch (strongswan/strongswan#2626, open on 2026-09-25). An earlier version of this row said strongSwan "gates its ML-DSA release on this draft"; no source for that was found. PQ *authentication* is therefore unavailable on this lane; this project uses PQ *key exchange* plus PPK, which do not depend on it. |
 | RFC 9794 | Terminology for Post-Quantum Traditional Hybrid Schemes | Vocabulary |
 
 ### NIST
@@ -239,12 +267,12 @@ The formulas actually implemented, and where, are set out in
 | FIPS 203 | ML-KEM | Final, 2024-08-13 |
 | FIPS 204 | ML-DSA | Final, 2024-08-13 |
 | FIPS 205 | SLH-DSA | Final, 2024-08-13 |
-| FIPS 206 | FN-DSA (Falcon) | **No public draft as of 2026-08.** Do not plan around it. |
+| FIPS 206 | FN-DSA (Falcon) | **No public draft as of 2026-09-25** (`/pubs/fips/206/ipd` -> 404; the FIPS index stops at 205). Do not plan around it. |
 | **SP 800-227** | Recommendations for Key-Encapsulation Mechanisms | **Final, Sept 2025.** §4.6.1 acknowledges that a multi-algorithm scheme may include a secret established via QKD; §4.6.2 then requires ("shall") an approved key combiner, drawn from SP 800-56C or SP 800-133. See [`vici-ppk.md`](vici-ppk.md) for how far this project meets that. [doi:10.6028/NIST.SP.800-227](https://doi.org/10.6028/NIST.SP.800-227) |
 | SP 800-56C Rev. 2 | Key-Derivation Methods in Key-Establishment Schemes | Defines the hybrid shared secret `Z' = Z ‖ T` |
 | SP 800-131A Rev. 3 | Transitioning the Use of Cryptographic Algorithms | **Initial public draft, 2024-10-21; still not final.** `/r3/final` returns 404, so **Rev. 2 (2019-03-21) remains the effective version**. |
 | SP 800-208 | Stateful Hash-Based Signatures | LMS/XMSS |
-| IR 8547 | Transition to Post-Quantum Cryptography Standards | **Initial public draft, 2024-11-12; comments closed 2025-01-10; still not final** (`/ir/8547/final` -> 404). Its 2030-deprecated / 2035-disallowed dates are widely quoted as settled NIST policy and are not. |
+| IR 8547 | Transition to Post-Quantum Cryptography Standards | **Initial public draft, 2024-11-12; comments closed 2025-01-10; still not final** (`/ir/8547/final` and `/2pd` -> 404, re-checked 2026-09-25). Its 2030-deprecated / 2035-disallowed dates are widely quoted as settled NIST policy and are not. |
 | IR 8545 | Status Report on the Fourth Round | HQC selected 2025-03-11 as backup KEM |
 
 ### Cryptographic combiners

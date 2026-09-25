@@ -118,19 +118,38 @@ $`Q_1`$ and $`e_1`$ are not directly observable. Decoy states bound them by
 transmitting extra intensities $`\nu_1 > \nu_2 \geq 0`$ and comparing the
 resulting gains.
 
-With $`\mu > \nu_1 + \nu_2`$, the single-photon yield is bounded below by:
+With $`0 \leq \nu_2 < \nu_1`$ and $`\nu_1 + \nu_2 < \mu`$ (Ma et al. 2005,
+Eq. (13)), the single-photon yield is bounded below by the general two-decoy
+form, Eq. (18):
 
 ```math
-Y_1^{L} \;=\; \frac{\mu}{\mu\nu_1 - \nu_1^{2}}
+Y_1^{L} \;=\; \frac{\mu}{\mu\nu_1 - \mu\nu_2 - \nu_1^{2} + \nu_2^{2}}
 \left(Q_{\nu_1}e^{\nu_1} - Q_{\nu_2}e^{\nu_2}
 - \frac{\nu_1^{2}-\nu_2^{2}}{\mu^{2}}\left(Q_\mu e^{\mu} - Y_0\right)\right)
 ```
 
-and the single-photon error rate above by:
+and the single-photon error rate above by Eq. (22):
 
 ```math
-e_1^{U} \;=\; \frac{E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0}{Y_1^{L}\,\nu_1}
+e_1^{U} \;=\; \frac{E_{\nu_1}Q_{\nu_1}e^{\nu_1} - E_{\nu_2}Q_{\nu_2}e^{\nu_2}}{(\nu_1 - \nu_2)\,Y_1^{L}}
 ```
+
+At $`\nu_2 = 0`$ (the shipped default) the second decoy is the vacuum,
+$`Q_{\nu_2} = Y_0`$ and $`E_{\nu_2} = e_0 = \tfrac12`$, and the two expressions
+reduce to the vacuum-plus-weak forms, with denominator $`\mu\nu_1 - \nu_1^2`$
+and $`e_1^U = (E_{\nu_1}Q_{\nu_1}e^{\nu_1} - e_0 Y_0)/(Y_1^L\nu_1)`$. This
+section showed only those reduced forms until 2026-09-25, while `_skr.py` and
+`keyrate.ts` implement the general ones; the code is what
+`tests/test_keyrate_ports_agree.py` checks, including cases with
+$`\nu_2 > 0`$.
+
+**In these asymptotic expressions $`Y_0`$ is the configured dark-count yield,
+not an estimate:** $`Y_0 = \text{dark\_count\_rate\_hz} / \text{pulse\_rate\_hz}`$.
+A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). The finite-key
+rate of section 5 -- the rate the backends and `/physics` report -- does bound
+the vacuum contribution from the decoy counts ($`s_{X,0}`$); what it inherits
+instead is the caveat stated there, that those counts are expected under the
+channel model rather than observed.
 
 giving the single-photon gain
 
@@ -293,7 +312,7 @@ MATLAB.
 
 **Language.** Four of the five are MATLAB or Julia. This is a Python service
 with a TypeScript port that runs the same model in the browser, and
-`tests/test_keyrate_ports_agree.py` holds the two within 1e-9. Adding a third
+`tests/test_keyrate_ports_agree.py` holds the two within a relative $`10^{-9}`$. Adding a third
 runtime to a container that currently needs none would cost more than the
 ~200 lines it would remove.
 

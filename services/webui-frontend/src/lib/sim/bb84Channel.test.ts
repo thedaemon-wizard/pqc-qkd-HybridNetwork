@@ -16,6 +16,11 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { BUNDLED_PARAMS } from "./keyrate";
 import {
   KEY_POOL_CAPACITY,
   KEY_POOL_DRAIN_PER_ROUND,
@@ -250,23 +255,43 @@ describe("the channel the replay reproduces", () => {
 });
 
 describe("the key-pool model, previously copied into three engines", () => {
+  // protocol.qber_threshold_abort, as the engines receive it.
+  const ABORT = BUNDLED_PARAMS.qberThresholdAbort;
+
   it("is bounded by the pool capacity", () => {
     let pool = 0;
-    for (let i = 0; i < 1000; i++) pool = advanceKeyPool(pool, 1_000_000, 0.01);
+    for (let i = 0; i < 1000; i++) pool = advanceKeyPool(pool, 1_000_000, 0.01, ABORT);
     expect(pool).toBe(KEY_POOL_CAPACITY);
   });
 
   it("never goes negative when the pool is drained dry", () => {
-    expect(advanceKeyPool(0, 0, 0)).toBe(0);
-    expect(advanceKeyPool(10, 0, 0)).toBe(0);
+    expect(advanceKeyPool(0, 0, 0, ABORT)).toBe(0);
+    expect(advanceKeyPool(10, 0, 0, ABORT)).toBe(0);
   });
 
   it("drains when no key is distilled", () => {
-    expect(advanceKeyPool(1000, 0, 0)).toBe(1000 - KEY_POOL_DRAIN_PER_ROUND);
+    expect(advanceKeyPool(1000, 0, 0, ABORT)).toBe(1000 - KEY_POOL_DRAIN_PER_ROUND);
   });
 
   it("distils nothing once QBER passes 50 %", () => {
     // (1 - 2*QBER) turns negative there, so the pool must fall, not grow.
-    expect(advanceKeyPool(1000, 100_000, 0.6)).toBeLessThan(1000);
+    expect(advanceKeyPool(1000, 100_000, 0.6, ABORT)).toBeLessThan(1000);
+  });
+
+  it("distils nothing above the abort ceiling -- Eve's 25 % must not grow the pool", () => {
+    // Before the gate, (1 - 2*0.25) = 0.5 still added key on every round.
+    expect(advanceKeyPool(1000, 100_000, 0.25, ABORT)).toBe(1000 - KEY_POOL_DRAIN_PER_ROUND);
+    // Just above the ceiling: aborted. Just below: key is distilled.
+    expect(advanceKeyPool(1000, 100_000, ABORT + 0.001, ABORT)).toBe(1000 - KEY_POOL_DRAIN_PER_ROUND);
+    expect(advanceKeyPool(1000, 100_000, ABORT - 0.001, ABORT)).toBeGreaterThan(1000);
+  });
+
+  it("every engine passes the configured ceiling, not a literal", () => {
+    for (const f of ["bb84.worker.ts", "bb84Gl.ts", "bb84Gpu.ts", "bb84Sim.ts"]) {
+      const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), f), "utf8");
+      const calls = [...src.matchAll(/advanceKeyPool\(([^)]*)\)/g)].map((m) => m[1]);
+      expect(calls.length, f).toBeGreaterThan(0);
+      for (const c of calls) expect(c, f).toMatch(/qberAbort$/);
+    }
   });
 });

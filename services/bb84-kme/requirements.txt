@@ -1,16 +1,35 @@
-fastapi==0.115.6
-# Pin Starlette explicitly. fastapi 0.115.6 requires starlette<0.42, but if it
-# is left unpinned a later `pip install` (the editable backend installs in the
-# Dockerfile) can pull a newer Starlette that DROPPED the `on_startup` Router
-# argument fastapi 0.115.6 still passes -> the KME crashes on import with
-# `Router.__init__() got an unexpected keyword argument 'on_startup'`. This file
-# is also passed as a `-c` constraints file to those editable installs.
-starlette==0.41.3
+fastapi==0.141.1
+# Pin Starlette explicitly, and move it together with fastapi.
+#
+# 0.41.3 -- forced by fastapi 0.115.6's `starlette<0.42` -- carried seven
+# published advisories on 2026-09-25 (osv.dev), three of them HIGH: an O(n^2)
+# Range-header DoS in FileResponse (GHSA-7f5h-v6xp-fcq8, fixed 0.49.1), which the
+# public demo exposes through /api/exports/download; request.form() limits
+# silently ignored (GHSA-82w8-qh3p-5jfq, fixed 1.3.1); and UNC-path SSRF in
+# StaticFiles (GHSA-wqp7-x3pw-xc5r, fixed 1.1.0). 1.7.0 clears all seven.
+#
+# The original reason for the explicit pin still holds: this file is also the
+# `-c` constraints input for the editable backend installs in the Dockerfile, and
+# an unpinned install there could pull a Starlette the pinned fastapi does not
+# support. That incompatibility once crashed the KME on import with
+# `Router.__init__() got an unexpected keyword argument 'on_startup'`; the
+# build-time `APIRouter(on_startup=[])` check still passes with this pair
+# (verified 2026-09-25).
+starlette==1.7.0
 uvicorn[standard]==0.32.1
 pydantic==2.10.4
 httpx==0.28.1
-numpy>=1.26,<2.3
-qutip==5.1.1
+# numpy and qutip are pinned to what the image ACTUALLY ships, and repeated in
+# constraints.txt so the editable installs cannot move them.
+#
+# Until 2026-09-25 these lines read `numpy>=1.26,<2.3` and `qutip==5.1.1`, and
+# neither was true of the image: the pinned SeQUeNCe declares `numpy>=2.3.5`
+# and `qutip>=5.2.2` in its pyproject.toml, its editable install runs after
+# this file with a constraints file that named neither, and pip upgraded both.
+# Measured in the built image: numpy 2.5.3, qutip 5.3.1. The host test suite
+# passes on that pair (807 passed).
+numpy==2.5.3
+qutip==5.3.1
 prometheus-client==0.21.1
 aiosqlite==0.20.0
 # python-multipart was pinned here at 0.0.20 and REMOVED 2026-08-28.
@@ -19,7 +38,8 @@ aiosqlite==0.20.0
 # `grep -rn 'UploadFile\|Form(' services/` returns nothing, and every route
 # takes JSON. FastAPI declares it only under the `standard`, `all` and
 # `standard-no-fastapi-cloud-cli` extras, and this file installs plain
-# `fastapi==0.115.6` with no extra, so nothing pulls it in either.
+# `fastapi` with no extra, so nothing pulls it in either (re-checked against
+# fastapi 0.141.1's requires_dist on 2026-09-25).
 #
 # It was carrying two HIGH DoS advisories against 0.0.20
 # (GHSA-5rvq-cxj2-64vf, GHSA-pp6c-gr5w-3c5g) on a parser that never ran.

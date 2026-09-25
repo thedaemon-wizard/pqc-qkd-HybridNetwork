@@ -197,7 +197,9 @@ export KMS_RETRY_INTERVAL="${KMS_RETRY_INTERVAL:-10s}"
 # arnika elects the per-interval master with
 #     IsPrimary = ((HMAC-SHA256(ARNIKA_PSK, intervalNum)[0]) XOR ARNIKA_ID) & 1 == 0
 # (config/config.go). The XOR against ARNIKA_ID is the ONLY thing that makes two
-# peers reach opposite conclusions, so the two IDs must differ. Left unset,
+# peers reach opposite conclusions, and only bit 0 of it is used, so the two IDs
+# must differ in PARITY -- one odd, one even; merely different is not enough
+# (1 and 3 elect the same role every interval). Left unset,
 # arnika defaults ARNIKA_ID to the port parsed from LISTEN_ADDRESS -- and both
 # of our nodes listen on :9999, which would give both peers the same role every
 # interval and deadlock the key exchange. Fail loudly rather than ship that.
