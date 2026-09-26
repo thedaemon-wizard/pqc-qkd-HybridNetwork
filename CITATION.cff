@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata in this file.
+  It reproduces the layered model of Spooren et al., "PQC-Enhanced QKD
+  Networks: A Layered Approach" (arXiv:2604.05599); please cite that paper
+  for the model itself.
+type: software
+title: "PQC-QKD Hybrid Security Layer: Research PoC"
+abstract: >-
+  A research proof of concept that fuses a simulated QKD key, delivered over
+  the ETSI GS QKD 014 REST API, with a post-quantum key into one
+  HKDF-SHA3-256-derived key, and rotates it into a WireGuard lane layered as
+  in the reference paper and into a strongSwan IKEv2 lane as an RFC 8784
+  post-quantum preshared key.
+version: 0.2.0
+license: Apache-2.0
+repository-code: "https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork"
+authors:
+  - family-names: Koike
+    given-names: Amon
+keywords:
+  - quantum key distribution
+  - post-quantum cryptography
+  - ETSI GS QKD 014
+  - WireGuard
+  - IKEv2
+  - HPKE

@@ -87,14 +87,22 @@ export default function Overview() {
     <div>
       <PageHeader
         title="Architecture & Live Status"
-        subtitle={<>Three-layer model: (1) <code>bb84-kme</code> delivers QKD keys over ETSI 014.
-          (2) A Rosenpass sidecar at each node produces PQC keys.
-          (3) <code>arnika</code> fuses both via HKDF-SHA3-256 and installs the result.
-          {" "}<b>Two VPN lanes consume that key.</b> The <b>WireGuard</b> lane takes it as a
-          preshared key, which enters the Noise_IKpsk2 chaining key. The <b>IPsec/IKEv2</b> lane
-          (<code>alice-ipsec</code>/<code>bob-ipsec</code>) takes it as an
-          {" "}<b>RFC 8784 PPK</b> over strongSwan&rsquo;s VICI socket, alongside RFC 9370 ML-KEM-768;
-          see <Link to="/vpn">VPN Protocols</Link>. Rotation is configured at{" "}
+        subtitle={<>Three key sources feed two VPN lanes. (1) <code>bb84-kme</code> delivers
+          QKD keys over ETSI 014. (2) <code>arnika</code> agrees a PQC key with its peer by
+          PQC-HPKE and fuses it with the QKD key through HKDF-SHA3-256. (3) Rosenpass runs its
+          own exchange through the WireGuard hop tunnel and keys a second tunnel inside it.
+          {" "}<b>WireGuard lane:</b> wg0 hop tunnel keyed by arnika (HKDF-SHA3-256 over the
+          QKD key and a PQC-HPKE key) + wg1 data tunnel keyed by Rosenpass (Classic McEliece
+          460896 + Kyber512). Both keys are WireGuard preshared keys, which enter the
+          Noise_IKpsk2 chaining key, and wg1&apos;s peer endpoint is the peer&apos;s wg0
+          address, so every wg1 packet also travels inside wg0.
+          {" "}<b>IPsec lane</b> (<code>alice-ipsec</code>/<code>bob-ipsec</code>, with its own
+          arnika pair and no Rosenpass): IKEv2 with ML-KEM-768 (RFC 9370) + RFC 8784 PPK =
+          arnika HKDF-SHA3-256(QKD || PQC-HPKE), installed over strongSwan&rsquo;s VICI
+          socket; see <Link to="/vpn">VPN Protocols</Link>.
+          {" "}PQC-HPKE is HPKE Base mode (RFC 9180) with the KEM MLKEM1024-P384, a hybrid of
+          ML-KEM-1024 and P-384 (codepoint 0x0051, from draft-ietf-hpke-pq, not yet an RFC),
+          the KDF HKDF-SHA384 and an export-only AEAD. Rotation is configured at{" "}
           <code>{runtime.arnika_interval ?? "(not reported)"}</code> (<code>ARNIKA_INTERVAL</code>), but the interval
           is when arnika <i>attempts</i> a rotation, not a guarantee: gaps measured on the public
           host on 2026-08-23 ran 30&ndash;241 s, so count rotations over a window (the rotations
@@ -193,35 +201,97 @@ export default function Overview() {
   );
 }
 
+/**
+ * Box geometry for the layer diagram, in viewBox units. Named so the arrows
+ * can be derived from the boxes they join (checklist 4.2.6: a connector ends
+ * on a border) instead of restating their coordinates.
+ */
+const ARCH = {
+  width: 420,
+  height: 300,
+  boxX: 20,
+  boxW: 380,
+  /** arnika: the HKDF, and where both of its inputs come from. */
+  arnika: { y: 14, h: 64 },
+  /** The WireGuard lane: wg0, with wg1 drawn inside it because it runs inside it. */
+  wg: { y: 94, h: 114 },
+  /** wg1's inset from wg0's border, on each side. */
+  wg1Inset: 16,
+  wg1: { y: 142, h: 56 },
+  /** The IPsec lane: its own arnika pair, no Rosenpass. */
+  ipsec: { y: 226, h: 60 },
+  /** How far right of the boxes the arnika-to-IPsec connector runs. */
+  sideRail: 12,
+  /** Baseline of a box's 14px title, below the box's top edge. */
+  titleBaseline: 22,
+  /** The same for the 13px title of the inset wg1 box, one size smaller. */
+  insetTitleBaseline: 19,
+  /** First 11px line below a title's baseline, then each further one. */
+  firstLineGap: 16,
+  lineStep: 14,
+} as const;
+
+/**
+ * Baseline of line `k` in a box whose top is `top`: line 0 is the title,
+ * lines 1.. are the 11px lines under it.
+ */
+function lineY(top: number, k: number, titleBaseline: number = ARCH.titleBaseline): number {
+  return k === 0
+    ? top + titleBaseline
+    : top + titleBaseline + ARCH.firstLineGap + (k - 1) * ARCH.lineStep;
+}
+
 function ArchPanel() {
+  const cx = ARCH.boxX + ARCH.boxW / 2;
+  const right = ARCH.boxX + ARCH.boxW;
+  const rail = right + ARCH.sideRail;
+  const arnikaMid = ARCH.arnika.y + ARCH.arnika.h / 2;
+  const ipsecMid = ARCH.ipsec.y + ARCH.ipsec.h / 2;
+  const wg1X = ARCH.boxX + ARCH.wg1Inset;
+  const wg1W = ARCH.boxW - 2 * ARCH.wg1Inset;
   return (
     <div style={{ background: "#0d1320", padding: 16, borderRadius: 8, border: "1px solid #1d2741" }}>
       {/* "This PoC's", not "from" the paper. In arXiv:2604.05599 arnika injects
-          QKD keys into the hop WireGuard tunnels and Rosenpass keys the
-          end-to-end tunnel; the HKDF fusion of the two and the IPsec lane
-          below are this project's additions. */}
+          QKD keys into the hop WireGuard tunnels, Rosenpass runs through them,
+          and its key is injected into the final WireGuard data tunnel. The
+          WireGuard lane below follows that layering with wg0 and wg1. What
+          this project adds: arnika's hop key also carries a PQC-HPKE key
+          through HKDF-SHA3-256, and the IPsec lane. */}
       <h3 style={{ marginTop: 0 }}>This PoC&apos;s layering (extends arXiv:2604.05599)</h3>
-      <svg id="overview-arch-svg" viewBox="0 0 420 280" style={{ width: "100%" }}>
-        {/* E2E Layer */}
-        <rect x="20" y="20" width="380" height="60" rx="6" fill="#332247" stroke="#7c5cff" />
-        {/* Two lines because SVG text does not wrap. Correcting the KEM name
-            lengthened this label to 420px inside a 380px box, so it spilled
-            20px past both borders. Measured with getComputedTextLength, not
-            eyeballed -- see checklist 4.2.5. */}
-        <text x="210" y="44" fill="#d8c8ff" textAnchor="middle" fontSize="14">End-to-End: Rosenpass handshake</text>
-        <text x="210" y="62" fill="#9d8fc8" textAnchor="middle" fontSize="11">McEliece 460896 + Kyber512 — writes pqc.psk file</text>
-        {/* Transport Layer */}
-        <rect x="20" y="100" width="380" height="60" rx="6" fill="#3a2a18" stroke="#ff9442" />
-        <text x="210" y="128" fill="#ffd9b8" textAnchor="middle" fontSize="14">Transport: Arnika (HKDF-SHA3-256 fuses QKD‖PQC)</text>
-        <text x="210" y="146" fill="#c8a47e" textAnchor="middle" fontSize="11">ETSI 014 client + key writers: WireGuard netlink / strongSwan VICI</text>
-        {/* Hop Layer */}
-        <rect x="20" y="180" width="380" height="60" rx="6" fill="#1f3322" stroke="#3ddc84" />
-        <text x="210" y="204" fill="#c4f5d8" textAnchor="middle" fontSize="14">Hop: WireGuard tunnel, or IPsec/IKEv2 (RFC 8784 PPK)</text>
-        <text x="210" y="220" fill="#84c89c" textAnchor="middle" fontSize="11">ChaCha20-Poly1305 + Noise_IKpsk2 + PSK</text>
-        <text x="210" y="234" fill="#84c89c" textAnchor="middle" fontSize="11">AES-GCM-256 + ML-KEM-768 (RFC 9370) + PPK</text>
-        {/* arrows */}
-        <line x1="210" y1="80" x2="210" y2="100" stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />
-        <line x1="210" y1="160" x2="210" y2="180" stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />
+      <svg id="overview-arch-svg" viewBox={`0 0 ${ARCH.width} ${ARCH.height}`} style={{ width: "100%" }}>
+        {/* SVG text does not wrap, so every line here was measured with
+            getComputedTextLength against the innermost box that contains it
+            (checklist 4.2.5), in the browser on 2026-09-26. The earlier
+            single-box label for Rosenpass spilled 20px past both borders of a
+            380px box. In this version the widest line is the arnika
+            sub-line at 307px, and the tightest clearance is 36px, the wg1
+            heading against wg1's inset border (Linux fallback sans-serif). A
+            first draft of the arnika sub-line ran to 370px with 5px to spare
+            and was shortened. */}
+        {/* arnika */}
+        <rect x={ARCH.boxX} y={ARCH.arnika.y} width={ARCH.boxW} height={ARCH.arnika.h} rx="6" fill="#3a2a18" stroke="#ff9442" />
+        <text x={cx} y={lineY(ARCH.arnika.y, 0)} fill="#ffd9b8" textAnchor="middle" fontSize="14">arnika: HKDF-SHA3-256 (QKD ‖ PQC-HPKE)</text>
+        <text x={cx} y={lineY(ARCH.arnika.y, 1)} fill="#c8a47e" textAnchor="middle" fontSize="11">QKD key over ETSI 014 · PQC-HPKE key agreed with the peer</text>
+        <text x={cx} y={lineY(ARCH.arnika.y, 2)} fill="#c8a47e" textAnchor="middle" fontSize="11">one arnika pair per lane; the two lanes share no key</text>
+        {/* WireGuard lane: wg0 */}
+        <rect x={ARCH.boxX} y={ARCH.wg.y} width={ARCH.boxW} height={ARCH.wg.h} rx="6" fill="#1f3322" stroke="#3ddc84" />
+        <text x={cx} y={lineY(ARCH.wg.y, 0)} fill="#c4f5d8" textAnchor="middle" fontSize="14">WireGuard wg0 hop tunnel: PSK = arnika</text>
+        <text x={cx} y={lineY(ARCH.wg.y, 1)} fill="#84c89c" textAnchor="middle" fontSize="11">ChaCha20-Poly1305 + Noise_IKpsk2 + preshared key</text>
+        {/* wg1, inside wg0 */}
+        <rect x={wg1X} y={ARCH.wg1.y} width={wg1W} height={ARCH.wg1.h} rx="5" fill="#332247" stroke="#7c5cff" />
+        <text x={cx} y={lineY(ARCH.wg1.y, 0, ARCH.insetTitleBaseline)} fill="#d8c8ff" textAnchor="middle" fontSize="13">wg1 data tunnel, inside wg0: PSK = Rosenpass</text>
+        <text x={cx} y={lineY(ARCH.wg1.y, 1, ARCH.insetTitleBaseline)} fill="#9d8fc8" textAnchor="middle" fontSize="11">Classic McEliece 460896 + Kyber512</text>
+        <text x={cx} y={lineY(ARCH.wg1.y, 2, ARCH.insetTitleBaseline)} fill="#9d8fc8" textAnchor="middle" fontSize="11">the Rosenpass exchange itself also runs over wg0</text>
+        {/* IPsec lane. */}
+        <rect x={ARCH.boxX} y={ARCH.ipsec.y} width={ARCH.boxW} height={ARCH.ipsec.h} rx="6" fill="#1a2440" stroke="#5b8def" />
+        <text x={cx} y={lineY(ARCH.ipsec.y, 0)} fill="#d8e1ff" textAnchor="middle" fontSize="14">IPsec/IKEv2: RFC 8784 PPK = arnika</text>
+        <text x={cx} y={lineY(ARCH.ipsec.y, 1)} fill="#9aa9d8" textAnchor="middle" fontSize="11">AES-GCM-256 + ML-KEM-768 (RFC 9370) + PPK, over VICI</text>
+        <text x={cx} y={lineY(ARCH.ipsec.y, 2)} fill="#9aa9d8" textAnchor="middle" fontSize="11">no Rosenpass on this lane</text>
+        {/* arrows: arnika into wg0 (straight down), and arnika into the
+            IPsec lane along a rail right of the boxes, ending on its border. */}
+        <line x1={cx} y1={ARCH.arnika.y + ARCH.arnika.h} x2={cx} y2={ARCH.wg.y} stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />
+        <polyline points={`${right},${arnikaMid} ${rail},${arnikaMid} ${rail},${ipsecMid} ${right},${ipsecMid}`}
+                  fill="none" stroke="#5b8def" strokeWidth="1.5" markerEnd="url(#arr)" />
         <defs>
           <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b8def" />
@@ -229,9 +299,16 @@ function ArchPanel() {
         </defs>
       </svg>
       <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
-        Additions to the paper&apos;s layering: arnika&apos;s HKDF-SHA3-256 fusion of the QKD
-        and PQC keys (the paper keeps them apart) and the IPsec/IKEv2 lane. The paper&apos;s
-        own layering is on <Link to="/paper-flow">/paper-flow</Link>.
+        The WireGuard lane follows the paper&apos;s layering: a hop tunnel, with Rosenpass
+        run through it and its key injected into the data tunnel. Additions to the
+        paper: the hop tunnel&apos;s key mixes a PQC-HPKE key into the QKD key through
+        HKDF-SHA3-256 (the paper keys the hops from QKD alone), and the IPsec/IKEv2 lane.
+        The paper&apos;s own layering is on <Link to="/paper-flow">/paper-flow</Link>.
+      </p>
+      <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
+        Note: PQC-HPKE comes from arnika pull request #51, which is still open. The arnika
+        pin is that pull request&apos;s head commit (<code>f4cf9ba</code>), not a merge
+        commit, and will be re-pinned to the merge commit once #51 merges.
       </p>
     </div>
   );

@@ -98,6 +98,29 @@ CONFLATION = re.compile(
 # carrying an explicit owner for the ML-KEM is not a finding.
 ATTRIBUTED = re.compile(r"IKEv2|IKE_SA|RFC\s*9370|KE1_ML_KEM|key exchange", re.IGNORECASE)
 
+# The WireGuard lane has a second ML-KEM since the arnika pin moved to upstream
+# PR #51's head: arnika agrees the PQC half of wg0's PSK over PQC-HPKE, whose
+# KEM is ML-KEM-1024 + P-384, while Rosenpass keys wg1. Prose describing both
+# tunnels puts the two within the window above, and names the owner just BEFORE
+# the ML-KEM -- "PQC-HPKE (ML-KEM-1024 + P-384)" -- which the match itself may
+# not reach. So an ML-KEM immediately preceded by HPKE is attributed. Only
+# immediately: the reach is a named handful of characters, enough for
+# "HPKE with KEM ", not enough for an HPKE elsewhere in the sentence to cover
+# an ML-KEM that is really being said of Rosenpass.
+HPKE_REACH = 16
+HPKE_OWNER = re.compile(rf"HPKE[^.|]{{0,{HPKE_REACH}}}$", re.IGNORECASE)
+_KEM = re.compile(r"ML[-_]KEM", re.IGNORECASE)
+
+
+def _attributed(body: str, m: re.Match) -> bool:
+    """Does this Rosenpass/ML-KEM pairing name the ML-KEM's real owner?"""
+    if ATTRIBUTED.search(m.group(0)):
+        return True
+    text = m.group(0)
+    kem = m.start() if _KEM.match(text) else m.start() + text.upper().rfind("ML")
+    before = body[max(0, kem - len("HPKE") - HPKE_REACH):kem]
+    return bool(HPKE_OWNER.search(before))
+
 # Prose files allowed to contain the pairing because they exist to correct it.
 # Source files are NOT listed here: their comments are stripped instead, so the
 # code itself stays under the guard. Exempting a whole source file would make
@@ -205,7 +228,7 @@ def test_no_tracked_file_calls_the_rosenpass_handshake_ml_kem():
         # Scan the WHOLE body, not line by line: the seventh instance was two
         # adjacent lines in a sidebar, which no per-line scan can see.
         for m in CONFLATION.finditer(body):
-            if ATTRIBUTED.search(m.group(0)):
+            if _attributed(body, m):
                 continue
             line_no = body.count("\n", 0, m.start()) + 1
             snippet = " ".join(m.group(0).split())[:110]
@@ -218,3 +241,21 @@ def test_no_tracked_file_calls_the_rosenpass_handshake_ml_kem():
         "real FIPS 203, but that is the IKE key exchange, not arnika's HKDF "
         "input:\n  " + "\n  ".join(offenders)
     )
+
+
+@pytest.mark.parametrize("text,flagged", [
+    # the defect this file exists for
+    ("Rosenpass PQC handshake (ML-KEM-768)", True),
+    ("ML-KEM-768 + HKDF-SHA3-256\narnika \u00b7 liboqs \u00b7 rosenpass", True),
+    # an HPKE elsewhere in the sentence does not excuse an ML-KEM said of Rosenpass
+    ("PQC-HPKE keys wg0 and Rosenpass keys wg1 with ML-KEM-1024", True),
+    # attributed: the IKEv2 lane, and arnika's PQC-HPKE on the hop tunnel
+    ("IKEv2: ML-KEM-768 (RFC 9370)\nRosenpass: McEliece + Kyber512", False),
+    ("wg0 keyed by arnika over PQC-HPKE (ML-KEM-1024 + P-384), wg1 keyed by Rosenpass", False),
+    ("Rosenpass keys wg1; wg0 takes a PQC-HPKE key (ML-KEM-1024 + P-384)", False),
+])
+def test_the_attribution_rule_on_the_sentences_it_decides(text, flagged):
+    """Guard the guard: the HPKE exception must not open a hole for Rosenpass."""
+    hits = [m for m in CONFLATION.finditer(text) if not _attributed(text, m)]
+    assert bool(hits) is flagged, (text, [m.group(0) for m in hits])
+

@@ -63,6 +63,39 @@ def test_counts_failures_and_applications_not_only_attempts(client):
     assert set(body["counts"]) == {"count", "auth_failed", "ppk_applied"}
 
 
+# The same three rotations as the pinned arnika (f4cf9ba) writes them. It logs
+# through log/slog, and the VICI adapter's log.Printf reaches the slog handler
+# through the standard library's bridge, so each adapter line arrives as the
+# msg="..." value of a key=value record. The counters must not depend on which
+# arnika wrote the log: the before/after comparison of the pin reads both.
+SLOG_LOG = b"""\
+2026-09-26T12:00:05.001Z time=2026-09-26T12:00:05.001Z level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-bob-23383 ppk_id=ppk-qkd@pqcqkd.local bytes=32)" arnika_id=11
+2026-09-26T12:00:05.003Z 07[ENC] parsed IKE_AUTH response 2 [ N(AUTH_FAILED) ]
+2026-09-26T12:00:35.001Z time=2026-09-26T12:00:35.001Z level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-bob-23384 ppk_id=ppk-qkd@pqcqkd.local bytes=32)" arnika_id=11
+2026-09-26T12:00:35.002Z 12[CFG] using PPK for PPK_ID 'ppk-qkd@pqcqkd.local'
+2026-09-26T12:01:05.001Z time=2026-09-26T12:01:05.001Z level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-bob-23385 ppk_id=ppk-qkd@pqcqkd.local bytes=32)" arnika_id=11
+2026-09-26T12:01:05.002Z 12[CFG] using PPK for PPK_ID 'ppk-qkd@pqcqkd.local'
+"""
+
+
+def test_the_pinned_arnikas_slog_records_count_the_same(client, monkeypatch):
+    class Slog:
+        def logs(self, **_):
+            return SLOG_LOG
+
+    class Docker:
+        class containers:
+            @staticmethod
+            def get(_name):
+                return Slog()
+
+    _main.app.state.docker = Docker()
+    body = client.get("/api/vpn/ppk-rotations?window_s=600").json()
+    for node in ("alice-ipsec", "bob-ipsec"):
+        n = body["nodes"][node]
+        assert (n["count"], n["distinct_ids"], n["auth_failed"], n["ppk_applied"]) == (3, 3, 1, 2)
+
+
 def test_a_clamped_window_says_so(client):
     body = client.get("/api/vpn/ppk-rotations?window_s=86400").json()
     assert body["window_s"] == _main.ROTATION_WINDOW_MAX_S

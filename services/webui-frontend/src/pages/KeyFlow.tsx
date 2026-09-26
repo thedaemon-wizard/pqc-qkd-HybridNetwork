@@ -2,7 +2,7 @@ import Plot from "react-plotly.js";
 import { Link } from "react-router-dom";
 import ExportToolbar from "../components/ExportToolbar";
 import { PLOT_CONFIG } from "../lib/plotConfig";
-import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
+import { KEY_FLOW_COLORS, KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
 
 /**
  * Hybrid key derivation flow.
@@ -12,11 +12,15 @@ import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "
  * that form the "WireGuard PSK" node was referenced by no edge at all -- the one
  * arrow the paragraph below promises was the only one the figure did not draw.
  * See that file for the full reading.
+ *
+ * Since release 0.2.0 the figure has two components: the derivation into wg0's
+ * PSK, and Rosenpass into wg1's. They never meet, because Rosenpass no longer
+ * feeds the HKDF.
  */
 export default function KeyFlow() {
   const links = toSankeyLinks();
-  const nodeColor = ["#3ddc84", "#3ddc84", "#3ddc84", "#3ddc84",
-                     "#7c5cff", "#7c5cff", "#ff9442", "#5b8def"];
+  // By node, not by position: see KEY_FLOW_COLORS.
+  const nodeColor = KEY_FLOW_NODES.map((n) => KEY_FLOW_COLORS[n]);
   // Colour each link by its SOURCE, so the lane a flow belongs to is derived
   // rather than maintained as a fourth parallel array that can fall out of step.
   const linkColor = links.source.map((i) => `${nodeColor[i]}70`);
@@ -39,10 +43,23 @@ export default function KeyFlow() {
     <div>
       <h2 style={{ marginTop: 0 }}>Hybrid Key Derivation Flow</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
-        The QKD lane (green) and the PQC lane (purple) are fused by HKDF-SHA3-256
-        (orange) into the 256-bit WireGuard PSK. <b>Widths are bits</b> — the two
-        256-bit inputs give 512 bits of keying material, and HKDF emits 256; that
-        narrowing at the orange node is the derivation, not a drawing error.
+        The QKD key (green) and the PQC-HPKE key (purple) are fused by
+        HKDF-SHA3-256 (orange) into the 256-bit WireGuard PSK of <code>wg0</code>,
+        the hop tunnel. <b>Widths are bits</b> — the two 256-bit inputs give 512
+        bits of keying material, and HKDF emits 256; that narrowing at the
+        orange node is the derivation, not a drawing error.
+      </p>
+      <p style={{ color: "#9aa9d8", maxWidth: 720 }}>
+        The PQC-HPKE key is one arnika agrees with its peer over its existing
+        UDP socket: HPKE Base mode (RFC 9180) with the KEM MLKEM1024-P384, a
+        hybrid of ML-KEM-1024 and P-384 (from draft-ietf-hpke-pq, not yet an
+        RFC), the KDF HKDF-SHA384 and an export-only AEAD; the HKDF receives its
+        32-byte export. Rosenpass (pink) keys <code>wg1</code>, not the HKDF: its
+        256-bit output is the WireGuard PSK of the data tunnel, which runs inside{" "}
+        <code>wg0</code>. The two keys protect nested tunnels rather than being
+        combined into one. The IPsec lane&apos;s own arnika pair runs the same
+        derivation, and its output becomes an RFC 8784 PPK instead of a
+        WireGuard PSK; that lane has no Rosenpass.
       </p>
       <p style={{ color: "#6b7796", maxWidth: 720, fontSize: 12 }}>
         The first three widths ({KEY_FLOW_EDGES.filter((e) => e.illustrative).length} of{" "}

@@ -10,6 +10,13 @@
 	path = submodules/arnika
 	url = https://github.com/arnika-project/arnika.git
 	branch = main
+	# The pin is f4cf9ba40747f3d85936ff101133e962eb417482, the head of upstream
+	# PR #51 (PQC-HPKE key agreement, wire_*.go layout, one-method key-writer
+	# port), dated 2026-09-24. That PR is OPEN and NOT merged, so the pin is not
+	# on `main` even though `branch = main` stays for the day it is. Do not run
+	# `git submodule update --remote` on this entry: it would move the pin to
+	# main's head and silently drop the PQC-HPKE reader the IPsec and WireGuard
+	# lanes depend on. Re-pin to the merge commit once #51 merges.
 [submodule "submodules/liboqs"]
 	path = submodules/liboqs
 	url = https://github.com/open-quantum-safe/liboqs.git

@@ -1,21 +1,40 @@
 # ===================================================================
-# Override file: adds Charlie as a trusted-node relay between Alice and Bob.
+# Override file: adds a third node, charlie, peered with alice. alice then
+# faces two neighbours (bob and charlie) and is the trusted node of the chain
+# bob - alice - charlie.
 # Models the multi-hop case from the paper (3.2 Routing and Composition).
 # Apply with:
 #   docker compose -f docker-compose.yml -f docker-compose.multihop.yml --profile multihop up -d
+#
+# Both layers per leg. The charlie leg gets the same two tunnels as the bob
+# leg: a wg0 hop tunnel keyed by an arnika instance of its own, and a wg1 data
+# tunnel inside it, keyed by Rosenpass. So charlie DOES get a wg1 to alice.
+# Chosen because the node entrypoint then has one shape for every leg, with no
+# switch that leaves a leg without its Rosenpass layer, and because the
+# overlay already ran a Rosenpass peer on this leg before arnika took over the
+# PQC half of wg0.
+#
+# What this is not: an end-to-end wg1 from bob to charlie across alice. Each
+# wg1 terminates at alice, so traffic between bob and charlie is decrypted at
+# alice on both layers, exactly as a trusted node is. A bob-charlie wg1 would
+# need alice to route between its two wg0 peers and is not built.
 # ===================================================================
 name: pqcqkd
 
 services:
   # alice faces two neighbours in the chain: bob (its primary, set in the base
-  # compose) and charlie. rosenpass has always accepted both; the sidecar can
-  # now express it.
+  # compose) and charlie.
   alice:
     environment:
-      RP_EXTRA_PEERS: "charlie@charlie:9997"
-      # name@wg-endpoint/tunnel-ip. charlie listens on 51822 and holds 10.0.0.3.
-      WG_EXTRA_PEERS: "charlie@charlie:51822/${WG_CHARLIE_IP:-10.0.0.3}"
-      # One arnika per neighbour: this one drives the charlie leg on :9998.
+      # name@wg-endpoint/tunnel-ip. charlie holds WG_CHARLIE_IP on wg0.
+      WG_EXTRA_PEERS: "charlie@charlie:${WG_LISTEN_PORT_CHARLIE:-51822}/${WG_CHARLIE_IP:-10.0.0.3}"
+      # name@wg1-port/wg1-ip. The wg1 endpoint is charlie's wg0 address from
+      # WG_EXTRA_PEERS and this port, so the leg's wg1 runs inside its wg0.
+      # Each entry is also a Rosenpass peer, reached at charlie's wg0 address,
+      # which keys this wg1 peer.
+      WG1_EXTRA_PEERS: "charlie@${WG1_LISTEN_PORT_CHARLIE:-51832}/${WG1_CHARLIE_IP:-10.0.1.3}"
+      # One arnika per neighbour: this one drives the charlie leg on :9998. It
+      # inherits alice's ARNIKA_MODE and PQC_ENABLED, so charlie sets the same.
       ARNIKA_EXTRA_PEERS: "charlie@charlie:9998"
 
   charlie:
@@ -28,6 +47,7 @@ services:
       dockerfile: nodes/alice/Dockerfile
     container_name: charlie
     profiles: ["multihop"]
+    # No IPC_LOCK: see alice in docker-compose.yml.
     cap_add: [NET_ADMIN, SYS_MODULE]
     devices: ["/dev/net/tun:/dev/net/tun"]
     sysctls:
@@ -36,11 +56,25 @@ services:
     environment:
       NODE_NAME: charlie
       WG_IFACE: wg0
-      WG_LISTEN_PORT: 51822
+      WG_LISTEN_PORT: ${WG_LISTEN_PORT_CHARLIE:-51822}
       WG_LOCAL_IP: ${WG_CHARLIE_IP:-10.0.0.3}
-      WG_PEER_IP: 10.0.0.1
-      WG_PEER_ENDPOINT: alice:51820
-      ARNIKA_MODE: AtLeastQkdRequired
+      # alice's wg0 address and port, from the same variables the base compose
+      # gives alice, so an .env that moves alice cannot leave charlie behind.
+      WG_PEER_IP: ${WG_ALICE_IP:-10.0.0.1}
+      WG_PEER_ENDPOINT: alice:${WG_LISTEN_PORT_ALICE:-51820}
+      # wg1 to alice, inside wg0: the endpoint is alice's wg0 address and
+      # alice's wg1 port.
+      WG1_IFACE: wg1
+      WG1_LISTEN_PORT: ${WG1_LISTEN_PORT_CHARLIE:-51832}
+      WG1_LOCAL_IP: ${WG1_CHARLIE_IP:-10.0.1.3}
+      WG1_PEER_IP: ${WG1_ALICE_IP:-10.0.1.1}
+      WG1_PEER_PORT: ${WG1_LISTEN_PORT_ALICE:-51830}
+      # Same variable and same literal as alice, whose second arnika instance
+      # is charlie's peer: arnika requires MODE and PQC_ENABLED to be identical
+      # on both ends. This was AtLeastQkdRequired while alice ran
+      # QkdAndPqcRequired.
+      ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+      PQC_ENABLED: "true"
       # Same variable as alice, whose second arnika instance is charlie's peer:
       # arnika requires the interval to be identical on both ends, and a literal
       # here silently diverged from alice whenever .env set another value.
@@ -62,15 +96,21 @@ services:
       # Pairs with alice's SECOND arnika instance, not the bob-facing one.
       LISTEN_ADDRESS: 0.0.0.0:9998
       SERVER_ADDRESS: alice:9998
-      PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
+      # Rosenpass binds charlie's wg0 address. alice, the lower wg0 address,
+      # initiates every exchange of this leg and charlie answers it (see
+      # nodes/alice/entrypoint.sh); alice's Rosenpass serves bob and charlie on
+      # the one port.
+      RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
+      RP_PEER_PORT: ${RP_LISTEN_PORT:-9997}
+      ROSENPASS_SECRET_DIR: /etc/rosenpass-secret
+      SHARED_DIR: /shared
     volumes:
       # charlie had NO volumes at all, which is why it sat forever on
       # "waiting for peer (alice) public keys in /shared": its /shared was
       # container-local, so it wrote charlie.wg.pub where nobody could read it
       # and never saw alice.wg.pub. `node-pubkeys` is the shared one and is the
-      # whole mechanism; the other three only persist charlie's own keys across
+      # whole mechanism; the other two only persist charlie's own keys across
       # recreates, matching alice and bob.
-      - pqc-psk-charlie:/var/lib/rosenpass
       - rosenpass-keys-charlie:/etc/rosenpass-secret
       - wg-keys-charlie:/etc/wireguard
       - node-pubkeys:/shared
@@ -80,6 +120,5 @@ services:
         ipv4_address: 10.30.0.12
 
 volumes:
-  pqc-psk-charlie:
   rosenpass-keys-charlie:
   wg-keys-charlie:

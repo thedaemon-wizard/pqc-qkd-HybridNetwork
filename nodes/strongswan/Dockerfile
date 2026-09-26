@@ -4,7 +4,8 @@
 #   * RFC 9370 hybrid key exchange : ECP-256 + ML-KEM-768 (ke1_mlkem768)
 #   * RFC 9242 IKE_INTERMEDIATE    : carries the ML-KEM payloads, encrypted
 #                                    and therefore fragmentable
-#   * RFC 8784 PPK                 : the arnika-derived HKDF(QKD || PQC) key,
+#   * RFC 8784 PPK                 : the arnika-derived
+#                                    HKDF-SHA3-256(QKD || PQC-HPKE) key,
 #                                    injected natively over the VICI socket
 #
 # Base image: Debian trixie, because its OpenSSL is >= 3.5 and strongSwan's
@@ -83,20 +84,33 @@ FROM golang:1.26-bookworm AS arnika-build
 COPY submodules/arnika /src/arnika
 COPY services/arnika-vici /src/arnika-vici
 
-# arnika#44 and #49, both MERGED 2026-09-02, and the pin now contains them.
-# The local patch that carried them is gone; this assertion is what the
-# lifecycle note in that patch said to keep.
+# The pin is f4cf9ba, the head of arnika PR #51, which is OPEN and not merged
+# (see .gitmodules). Re-pin to the merge commit once #51 merges.
 #
-# It targets the SENTINEL NAME rather than the message text on purpose. The
-# wording changed once between the PR and the merge, and the identifier is what
-# callers branch on -- errors.Is(err, ErrKMSUnavailable) is the point of the
-# change. A submodule bump to a revision without it fails the build instead of
-# silently shipping an arnika whose exhausted retry loop reports 503 and 403
-# identically.
+# Two assertions on the pinned tree, both run BEFORE build.sh, because build.sh
+# copies $ARNIKA_SRC/. wholesale -- checking afterwards would be checking a
+# tree already consumed.
 #
-# Asserted BEFORE build.sh runs, because build.sh copies $ARNIKA_SRC/.
-# wholesale -- checking afterwards would be checking a tree already consumed.
-RUN grep -q "ErrKMSUnavailable" /src/arnika/repositories/kms.go
+# 1. The KMS failure sentinel from arnika#44 and #49 (both MERGED 2026-09-02).
+#    A submodule bump to a revision without it fails the build instead of
+#    silently shipping an arnika whose exhausted retry loop reports 503 and 403
+#    identically.
+#
+#    This targeted the sentinel NAME, ErrKMSUnavailable in repositories/kms.go,
+#    on the argument that an identifier survives while message text may change.
+#    PR #51 renamed both: the reader moved into its own package and the
+#    sentinel became kms.ErrUnavailable. The message text, "KMS did not deliver
+#    a key", is the part that survived. So neither form is stable on its own;
+#    the check names the current identifier and path, and a later move fails
+#    here loudly, which is the purpose.
+RUN grep -q "ErrUnavailable" /src/arnika/repositories/kms/kms.go
+# 2. The PQC half comes from arnika's own HPKE key agreement with the peer
+#    (repositories/pqchpke, switched on by PQC_ENABLED). This lane no longer
+#    mounts a Rosenpass key file, so a bump to a revision without the HPKE
+#    reader would leave MODE=QkdAndPqcRequired with no PQC source at all --
+#    every rotation would invalidate the tunnel. Fail the build instead.
+RUN test -d /src/arnika/repositories/pqchpke \
+    && grep -q '"PQC_ENABLED"' /src/arnika/config/config.go
 RUN sh /src/arnika-vici/build.sh /src/arnika /src/arnika-vici /out/arnika
 
 # ---- Stage 3: runtime --------------------------------------------------

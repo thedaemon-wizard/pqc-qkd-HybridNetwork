@@ -1,15 +1,20 @@
 //go:build strongswan_vici
 
-// Key-writer adapter selection for the strongSwan VICI backend.
+// Wiring for the strongSwan VICI key writer.
 //
-// This mirrors upstream arnika's wireguardnetlink.go: one build-tagged file per
-// key-writer adapter, each providing getKeyWriterService. Build with:
+// The package and file layout follow upstream arnika's KEYCONTROL.md ("Naming
+// and File Layout Conventions"): the adapter lives in its own package,
+// repositories/swanvici, carries no writer-selection tag, and this root-level
+// wiring file, named `wire_` plus the tag, is the only place the tag appears.
+// The tag name does not follow them: KEYCONTROL.md names writer tags
+// wireguard_<backend>, and this one keeps its existing name, strongswan_vici.
+// Renaming it is left to the upstream adapter PR. Build with:
 //
 //	go build -tags strongswan_vici
 //
 // See services/arnika-vici/README.md for the upstream contribution notes,
-// including the one-line build-tag change wireguardnetlink.go needs so the two
-// adapters remain mutually exclusive.
+// including the one-line build-tag change wire_wireguard_netlink.go needs so
+// the two writers remain mutually exclusive.
 package main
 
 import (
@@ -17,18 +22,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/arnika-project/arnika/repositories"
-	"github.com/arnika-project/arnika/services"
-
 	"github.com/arnika-project/arnika/config"
+	"github.com/arnika-project/arnika/repositories/swanvici"
+	"github.com/arnika-project/arnika/services"
 )
 
-// Environment surface specific to this adapter. Kept separate from
-// config.Config so the upstream config parser needs no change to build with
-// this tag; a real upstream PR would fold these into config.Parse and make
-// WIREGUARD_INTERFACE / WIREGUARD_PEER_PUBLIC_KEY conditional on the selected
-// adapter (they are currently mandatory, which is an upstream wart this
-// adapter inherits -- see README.md).
+// Environment surface specific to this adapter. Read here and not in
+// config.Config, as KEYCONTROL.md's rule 3 asks of every backend: "Backend-
+// specific configuration is read in the wiring file". WIREGUARD_INTERFACE and
+// WIREGUARD_PEER_PUBLIC_KEY are nevertheless still mandatory in config.Parse,
+// which is an upstream wart this adapter inherits -- see README.md.
 const (
 	envViciSocket     = "VICI_SOCKET"
 	envViciConnection = "VICI_CONNECTION"
@@ -41,12 +44,12 @@ const (
 )
 
 func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error) {
-	viciCfg := repositories.ViciConfig{
-		SocketPath:       os.Getenv(envViciSocket),
-		ConnectionName:   os.Getenv(envViciConnection),
-		ChildName:        os.Getenv(envViciChild),
-		PPKID:            os.Getenv(envViciPPKID),
-		CredentialPrefix: os.Getenv(envViciPrefix),
+	viciCfg := swanvici.Config{
+		SocketPath:            os.Getenv(envViciSocket),
+		ConnectionName:        os.Getenv(envViciConnection),
+		ChildName:             os.Getenv(envViciChild),
+		PPKID:                 os.Getenv(envViciPPKID),
+		CredentialPrefix:      os.Getenv(envViciPrefix),
 		BootstrapCredentialID: os.Getenv(envViciBootstrap),
 	}
 
@@ -86,9 +89,11 @@ func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error)
 			envViciTimeout, timeout, cfg.Interval)
 	}
 
-	viciRepo, err := repositories.NewStrongswanViciRepository(viciCfg)
+	viciRepo, err := swanvici.NewRepository(viciCfg)
 	if err != nil {
 		return nil, err
 	}
+	// KeyWriterService owns invalidation (a fresh random key through SetPSK)
+	// and serialises every write, so the repository implements SetPSK only.
 	return services.NewKeyWriterService(viciRepo), nil
 }

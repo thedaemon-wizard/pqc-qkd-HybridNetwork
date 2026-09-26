@@ -386,7 +386,7 @@ steps below: it uses random surrogate keys, and a run makes no HTTP request
 | Phase | Name | What the deleted orchestrator did |
 |---|---|---|
 | **1** | Quantum Plane | Poll `bb84-kme-a` `/api/v1/keys/ALICE/status` until SimQN backend produces a key |
-| **2** | QKD Key IDs (ETSI 014) | `GET /enc_keys` from KME-A, mirror retrieval via `GET /dec_keys?key_ID=…` at KME-B (matches `submodules/arnika/repositories/kms.go:43-102`) |
+| **2** | QKD Key IDs (ETSI 014) | `GET /enc_keys` from KME-A, mirror retrieval via `GET /dec_keys?key_ID=…` at KME-B (matched `submodules/arnika/repositories/kms.go:43-102` at the pin of the time; `repositories/kms/kms.go` since arnika #51) |
 | **3** | PQC Handshake (HKDF-SHA3) | `HKDF-SHA3-256(qkd ‖ random_pqc, salt="pqcqkd-e2e", info=mode)` → 32 B PSK |
 | **4** | Data Exchange (ChaCha20-Poly1305) | Encrypt 64 ping-sized payloads per cycle, count bytes and packets |
 
@@ -682,7 +682,7 @@ above was added.
 
 ## 2026-09-25 — Log redaction, Protocol Lab, ETSI GS QKD 004 on the KME
 
-One batch (PR #130, `44a4bd1`), deployed the same day, then a follow-up for
+One batch (PR #130, `d3d2e74`), deployed the same day, then a follow-up for
 three defects the browser pass found.
 
 ### What went in
@@ -829,5 +829,93 @@ Three things the pass found were corrected in the same change: the HQC rows'
 hardness assumption read `not recorded`, Thuringia's keystore hop was called
 `not a QKD link` in the model column, and the `/vpn` WireGuard card still named
 boringtun.
+
+---
+
+## 2026-09-26 — arnika #51 adopted and the WireGuard lane layered as in the paper (release 0.2.0)
+
+The first change after the `v0.1.0` tag, to be released as 0.2.0 (see
+[`../CHANGELOG.md`](../CHANGELOG.md)); the `v0.2.0` tag and its date are set
+after the merge. It moves `submodules/arnika` from
+`3a8cc13` to `f4cf9ba`, the head of the open, unmerged arnika PR #51 (dated
+2026-09-24), because that PR removes the file handover this project's PQC half
+depended on (`PQC_PSK_FILE`) and replaces it with PQC-HPKE, a key agreement
+between the arnika peers themselves. The pin is re-pinned to the merge commit
+once #51 merges ([`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika
+#51").
+
+### What went in
+
+- **PQC-HPKE on every arnika instance.** HPKE in Base mode (RFC 9180) with the
+  KEM MLKEM1024-P384 (a hybrid of ML-KEM-1024 and P-384 ECDH, codepoint 0x0051
+  of draft-ietf-hpke-pq, not yet an RFC), HKDF-SHA384 and an export-only AEAD,
+  run over the UDP socket the two peers already share. Every instance -- alice
+  and bob, alice-ipsec and bob-ipsec, and charlie in the multi-hop overlay --
+  runs `PQC_ENABLED=true` with `QkdAndPqcRequired` and the unchanged 30 s
+  interval, and both peers of each pair use the same values. `PQC_PSK_FILE` and
+  the `pqc-psk-*` volumes are gone. The entrypoints refuse an `ARNIKA_PSK`
+  shorter than 32 bytes or equal to the `.env.example` placeholder, and arnika
+  logs at `info`. `CAP_IPC_LOCK` is not granted
+  ([`LIMITATIONS.md`](LIMITATIONS.md)).
+- **The WireGuard lane follows the paper's layering** (arXiv:2604.05599, 4.2).
+  Each of alice and bob runs `wg0`, the hop tunnel keyed by arnika with
+  HKDF-SHA3-256 over the QKD key and the PQC-HPKE key, and `wg1`, the
+  end-to-end data tunnel (`10.0.1.1`/`10.0.1.2` by default), whose peer
+  endpoint is the other node's `wg0` address. Rosenpass (Classic McEliece
+  460896 + Kyber512) exchanges between the two `wg0` addresses on UDP 9997,
+  the lower address initiating and the other only answering, and writes
+  `wg1`'s preshared key through its own WireGuard output; it no longer feeds
+  arnika. Every `wg0` and `wg1` peer starts with a random placeholder PSK, so
+  a completed handshake, not a `preshared key` line, is the evidence that a
+  daemon keyed it. The multi-hop overlay's charlie leg gets both layers too.
+  `GET /api/wg/{node}` reports `wg0` as before and `wg1` under `data_tunnel`,
+  each with a `psk_source`.
+- **Start alignment, WireGuard lane only.** The WireGuard entrypoint starts
+  arnika at the next wall-clock multiple of `ARNIKA_INTERVAL`, so the two
+  processes of a pair start counting their intervals in step, as they did
+  while arnika waited for the first Rosenpass key. Without it, in three
+  short local WireGuard runs, the later-started node failed closed at the end
+  of 13 of its 21 BACKUP intervals (an observation, not a measurement). The
+  IPsec entrypoint deliberately starts arnika as at v0.1.0, because the
+  before/after measurement compares that lane and both arms run the same
+  entrypoint start behaviour; the start offset itself is measured in each
+  arm. The two nodes of a pair are recreated together, and the alignment
+  holds only at the start: the offset between the two tickers drifts
+  afterwards (in one unaligned local IPsec run of about 6 minutes, from
+  about 255 ms to about 217 ms over 12 intervals). From reading the code, a
+  BACKUP whose boundary lags the PRIMARY's by more than the PRIMARY's KMS
+  fetch time can count an early `key_id` in its previous interval, and it
+  then fails closed at the end of the current interval unless the next
+  `key_id` is early too, in practice where it goes from BACKUP to PRIMARY; in
+  that run the later node received early `key_id`s in intervals 2 to 8, 10
+  and 11 and invalidated only at 8 and 11. That is an inference and one short run, not a measurement
+  ([`BUILD.md`](BUILD.md#73-starting-arnika-on-the-interval-boundary)). It is
+  not a mitigation of the IPsec lane's PPK ordering race.
+- **The IPsec lane runs without Rosenpass.** Its PPK is arnika's
+  HKDF-SHA3-256 over the QKD key and the PQC-HPKE key, in IKEv2 with
+  ML-KEM-768 (RFC 9370) as before. The VICI adapter moved to upstream's
+  one-method key-writer port (`SetPSK(psk []byte) error`) as the package
+  `repositories/swanvici`, wired by `wire_strongswan_vici.go`; the text of its
+  log lines is unchanged, which the WebUI's rotation counter depends on.
+- **Documents.** Every statement about the live lanes; the SP 800-227 analysis
+  of the new PQC input, which is not called approved
+  ([`vici-ppk.md`](vici-ppk.md#appendix-sp-800-227-and-this-projects-key-combiner));
+  what commit `3e02741` is expected to do to the IPsec lane's rotation race,
+  from reading the code; strongSwan 6.1.0 recorded as a security floor
+  (CVE-2026-78133); ANSSI's IPsec sheet (ANSSI-FT-117) added to the threat
+  model's survey; RFC 9881, the revised Weis preprint, draft-ietf-tls-mlkem-11
+  and the D6.1 site distance brought up to date; `CITATION.cff` and
+  `CHANGELOG.md` added. The paper content (`/paper-flow`,
+  [`IMAGE2_MULTIHOP.md`](IMAGE2_MULTIHOP.md)) is unchanged.
+
+### Not established by this change
+
+- **Nothing here says `3e02741` fixes the intermittent PPK mismatch.** Reading
+  the code, it is expected to move the exposed intervals from alice-PRIMARY to
+  alice-BACKUP; that is unmeasured. A 168-hour before/after measurement is
+  planned
+  ([`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race)).
+- The builds, the live lanes on the new pin and the measurement are recorded
+  in their own dated entries when they run, not here.
 
 ---
