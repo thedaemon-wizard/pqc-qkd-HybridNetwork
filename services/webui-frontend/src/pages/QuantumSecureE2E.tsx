@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import Button from "../components/Button";
+import ScrollRegion from "../components/ScrollRegion";
 import { colors } from "../lib/commonStyles";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
 import {
   E2ESim, e2eCsvRows, PACKETS_PER_CYCLE_MAX, PACKETS_PER_CYCLE_MIN, type E2ELayer, type E2EState,
 } from "../lib/sim/e2eSim";
@@ -40,9 +42,42 @@ const STEP_LABELS = [
   "4. Data Exchange (ChaCha20-Poly1305)",
 ];
 
+/*
+ * The page's three grids, from 768px up: the templates this page has always
+ * used there. Below that (lib/layout.ts) each becomes one column through
+ * narrowColumns. Measured on 2026-09-26 in headless Chrome with a run in
+ * progress and these templates below 768px: at a 375px viewport the four step
+ * boxes had a 343px row between them, and so did the four KPI cards, so a box
+ * or card was 71 to 102px wide and the rate card ended at x=377 (past a 320px
+ * or a 375px screen); the two derived-material panels were 164px each, which
+ * left the 16-character PSK prefix one character per line beside its 126px
+ * label.
+ */
+/** One box per step of the cycle, in a row. */
+const STEP_STRIP_COLUMNS = "repeat(4, 1fr)";
+/** The four run counters in a row. */
+const KPI_COLUMNS = "repeat(4, 1fr)";
+/** The latest QKD key and the latest derived PSK side by side. */
+const DERIVED_COLUMNS = "1fr 1fr";
+
+/**
+ * The space between a row's label and its value when they share a line: the
+ * `gap: 12` that Row's comment explains, named now that the narrow row also
+ * uses it.
+ */
+const ROW_GAP_PX = 12;
+
+/**
+ * The space between a label and its value when a narrow row puts the value
+ * on the line below: small, so the value still reads as that label's and not
+ * as a row of its own (two rows are 6px apart: 3px of padding each).
+ */
+const NARROW_ROW_LINE_GAP_PX = 2;
+
 export default function QuantumSecureE2E() {
   const [state, setState] = useState<E2EState | null>(null);
   const simRef = useRef<E2ESim | null>(null);
+  const narrow = useNarrowLayout();
 
   // Round 5: the orchestration runs CLIENT-SIDE (no /ws/e2e, no backend load).
   // Real HKDF-SHA3-256 + ChaCha20-Poly1305 are computed in the browser via @noble.
@@ -218,8 +253,17 @@ export default function QuantumSecureE2E() {
       </div>
 
       {/* Operation controls — shared <Button> so the disabled state is VISIBLE
-          (opacity 0.5 + not-allowed). Step is only meaningful when not running. */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center" }}>
+          (opacity 0.5 + not-allowed). Step is only meaningful when not running.
+
+          flexWrap, like the two rows around it. Measured on 2026-09-26 in
+          headless Chrome with a run in progress: six buttons, the engine chip
+          and the status badge need about 810px on one line; without wrap
+          they squeezed instead (the engine chip went to five lines) and then
+          ran off the edge, the status badge ending at x=578 on a 375px screen
+          and at x=814 on a 768px one. At 1280px the row fits and does not
+          wrap. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center",
+                    flexWrap: "wrap" }}>
         <Button variant="success" onClick={() => ctl("start")}
                 disabled={status === "running"}>▶ Run</Button>
         <Button variant="warn" onClick={() => ctl("pause")}
@@ -289,7 +333,7 @@ export default function QuantumSecureE2E() {
       )}
 
       {/* Step progress strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, STEP_STRIP_COLUMNS),
                      gap: 8, marginBottom: 16 }}>
         {STEP_LABELS.map((lbl, i) => {
           const idx = i + 1;
@@ -318,7 +362,7 @@ export default function QuantumSecureE2E() {
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, KPI_COLUMNS),
                      gap: 12, marginBottom: 16 }}>
         {/*
           These three keep `?? 0` while the rate below uses an em dash, and the
@@ -351,7 +395,8 @@ export default function QuantumSecureE2E() {
       </div>
 
       {/* Latest derived material */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, DERIVED_COLUMNS),
+                     gap: 16 }}>
         <Panel title="Latest QKD key (ETSI 014)">
           <Row k="key_ID" v={state?.last_qkd_key_id || "—"} />
         </Panel>
@@ -388,30 +433,48 @@ export default function QuantumSecureE2E() {
 
       {/* Step history (last 8) */}
       <Panel title="Step history (last 8)">
-        <table style={{ width: "100%", fontSize: 12, color: "#cbd6f5" }}>
-          <thead>
-            <tr style={{ color: "#6b7796" }}>
-              <th align="left">step</th><th align="left">name</th>
-              <th align="left">duration (ms)</th><th align="left">detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(state?.history ?? []).slice(-8).reverse().map((h, i) => {
-              const dur = h.completed_at
-                ? ((h.completed_at - h.started_at) * 1000).toFixed(0) : "…";
-              return (
-                <tr key={i} style={{ borderTop: "1px solid #1d2741" }}>
-                  <td style={{ padding: "4px 0" }}>{h.step}</td>
-                  <td>{h.name}</td>
-                  <td>{dur}</td>
-                  <td style={{ fontFamily: "monospace", fontSize: 11 }}>
-                    {JSON.stringify(h.detail).slice(0, 80)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {/* The detail column is up to 80 characters of JSON, and
+            JSON.stringify leaves no spaces in it. In a normal run the only
+            places a line may break are the hyphens inside the UUID key_id
+            values, so the UUIDs break only at hyphens and the other details
+            (step 3's, 63 characters with no hyphen) do not break at all.
+            Measured on 2026-09-26 in headless Chrome with a run in progress:
+            the table's min-content width was 506px at every viewport width,
+            and a key_id detail broke at a UUID hyphen and nowhere else. A
+            bare <table> does not scroll itself: it ended at x=535 on a 375px
+            screen and about 3px past a 768px one. It scrolls inside this
+            box instead, 262px wide at 320px, 317px at 375px and 458px at
+            768px; at 600px (542px) and from 816px (506px) up it fits and
+            nothing changes. While the table is wider than the box, at any
+            width, the box is also a named region the keyboard can reach
+            (ScrollRegion). The JSON is left unbroken on purpose: cut at
+            arbitrary characters it no longer reads as JSON. */}
+        <ScrollRegion aria-label="Step history table">
+          <table style={{ width: "100%", fontSize: 12, color: "#cbd6f5" }}>
+            <thead>
+              <tr style={{ color: "#6b7796" }}>
+                <th align="left">step</th><th align="left">name</th>
+                <th align="left">duration (ms)</th><th align="left">detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(state?.history ?? []).slice(-8).reverse().map((h, i) => {
+                const dur = h.completed_at
+                  ? ((h.completed_at - h.started_at) * 1000).toFixed(0) : "…";
+                return (
+                  <tr key={i} style={{ borderTop: "1px solid #1d2741" }}>
+                    <td style={{ padding: "4px 0" }}>{h.step}</td>
+                    <td>{h.name}</td>
+                    <td>{dur}</td>
+                    <td style={{ fontFamily: "monospace", fontSize: 11 }}>
+                      {JSON.stringify(h.detail).slice(0, 80)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollRegion>
       </Panel>
     </div>
   );
@@ -847,6 +910,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function Row({ k, v }: { k: string; v: any }) {
+  const narrow = useNarrowLayout();
   return (
     // gap / flexShrink / minWidth are load-bearing. A bare `space-between` with
     // two auto-width spans does not overflow -- the value wraps -- but with no
@@ -856,11 +920,28 @@ function Row({ k, v }: { k: string; v: any }) {
     // Three near-identical Row components exist (VpnProtocols, PQCValidator,
     // QuantumSecureE2E; an unused fourth in components/ was deleted); all are
     // fixed the same way. Consolidating them is a separate change.
+    //
+    // Those rules assume the label fits with room to spare, and on a phone it
+    // did not. A whole label leaves the value only what is left of the row,
+    // and a value with overflowWrap "anywhere" will take one character's
+    // width if that is all there is: at a 375px viewport, measured on
+    // 2026-09-26 with the two derived-material panels side by side, the PSK
+    // prefix wrapped one character per line beside "hex prefix (16 of 64)".
+    // The panels now stack below 768px (DERIVED_COLUMNS), and in that narrow
+    // layout the row may also wrap: when label, gap and value do not fit on
+    // one line the value moves to the line below, where it has the row's full
+    // width, and marginLeft auto keeps it on the right. The label may shrink
+    // too, which with its default minimum width means wrapping between words,
+    // only if it is wider than the whole row on its own. From 768px up the row
+    // is exactly as above. Same rule as the Row in VpnProtocols.
     <div style={{ display: "flex", justifyContent: "space-between",
-                   gap: 12, padding: "3px 0", fontSize: 12, fontFamily: "monospace" }}>
-      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+                   gap: narrow ? `${NARROW_ROW_LINE_GAP_PX}px ${ROW_GAP_PX}px` : ROW_GAP_PX,
+                   padding: "3px 0", fontSize: 12, fontFamily: "monospace",
+                   ...(narrow ? { flexWrap: "wrap" } : {}) }}>
+      <span style={{ color: "#9aa9d8", flexShrink: narrow ? 1 : 0 }}>{k}</span>
       <span style={{ color: "#d8e1ff", minWidth: 0, textAlign: "right",
-                     overflowWrap: "anywhere" }}>{String(v)}</span>
+                     overflowWrap: "anywhere",
+                     ...(narrow ? { marginLeft: "auto" } : {}) }}>{String(v)}</span>
     </div>
   );
 }

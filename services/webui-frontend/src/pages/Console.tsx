@@ -129,7 +129,11 @@ export default function Console() {
           jsonProvider={() => ({ container: active, log })}
         />
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {/* flexWrap: the six container buttons are one row about 330px wide,
+          and at a 320px viewport they pushed the page 27px sideways
+          (measured 2026-09-26). They wrap onto a second row instead. From
+          375px up they fit on one row, so nothing wraps and nothing moves. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         {NAMES.map(n => (
           <Button key={n} variant={active === n ? "primary" : "ghost"}
                   size="sm" onClick={() => setActive(n)}>{n}</Button>

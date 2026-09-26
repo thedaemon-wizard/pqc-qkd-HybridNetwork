@@ -919,3 +919,196 @@ once #51 merges ([`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika
   in their own dated entries when they run, not here.
 
 ---
+
+## 2026-09-26 — Responsive shell: the WebUI on a phone (release 0.2.0)
+
+Also part of the unreleased 0.2.0 (see [`../CHANGELOG.md`](../CHANGELOG.md)).
+Until this change the shell kept its 220 px sidebar at every width, so on a
+phone each page was laid out in what the sidebar left.
+
+### Measured before
+
+On the build before this change, at a 375 x 812 viewport (2026-09-26, method
+under "Verification" below): `<main>` was 155 px wide and 13 of the 14 routes
+scrolled sideways, by 48 px (`/keyflow`) to 394 px (`/physics`); only
+`/topology` fit. `/vpn` also squeezed ten text elements into columns narrower
+than 24 px, one or two characters per line. At 768 and 1280 px no route
+overflowed, with `<main>` 548 and 1060 px wide.
+
+### What went in
+
+- **One breakpoint.** `NARROW_LAYOUT_MAX_PX = 767` in
+  `services/webui-frontend/src/lib/layout.ts` is the widest viewport, in CSS
+  px, that gets the collapsed layout, so a 768 px tablet keeps the sidebar,
+  which measured overflow-free. `NARROW_LAYOUT_QUERY` is built from it, and
+  pages read it only through `useNarrowLayout()`: `src/lib/layout.test.ts`
+  fails if any other source file calls `matchMedia` or writes a width media
+  query, so no page can carry a second breakpoint a few pixels away from this
+  one.
+- **What collapses at 767 px and below.**
+  - The sidebar becomes a top bar with a button named **Menu**
+    (`aria-expanded`, `aria-controls="site-nav"`) that shows or hides a panel
+    holding the same 14 links and the same attribution. Opening it moves focus
+    to the first link; Escape closes it and returns focus to the button; a
+    press outside it closes it; following a link closes it and leaves focus on
+    `<main>`. Crossing the breakpoint with focus on a shell control moves focus
+    to that control's counterpart in the other layout. The dismissal and focus
+    rules are in `src/lib/disclosure.ts`.
+  - `<main>` gets a 16 px gutter (`NARROW_MAIN_PADDING`) instead of its 2rem
+    side padding.
+  - Panel grids go to one column (`narrowColumns`, a `minmax(0, 1fr)` track
+    that may shrink below its content's width), and a key/value row on `/vpn`
+    or `/e2e` may put its value on the line below its label.
+  - A wide table, a `<pre>` or the Key Flow Sankey scrolls inside its own box.
+    The Sankey, the wide tables and one `/vpn` `<pre>` sit in a `ScrollRegion`
+    (next item); the other `<pre>` blocks scroll inside themselves. The
+    Topology graph is cropped to its drawing.
+- **A box that scrolls sideways is a named Tab stop, at any width.**
+  `ScrollRegion` (`src/components/ScrollRegion.tsx`) follows its content, not
+  the viewport. While the content is wider than the box by more than
+  `SUBPIXEL_OVERFLOW_PX` (1 CSS px of rounding), the box is `role="region"`
+  with `tabIndex={0}` and its required `aria-label`, so the keyboard can reach
+  it and the arrow keys scroll it. While the content fits, it is a plain div
+  and adds no Tab stop. A `ResizeObserver` on the box and its first element
+  child, and a `MutationObserver` on the box's own child list (not its
+  subtree), make the decision again when either changes. The attributes take
+  no space, so adding or removing them does not change the widths the
+  decision is made from. From 768 px up the `/vpn` notes `<pre>` scrolls
+  itself and takes the same attributes through the same hook
+  (`useScrollsSideways`), and so does the `/keyflow` `kdf.go` snippet, a
+  `<pre>` whose 448 px longest line scrolls in its box at 320 to 414 px. Below 768 px a visible line under the Key Flow chart
+  says that it scrolls sideways, and the region points to it with
+  `aria-describedby`. At every width the chart's own div clips what Plotly
+  draws (`overflow-x: clip`), so a hover label near the chart's right edge
+  cannot make the box scroll. If a box has keyboard focus when its content
+  stops being wider, for example because the window widened, its Tab stop is
+  removed while it is focused, and the browser decides where focus goes
+  (Chrome puts it on `<body>`).
+- **Two deliberate changes at 768 px and up.** Everything else either switches
+  on `useNarrowLayout()` or does not change the layout from 768 px up. These
+  two are fixes that show there, and both leave 1280 px as it was:
+  - **The saved-exports list is kept on screen at 768 px**
+    (`SavedExportsPicker`). Opened on `/pqc`, it hung right-aligned under its
+    button and started 16 px left of the viewport, where no scrolling reaches;
+    it now spans 16 to 394 px. At 1280 px, where it already fitted, it spans
+    436 to 814 px before and after.
+  - **The `/e2e` controls row wraps at 768 px.** With a run in progress the
+    row did not fit on one line: its status badge ended at 814 px and the page
+    scrolled sideways by 46 px. It now measures 0. At 1024 and 1280 px the
+    page measured 0 during a run before and after.
+
+  The `ScrollRegion` rule also applies from 768 px up, but it changes the Tab
+  order and the accessibility tree, not the layout: a box whose content is
+  wider than it there carries a role, a Tab stop and a name. With idle data
+  that is the `/protocol-lab` links table and the `/vpn` notes at 768 px, and
+  none at 1280 px; the `/e2e` step history becomes one while a run is going
+  (under "Verification").
+
+### Verification (local stack, 2026-09-26)
+
+The figures here and under "Measured before" come from scripts that drive
+headless Chrome 152 over the DevTools protocol against a local stack. For each
+route at each emulated device width, with mobile emulation below 768 px, it
+loads the route, waits for it to settle and compares
+`document.documentElement.scrollWidth` with the emulated device width. It
+compares with the device width and not with `innerWidth`, because under mobile
+emulation the layout viewport grows to the content's width: before this change
+`/` gave an `innerWidth` of 650 at a 375 px device width, equal to its
+`scrollWidth`, so `scrollWidth > innerWidth` was false on a page that scrolled
+by 275 px. It also counts text squeezed to one or two characters per line and
+controls without an accessible name. The scripts are scratch tools and are not
+in the repository; checklist row 4.2.8b of
+[`../VERIFICATION_CHECKLIST.md`](../VERIFICATION_CHECKLIST.md) is the manual
+equivalent. Unless a bullet says otherwise, the backend was idle: no `/e2e` run
+was going.
+
+- **0 px of sideways scroll on all 14 routes at nine widths**: 320, 375, 414,
+  600, 700, 767, 768, 1024 and 1280 px, 126 route-widths, with no text one or
+  two characters per line and no control without an accessible name. Also 0
+  on all 14 at 375 px with the menu open, and at 380 px. From 320 to 767 px
+  the Menu button shows and `<main>` is as wide as the viewport; at 768, 1024
+  and 1280 px the 220 px sidebar shows and `<main>` is 548, 804 and 1060 px.
+  This sweep ran before the `ScrollRegion` rule above took its final form.
+  That last change touched only the seven routes that use it (`/`, `/keyflow`,
+  `/vpn`, `/verify`, `/protocol-lab`, `/paper-flow` and `/e2e`). After it,
+  those seven measured 0 px again at 320, 375, 768 and 1280 px, with no
+  squeezed text and no unnamed control, and with `<main>` 320, 375, 548 and
+  1060 px wide.
+- **Menu, at 375 x 812**: opening it showed the 14 links with focus on
+  Overview, Escape put focus back on the button, and a tap on a menu link and
+  Enter on one both left focus on `<main>`. The open panel filled the viewport
+  below the bar (756 px), so the press outside it was tried at 430 x 932, where
+  it ended at 852.5 px and a press in the 79.5 px below it closed it. Crossing
+  from 1280 to 375 px with focus on the sidebar's `/verify` link left focus on
+  the Menu button, and crossing back from the menu's `/hil` link left it on the
+  sidebar's `/hil` link. At 768 and 1280 px the shell grid was `220px 548px`
+  and `220px 1060px`, with no Menu button.
+- **`ScrollRegion`, one box on each of the seven routes** (figures are the
+  box's `scrollWidth`/`clientWidth` in px). On every route and at every width
+  measured, a box was a named region with `tabindex="0"` exactly when its
+  content was more than 1 px wider than it. At 375 x 812 the regions were
+  `/keyflow` (800/343), `/vpn` (574/313) and `/protocol-lab` (800/318); `/`
+  (343/343), `/e2e` (317/317), `/paper-flow` (318/318) and `/verify`
+  (318/318) fit and were plain divs. At 320 x 568 `/paper-flow` (280/263) and
+  `/verify` (315/263) were regions too, and `/` (288/288) and `/e2e`
+  (262/262) were plain. At 768 px the regions were `/protocol-lab` (490/459)
+  and the `/vpn` `<pre>` (570/454), and at 1280 px there were none. Tab from
+  the page reached each region and showed its focus ring, and focusing it
+  moved or resized no element in `<main>`. No box changed its attributes over
+  4 s while the page polled. At 320 and 375 px the `/keyflow` region's
+  description was the visible line `Scroll sideways to see the whole flow.`.
+- **The decision follows a resize both ways.** One page resized through 375,
+  768, 1280, 768, 320, 1280 and 375 px read: on `/keyflow` region, plain,
+  plain, plain, region, plain, region; on `/protocol-lab` and `/vpn` region,
+  region, plain, region, region, plain, region; on `/verify` plain except at
+  320 px.
+- **Hovering the Key Flow chart changes nothing.** Pointer sweeps of 800, 384
+  and 272 moves over the chart at 1280, 768 and 375 px changed the box's
+  attributes 0 times, and its `scrollWidth` stayed 996, 484 and 800 px.
+- **With an `/e2e` run going**, the step-history table held 8 rows and was
+  505.7 px wide. Its box became a region at 320, 375, 768 and 800 px (boxes of
+  262, 317, 458 and 490 px) and stayed plain at 816 px, where the box is
+  506 px. At all five widths it was plain before the run. Tab from the top of
+  the page reached it, and ArrowRight scrolled it, by 40 px, or by 16 px at
+  800 px, which is all the overflow there is.
+- **From 768 px up, compared with the build before** (both served locally, at
+  768 and 1280 px, on the seven routes). Every heading, table, `<pre>`,
+  top-level `<svg>`, canvas, button, input, select and bordered box outside
+  Plotly's plot area and toolbar had the same position and size, except on
+  `/e2e` at 768 px: the controls row (the deliberate change above) made that
+  page 20 px taller and moved what is below it down. Screenshots taken in one
+  5200 px tall viewport were pixel-identical on `/keyflow`, `/verify` and
+  `/paper-flow` at both widths and on `/` at 1280 px. On `/vpn` and
+  `/protocol-lab` at both widths, and on `/` at 768 px, they differed, while
+  every element box matched.
+- **Key/value rows** (checklist row 4.8.9): no value that starts on its label's
+  line abutted it, on `/`, `/vpn`, `/e2e` or `/protocol-lab` at 320, 375, 768
+  or 1280 px.
+- `npx vitest run src/lib/layout.test.ts src/lib/disclosure.test.ts
+  src/pages/theLayoutDoesNotScrollSideways.test.ts OnAPhone FitsAPhone
+  NarrowScreen OwnBox StayOnScreen WhileItScrolls` -> 19 files, 291 tests
+  pass. They read source and rendered markup and do not measure geometry.
+  `src/components/scrollRegionIsReachableWhileItScrolls.test.ts` drives the
+  decision with fake observers, and checks that each of the seven
+  `<ScrollRegion>` uses has a non-empty label.
+
+### Not established by this change
+
+- The element-by-element comparison with the build before covered the seven
+  routes that use `ScrollRegion`, at 768 and 1280 px only. On the other seven
+  routes, and at the widths between, this compared sideways scroll and
+  `<main>`'s width, not the position of every element. It did not look inside
+  Plotly's plot area or inside an SVG drawing.
+- What the differing pixels show, on `/vpn` and `/protocol-lab` at 768 and
+  1280 px and on `/` at 768 px. Their element boxes matched, and these pages
+  draw live values, but this did not tell a changed value apart from a changed
+  rendering.
+- Data other than an idle backend and one `/e2e` run, such as error states or
+  an empty backend.
+- Any browser other than headless Chrome 152 with mobile emulation: no Safari,
+  no Firefox and no real touch device. The menu was opened by scripted input.
+- What a screen reader announces. Region names and the Key Flow description
+  were read from the DOM, not heard.
+- Nothing here was measured on the deployed demo; it is a local build.
+
+---

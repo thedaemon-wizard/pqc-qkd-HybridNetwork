@@ -1,9 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { forceCenter, forceLink, forceManyBody, forceSimulation } from "d3-force";
 import { getTopology, type Topo } from "../api";
 import ExportToolbar from "../components/ExportToolbar";
+import { useNarrowLayout } from "../lib/layout";
 
 const WIDTH = 760, HEIGHT = 460;
+
+/**
+ * Space left around the drawing when the narrow layout crops the viewBox to
+ * it, in viewBox units: enough that no caption touches the rounded border.
+ */
+const FIT_MARGIN = 12;
+
+interface Box { x: number; y: number; width: number; height: number }
+
+/**
+ * The box that just contains `box`, with FIT_MARGIN around it, rounded
+ * outwards to whole units so a sub-pixel change in the layout does not give a
+ * new viewBox (and a re-render) on every tick.
+ */
+export function fittedViewBox(box: Box): Box {
+  const x = Math.floor(box.x - FIT_MARGIN);
+  const y = Math.floor(box.y - FIT_MARGIN);
+  return {
+    x, y,
+    width: Math.ceil(box.x + box.width + FIT_MARGIN) - x,
+    height: Math.ceil(box.y + box.height + FIT_MARGIN) - y,
+  };
+}
+
+const sameBox = (a: Box | null, b: Box) =>
+  a !== null && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
 /**
  * Vertical spacing between the labels of edges that join the same two nodes.
@@ -86,6 +113,32 @@ export default function Topology() {
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const simRef = useRef<any>(null);
 
+  // Below the shell's breakpoint (lib/layout.ts) the viewBox is cropped to
+  // what is drawn. The force layout occupies about the middle half of the
+  // 760x460 canvas, and scaling the whole canvas into a phone's column shrank
+  // everything by the same factor: measured on 2026-09-26 at a 375px
+  // viewport, the SVG was 345px wide, a scale of 0.45, so the 10px edge
+  // labels and captions rendered at 4.5px and could not be read. Cropped to
+  // the drawing (its bounding box, measured in the browser, so it follows
+  // wherever the forces settle), the same text renders at about 9px at
+  // 375px. The SVG is also capped at one CSS px per viewBox unit, so on a
+  // wider phone (at 600px the crop would have scaled it by 1.47) the drawing
+  // stops at its designed size, centred, instead of growing past it. From
+  // 768px up the viewBox is the whole canvas and nothing is capped, as before.
+  const narrow = useNarrowLayout();
+  const drawingRef = useRef<SVGGElement>(null);
+  const [fitBox, setFitBox] = useState<Box | null>(null);
+  useLayoutEffect(() => {
+    if (!narrow || !drawingRef.current) return;
+    const box = drawingRef.current.getBBox();
+    // Nothing drawn yet (the first tick has not placed the nodes): keep the
+    // whole canvas rather than a zero-sized box.
+    if (box.width === 0 || box.height === 0) return;
+    const next = fittedViewBox(box);
+    setFitBox((prev) => (sameBox(prev, next) ? prev : next));
+  }, [narrow, positions]);
+  const fitted = narrow && fitBox ? fitBox : null;
+
   useEffect(() => {
     getTopology().then(setTopo).catch((e) => setFailed(String(e?.message ?? e)));
   }, []);
@@ -156,7 +209,15 @@ export default function Topology() {
         <ExportToolbar name="topology" pngTargetSelector="#topology-svg" animated={false}
                        jsonProvider={() => ({ topology: topo, layout: positions })} />
       </div>
-      <svg id="topology-svg" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} style={{ width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741" }}>
+      <svg id="topology-svg"
+           viewBox={fitted
+             ? `${fitted.x} ${fitted.y} ${fitted.width} ${fitted.height}`
+             : `0 0 ${WIDTH} ${HEIGHT}`}
+           style={{
+             width: "100%", background: "#0d1320", borderRadius: 8, border: "1px solid #1d2741",
+             ...(fitted ? { display: "block", maxWidth: fitted.width, marginInline: "auto" } : {}),
+           }}>
+        <g ref={drawingRef}>
         {(() => {
           const lane = parallelIndex(topo.edges);
           return topo.edges.map((e, i) => {
@@ -185,6 +246,7 @@ export default function Topology() {
             </g>
           );
         })}
+        </g>
       </svg>
     </div>
   );
