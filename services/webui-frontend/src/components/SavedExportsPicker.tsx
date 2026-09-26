@@ -7,8 +7,46 @@
  *
  * The list refreshes on open and after any delete.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Button from "./Button";
+
+/**
+ * The open list's width bounds when the viewport has room for them: wide
+ * enough to keep a name, its size, Download and Delete on one row, and no
+ * wider than a long name needs.
+ */
+const LIST_MIN_WIDTH_PX = 360;
+const LIST_MAX_WIDTH_PX = 520;
+
+/**
+ * The least gap the open list keeps from either side of the viewport: the
+ * collapsed shell's 16px gutter (lib/layout.ts, NARROW_MAIN_PADDING).
+ */
+export const LIST_VIEWPORT_GUTTER_PX = 16;
+
+/**
+ * The open list's padding and border. Its min and max widths bound the
+ * content box, so these add to its width on screen.
+ */
+const LIST_PADDING_PX = 8;
+const LIST_BORDER_PX = 1;
+
+/**
+ * The widest content box that keeps the whole list, padding and border
+ * included, inside the gutters.
+ */
+const LIST_FIT_WIDTH = `calc(100vw - ${2 * (LIST_VIEWPORT_GUTTER_PX + LIST_PADDING_PX + LIST_BORDER_PX)}px)`;
+
+/**
+ * How far to move a box spanning [left, right] sideways so that it lies within
+ * [gutter, viewportWidth - gutter]; 0 when it already does. A box wider than
+ * that space is aligned to the left gutter, so its start stays readable.
+ */
+export function shiftIntoViewport(left: number, right: number, viewportWidth: number, gutter: number): number {
+  if (left < gutter || right - left > viewportWidth - 2 * gutter) return gutter - left;
+  if (right > viewportWidth - gutter) return viewportWidth - gutter - right;
+  return 0;
+}
 
 interface Entry {
   name: string; size: number; mtime: number; url: string;
@@ -47,6 +85,7 @@ export default function SavedExportsPicker() {
   const [items, setItems] = useState<Entry[] | null>(null);
   const [err, setErr] = useState<string>("");
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   async function refresh() {
     setErr("");
@@ -80,6 +119,28 @@ export default function SavedExportsPicker() {
     return () => { clearTimeout(t); document.removeEventListener("click", handler); };
   }, [open]);
 
+  // Keep the open list on screen. It hangs right-aligned under its button,
+  // and it is wider than the space to the button's left whenever the button
+  // sits near the left of the page: measured on 2026-09-26 on /pqc, the list
+  // started 109px left of the viewport at 375px and 16px left of it at 768px,
+  // where no scrolling reaches. Moved by a transform after layout, so where it
+  // already fits (at 1280px on the same page) nothing changes. Re-placed when
+  // its contents load and when the window is resized.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!open || !el) return;
+    const place = () => {
+      el.style.transform = "";
+      const r = el.getBoundingClientRect();
+      const dx = shiftIntoViewport(r.left, r.right, document.documentElement.clientWidth,
+                                   LIST_VIEWPORT_GUTTER_PX);
+      el.style.transform = dx === 0 ? "" : `translateX(${dx}px)`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, items, err]);
+
   async function remove(name: string) {
     try {
       await fetch(`/api/exports/${encodeURIComponent(name)}`, { method: "DELETE" });
@@ -97,12 +158,18 @@ export default function SavedExportsPicker() {
         Saved exports
       </Button>
       {open && (
-        <div style={{
+        <div ref={listRef} style={{
           position: "absolute", top: "100%", right: 0, zIndex: 50,
-          marginTop: 6, minWidth: 360, maxWidth: 520, maxHeight: 360,
-          background: "#0d1320", border: "1px solid #2a3760", borderRadius: 8,
+          // No wider than the viewport less its gutters, so a 375px phone can
+          // show all of it. From a 570px viewport up (520 + 2 x (16 + 8 + 1))
+          // both min()s pick the fixed bounds, so the width at 768px and up is
+          // unchanged.
+          marginTop: 6, maxHeight: 360,
+          minWidth: `min(${LIST_MIN_WIDTH_PX}px, ${LIST_FIT_WIDTH})`,
+          maxWidth: `min(${LIST_MAX_WIDTH_PX}px, ${LIST_FIT_WIDTH})`,
+          background: "#0d1320", border: `${LIST_BORDER_PX}px solid #2a3760`, borderRadius: 8,
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-          padding: 8, overflow: "auto",
+          padding: LIST_PADDING_PX, overflow: "auto",
         }}>
           <div style={{ display: "flex", justifyContent: "space-between",
                          alignItems: "center", marginBottom: 6 }}>

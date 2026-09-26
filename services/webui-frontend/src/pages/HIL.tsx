@@ -1,4 +1,13 @@
 /**
+ * For a token with no break point in it. At a 320px viewport the KMS_URL
+ * template below (one 293px run of characters) stuck out of its list item and
+ * scrolled the page sideways by 29px (measured 2026-09-26). `anywhere` lets
+ * it break only when it cannot fit on a line of its own, so wherever it fits,
+ * which is every width from 375px up, it renders exactly as before.
+ */
+const UNBREAKABLE_TOKEN: React.CSSProperties = { overflowWrap: "anywhere" };
+
+/**
  * Hardware-In-The-Loop bridge — documents how to wire a real ETSI 014 KMS
  * into the same arnika pipeline by pointing `KMS_URL` at its KME endpoint.
  *
@@ -27,7 +36,7 @@ export default function HIL() {
             from the <code>alice</code> node. On most platforms this is a
             separate KMS rather than the QKD appliance itself — see the table
             below.</li>
-        <li>Set <code>KMS_URL=https://&lt;device&gt;/api/v1/keys/&lt;SAE_ID&gt;</code>{" "}
+        <li>Set <code style={UNBREAKABLE_TOKEN}>KMS_URL=https://&lt;device&gt;/api/v1/keys/&lt;SAE_ID&gt;</code>{" "}
             in <code>.env</code>.</li>
         <li>Drop the device-issued mTLS certificates into <code>./pki/</code>.{" "}
             <b>mTLS is not implemented.</b> This step used to say to set{" "}

@@ -1,4 +1,5 @@
 import { colors } from "../lib/commonStyles";
+import ScrollRegion from "./ScrollRegion";
 import { formatRate, formatReported } from "../lib/formatRate";
 import { presetById, type PresetLink } from "../lib/sim/protocolLab/publishedNetworks";
 import { fieldComparison, type FieldComparison } from "../lib/sim/protocolLab/rates";
@@ -80,7 +81,10 @@ export default function FieldReferencePanel() {
         reported loss; they are shown beside the measurement, never fitted to it, and
         nothing here changes the parameters above.
       </p>
-      <div style={{ overflowX: "auto" }}>
+      {/* Measured 2026-09-26: 572px of table in a 313px box at 375px and a
+          454px box at 768px, so it scrolls at both; ScrollRegion names it and
+          makes it a Tab stop while it does. */}
+      <ScrollRegion aria-label="Field reference table">
         <table style={{ borderCollapse: "collapse", fontSize: 12, color: colors.textSec, width: "100%" }}>
           <thead>
             <tr>{["Link", "Length", "Loss", "Campaign", "Measured SKR", "Measured QBER", "Model, shipped configuration", "Model's QBER tolerance at this loss"].map((h) =>
@@ -106,7 +110,7 @@ export default function FieldReferencePanel() {
             })}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       <ul style={{ fontSize: 11, color: colors.textMute, margin: "8px 0 0", paddingLeft: 18 }}>
         {rows.map((l) => {
           const c = fieldComparison(l);
