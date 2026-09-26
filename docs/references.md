@@ -98,11 +98,17 @@ revision rather than being implemented here.
 **How arXiv:2608.18869 layers PQC, and how this repository differs.** In the
 paper, arnika injects QKD-only keys into each hop's WireGuard tunnel, and
 post-quantum protection is a separate end-to-end tunnel between the two end
-nodes, which the trusted nodes forward without holding its key. Here arnika
-also HKDF-mixes the Rosenpass key into each hop's WireGuard PSK, so the PQC half
-sits inside the per-hop tunnel -- in the multi-hop compose the relay holds both
-legs' keys -- and a separate end-to-end layer exists only in the `/paper-flow`
-simulation. The paper's PQC tool is **QuantShake**
+nodes, which the trusted nodes forward without holding its key. Since
+2026-09-26 the two-node WireGuard lane here has the same shape -- a `wg1` data
+tunnel keyed by Rosenpass, carried inside the `wg0` hop tunnel -- with one
+difference: arnika's hop key is not QKD-only, because the pinned arnika (the
+head of its PR #51) also HKDF-mixes in a PQC-HPKE key it agrees with its peer.
+In the multi-hop compose the relay holds both legs' hop keys, as a trusted node
+does, and it also terminates each leg's `wg1`, so it holds each leg's
+Rosenpass key too: unlike the paper's, this end-to-end layer ends at the
+trusted node. Until 2026-09-26 the post-quantum half was Rosenpass's key
+mixed into each hop's PSK, and a separate end-to-end layer existed only in the
+`/paper-flow` simulation. The paper's PQC tool is **QuantShake**
 ([github.com/aparcar/quantshake](https://github.com/aparcar/quantshake), MIT, by
 an author of the paper, marked unaudited in its own README), run with sntrup761
 and, separately, ML-KEM-768 to show agility, renegotiating every 120 s, which is
@@ -132,7 +138,8 @@ Read directly 2026-08-29; both quotations are verbatim from the PDF text.
 
 `mceliece460896` is the exact parameter set in the pinned Rosenpass v0.2.3, which
 `tests/test_rosenpass_kem_names_match_the_submodule.py` derives from the
-submodule's own domain-separation label.
+submodule's own domain-separation label. Since 2026-09-26 it keys the `wg1`
+data tunnel only; arnika's key combiner no longer takes it.
 
 **Read that endorsement with its date attached.** The current TR-02102-1 is
 dated **2026-01-23** (still Version 2026-01 on 2026-09-25), and a line of
@@ -150,18 +157,22 @@ they depend on.
 | [ePrint 2026/1747](https://eprint.iacr.org/2026/1747) | recv. 2026-08-20, 8 revisions, last 2026-09-06 | Vedenev — turns the relations into key recovery |
 | [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) | recv. 2026-08-24, rev. 7 on 2026-09-15 | Saarinen — per-parameter-set conditional arithmetic estimates, incl. `mceliece460896` |
 | [ePrint 2026/1810](https://eprint.iacr.org/2026/1810) | 2026-08-26 | Apon — algebraic-geometry lower bound **against** the Vedenev route |
-| [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) | 2026-09-11, rev. 2026-09-18 | Weis — key recovery from the distinguisher, with the "not close to practical" qualifier |
+| [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) | 2026-09-11, last of 2 revisions 2026-09-25 (abstract unchanged from 2026-09-18; the note now admits cost-analysis errors in earlier versions) | Weis — key recovery from the distinguisher, with the "not close to practical" qualifier |
 | [ePrint 2026/1986](https://eprint.iacr.org/2026/1986) | 2026-09-11, rev. 2026-09-24 (abstract unchanged) | Saarinen — solves the TII-254 **toy challenge**; makes no claim about any NIST parameter set |
 
 All six are Creative Commons Attribution. IACR ePrint has had no default licence
 since 2022, so each was checked on its own page rather than assumed.
 
-**What this changes, and what it does not.** The judgement recorded in
-[`vici-ppk.md`](vici-ppk.md) -- that the PQC half is not an approved KEM -- is a
-statement about **NIST SP 800-227**, and it stays true. It is not a statement
-about every authority: under BSI the same parameter set is recommended for
-long-term confidentiality. Both framings are correct about different standards
-and neither should be quoted as the other.
+**What this changes, and what it does not.** Until 2026-09-26,
+[`vici-ppk.md`](vici-ppk.md) recorded that arnika's PQC half, then Rosenpass's
+key, is not an approved KEM under **NIST SP 800-227**. That was a statement
+about SP 800-227, not about every authority: under BSI the same parameter set
+is recommended for long-term confidentiality. Both framings are correct about
+different standards and neither should be quoted as the other. Since
+2026-09-26 the Classic McEliece judgement applies to the `wg1` data tunnel
+only; arnika's PQC half is now an HPKE export over ML-KEM-1024 with P-384,
+and whether that counts as approved-KEM-derived is open, as the appendix of
+[`vici-ppk.md`](vici-ppk.md) sets out.
 
 **Do not read the McEliece endorsement as European support for QKD.** BSI is on
 record against QKD protocols in the same document. A project that mixes QKD with
@@ -311,6 +322,7 @@ network, named in an early plan, was not used: no source for one was found.
 | **RFC 8784** | Mixing Preshared Keys in IKEv2 for Post-quantum Security | The mechanism this project uses to deliver QKD material. See [`vici-ppk.md`](vici-ppk.md). |
 | RFC 9954 | Hybrid Key Exchange in TLS 1.3 (Informational, 2026-07) | The framework; defines no named groups. |
 | **RFC 10024** | PQ/T Hybrid Key Agreement for TLS 1.3 (**Proposed Standard**, 2026-08) | Standardises `X25519MLKEM768` (0x11EC), `SecP256r1MLKEM768` (0x11EB) and `SecP384r1MLKEM1024` (0x11ED), and marks the Kyber draft groups 25497/25498 **obsolete**. Hybrid ML-KEM in TLS is settled standards-track work; calling it a draft is out of date. |
+| draft-ietf-tls-mlkem-11 | ML-KEM Post-Quantum Key Agreement for TLS 1.3 (intended Informational) | ML-KEM alone as TLS named groups, with no traditional component. In the RFC Editor queue since 2026-09-08. -11 was posted on 2026-09-17 UTC, the date the draft itself carries; the datatracker history, which shows US Pacific time, lists it on 2026-09-16. Since 2026-09-24 it is **held in the queue** (RFC Editor status "blocked: Stream Hold") while complaints and appeals about its processing are reviewed, so it has no RFC number. It bears only on the `pqc-tls-demo` images, not on either VPN lane. Checked 2026-09-26. |
 | **RFC 9370** | Multiple Key Exchanges in IKEv2 | ECP-256 + ML-KEM-768 hybrid (`ke1_mlkem768`) |
 | **RFC 9242** | Intermediate Exchange in IKEv2 | Carries the ML-KEM payloads encrypted, so they can be fragmented |
 | RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.1.0 does not send it**; libreswan has implemented the mechanism since v5.2 and uses the RFC's codepoints since v5.4. See [RFC 9867 implementations](#rfc-9867-implementations) below. |
@@ -318,7 +330,7 @@ network, named in an early plan, was not used: no source for one was found.
 | RFC 7383 | IKEv2 Fragmentation | Required for ML-KEM-sized payloads |
 | RFC 7696 | Guidelines for Cryptographic Algorithm Agility | Crypto-agility framing |
 | draft-ietf-ipsecme-ikev2-mlkem-09 | ML-KEM in IKEv2 | IESG-approved 2026-07-07, in the RFC Editor queue (no number yet, "Awaiting First editor"; unchanged from 2026-08-13 to 2026-09-25). Assigns transform IDs 35/36/37 to ML-KEM-512/768/1024 — the values this project's proposals already rely on. |
-| draft-ietf-ipsecme-ikev2-pqc-auth-12 | PQC signature authentication in IKEv2 | **IESG-approved 2026-08-24**, after the only DISCUSS (entered 2026-08-18) was cleared on -12 on 2026-08-21. In the RFC Editor queue since 2026-08-25; no RFC number as of 2026-09-25. strongSwan 6.1.0 ships no ML-DSA (nothing under `src/` at `b43f6bfe`); ML-DSA IKEv2 authentication exists only on the unmerged `ml-dsa` branch (strongswan/strongswan#2626, open on 2026-09-25). strongSwan's standards table nonetheless leaves this draft and the ML-DSA certificate draft blank, which by its own legend means supported: the table is not release-scoped (see below). An earlier version of this row said strongSwan "gates its ML-DSA release on this draft"; no source for that was found. PQ *authentication* is therefore unavailable on this lane; this project uses PQ *key exchange* plus PPK, which do not depend on it. |
+| draft-ietf-ipsecme-ikev2-pqc-auth-12 | PQC signature authentication in IKEv2 | **IESG-approved 2026-08-24**, after the only DISCUSS (entered 2026-08-18) was cleared on -12 on 2026-08-21. In the RFC Editor queue since 2026-08-25; no RFC number as of 2026-09-25. strongSwan 6.1.0 ships no ML-DSA (nothing under `src/` at `b43f6bfe`); ML-DSA IKEv2 authentication exists only on the unmerged `ml-dsa` branch (strongswan/strongswan#2626, open on 2026-09-25). strongSwan's standards table nonetheless leaves this draft and the ML-DSA certificate draft (draft-ietf-lamps-dilithium-certificates, published as RFC 9881 in October 2025) blank, which by its own legend means supported: the table is not release-scoped (see below). An earlier version of this row said strongSwan "gates its ML-DSA release on this draft"; no source for that was found. PQ *authentication* is therefore unavailable on this lane; this project uses PQ *key exchange* plus PPK, which do not depend on it. |
 | draft-ietf-lamps-pq-composite-sigs-19 | Composite ML-DSA for X.509 | IESG-approved, in the RFC Editor queue since 2026-04-23 ("Awaiting Second editor" since 2026-09-23). Composite ML-DSA plus traditional signatures in certificates: the certificate side of PQ authentication, which this lane does not have. |
 | RFC 9794 | Terminology for Post-Quantum Traditional Hybrid Schemes | Vocabulary |
 
@@ -345,7 +357,9 @@ directory), so it cannot be checked against the submodule. Its legend reads
 least partially implemented. RFC 9867 carries `x`; RFC 8784, RFC 9242 and
 RFC 9370 are blank. **The table is not release-scoped**: it also leaves
 draft-ietf-ipsecme-ikev2-pqc-auth and draft-ietf-lamps-dilithium-certificates
-blank, although 6.1.0 contains no ML-DSA code. So its `x` for RFC 9867 agrees
+blank, although 6.1.0 contains no ML-DSA code. The second has been RFC 9881
+since October 2025; the table, last changed on 2025-11-11, still lists it
+under its draft name (checked 2026-09-26). So its `x` for RFC 9867 agrees
 with the source-level observations but could not stand in for them.
 
 **libreswan implements the mechanism, and the version history matters.**
@@ -367,6 +381,13 @@ checkable against this repository, and the second credited v5.4 with work that
 landed in v5.2. What it means for the project is unchanged: consuming fresh QKD
 material on every rekey is available today by changing IKE daemon, not only by
 waiting for strongSwan.
+
+### IETF and IRTF — HPKE (arnika's PQC half)
+
+| Document | Title | Relevance |
+|---|---|---|
+| **RFC 9180** | Hybrid Public Key Encryption (Informational, IRTF CFRG, 2022-02) | The pinned arnika agrees its PQC key with its peer in HPKE Base mode, with HKDF-SHA384 as the KDF and the export-only AEAD, taking 32 bytes from the `Export` interface. |
+| draft-ietf-hpke-pq-05 | Post-Quantum and Post-Quantum/Traditional Hybrid Algorithms for HPKE (HPKE working group, 2026-07-06) | Defines the KEM arnika uses, **MLKEM1024-P384**, codepoint **0x0051**: ML-KEM-1024 and P-384 ECDH combined into one KEM. An active working-group draft with no intended status recorded and not yet submitted to the IESG ("I-D Exists"), so the codepoint is not yet an RFC's; upstream arnika's own documentation says to pin the Go version and re-verify interoperability on upgrade for that reason. Checked 2026-09-26. |
 
 ### NIST
 
@@ -404,10 +425,10 @@ Licences for everything vendored under `submodules/` are recorded in
 
 | Project | Role | Licence |
 |---|---|---|
-| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management; the key-writer port this project extends | Apache-2.0 |
+| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management, including the PQC-HPKE key agreement of its open PR #51, which is the pin; the key-writer port this project extends | Apache-2.0 |
 | [strongSwan](https://github.com/strongswan/strongswan) | IKEv2 daemon (pinned 6.1.0) | GPL-2.0 + OpenSSL exception |
 | [govici](https://github.com/strongswan/govici) | Official VICI client (pinned v0.8.2) | MIT |
-| [Rosenpass](https://github.com/rosenpass/rosenpass) | Post-quantum key exchange for WireGuard | MIT / Apache-2.0 |
+| [Rosenpass](https://github.com/rosenpass/rosenpass) | Post-quantum key exchange for WireGuard; keys the `wg1` data tunnel here | MIT / Apache-2.0 |
 | [liboqs](https://github.com/open-quantum-safe/liboqs) | PQC reference implementations | MIT |
 | [TNO-Quantum `qkd_key_rate`](https://github.com/TNO-Quantum/communication.qkd_key_rate) | Independent key-rate cross-check | Apache-2.0 |
 
@@ -419,9 +440,9 @@ on 2023-01-01, and the end date on its deliverable covers moved in stages --
 2025-06-30 on D6.1, 2025-12-31 on D8.3, 2026-03-31 on D4.2 v1.1 and D8.2 v1.3 --
 so the project has ended. The initial prototype and earlier versions were
 developed at CANCOM Converged Services GmbH; since **Q2 2026** the people behind
-arnika have maintained it at **XBC Digital GmbH**, and the pinned `main` is that
-later work rather than the QCI-CAT v1.x line. The Credits section of
-`submodules/arnika/README.md` records both.
+arnika have maintained it at **XBC Digital GmbH**, and the pin is that later
+work rather than the QCI-CAT v1.x line: the head of the open PR #51, built on
+`main`. The Credits section of `submodules/arnika/README.md` records both.
 
 ### arnika v1.x's design document, and what it settles
 
@@ -451,7 +472,7 @@ repository, each with that scope:
    $`2^{60}`$ messages"*. The exponent is a superscript in the PDF, and
    plain-text extraction flattens it to "260"; an earlier version of this entry
    quoted the flattened form. The "default value" is v1.x's: the pinned
-   `config/config.go` defaults `INTERVAL` to 10 s, and upstream's README
+   `config/config.go` defaults `INTERVAL` to 10 s (unchanged by #51), and upstream's README
    examples use 120 s. This deployment runs `ARNIKA_INTERVAL=30s`, a deviation
    recorded at the setting itself in `docker-compose.strongswan.yml`; on the
    WireGuard lane it means the key epoch is WireGuard's rekey interval, not the
@@ -468,8 +489,10 @@ repository, each with that scope:
    survives is the exchange itself: PRIMARY sends the `key_id` and BACKUP
    resolves it, and that handover is where this project's intermittent PPK
    mismatch was investigated ([`vici-ppk.md`](vici-ppk.md), "Known
-   limitation"). D6.1's statement is v1.x design intent, not evidence about the
-   current code path.
+   limitation"). At the pinned head of #51 the BACKUP installs its key before
+   it acknowledges the `key_id`, and the PRIMARY installs only after the
+   acknowledgement. D6.1's statement is v1.x design intent, not evidence about
+   the current code path.
 3. **IPsec was evaluated and not chosen, partly over patents.** D6.1 says the
    use case *"favored WireGuard over IPSEC"* for its simplicity, efficiency and
    modern design, and records that several methods for post-quantum IPsec have
@@ -508,11 +531,12 @@ claiming otherwise:
 - **NSA**, [Quantum Key Distribution (QKD) and Quantum Cryptography (QC)](https://www.nsa.gov/Cybersecurity/Quantum-Key-Distribution-QKD-and-Quantum-Cryptography-QC/) — does not support QKD for national-security systems, and recommends post-quantum cryptography instead.
 - **UK NCSC**, [Quantum networking technologies](https://www.ncsc.gov.uk/paper/quantum-networking-technologies) (2025-08-05) — "The NCSC will not support the use of QKD for government or military applications. PQC is the best mitigation to the threat to cryptography from quantum computers." For other sectors, QKD "should not be solely relied upon", and QKD "should not constitute evidence towards assessments of security of data-in-transit under the NCSC's Cyber Assessment Framework". This calls itself "an updated analysis" of the 2020 white paper [Quantum security technologies](https://www.ncsc.gov.uk/paper/quantum-security-technologies), which **remains published**; the legacy `/whitepaper/` alias has redirected here since around August 2025. The change between them is the verb, not the scope: 2020 already read "does not endorse the use of QKD for **any government or military applications**". Quoting the 2020 line without that scope invents a broadening that did not happen.
 - **ANSSI / BSI / NLNCSA / Swedish Armed Forces**, [Position Paper on Quantum Key Distribution](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Quantum_Positionspapier.pdf) (2024-01-26) — QKD "can however currently only be used in practice in some niche use cases" and is "not yet sufficiently mature from a security perspective"; migration to PQC is "the clear priority". The fourth signatory is the **Swedish** authority, not the UK NCSC, which this list previously named by mistake. The Czech NÚKIB issued a Letter of Support (2024-09-19) but is not a signatory.
+- **ANSSI**, [*Transition post-quantique d'IPsec*](https://messervices.cyber.gouv.fr/documents-guides/transition_post_quantique_ipsec.pdf), technical sheet ANSSI-FT-117, version 1.0 (2026-02-02; in French; Licence Ouverte v2.0, reuse with attribution) — the one instrument surveyed that addresses this project's delivery mechanism, an IKEv2 PPK, by RFC number. It accepts a pre-shared key for post-quantum confidentiality as possibly "a temporary measure" in the transition, provided its classical and post-quantum confidentiality and integrity are assured, and prefers hybridisation; it states RFC 8784's limitation and cites RFC 9867; and it warns that a compromised pre-shared key exposes every session that used it to store-now-decrypt-later. It does not mention QKD. Read 2026-09-26; how it sits beside the other instruments is in [`threat-model.md` §5](threat-model.md).
 - **US Department of War**, [Post Quantum Cryptography Strategy](https://dowcio.war.gov/Portals/0/Documents/Library/DoW-PQC-Strategy.pdf) (signed 2026-04-01) — the most direct objection to what this project builds, and therefore the one most worth stating here. Under "Do Not Introduce New Security Risks" it names, verbatim, "quantum key distribution (QKD) and quantum networking, **solutions combining QKD with other cryptographic key establishment**, or non-local quantum randomness generation" as technologies that "will not be used as a means for achieving security for confidentiality, data or entity authentication, key distribution, or non-local randomness generation". The companion CIO memo [Preparing for Migration to Post Quantum Cryptography](https://dowcio.war.gov/Portals/0/Documents/Library/PreparingForMigrationPQC.pdf) (2025-11-18) says Components "will not test, evaluate, pilot, use, or procure" them (item 2.a, *"Quantum Confidentiality or Keying Technologies"*), and goes further, into the mechanism this project uses to deliver the key. Item 3.a phases out *"Use of cryptographic pre-shared keys (PSK) for providing quantum resistance in solutions where the PSK is not provisioned through NSA KMI for Type 1 devices"*, to be replaced by NIST-approved (for NSS, CNSA 2.0-listed) asymmetric PQC key establishment *"no later than December 31, 2030, unless otherwise directed or provided exception by the point of contact above"*, and adds that Components *"will not test, pilot, use, or procure commercial PSK-based solutions for quantum resistance effective immediately."* Item 3.b does the same for *"Symmetric key establishment protocols, symmetric key agreement protocols, and symmetric key distribution protocols"*, by 2030-12-31 or 2031-12-31 for solutions registered with NSA CSfC, with the same waiver wording and an exemption for use cases in place before 2010.
 
   Qualifications, so this is neither overstated nor waved away. The two items are **scoped differently**. Item 2 bars testing, evaluating, piloting, using or procuring the technologies it lists "for the purposes of providing confidentiality, authenticity, or integrity in DoW networks and communications". Item 3 carries no such phrase: it binds DoW Components directly (*"will phase out and replace all of the following types of cryptographic solutions"*), and its only qualifier of purpose is quantum resistance, in 3.a and in both no-procurement sentences. Items 2.a, 3.a and 3.b each name a **waiver path** ("provided exception by the point of contact above"); the two no-procurement sentences, effective immediately, carry none of their own. It is a procurement and accreditation rule for one national-security enterprise, not a claim that the construction is cryptographically unsound. The memo names no protocol, so reading item 3.a as covering an RFC 8784 / RFC 9867 PPK used for quantum resistance is this project's inference -- a direct one, set out in [`threat-model.md` §5](threat-model.md). By that reading both the QKD half and the PPK delivery are disallowed by default in that setting, and no amount of favourable NIST language changes that.
 
-- **EU NIS Cooperation Group**, [*EU Roadmap on PQC -- Frequently Asked Questions*](https://ec.europa.eu/newsroom/dae/redirection/document/132120) (2026-04-15) — where the roadmap itself is silent on QKD (below), its FAQ is explicit: *"QKD is currently not considered a viable quantum-safe alternative"* (section 5.6), and *"The EU Roadmap on PQC does not consider hybrids mechanisms using quantum key distribution (QKD) or using more than one PQC mechanism"* (section 3.1). Under that definition neither arnika's QKD ‖ PQC combination nor Rosenpass's McEliece + Kyber pairing is a "hybrid". The FAQ also asks Member States for initial national roadmaps by the end of 2026.
+- **EU NIS Cooperation Group**, [*EU Roadmap on PQC -- Frequently Asked Questions*](https://ec.europa.eu/newsroom/dae/redirection/document/132120) (2026-04-15) — where the roadmap itself is silent on QKD (below), its FAQ is explicit: *"QKD is currently not considered a viable quantum-safe alternative"* (section 5.6), and *"The EU Roadmap on PQC does not consider hybrids mechanisms using quantum key distribution (QKD) or using more than one PQC mechanism"* (section 3.1). Under that definition neither arnika's QKD ‖ PQC combination nor Rosenpass's McEliece + Kyber pairing is a "hybrid"; the MLKEM1024-P384 KEM inside arnika's PQC half, which pairs a post-quantum with a traditional algorithm, is one. The FAQ also asks Member States for initial national roadmaps by the end of 2026.
 - **Japan**, inter-ministerial liaison council on PQC use in government agencies, [interim summary](https://www.cas.go.jp/jp/seisaku/pqc/pdf/report_202511.pdf) (2025-11, in Japanese) — besides Singapore's handbook ([`threat-model.md` §5](threat-model.md)), the one national instrument surveyed that treats QKD as an option. In this project's translation, it says that "depending on the usage environment" one could consider combined use of PQC with current cryptography, or "introducing quantum key distribution (QKD)"; the original says such options "could be considered", which is weaker than an endorsement, and it does not describe the composite built here. It targets migration of government systems by 2035, with a roadmap to follow. Japan's approved list, [CRYPTREC LS-0001-2022R2](https://www.cryptrec.go.jp/list/cryptrec-ls-0001-2022r2.pdf) (updated 2026-03-30), adds ML-KEM-768 and ML-KEM-1024 as its only post-quantum key-establishment entries: no Classic McEliece and no ML-KEM-512.
 - **BSI**, [TR-02102-1 v2026-01](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Publications/TechGuidelines/TG02102/BSI-TR-02102-1.pdf) (2026-01-23) — Germany's operative crypto guideline now states plainly that "**the BSI does not recommend QKD protocols at this time**". This is a harder line than the 2022 BSI brochure, which recommended QKD "only as an add-on in hybrid mode"; that brochure has not been revised since and should not be cited as the current position.
 

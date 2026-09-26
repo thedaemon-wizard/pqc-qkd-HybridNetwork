@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { usePoll } from "../lib/usePoll";
 import ExportToolbar from "../components/ExportToolbar";
+import { statusColor, wgStatusBadge } from "./wgStatusBadge";
 
 /**
  * Poll interval, paired with the backend's VPN_SAMPLE_TTL_S (5 s): at 3 s
  * against a 2 s cache every poll from every viewer missed the cache and ran
- * five `docker exec` calls. Rotations are configured at 30 s (ARNIKA_INTERVAL)
- * and were measured 30-241 s apart, so 5 s loses nothing.
+ * five `docker exec` calls (six since wg1 is sampled too). Rotations are
+ * configured at 30 s (ARNIKA_INTERVAL) and were measured 30-241 s apart, so
+ * 5 s loses nothing.
  */
 const VPN_POLL_MS = 5000;
 
@@ -33,17 +35,28 @@ const ESP_PROBE_INTERVAL_S = 15;
  * VPN Protocols page.
  *
  * Displays the two parallel quantum-secure VPN lanes:
- *   - WireGuard tunnel (kernel module, or wireguard-go where the host has none)
+ *   - WireGuard (kernel module, or wireguard-go where the host has none), as
+ *     two interfaces: wg0, the hop tunnel arnika keys, and wg1, the data
+ *     tunnel Rosenpass keys, which runs inside wg0
  *   - strongSwan IPsec/IKEv2, RFC 9370 hybrid KE + RFC 8784 PPK
  *
- * The arnika HKDF(QKD ‖ PQC) output is consumed by BOTH lanes, through
- * different key-writer adapters: WireGuard via wgctrl netlink, strongSwan via
- * a native VICI client that installs the key as an RFC 8784 PPK.
+ * Each lane runs its own arnika pair, and each pair derives its own
+ * HKDF-SHA3-256(QKD ‖ PQC-HPKE) output, so the lanes share no key. That output
+ * is written through different key-writer adapters: WireGuard's wg0 via wgctrl
+ * netlink, strongSwan via a native VICI client that installs it as an RFC 8784
+ * PPK. This page used to say both lanes were "fed by the same" output; the
+ * QKD halves were already separate then, and since release 0.2.0 the PQC
+ * halves are too (each arnika pair runs its own PQC-HPKE rounds).
  *
  * Everything shown here is parsed from the running daemon -- `swanctl
- * --list-sas` / `--list-conns` on BOTH IPsec nodes, `wg show wg0` for the
- * WireGuard one -- and no field falls back to a constant when the parse comes
- * back empty. `null` renders as an em dash.
+ * --list-sas` / `--list-conns` on BOTH IPsec nodes, `wg show wg0` and
+ * `wg show wg1` for the WireGuard one -- and no field falls back to a constant
+ * when the parse comes back empty. `null` renders as an em dash. The one
+ * exception is `psk_source`, which the API labels as configuration, not
+ * measurement: `wg show` says whether a preshared key is set, never who set it.
+ * One value is derived rather than shown as the API gives it: each WireGuard
+ * Status badge follows `peers_fresh`, not the lifetime `status` field
+ * (wgStatusBadge.ts), and the JSON export keeps the API's `status`.
  *
  * Three checklist rows (2.3 PPK required on both ends, 2.11 ESP counters,
  * 2.14 rotations) used to say "Measured on the public host". The measurements
@@ -60,19 +73,36 @@ const ESP_PROBE_INTERVAL_S = 15;
  * wg show" as `last_handshake`, and this file carried its own copy of the first
  * as a `??` fallback. WireGuard negotiates no suite -- its primitives are fixed
  * by the protocol and `wg show` reports none of them -- so `proposal` is now
- * permanently null here, and `peers_with_psk` carries the observable fact
- * instead.
+ * permanently null here, and the handshake rows carry the observable fact
+ * instead (see WgInterface for why the handshake, and not the PSK count, is
+ * that fact).
  */
 
 interface VpnStatus {
   name: string;
   status: string;
   /**
-   * Established SAs (IPsec) or peers that have completed a handshake
-   * (WireGuard). `null` means the daemon was not reachable -- distinct from 0,
-   * which means it answered and there are none.
+   * Established SAs (IPsec) or peers that have completed a handshake at any
+   * time since the interface came up (WireGuard). `null` means the daemon was
+   * not reachable -- distinct from 0, which means it answered and there are
+   * none. On WireGuard this cannot fall while the interface stays up: the
+   * `latest handshake:` line it counts is never cleared. `peers_fresh` is the
+   * count that can.
    */
   active_sa?: number | null;
+  /**
+   * WireGuard: peers whose latest handshake is younger than `fresh_within_s`,
+   * so that they still hold a session key WireGuard will use. `null` when a
+   * handshake age could not be read, or when the backend predates the field.
+   */
+  peers_fresh?: number | null;
+  /**
+   * WireGuard: the age limit `peers_fresh` is counted against, from the API --
+   * WireGuard's REJECT_AFTER_TIME (180 s), past which a session key is
+   * refused. A definition, not a measurement; given so that this page does not
+   * restate the constant.
+   */
+  fresh_within_s?: number | null;
   /**
    * Negotiated IKE_SA proposal, or null before the SA is up.
    *
@@ -86,12 +116,14 @@ interface VpnStatus {
   /** WireGuard: peers configured on the interface. */
   peers?: number | null;
   /**
-   * WireGuard: peers with a preshared key installed.
+   * WireGuard: peers with SOME preshared key installed.
    *
-   * `wg show` prints a peer's `preshared key:` line only when one is actually
-   * set, so this is direct evidence that arnika wrote the QKD-derived key.
-   * Worth showing because the failure is silent: a peer without the PSK still
-   * brings the tunnel up and passes traffic on Noise alone.
+   * `wg show` prints a peer's `preshared key:` line only when a key is set,
+   * but it cannot say which key. Since release 0.2.0 the node entrypoint
+   * installs a random placeholder PSK on every wg0 and wg1 peer when it
+   * creates it, so this reads full before arnika or Rosenpass has written
+   * anything. It is NOT evidence of keying; a recent completed handshake
+   * (`peers_fresh`, `last_handshake_s`) is.
    */
   peers_with_psk?: number | null;
   /**
@@ -118,6 +150,23 @@ interface VpnStatus {
   child_sas?: ChildSa[] | null;
   /** Per-node views. The flat fields above remain alice's. */
   nodes?: Record<string, VpnStatus>;
+  /** WireGuard: which interface these fields describe ("wg0" at the top). */
+  interface?: string | null;
+  /**
+   * WireGuard: which process writes this interface's preshared key, as
+   * CONFIGURED -- "arnika: HKDF-SHA3-256(QKD || PQC-HPKE)" for wg0,
+   * "rosenpass" for wg1. Not a measurement: it names whose key the interface
+   * is meant to carry. A completed handshake shows that a key written on both
+   * ends matched, because a placeholder on one end never matches the other
+   * end's. It does not show that the latest write is the key in use; see
+   * WgInterface.
+   */
+  psk_source?: string | null;
+  /**
+   * WireGuard: wg1, the end-to-end data tunnel inside wg0, in the same shape.
+   * The flat fields stay wg0's.
+   */
+  data_tunnel?: VpnStatus | null;
   ppk_required_both_ends?: boolean | null;
   ppk_used_both_ends?: boolean | null;
   pq_key_exchange_both_ends?: boolean | null;
@@ -198,23 +247,44 @@ export default function VpnProtocols() {
     <div>
       <h2 style={{ marginTop: 0 }}>VPN Protocols</h2>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        The PoC ships <b>two Quantum-Secure VPN lanes</b>, both fed by the same
-        arnika <code>HKDF-SHA3-256(QKD ‖ PQC)</code> output through different
-        key-writer adapters:
+        The PoC ships <b>two Quantum-Secure VPN lanes</b>. Each runs its own
+        arnika pair, and each pair derives its own{" "}
+        <code>HKDF-SHA3-256(QKD ‖ PQC-HPKE)</code> output, so the lanes share
+        no key:
       </p>
       <ul style={{ color: "#cbd6f5", lineHeight: 1.7, maxWidth: 760 }}>
         <li><b>Note on the word &ldquo;PSK&rdquo;.</b> WireGuard&apos;s preshared key is
             mixed into the Noise_IKpsk2 chaining key and so contributes to the
             transport keys; the IKEv2 PSK below does not, which is why that lane
             needs RFC 8784&apos;s PPK. Same word, opposite property.</li>
-        <li><b>WireGuard</b> — arnika derives a 32 B PSK and writes it into
-            <code> wg0</code> through <code>wgctrl</code> netlink.</li>
-        <li><b>strongSwan IPsec/IKEv2</b> — a native VICI client installs the
-            same derived key as an <b>RFC 8784 Post-quantum Preshared Key</b>,
-            on an IKE_SA negotiated with an <b>RFC 9370</b> hybrid proposal
-            (the shipped default is <code>ecp256-ke1_mlkem768</code>, set by
-            <code> IKE_PROPOSALS</code>; the Proposal row below shows what the
-            SA actually negotiated).</li>
+        <li><b>WireGuard</b> — wg0 hop tunnel keyed by arnika (HKDF-SHA3-256
+            over the QKD key and a PQC-HPKE key) + wg1 data tunnel keyed by
+            Rosenpass (Classic McEliece 460896 + Kyber512). arnika writes its
+            32 B WireGuard PSK into <code>wg0</code> through{" "}
+            <code>wgctrl</code> netlink; Rosenpass writes its key into{" "}
+            <code>wg1</code> through its own WireGuard output. wg1&apos;s peer
+            endpoint is the peer&apos;s wg0 address, so wg1 runs inside wg0, and
+            the Rosenpass exchange itself also runs over wg0 (the node with the
+            lower wg0 address initiates it; the other end answers): the
+            layering of arXiv:2604.05599, whose hop keys come from QKD
+            alone.</li>
+        <li><b>strongSwan IPsec/IKEv2</b> — IKEv2 with ML-KEM-768 (RFC 9370) +
+            RFC 8784 PPK = arnika HKDF-SHA3-256(QKD || PQC-HPKE). A native VICI
+            client installs the derived key as an <b>RFC 8784 Post-quantum
+            Preshared Key</b>, on an IKE_SA negotiated with an <b>RFC 9370</b>{" "}
+            hybrid proposal (the shipped default is{" "}
+            <code>ecp256-ke1_mlkem768</code>, set by <code>IKE_PROPOSALS</code>;
+            the Proposal row below shows what the SA actually negotiated). No
+            Rosenpass on this lane.</li>
+        <li><b>PQC-HPKE</b> — the PQC key arnika agrees with its peer over its
+            existing UDP socket, with no key on disk: HPKE Base mode (RFC 9180)
+            with the KEM MLKEM1024-P384, a hybrid of ML-KEM-1024 and P-384
+            (codepoint 0x0051, from draft-ietf-hpke-pq, not yet an RFC), the
+            KDF HKDF-SHA384 and an export-only AEAD. Note: it comes from arnika
+            pull request #51, which is still open; the arnika pin is that pull
+            request&apos;s head commit (<code>f4cf9ba</code>), not a merge
+            commit, and will be re-pinned to the merge commit once #51
+            merges.</li>
       </ul>
       {/* Rows 2.3 and 2.11 are read from this page, and row 2.14's counts
           from the rotations panel, so it produces evidence and must be able
@@ -234,24 +304,45 @@ export default function VpnProtocols() {
         <Panel title="WireGuard (kernel / wireguard-go)" color="#3ddc84">
           {wg ? (
             <>
-              <Row k="Status" v={<Badge text={wg.status} color={statusColor(wg.status)} />} />
-              <Row k="Peers handshaked" v={wg.active_sa ?? "—"} />
-              {/* No fallback constant, on either lane. WireGuard negotiates no
-                  suite, so this reads as such rather than restating the
-                  protocol's fixed primitives as though they were measured. */}
-              <Row k="Proposal" v={wg.proposal ?? "— none negotiated (WireGuard has no suite) —"} />
-              <Row k="Last handshake" v={wg.last_handshake ?? "—"} />
-              {/* The one observable security fact here: `wg show` prints a
-                  peer's `preshared key:` line only when one is installed. */}
-              <Row k="Peers with QKD PSK" v={
-                wg.peers_with_psk == null || wg.peers == null
-                  ? "—"
-                  : `${wg.peers_with_psk} of ${wg.peers}`
-              } />
+              <WgInterface s={wg} heading="wg0 · hop tunnel" />
+              {/* wg1 beside wg0, from the same sample. `undefined` means a
+                  backend from before wg1 was sampled; `null` would be the
+                  backend saying it has nothing. Both read as not observed,
+                  never as a healthy tunnel. */}
+              {wg.data_tunnel
+                ? <WgInterface s={wg.data_tunnel} heading="wg1 · data tunnel, inside wg0" />
+                : <div style={{ marginTop: 10, fontSize: 12, color: "#6b7796" }}>
+                    wg1 · data tunnel: — not reported by this backend —
+                  </div>}
             </>
           ) : failed ? <NotObserved why={failed} /> : <Loading />}
+          <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8", lineHeight: 1.5 }}>
+            <b>A recent handshake is the evidence of keying; a set PSK is not.</b>{" "}
+            The preshared key enters every WireGuard handshake, so one completes
+            only when both ends hold the same key, and its age says how
+            recently they did. The handshake record is kept while the
+            interface is up, so the Ever row stays full after the two ends
+            diverge onto different keys; the Fresh row falls, and the Status
+            badge turns to stale, once the last session key they shared passes
+            WireGuard&apos;s REJECT_AFTER_TIME, up to that long after the
+            divergence. Every peer starts with a random placeholder PSK
+            that only its own node knows, so the PSK row reads full before
+            arnika (wg0) or Rosenpass (wg1) has written anything. A ping
+            across the interface (for wg1 at the default addresses,{" "}
+            <code>docker exec alice ping -c3 10.0.1.2</code>) shows only that
+            the current WireGuard session carries traffic: a new PSK takes
+            effect at the next handshake, and the session key from the last
+            completed one stays usable until it is REJECT_AFTER_TIME old, so
+            after a divergence the ping keeps answering until then.
+            Neither the handshake counts nor a ping shows that the PSK written
+            most recently is in use. That takes a handshake completed after
+            that write on both ends: a Last handshake age smaller than the time
+            since arnika&apos;s (wg0) or Rosenpass&apos;s (wg1) last write,
+            which this page does not report.
+          </p>
           <p style={{ marginTop: 10, fontSize: 12, color: "#9aa9d8" }}>
-            PSK path: arnika (Go) → wgctrl netlink → wg0
+            wg0 PSK path: arnika (Go) → wgctrl netlink → wg0<br />
+            wg1 PSK path: Rosenpass → its WireGuard output → wg1
           </p>
         </Panel>
         <Panel title="strongSwan IPsec/IKEv2 (RFC 9370 + RFC 8784)" color="#7c5cff">
@@ -331,6 +422,100 @@ Known limits, stated plainly:
     intermediate exchange, present for RFC 9370's ML-KEM key exchange, and is
     NOT an RFC 9867 indicator.`}
         </pre>
+      </div>
+    </div>
+  );
+}
+
+/** "n of m", or an em dash when either side was not observed. */
+function ofPeers(n: number | null | undefined, peers: number | null | undefined): string {
+  return n == null || peers == null ? "—" : `${n} of ${peers}`;
+}
+
+/**
+ * One WireGuard interface's rows. wg0 and wg1 come in the same shape, so they
+ * share this renderer and cannot drift into showing different fields.
+ *
+ * The handshake rows lead because they are the evidence of keying. WireGuard
+ * mixes the preshared key into every handshake, so a handshake completes only
+ * when both ends hold the same key: arnika's on wg0, Rosenpass's on wg1. Its
+ * age says how recently that held.
+ *
+ * The headline is the FRESH count, not the lifetime one. `wg show` keeps a
+ * peer's `latest handshake:` line for as long as the peer exists, which here
+ * is as long as the interface, so the lifetime count (`active_sa`, "Ever
+ * handshaked") stays full after the two ends diverge onto different keys. It
+ * used to be the headline, as "Peers handshaked", and read as proof of current
+ * keying. The fresh count (`peers_fresh`) keeps only peers whose latest
+ * handshake is younger than WireGuard's REJECT_AFTER_TIME, the age at which
+ * WireGuard refuses a session key; the backend reports that limit as
+ * `fresh_within_s`, and the caption under the rows prints it. Even the fresh
+ * count lags a divergence by up to that limit.
+ *
+ * Neither count, nor a ping across the interface, shows that the preshared key
+ * written most recently is in use. A new preshared key takes effect only at
+ * the next handshake, and the session keypair from the last completed one
+ * stays usable until it is REJECT_AFTER_TIME old, so after the two ends
+ * diverge a ping keeps answering until that keypair reaches that age. A ping
+ * shows that the current WireGuard session carries traffic, and no more. What
+ * shows that the latest write is in use is a handshake completed after it on
+ * both ends: a latest-handshake age smaller than the time since arnika's
+ * (wg0) or Rosenpass's (wg1) last write, which this page does not report. The
+ * panel note says the same.
+ *
+ * The Status badge follows the fresh count, not the API's lifetime `status`:
+ * "established" only while `peers_fresh` > 0, "stale" once a peer has
+ * handshaked but none within the limit. wgStatusBadge.ts has the rules; the
+ * caption under the rows says so in one line.
+ *
+ * The PSK row is not that evidence, and its label says so. `wg show` prints a
+ * peer's `preshared key:` line whenever SOME key is set, and since release
+ * 0.2.0 the entrypoint installs a random placeholder PSK on every peer when it
+ * creates it, so no handshake can complete before the keying daemon has
+ * written the same key on both ends. The count therefore reads full before
+ * arnika or Rosenpass has written anything. It used to be labelled "Peers with
+ * a WireGuard PSK" and described as direct evidence that arnika wrote the key,
+ * which the placeholder made untrue.
+ *
+ * The labels are short on purpose. Row keeps a label whole (flexShrink 0) and
+ * puts a 12px gap before the value, and at a 700px viewport a panel row is
+ * 167px wide. Measured in the browser on 2026-09-26: "Peers handshaked (same
+ * key)" (179px) was wider than the row on its own, and "PSK written by
+ * (configured)" (165px) left no room for the gap and its value, so label, gap
+ * and value together ran past the row. The labels below fit beside their
+ * values. The two count labels were measured later the same day in headless
+ * Chrome with the page's font stack at 13px, which reproduced the 179px and
+ * 165px above: "Fresh handshakes" is 109px and "Ever handshaked" 104px, so with
+ * the 12px gap each leaves room for "1 of 1" (39px in the monospace value
+ * font) on one line. The definitions of "Fresh" and "Ever" therefore go in a
+ * caption under the rows, not in the labels.
+ */
+export function WgInterface({ s, heading }: { s: VpnStatus; heading: string }) {
+  const badge = wgStatusBadge(s);
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 4 }}>{heading}</div>
+      <Row k="Status" v={<Badge text={badge.text} color={badge.color} title={badge.title} />} />
+      <Row k="Fresh handshakes" v={<b>{ofPeers(s.peers_fresh, s.peers)}</b>} />
+      <Row k="Last handshake" v={<b>{s.last_handshake ?? "—"}</b>} />
+      <Row k="Ever handshaked" v={ofPeers(s.active_sa, s.peers)} />
+      {/* No fallback constant, on either lane. WireGuard negotiates no
+          suite, so this reads as such rather than restating the
+          protocol's fixed primitives as though they were measured. */}
+      <Row k="Proposal" v={s.proposal ?? "— none negotiated (WireGuard has no suite) —"} />
+      <Row k="PSK set (not proof)" v={ofPeers(s.peers_with_psk, s.peers)} />
+      <Row k="PSK writer (configured)" v={s.psk_source ?? "—"} />
+      <div style={{ marginTop: 4, fontSize: 11, color: "#6b7796", lineHeight: 1.5 }}>
+        {s.fresh_within_s != null
+          ? <>Fresh: latest handshake under {s.fresh_within_s} s old
+              (WireGuard&apos;s REJECT_AFTER_TIME, the age at which it refuses
+              a session key).</>
+          : <>Fresh: not reported by this backend.</>}{" "}
+        Ever: handshaked at least once since the interface came up; this
+        count does not fall while the interface stays up. Status follows
+        Fresh: established while a handshake is fresh, stale once none is,
+        handshaked when Fresh is unknown; the API&apos;s <code>status</code>{" "}
+        field keeps the lifetime reading.
       </div>
     </div>
   );
@@ -551,27 +736,12 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function Badge({ text, color }: { text: string; color: string }) {
+function Badge({ text, color, title }: { text: string; color: string; title?: string }) {
   return (
-    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 12,
+    <span title={title}
+          style={{ display: "inline-block", padding: "2px 8px", borderRadius: 12,
                     background: color, color: "#fff", fontSize: 11 }}>{text}</span>
   );
-}
-
-function statusColor(s: string): string {
-  // Only "established" is green. "running" means the daemon answered but no SA
-  // is up, which on this page is a lane carrying no traffic -- it shared green
-  // with "established" while the WireGuard branch also degraded a FAILED
-  // `wg show` to "running", so a dead lane rendered as a healthy one. The
-  // backend now returns "error" for that, and "running" moves to amber because
-  // it is genuinely an in-between state rather than a success.
-  if (s === "established") return "#3ddc84";
-  if (s === "running" || s === "restarting" || s === "rekeying") return "#f5a623";
-  // "error" means swanctl itself failed -- charon is not answering. That must
-  // read as a fault, not fall through to the neutral colour that also means
-  // "absent", or a dead daemon looks unremarkable.
-  if (s === "stopped" || s === "down" || s === "error") return "#e25555";
-  return "#445";
 }
 
 function NotObserved({ why }: { why: string }) {

@@ -135,11 +135,16 @@ describe("the values the review flagged", () => {
 
   it("does not claim the Thuringia layering is this repository's", () => {
     // In the paper arnika carries QKD-only keys per hop and PQC is a separate
-    // end-to-end tunnel; here arnika mixes the Rosenpass key into each hop.
+    // end-to-end tunnel. Since release 0.2.0 the two-node lane has that shape
+    // too (Rosenpass keys wg1 inside wg0), but arnika mixes a PQC-HPKE key into
+    // each hop, so the hop keys still differ from the paper's.
     const text = presetById("thuringia-2026").notes.join(" ");
     expect(text).not.toMatch(/same layering as this repository/);
     expect(text).toMatch(/QKD keys only on each hop/);
-    expect(text).toMatch(/mixes a Rosenpass key into each hop's WireGuard PSK/);
+    expect(text).toMatch(/mixes a PQC-HPKE key agreed hop by hop into each hop's WireGuard PSK/);
+    expect(text).toMatch(/Rosenpass keying a wg1 data tunnel inside it/);
+    // The pre-0.2.0 claim, which is now false: Rosenpass no longer feeds arnika.
+    expect(text).not.toMatch(/mixes a Rosenpass key/);
   });
 
   it("says Thuringia's values are campaign averages with temporal spreads", () => {

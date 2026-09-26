@@ -6,9 +6,12 @@ Endpoints:
     GET  /api/stats          : aggregated KME + arnika stats
     GET  /api/logs/{name}    : last N log lines from one of LOG_CONTAINERS; any
                                other name is 404 before Docker is asked
-    GET  /api/wg/{node}      : redacted `wg show wg0` for one of WG_NODES. NOT
-                               `dump`: that form emits the interface private key
-                               and the preshared key in plaintext. See WG_SHOW_CMD.
+    GET  /api/wg/{node}      : redacted `wg show wg0` (the hop tunnel) for one of
+                               WG_NODES, plus `data_tunnel`: the same for `wg1`
+                               (the end-to-end data tunnel inside wg0), cached
+                               per node for WG_SHOW_TTL_S. NOT `dump`: that form
+                               emits the interface private key and the preshared
+                               key in plaintext. See WG_SHOW_CMD.
     POST /api/stack/{action}/{name} : start|stop|restart a service
                              ^^^^^^^ the {name} segment is not optional. Omitting
                              it here is what made scripts/verify-demo-hardening.sh
@@ -51,6 +54,11 @@ KME_A_URL = os.environ.get("KME_A_URL", "http://bb84-kme-a:8080")
 KME_B_URL = os.environ.get("KME_B_URL", "http://bb84-kme-b:8080")
 PQC_VALIDATOR_URL = os.environ.get("PQC_VALIDATOR_URL", "http://pqc-validator:8090")
 
+# How much of an exception's text, a failed command's output or an upstream
+# error body goes into a response field or a log line: enough to name the
+# failure, not enough to relay a whole log or an upstream page to the caller.
+ERROR_TEXT_MAX_CHARS = 200
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -73,7 +81,9 @@ async def lifespan(app: FastAPI):
     await app.state.http.aclose()
 
 
-app = FastAPI(title="PQC-QKD WebUI Backend", version="0.1.0", lifespan=lifespan)
+# The release this backend ships in (CHANGELOG.md), kept equal to the frontend's
+# package.json version.
+app = FastAPI(title="PQC-QKD WebUI Backend", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -349,7 +359,7 @@ def _stack_uncached() -> list[dict[str, Any]]:
             # bb84-kme-a as missing, and qkdnetsim-kme as absent "not that
             # anything failed" when something had.
             log.warning("docker lookup of %s failed: %s", n, e)
-            out.append({"name": n, "status": "unknown", "error": str(e)[:200],
+            out.append({"name": n, "status": "unknown", "error": str(e)[:ERROR_TEXT_MAX_CHARS],
                         **gating(n, "unknown")})
             continue
 
@@ -408,7 +418,7 @@ async def stats():
                 # FastAPI error body `{"detail": ...}` used to be passed on as
                 # though it were the stats object.
                 if r.status_code >= 400:
-                    results[label] = {"error": f"HTTP {r.status_code}: {r.text[:200]}"}
+                    results[label] = {"error": f"HTTP {r.status_code}: {r.text[:ERROR_TEXT_MAX_CHARS]}"}
                 else:
                     results[label] = r.json()
             except Exception as e:
@@ -417,15 +427,21 @@ async def stats():
 
 
 # ----------------------- Log redaction and bounds -----------------------
-# `GET /api/logs/{name}` served ARNIKA_PSK to anyone who asked. The pinned arnika
-# (3a8cc13) prints its whole configuration at startup, including
-# `Arnika PSK: <value>` verbatim (submodules/arnika/config/config.go:78), and the
+# `GET /api/logs/{name}` served ARNIKA_PSK to anyone who asked. The arnika pin
+# before release 0.2.0 (3a8cc13) printed its whole configuration at startup,
+# including `Arnika PSK: <value>` verbatim (its config/config.go:78), and the
 # route had no tail cap, so a large enough `?tail=` reached back past the
 # 129,319 lines alice had logged to the banner. Measured on the public demo on
 # 2026-09-25 by value LENGTH only (44 characters, a base64 32-byte key); the
-# value itself was never printed. Upstream replaced the print with
-# redactSecret() on arnika PR #51; until the pin moves past that, this is the
-# only thing between a GET and the key.
+# value itself was never printed.
+#
+# The current pin (f4cf9ba, the head of the still-open arnika PR #51) prints
+# the same label with redactSecret()'s `(set, N bytes)` instead of the value
+# (config/config.go:119 and :168-173 there). The banner rule below still
+# matches that line and replaces an already-redacted value, which costs only
+# the byte count. It stays because the label is all this rule can see: a node
+# rolled back to 3a8cc13 writes the same label with the key after it, and the
+# PR head is not yet a merge commit.
 #
 # The same missing cap let one request make the backend serialise alice-ipsec's
 # 3.4 million log lines.
@@ -490,8 +506,8 @@ def download_log(service: str, lines: int = Query(1000, ge=1, le=LOGS_MAX_TAIL))
         )
     # Redacted here too. Only the Python services write these files and none of
     # them logs key material today, but "today" is not a property a download
-    # route should rely on; the Docker-stdout route below is where arnika's
-    # startup banner leaked.
+    # route should rely on; the container-log route below (Docker's stdout and
+    # stderr) is where arnika's startup banner leaked.
     text, _ = _redact_log(logging_setup.read_tail(safe, lines=int(lines)))
     return PlainTextResponse(
         text,
@@ -674,19 +690,20 @@ async def export_delete(filename: str):
     return {"ok": True}
 
 
-# ----------------------- Logs (Docker stdout, allow-listed by container name) -----------------------
+# ----------------------- Logs (container stdout and stderr, allow-listed by name) -----------------------
 # The containers a public route may reach through the Docker socket, and the
 # only ones. ONE table for both routes that take a container name from the URL,
 # so they cannot drift apart.
 #
 # `/api/logs/{name}` used to call `cli.containers.get(name)` for ANY name. On
-# the public demo that served the stdout of every container on the host --
+# the public demo that served the log of every container on the host --
 # measured 2026-09-25: `/api/logs/caddy` answered 200 with the reverse proxy's
 # access log, visitor IPs and User-Agents included. `/api/wg/{node}` ran
 # `docker exec wg show wg0` in any container named in the path, including
 # webui-frontend. The download route beside them was already allow-listed.
 #
-# WG_NODES: the two containers that own a wg0 interface.
+# WG_NODES: the two containers that own the WireGuard lane's interfaces (wg0
+# and wg1).
 # LOG_CONTAINERS: what /console tails (Console.tsx NAMES, same order).
 WG_NODES: tuple[str, ...] = ("alice", "bob")
 LOG_CONTAINERS: tuple[str, ...] = WG_NODES + (
@@ -724,7 +741,13 @@ def _prune_expired(prefix: str, ttl: float) -> None:
 
 @app.get("/api/logs/{name}")
 def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str, Any]:
-    """Container stdout, redacted and bounded (see _redact_log).
+    """Container stdout and stderr, redacted and bounded (see _redact_log).
+
+    Both streams, because docker-py's `logs()` returns both unless told
+    otherwise, and the call below relies on that default. It matters for
+    arnika: at the current pin (f4cf9ba) it writes every record to stderr
+    through its slog handler (logging.go:42 and :63 there), so a stdout-only
+    read would show no arnika line at all.
 
     Only for LOG_CONTAINERS; any other name is 404 before Docker is asked.
 
@@ -757,16 +780,41 @@ def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str,
 #
 # This route served that verbatim, unauthenticated, with no DEMO_MODE gate. A
 # 2026-08-27 GET of the public demo's /api/wg/alice returned alice's wg0 private
-# key and the live preshared key -- and on this stack the preshared key is the
-# arnika HKDF(QKD || PQC) output, i.e. the entire product of the key path the
-# project exists to demonstrate. Nothing in the frontend has ever called this
-# route, so the exposure carried no compensating benefit.
+# key and the live preshared key -- and on this stack the wg0 preshared key is
+# the arnika HKDF(QKD || PQC) output, i.e. the entire product of the key path
+# the project exists to demonstrate. Nothing in the frontend has ever called
+# this route, so the exposure carried no compensating benefit.
 #
 # The non-dump form is what wireguard-tools redacts for you: it prints
 # "private key: (hidden)" and "preshared key: (hidden)". Use it. Then redact
 # again on the way out, so that editing one word of the command back is not by
 # itself sufficient to leak. See tests/test_wg_endpoint_redacts_secrets.py.
+#
+# Two interfaces per node since release 0.2.0, the layering of arXiv:2604.05599:
+#   wg0  the hop tunnel. arnika writes its preshared key: HKDF-SHA3-256 over
+#        the QKD key and a PQC-HPKE key that arnika agrees with its peer.
+#   wg1  the end-to-end data tunnel. Its peer endpoint is the peer's wg0
+#        address, so wg1 packets travel inside wg0. Rosenpass writes its
+#        preshared key through Rosenpass's own WireGuard output, and the
+#        Rosenpass exchange itself runs over wg0.
+# Both commands are the non-dump form, for the reason above; wg1's preshared
+# key is as secret as wg0's.
 WG_SHOW_CMD = "wg show wg0"
+WG_DATA_SHOW_CMD = "wg show wg1"
+
+# Which process writes each interface's preshared key. This is the deployed
+# CONFIGURATION (docker-compose.yml and nodes/alice/entrypoint.sh), stated per
+# interface so a reader of the API does not have to infer it. It is not a
+# measurement: `wg show` prints only whether SOME preshared key is set (the
+# `preshared key: (hidden)` line), never who set it -- and since release 0.2.0
+# the entrypoint sets a random `wg genpsk` placeholder on every peer at
+# creation, so the line is there before either keying daemon has written
+# anything. What shows that the configured writer has keyed an interface is a
+# completed handshake: see _WG_PSK_RE.
+WG_PSK_SOURCE: dict[str, str] = {
+    "wg0": "arnika: HKDF-SHA3-256(QKD || PQC-HPKE)",
+    "wg1": "rosenpass",
+}
 
 _WG_SECRET_LINE = re.compile(r"^(\s*(?:private key|preshared key)\s*:).*$", re.M | re.I)
 
@@ -794,21 +842,84 @@ def _redact_wg(text: str) -> str:
     return _WG_SECRET_LINE.sub(r"\1 (hidden)", text)
 
 
+def _wg_show_one(container, node: str, iface: str, cmd: str) -> dict[str, Any]:
+    """One interface's redacted `wg show`, with the fields every caller gets.
+
+    `error` is None when the command ran. A non-zero `rc` is not an error in
+    this sense: `wg show wg1` on a node without wg1 exits 1 with "Unable to
+    access interface", and that text is the honest answer, so it is returned.
+    """
+    rc, out = container.exec_run(cmd)
+    return {
+        "node": node,
+        "interface": iface,
+        "rc": rc,
+        "output": _redact_wg(out.decode("utf-8", errors="replace")),
+        "psk_source": WG_PSK_SOURCE[iface],
+        "error": None,
+    }
+
+
+# Per-node cache for `GET /api/wg/{node}`. Since release 0.2.0 a sample is two
+# `docker exec`s (wg0 and wg1), on a public, unauthenticated GET that the rate
+# limiter does not cover (it meters only the mutating verbs), so without a
+# cache every anonymous request cost the host two execs. With it, a node costs
+# at most two execs per WG_SHOW_TTL_S whatever the request rate. The default
+# matches VPN_SAMPLE_TTL_S, the same kind of `wg show` snapshot. Keys are
+# `wg:<node>` for WG_NODES only (the allow-list runs first), so the cache holds
+# at most len(WG_NODES) entries and needs no pruning.
+#
+# A 404 is cached too, as /api/vpn/protocols caches its failure shapes: a node
+# whose exec fails must not be the case that costs an exec on every request.
+WG_SHOW_TTL_S = float(os.environ.get("WG_SHOW_TTL_S", "5.0"))
+
+
 @app.get("/api/wg/{node}")
-async def wg_show(node: str):
+def wg_show(node: str) -> dict[str, Any]:
+    """wg0 at the top level, as before, and wg1 under `data_tunnel`.
+
+    The top-level fields keep what they always meant (wg0), so an existing
+    reader is unaffected; wg1 is additive. Both carry the same keys, and the
+    top level adds when the pair was sampled (`observed_at`) and for how long
+    it is served from the cache (`cache_ttl_s`), so a cached answer can be
+    told from a fresh one.
+
+    Plain `def`: two blocking `docker exec`s, which under `async def` would run
+    on the event loop and stall every other request for their duration.
+    """
     # alice and bob only (WG_NODES): the route used to exec in whatever
     # container the path named.
     _require_known_container(node, WG_NODES)
+    key = f"wg:{node}"
+    hit, _ = _cached(key, WG_SHOW_TTL_S)
+    if hit is not None:
+        if "not_found" in hit:
+            raise HTTPException(404, hit["not_found"])
+        return hit
     cli = app.state.docker
     if cli is None:
         raise HTTPException(503, "docker not available")
     try:
         c = cli.containers.get(node)
-        rc, out = c.exec_run(WG_SHOW_CMD)
-        text = out.decode("utf-8", errors="replace")
+        hop = _wg_show_one(c, node, "wg0", WG_SHOW_CMD)
     except Exception as e:
-        raise HTTPException(404, str(e))
-    return {"node": node, "rc": rc, "output": _redact_wg(text)}
+        # Bounded like every other exception text this module puts in a
+        # response, and bounded before it is cached, so the cached 404 and the
+        # first one carry the same detail.
+        detail = str(e)[:ERROR_TEXT_MAX_CHARS]
+        _store(key, {"not_found": detail})
+        raise HTTPException(404, detail)
+    # wg0 answered, so the container exists. A failure now is about wg1 alone
+    # and must not turn a wg0 reading into a 404: it is reported in place, with
+    # no rc and no output rather than invented ones.
+    try:
+        data = _wg_show_one(c, node, "wg1", WG_DATA_SHOW_CMD)
+    except Exception as e:
+        log.warning("wg show wg1 failed in %s: %s", node, e)
+        data = {"node": node, "interface": "wg1", "rc": None, "output": None,
+                "psk_source": WG_PSK_SOURCE["wg1"], "error": str(e)[:ERROR_TEXT_MAX_CHARS]}
+    return _store(key, {**hop, "data_tunnel": data,
+                        "observed_at": time.time(), "cache_ttl_s": WG_SHOW_TTL_S})
 
 
 # The Eve-control, E2E-orchestrator, Paper-Data-Exchange and WebSocket fan-out
@@ -858,7 +969,7 @@ def _upstream_json(r: Any, source: str) -> Any:
     """
     if r.status_code >= 400:
         raise HTTPException(
-            r.status_code, f"{source} answered HTTP {r.status_code}: {r.text[:200]}")
+            r.status_code, f"{source} answered HTTP {r.status_code}: {r.text[:ERROR_TEXT_MAX_CHARS]}")
     try:
         return r.json()
     except ValueError as e:
@@ -919,7 +1030,7 @@ async def _post_both(client: httpx.AsyncClient, path: str,
                 else await client.post(f"{url}{path}")
             if r.status_code >= 400:
                 outcomes[name] = {"ok": False, "status": r.status_code,
-                                  "error": r.text[:200], "body": None}
+                                  "error": r.text[:ERROR_TEXT_MAX_CHARS], "body": None}
             else:
                 # Body captured HERE. A first draft of this had the caller POST
                 # a second time to read it, which applies the override twice --
@@ -934,7 +1045,7 @@ async def _post_both(client: httpx.AsyncClient, path: str,
             # the operator never sees the backend's log.
             log.warning("%s on %s failed: %s", path, url, e)
             outcomes[name] = {"ok": False, "status": None,
-                              "error": str(e)[:200], "body": None}
+                              "error": str(e)[:ERROR_TEXT_MAX_CHARS], "body": None}
     return outcomes
 
 
@@ -1369,12 +1480,22 @@ def _wg_unknown(status: str) -> dict[str, Any]:
     reports neither -- so any string here would be a constant this file made up.
     It used to hold "ChaCha20-Poly1305 + Noise + PSK". Moving that constant
     server-side would only have changed which file states it as though measured.
-    `peers_with_psk` replaces it with something actually observable.
+    The handshake fields (`active_sa`, `peers_fresh`, `last_handshake_s`)
+    replace it with something actually observable. `peers_with_psk` is
+    reported beside them but shows only that some key is set, possibly the
+    entrypoint's placeholder; see _WG_PSK_RE.
+
+    `fresh_within_s` is not a measurement and is therefore set here too: it is
+    the definition `peers_fresh` is counted against (WG_REJECT_AFTER_TIME_S),
+    carried in the response so that a reader never has to restate WireGuard's
+    constant to label the count.
     """
     return {
         "name": "wireguard",
         "status": status,
         "active_sa": None,
+        "peers_fresh": None,
+        "fresh_within_s": WG_REJECT_AFTER_TIME_S,
         "proposal": None,
         "last_handshake": None,
         "last_handshake_s": None,
@@ -1494,7 +1615,7 @@ def _sample_ipsec(cli, container: str) -> dict[str, Any]:
             detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
             log.warning(
                 "swanctl failed in %s (list-sas rc=%s, list-conns rc=%s): %s",
-                container, rc_sas, rc_conns, detail.strip()[:200],
+                container, rc_sas, rc_conns, detail.strip()[:ERROR_TEXT_MAX_CHARS],
             )
             # Same keys as the success path, so a consumer never has to branch
             # on which shape it received. Seeded from the template rather than
@@ -1512,6 +1633,32 @@ def _sample_ipsec(cli, container: str) -> dict[str, Any]:
     except Exception as e:
         log.warning("ipsec status unavailable for %s: %s", container, e)
         return _ipsec_unknown("absent")
+
+
+def _sample_wg(container, iface: str, cmd: str) -> dict[str, Any]:
+    """One WireGuard interface's view, in `_wg_unknown`'s key set; never raises.
+
+    The same rules for wg0 and wg1, because the failure they guard against is
+    the same on both: a `wg show` that failed outright must not render as a
+    healthy lane.
+    """
+    try:
+        rc, out = container.exec_run(cmd)
+    except Exception as e:
+        # Same outcome as the IPsec branch for an exec that could not run.
+        log.warning("wireguard status unavailable for %s: %s", iface, e)
+        return _wg_unknown("absent")
+    text = out.decode("utf-8", errors="replace")
+    if rc != 0:
+        # Previously a non-zero rc degraded to status "running", which
+        # VpnProtocols.tsx renders GREEN -- so a lane whose `wg show` failed
+        # outright looked healthy. The IPsec branch has said "error" for this
+        # case since it was written; this one matches. On a node without wg1
+        # (a deployment from before release 0.2.0) `wg show wg1` exits 1, so
+        # the data tunnel reads "error" there, which is what it is.
+        log.warning("wg show %s failed (rc=%s): %s", iface, rc, text.strip()[:ERROR_TEXT_MAX_CHARS])
+        return _wg_unknown("error")
+    return _parse_wg(text)
 
 
 def _both_ends(alice: dict[str, Any], bob: dict[str, Any]) -> dict[str, Any]:
@@ -1560,11 +1707,11 @@ def _both_ends(alice: dict[str, Any], bob: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# Sampling `/api/vpn/protocols` costs five `docker exec`s (wg show, and
-# list-sas + list-conns on each of the two IPsec nodes). The page polls every
-# 5 s per viewer (VPN_POLL_MS in VpnProtocols.tsx), matched by the 5 s default
-# below. At a 3 s poll against a 2 s TTL every poll from every viewer missed the
-# cache.
+# Sampling `/api/vpn/protocols` costs six `docker exec`s (wg show for wg0 and
+# wg1, and list-sas + list-conns on each of the two IPsec nodes). The page
+# polls every 5 s per viewer (VPN_POLL_MS in VpnProtocols.tsx), matched by the
+# 5 s default below. At a 3 s poll against a 2 s TTL every poll from every
+# viewer missed the cache.
 # A short TTL collapses concurrent viewers onto one sample without introducing
 # a background task -- main.py deliberately has none.
 #
@@ -1580,7 +1727,7 @@ def vpn_protocols():
     """Live status of both VPN lanes, from both ends of the IPsec one.
 
     A plain `def`, not `async def`. Every call inside is a blocking
-    `exec_run`; under `async def` those five round trips run ON the event loop
+    `exec_run`; under `async def` those six round trips run ON the event loop
     and stall every other request for their duration. FastAPI dispatches a sync
     handler to its threadpool instead.
     """
@@ -1591,36 +1738,40 @@ def vpn_protocols():
 
     cli = app.state.docker
     wg_status: dict[str, Any] = _wg_unknown("absent")
+    wg_data_status: dict[str, Any] = _wg_unknown("absent")
     alice_ipsec: dict[str, Any] = _ipsec_unknown("absent")
     bob_ipsec: dict[str, Any] = _ipsec_unknown("absent")
 
     if cli is not None:
         try:
             c = cli.containers.get("alice")
-            rc, out = c.exec_run("wg show wg0")
-            wg_text = out.decode("utf-8", errors="replace")
-            if rc != 0:
-                # Previously a non-zero rc degraded to status "running", which
-                # VpnProtocols.tsx renders GREEN -- so a lane whose `wg show`
-                # failed outright looked healthy. The IPsec branch has said
-                # "error" for this case since it was written; this one matches.
-                log.warning(
-                    "wg show failed in alice (rc=%s): %s", rc, wg_text.strip()[:200],
-                )
-                wg_status = _wg_unknown("error")
-            else:
-                wg_status = _parse_wg(wg_text)
         except Exception as e:
             # The IPsec branch logs; this one used to swallow silently, so a
             # WireGuard lane that was never reachable looked identical to one
             # that was simply absent.
             log.warning("wireguard status unavailable: %s", e)
+        else:
+            wg_status = _sample_wg(c, "wg0", WG_SHOW_CMD)
+            wg_data_status = _sample_wg(c, "wg1", WG_DATA_SHOW_CMD)
 
         alice_ipsec = _sample_ipsec(cli, "alice-ipsec")
         bob_ipsec = _sample_ipsec(cli, "bob-ipsec")
 
     value = {
-        "wireguard": wg_status,
+        # The flat WireGuard fields keep meaning what they meant before: alice's
+        # wg0, the hop tunnel. wg1, the data tunnel that runs inside it, is
+        # additive under `data_tunnel` with the same key set, so a consumer
+        # reads both with one renderer.
+        "wireguard": {
+            **wg_status,
+            "interface": "wg0",
+            "psk_source": WG_PSK_SOURCE["wg0"],
+            "data_tunnel": {
+                **wg_data_status,
+                "interface": "wg1",
+                "psk_source": WG_PSK_SOURCE["wg1"],
+            },
+        },
         # The flat IPsec fields keep meaning exactly what they meant before:
         # alice's view. Adding `nodes` and the *_both_ends aggregates alongside
         # them is additive; redefining these would have been a silent change.
@@ -1643,8 +1794,21 @@ def vpn_protocols():
 # VERIFICATION_CHECKLIST row 2.14 is a ten-minute procedure, not a snapshot.
 # Folding it into /api/vpn/protocols would mean reading two containers' whole
 # log streams every 3 s per viewer -- server compute the public demo is
-# supposed to avoid, and orders of magnitude more expensive than the five
+# supposed to avoid, and orders of magnitude more expensive than the six
 # `exec_run`s above.
+#
+# The pattern anchors on the adapter's message text, never on a line prefix,
+# because the prefix changed with the arnika pin. At 3a8cc13 the adapter's
+# `log.Printf` line was the whole line:
+#   2026/09/25 06:48:38 [INFO] [VICI] PPK rotated (id=qkd-alice-3 ppk_id=... bytes=32)
+# At f4cf9ba arnika installs an slog TextHandler as the default logger
+# (logging.go:42 and :63 there), which routes the standard `log` package
+# through it, so the same text arrives as the quoted `msg` of a key=value line:
+#   time=... level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-alice-3 ppk_id=... bytes=32)" arnika_id=11
+# The text inside the quotes is unchanged (no quote or backslash in it to
+# escape), so this pattern counts both forms. tests/test_wg_data_tunnel_is_reported.py
+# pins it against each. A LOG_LEVEL above info drops the bridged lines, and
+# the counts with them; the entrypoint sets info.
 _ROTATION_RE = re.compile(r"PPK rotated \(id=(\S+?) ")
 # Rotation ATTEMPTS are not outcomes. arnika-vici logs "PPK rotated" when it
 # queues the reauthentication, before IKE_AUTH has run, so on the live demo the
@@ -1679,7 +1843,7 @@ def _count_rotations(cli, container: str, window_s: int) -> dict[str, Any]:
     except Exception as e:
         log.warning("could not read %s logs: %s", container, e)
         return {"count": None, "distinct_ids": None, "auth_failed": None,
-                "ppk_applied": None, "error": str(e)[:200]}
+                "ppk_applied": None, "error": str(e)[:ERROR_TEXT_MAX_CHARS]}
     ids = _ROTATION_RE.findall(text)
     return {
         "count": len(ids),
@@ -1762,10 +1926,62 @@ def vpn_ppk_rotations(window_s: int = 600):
 # Two of those lines are CONDITIONAL, which is what makes them worth reading.
 # From wireguard-tools src/show.c:
 #   * `preshared key:` prints only when `peer->flags & WGPEER_HAS_PRESHARED_KEY`,
-#     so its presence is direct evidence that arnika installed the QKD-derived
-#     key on that peer. It is the one observable security fact this lane has,
-#     and it is what replaces the invented `proposal` constant.
-#   * `latest handshake:` prints only when the handshake time is non-zero.
+#     so its presence shows that SOME preshared key is installed on that peer,
+#     and nothing more. Since release 0.2.0 the node entrypoint installs a
+#     random `wg genpsk` placeholder on every wg0 and wg1 peer when it creates
+#     it (nodes/alice/entrypoint.sh, add_wg_peer), so that no handshake can
+#     complete before the keying daemon has written the same key on both ends.
+#     A full `peers_with_psk` count is therefore expected before arnika or
+#     Rosenpass has written anything, and is not evidence that either did.
+#     Which process is meant to write it is configuration (WG_PSK_SOURCE).
+#   * `latest handshake:` prints only when the handshake time is non-zero, and
+#     a completed handshake IS the evidence: the preshared key is mixed into
+#     every Noise_IKpsk2 handshake, so one completes only when both ends hold
+#     the same key -- on wg0 arnika's, on wg1 Rosenpass's -- and its age says
+#     how recently that held. `active_sa`, `peers_fresh` and
+#     `last_handshake_s` carry it; they are what replaced the invented
+#     `proposal` constant. A ping that answers over the interface shows only
+#     that the current WireGuard session carries traffic, not that the
+#     preshared key written most recently is in use (see WG_REJECT_AFTER_TIME_S
+#     below for why).
+#
+# The line is also PERMANENT. The handshake time is per peer and is cleared
+# only when the peer is created, and the entrypoint adds each peer when it
+# creates the interface, so once a peer has handshaked the line stays until the
+# interface is recreated. A peer whose two ends later diverge onto different
+# preshared keys, after a rotation for example, keeps its line and only its age
+# grows. So `active_sa` ("ever handshaked since the interface came up") cannot
+# fall, and `peers_fresh` is the count that can.
+#
+# WireGuard's REJECT_AFTER_TIME, in seconds: Linux drivers/net/wireguard/
+# messages.h, `enum limits`, `REJECT_AFTER_TIME = 180`; wireguard-go, the
+# userspace fallback, has the same value (device/constants.go,
+# `RejectAfterTime = time.Second * 180`). In the kernel, decrypt_packet()
+# (receive.c) rejects a keypair whose `receiving.birthdate` has reached that
+# age and wg_packet_send_staged_packets() (send.c) does the same for
+# `sending.birthdate`. derive_keys() (noise.c) sets the birthdate when the
+# session keys are derived, which is never after the moment `latest
+# handshake:` records: the initiator derives them on the response and then
+# calls wg_timers_handshake_complete(), which stamps the handshake time; the
+# responder derives them when it sends the response, and its handshake is
+# stamped later, on the first data packet. So a peer whose latest handshake is
+# at least this old holds no session key WireGuard will still use. Every peer
+# here has a persistent keepalive (WG_PERSISTENT_KEEPALIVE_S in the node
+# entrypoint), so a working peer always has traffic, and on traffic WireGuard
+# starts a new handshake at REKEY_AFTER_TIME (120 s, same enum), before that
+# age.
+#
+# What a fresh handshake does NOT show: that the preshared key written most
+# recently is in use. A new preshared key applies only at the next handshake,
+# and the session keypair from the last completed one stays usable until it is
+# this old. So after the ends diverge the count stays full for up to this long
+# before it falls, and a ping over the interface keeps answering until that
+# keypair reaches this age. Neither shows the latest write in use. A handshake
+# completed after that write on both ends does: a `last_handshake_s` smaller
+# than the time since arnika's (wg0) or Rosenpass's (wg1) last write, which
+# this API does not report.
+WG_REJECT_AFTER_TIME_S = 180
+
 _WG_PEER_RE = re.compile(r"^peer:\s*\S+", re.M)
 _WG_PSK_RE = re.compile(r"^\s+preshared key:", re.M)
 _WG_HANDSHAKE_RE = re.compile(r"^\s+latest handshake:\s*(.+?)\s*$", re.M)
@@ -1817,28 +2033,41 @@ def _parse_wg(text: str) -> dict[str, Any]:
     value would come from, shipped as the value -- and both went out over the
     public API. See `_wg_unknown` for why `proposal` is None permanently.
 
-    `active_sa` counts peers that have completed a handshake, matching what the
-    field means on the IPsec side (established SAs) rather than the previous
-    `1 if "latest handshake" in text else 0`, which could not exceed 1 and
-    ignored the exit code entirely.
+    `active_sa` counts peers that have completed a handshake at any time since
+    the interface came up, matching what the field means on the IPsec side
+    (established SAs) rather than the previous `1 if "latest handshake" in
+    text else 0`, which could not exceed 1 and ignored the exit code entirely.
+    That meaning is unchanged, and so is `status`, which reads "established"
+    on the same condition. Neither can fall while the interface stays up,
+    because the `latest handshake:` line is permanent (see above). /vpn
+    renders its WireGuard badge from `peers_fresh` instead (wgStatusBadge.ts
+    in the frontend); this field keeps the lifetime meaning.
+
+    `peers_fresh` is the count that can fall: peers whose latest handshake is
+    younger than WG_REJECT_AFTER_TIME_S, so that they still hold a session key
+    WireGuard will use. It is None when any handshake age is unreadable (the
+    clock-wound-backward rendering), because such a peer is neither known to
+    be fresh nor known to be stale.
     """
     peers = len(_WG_PEER_RE.findall(text))
     if peers == 0:
         # `wg show` succeeded but the interface has no peers -- the tunnel
         # cannot be established, and saying "running" would overstate it.
         return {**_wg_unknown("running"), "peers": 0, "peers_with_psk": 0,
-                "active_sa": 0}
+                "active_sa": 0, "peers_fresh": 0}
 
     handshakes = [_wg_handshake_seconds(m) for m in _WG_HANDSHAKE_RE.findall(text)]
     readable = [s for s in handshakes if s is not None]
     # Freshest peer, which is what a single "last handshake" figure can honestly
     # mean when there is more than one peer.
     age = min(readable) if readable else None
+    fresh = (sum(1 for s in readable if s < WG_REJECT_AFTER_TIME_S)
+             if len(readable) == len(handshakes) else None)
 
     return {
-        "name": "wireguard",
-        "status": "established" if handshakes else "running",
+        **_wg_unknown("established" if handshakes else "running"),
         "active_sa": len(handshakes),
+        "peers_fresh": fresh,
         "proposal": None,
         "last_handshake": f"{age}s ago" if age is not None else None,
         "last_handshake_s": age,
@@ -1946,15 +2175,23 @@ async def topology():
     indicate one. README described the page as showing Charlie on the strength
     of this line. Adding the branch needs a way to know the profile is active;
     until then the graph is honestly static.
+
+    alice and bob each carry two WireGuard interfaces, so there are two
+    alice-bob edges: wg0, the hop tunnel arnika keys, and wg1, the data tunnel
+    Rosenpass keys, which runs inside wg0. The labels name "Rosenpass" in full;
+    they used to say "RP", which nothing on the page expanded.
     """
     nodes = [
-        {"id": "alice", "type": "node", "label": "Alice (WG + arnika + RP)"},
-        {"id": "bob",   "type": "node", "label": "Bob (WG + arnika + RP)"},
+        {"id": "alice", "type": "node", "label": "Alice (wg0 + wg1, arnika, Rosenpass)"},
+        {"id": "bob",   "type": "node", "label": "Bob (wg0 + wg1, arnika, Rosenpass)"},
         {"id": "kme-a", "type": "kme",  "label": "BB84 KME (Alice)"},
         {"id": "kme-b", "type": "kme",  "label": "BB84 KME (Bob)"},
     ]
     edges = [
-        {"source": "alice", "target": "bob",   "label": "WireGuard tunnel (PSK=HKDF(QKD‖PQC))"},
+        {"source": "alice", "target": "bob",
+         "label": "wg0 hop tunnel (PSK = HKDF(QKD‖PQC-HPKE))"},
+        {"source": "alice", "target": "bob",
+         "label": "wg1 data tunnel inside wg0 (PSK = Rosenpass)"},
         {"source": "alice", "target": "kme-a", "label": "ETSI 014"},
         {"source": "bob",   "target": "kme-b", "label": "ETSI 014"},
         {"source": "kme-a", "target": "kme-b", "label": "BB84 quantum + classical channel"},

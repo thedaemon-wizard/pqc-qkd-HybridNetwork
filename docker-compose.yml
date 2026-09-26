@@ -6,7 +6,17 @@
 #   - wan-net:             WireGuard endpoints           Public Internet sim
 #   - mgmt-net:            WebUI <-> backend <-> logs    Management plane
 #
-# Arnika is built from the unmodified submodules/arnika/Dockerfile.
+# The WireGuard lane runs two tunnels per node pair:
+#   wg0  hop tunnel keyed by arnika (HKDF-SHA3-256 over the QKD key and a
+#        PQC-HPKE key)
+#   wg1  data tunnel keyed by Rosenpass (Classic McEliece 460896 + Kyber512),
+#        carried inside wg0, with the Rosenpass exchange itself inside wg0
+# (nodes/alice/entrypoint.sh). arnika is built by nodes/alice/Dockerfile from
+# submodules/arnika, pinned to f4cf9ba: the head of the open, unmerged upstream
+# PR arnika-project/arnika#51, to be re-pinned to the merge commit once #51
+# merges. PQC-HPKE is HPKE Base mode (RFC 9180) with the hybrid KEM
+# MLKEM1024-P384 (draft-ietf-hpke-pq, not yet an RFC), HKDF-SHA384 and an
+# export-only AEAD.
 # BB84-KME is a Python service implementing QuTiP + ETSI GS QKD 014 REST.
 # ===================================================================
 name: pqcqkd
@@ -34,11 +44,9 @@ volumes:
   bb84-keypool-b:
   rosenpass-keys-alice:
   rosenpass-keys-bob:
-  wg-keys-alice:         # persist WireGuard keypair (stable across recreates)
+  wg-keys-alice:         # persist the wg0 and wg1 keypairs (stable across recreates)
   wg-keys-bob:
-  pqc-psk-alice:
-  pqc-psk-bob:
-  node-pubkeys:          # shared: alice/bob swap WG + rosenpass public keys
+  node-pubkeys:          # shared: nodes swap wg0, wg1 and Rosenpass public keys
   pqcqkd-logs:           # Phase 12-A: shared rotating log files
   pqcqkd-exports:        # Phase 13: backend-stored export artefacts
 
@@ -129,7 +137,7 @@ services:
       start_period: 5s
 
   # -------------------------------------------------------------
-  # Alice node: WireGuard + arnika + (sidecar) Rosenpass
+  # Alice node: wg0 (arnika) + wg1 inside wg0 (Rosenpass sidecar)
   # -------------------------------------------------------------
   alice:
     build:
@@ -137,6 +145,11 @@ services:
       dockerfile: nodes/alice/Dockerfile
     image: pqcqkd/node-alice:local
     container_name: alice
+    # No IPC_LOCK. arnika tries mlockall at startup, which on a Go binary locks
+    # the runtime's whole heap arena reservation (about 1.2 GB per process by
+    # arnika's own measurement, hardening/hardening_linux.go). Without the
+    # capability the lock fails, arnika logs "process hardening incomplete"
+    # and carries on, which is the intended best-effort behaviour.
     cap_add: [NET_ADMIN, SYS_MODULE]
     devices: ["/dev/net/tun:/dev/net/tun"]
     sysctls:
@@ -154,8 +167,21 @@ services:
       WG_LOCAL_IP: ${WG_ALICE_IP:-10.0.0.1}
       WG_PEER_IP: ${WG_BOB_IP:-10.0.0.2}
       WG_PEER_ENDPOINT: bob:${WG_LISTEN_PORT_BOB:-51821}
-      # Arnika env (consumed by entrypoint -> exported to arnika binary)
+      # wg1, the data tunnel. Its endpoint is bob's wg0 address (WG_PEER_IP)
+      # and bob's wg1 port, so wg1 traffic travels inside wg0.
+      WG1_IFACE: wg1
+      WG1_LISTEN_PORT: ${WG1_LISTEN_PORT_ALICE:-51830}
+      WG1_LOCAL_IP: ${WG1_ALICE_IP:-10.0.1.1}
+      WG1_PEER_IP: ${WG1_BOB_IP:-10.0.1.2}
+      WG1_PEER_PORT: ${WG1_LISTEN_PORT_BOB:-51831}
+      # Arnika env (consumed by entrypoint -> exported to arnika binary).
+      # MODE and PQC_ENABLED must be identical on both peers, which is why
+      # both nodes read the same variable and the same literal.
       ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+      # arnika's own PQC-HPKE key agreement, the PQC half of the wg0 PSK.
+      # A literal: the lane is defined as QKD || PQC-HPKE, and
+      # MODE=QkdAndPqcRequired refuses to start without it.
+      PQC_ENABLED: "true"
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
       # ETSI GS QKD 014 clause 5.1: the SAE ID in the path is the PEER --
       # enc_keys names the slave SAE, dec_keys names the master SAE. From
@@ -167,11 +193,14 @@ services:
       # Must differ from the peer's: arnika XORs this into the per-interval
       # master election, so equal IDs make both nodes take the same role.
       ARNIKA_ID: ${ARNIKA_ID_ALICE:-1}
-      # Must be IDENTICAL on both peers: keys the AES-256-GCM + HMAC on the
-      # UDP key_ID channel and the role election.
+      # Must be IDENTICAL on both peers: keys the AES-256-GCM + HMAC on every
+      # arnika packet (key_ID and PQC-HPKE frames) and the role election. At
+      # least 32 bytes; the entrypoint also refuses the .env.example placeholder.
       ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
-      PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
-      # Rosenpass (real post-quantum exchange) — container-internal UDP only
+      # Rosenpass (real post-quantum exchange, keys wg1). It binds alice's wg0
+      # address on this port and initiates to bob's wg0 address, so the
+      # exchange runs inside wg0. Only the lower wg0 address of a pair
+      # initiates; bob answers (nodes/alice/entrypoint.sh says why).
       RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
       RP_PEER_PORT: ${RP_LISTEN_PORT:-9997}
       ROSENPASS_SECRET_DIR: /etc/rosenpass-secret
@@ -181,7 +210,6 @@ services:
       KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
       KMS_RETRY_INTERVAL: ${KMS_RETRY_INTERVAL:-10s}
     volumes:
-      - pqc-psk-alice:/var/lib/rosenpass
       - rosenpass-keys-alice:/etc/rosenpass-secret
       - wg-keys-alice:/etc/wireguard
       - node-pubkeys:/shared
@@ -199,6 +227,7 @@ services:
       context: .
       dockerfile: nodes/alice/Dockerfile
     container_name: bob
+    # No IPC_LOCK: see alice.
     cap_add: [NET_ADMIN, SYS_MODULE]
     devices: ["/dev/net/tun:/dev/net/tun"]
     sysctls:
@@ -216,7 +245,14 @@ services:
       WG_LOCAL_IP: ${WG_BOB_IP:-10.0.0.2}
       WG_PEER_IP: ${WG_ALICE_IP:-10.0.0.1}
       WG_PEER_ENDPOINT: alice:${WG_LISTEN_PORT_ALICE:-51820}
+      # See alice: wg1 reaches alice's wg0 address, so it runs inside wg0.
+      WG1_IFACE: wg1
+      WG1_LISTEN_PORT: ${WG1_LISTEN_PORT_BOB:-51831}
+      WG1_LOCAL_IP: ${WG1_BOB_IP:-10.0.1.2}
+      WG1_PEER_IP: ${WG1_ALICE_IP:-10.0.1.1}
+      WG1_PEER_PORT: ${WG1_LISTEN_PORT_ALICE:-51830}
       ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+      PQC_ENABLED: "true"
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
       # See the note on alice: the SAE ID in the path is always the PEER.
       KMS_URL: http://bb84-kme-b:8080/api/v1/keys/ALICE
@@ -225,8 +261,7 @@ services:
       SERVER_ADDRESS: alice:9999
       ARNIKA_ID: ${ARNIKA_ID_BOB:-2}
       ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
-      PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
-      # Rosenpass (real post-quantum exchange) — container-internal UDP only
+      # Rosenpass (keys wg1): binds bob's wg0 address and answers alice.
       RP_LISTEN_PORT: ${RP_LISTEN_PORT:-9997}
       RP_PEER_PORT: ${RP_LISTEN_PORT:-9997}
       ROSENPASS_SECRET_DIR: /etc/rosenpass-secret
@@ -236,7 +271,6 @@ services:
       KMS_BACKOFF_BASE_DELAY: ${KMS_BACKOFF_BASE_DELAY:-200ms}
       KMS_RETRY_INTERVAL: ${KMS_RETRY_INTERVAL:-10s}
     volumes:
-      - pqc-psk-bob:/var/lib/rosenpass
       - rosenpass-keys-bob:/etc/rosenpass-secret
       - wg-keys-bob:/etc/wireguard
       - node-pubkeys:/shared

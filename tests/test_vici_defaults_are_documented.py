@@ -4,9 +4,10 @@
 There are no defaults, because every plausible default silently masks a
 misconfiguration that still looks like a working tunnel."
 
-That is true of the Go adapter -- `getKeyWriterService` errors on an unset
-`VICI_REAUTH_TIMEOUT` or `VICI_IKE_ROLE`, and `ViciConfig` documents every field
-as required. It was not true of the shipped deployment, which supplies
+That is true of the Go adapter -- `getKeyWriterService` in its wiring file
+`wire_strongswan_vici.go` errors on an unset `VICI_REAUTH_TIMEOUT` or
+`VICI_IKE_ROLE`, and the adapter's `Config` (package `swanvici`) documents every
+field as required. It was not true of the shipped deployment, which supplies
 `${VAR:-default}` for three of those variables in the entrypoint and the compose
 file. An operator who read the README, omitted `VICI_REAUTH_TIMEOUT` from their
 own compose file and expected an error would instead silently get 10 s -- the
@@ -89,7 +90,9 @@ def test_the_adapter_really_does_reject_unset_values():
     If the adapter ever gains its own default, the README's distinction between
     adapter and deployment collapses and the whole section needs rewriting.
     """
-    src = (ROOT / "services" / "arnika-vici" / "strongswanvici.go").read_text(encoding="utf-8")
+    # The wiring file, named `wire_` plus its build tag in the layout of upstream
+    # PR #51 (the arnika pin), is where the adapter's environment is read.
+    src = (ROOT / "services" / "arnika-vici" / "wire_strongswan_vici.go").read_text(encoding="utf-8")
     assert 'must be set' in src, "the adapter no longer errors on unset configuration"
     # The two it checks explicitly, by name.
     assert "VICI_REAUTH_TIMEOUT" in src

@@ -59,18 +59,20 @@ it reaches depends on the lane, because the two lanes consume a new key at
 different moments:
 
 - **IPsec lane.** Every rotation reauthenticates the IKE SA (VICI `rekey` with
-  `reauth=yes`, in `services/arnika-vici/repositories/strongswan-vici.go`), so
+  `reauth=yes`, in `services/arnika-vici/repositories/swanvici/vici.go`), so
   each rotation starts a new key epoch. Rotating every 30 s makes no single
   recovery harder; it makes each recovery worth one 30 s epoch of traffic.
-- **WireGuard lane.** arnika only overwrites the peer's preshared key, and
-  nothing forces a handshake. The new PSK enters the session keys at WireGuard's
+- **WireGuard lane.** arnika only overwrites the `wg0` peer's preshared key,
+  and nothing forces a handshake. The new PSK enters the session keys at WireGuard's
   next handshake, which the initiator starts about every 120 s
   (`REKEY_AFTER_TIME`) while traffic flows, and the nodes' 25 s keepalive keeps
   it flowing. So the epoch here is WireGuard's rekey interval, and the 30 s
   `ARNIKA_INTERVAL` does not shorten it: most PSKs installed at that cadence are
   replaced before any handshake uses them. arnika's v1.x design document
   recommends a 120 s interval for exactly this alignment (see
-  [`references.md`](references.md) section 3).
+  [`references.md`](references.md) section 3). The same holds for the `wg1`
+  data tunnel, whose preshared key Rosenpass renews on its own schedule: each
+  new key is used from `wg1`'s next handshake.
 
 Worth stating explicitly, because "we rotate often" otherwise reads as hygiene
 rather than as the counter to a specific adversary model, and because the
@@ -122,7 +124,8 @@ statement is that the estimates have compressed, not that a year is known.
 **Physical resource estimates have fallen too, and they bear on the classical
 halves of both lanes.** Those halves are elliptic-curve: ECP-256 (NIST P-256)
 in the IPsec lane's IKE exchange and X25519 in WireGuard's handshake, both
-prime-field curves of about 256 bits. The 2025-2026 preprints, each under stated hardware
+prime-field curves of about 256 bits, and P-384 inside the hybrid KEM of
+arnika's PQC-HPKE half. The 2025-2026 preprints, each under stated hardware
 assumptions and none of them a demonstration:
 
 | Preprint | Target | Estimate | Assumptions |
@@ -145,27 +148,40 @@ material into both.
 
 ## 4. Why hybrid, specifically
 
-Two independent hardness assumptions, combined so that breaking either alone is
+Independent hardness assumptions, combined so that breaking one alone is
 insufficient:
 
-| Lane | Mechanism | Fails to |
+| Component | Mechanism | Fails to |
 |---|---|---|
 | QKD | BB84 decoy-state, ETSI GS QKD 014 delivery | a computational break of any kind — its security is information-theoretic, conditioned on the device model |
-| PQC | Rosenpass (Classic McEliece 460896 + Kyber512) | a break of *both* a code-based and a lattice-based assumption |
+| PQC-HPKE (arnika's PQC half: the `wg0` key and the IPsec PPK) | HPKE with the KEM MLKEM1024-P384, a hybrid of ML-KEM-1024 and P-384 ECDH | a break of *both* ML-KEM-1024 (module lattice) and P-384. Against a quantum adversary P-384 falls to Shor, so against that adversary this half rests on the module-lattice assumption alone |
+| Rosenpass (the `wg1` data tunnel only) | Classic McEliece 460896 + Kyber512 | a break of *both* a code-based and a lattice-based assumption |
 
-`arnika` derives the tunnel key as
-$`\mathrm{HKDF\text{-}SHA3\text{-}256}(\mathrm{QKD} \parallel \mathrm{PQC})`$, so an
-attacker needs both. See [`vici-ppk.md`](vici-ppk.md) for how that key reaches
-IKEv2, and for the SP 800-227 combiner analysis — including where this
-construction does **not** meet the approved form.
+`arnika` derives the `wg0` key and the IPsec PPK as
+$`\mathrm{HKDF\text{-}SHA3\text{-}256}(\mathrm{QKD} \parallel \mathrm{PQC})`$, with
+the PQC half from its PQC-HPKE round, so an attacker needs both halves. On the
+WireGuard lane the data then travels in `wg1` inside `wg0`, and `wg1`'s
+session keys mix in Rosenpass's key, which is independent of arnika's: reading
+that traffic off the wire also needs the `wg1` layer. See
+[`vici-ppk.md`](vici-ppk.md) for how arnika's key reaches IKEv2, and for the
+SP 800-227 combiner analysis — including where this construction does **not**
+meet the approved form.
 
-**The mitigation this buys is specific.** Kyber512 is the pre-standardisation
-parameter set and is not approved under FIPS 203 or CNSA 2.0. What limits the
-damage is that Classic McEliece is a *different* hardness assumption — code
-based, not lattice based — so the composite survives a Kyber512 break. That is
-an argument for the hybrid construction, not an excuse for the parameter set.
+**The mitigation this buys in the Rosenpass layer is specific.** Kyber512 is the
+pre-standardisation parameter set and is not approved under FIPS 203 or
+CNSA 2.0. What limits the damage is that Classic McEliece is a *different*
+hardness assumption — code based, not lattice based — so the composite
+survives a Kyber512 break. That is an argument for the hybrid construction,
+not an excuse for the parameter set. Since 2026-09-26 this applies to `wg1`
+only: arnika's combiner no longer takes Rosenpass's key.
 
-**The KEM code in that lane is liboqs 0.8.0, not the liboqs pin.** Rosenpass
+**arnika's PQC-HPKE half uses no liboqs.** It is the Go standard library's
+`crypto/hpke` and `crypto/mlkem`, compiled into the `arnika` binary by the
+node images' Go 1.26 toolchain, and it depends on `draft-ietf-hpke-pq`, which
+is not yet an RFC; for that reason upstream's own documentation says to pin
+the Go version and re-verify interoperability on upgrade.
+
+**The KEM code in the Rosenpass exchange is liboqs 0.8.0, not the liboqs pin.** Rosenpass
 v0.2.3 depends on `oqs-sys` 0.8, which vendors and statically compiles liboqs
 0.8.0 (2023) into the `rosenpass` binary; the `submodules/liboqs` pin (0.16.0)
 is built only into the `pqc-validator` and `pqc-tls-demo` images and does not
@@ -191,12 +207,16 @@ claimed Category 3, $`2^{207}`$ classical gates:
 | Source | Estimate for mceliece460896 | Stated basis |
 |---|---|---|
 | Saarinen, [ePrint 2026/1786](https://eprint.iacr.org/2026/1786) (7 revisions, latest 2026-09-15) | $`2^{145.22}`$ bit operations, working memory $`2^{59.10}`$ bits | *"conditional arithmetic estimate"*; the model *"excludes address generation and memory traffic and uses budget estimates for some stages"* |
-| Weis, [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) (2026-09-11, rev. 2026-09-18) | $`2^{94}`$–$`2^{102}`$ in the GIJS cost model, or $`2^{114}`$–$`2^{124}`$ with GIJS's conditions unchanged (v1 abstract); the revision adds $`2^{110}`$–$`2^{128}`$ when memory is charged as the Classic McEliece security guide does — against information-set decoding at $`2^{151}`$–$`2^{287}`$ | extends the Ghoshal-Ishai-Jain-Sun hold-out distinguisher ([2026/1630](https://eprint.iacr.org/2026/1630)) to key recovery |
+| Weis, [ePrint 2026/1984](https://eprint.iacr.org/2026/1984) (2026-09-11; last of 2 revisions 2026-09-25, abstract unchanged from 2026-09-18) | $`2^{94}`$–$`2^{102}`$ in the GIJS cost model, or $`2^{114}`$–$`2^{124}`$ with GIJS's conditions unchanged (v1 abstract); the 2026-09-18 revision adds $`2^{110}`$–$`2^{128}`$ when memory is charged as the Classic McEliece security guide does — against information-set decoding at $`2^{151}`$–$`2^{287}`$ | extends the Ghoshal-Ishai-Jain-Sun hold-out distinguisher ([2026/1630](https://eprint.iacr.org/2026/1630)) to key recovery |
 
 **What they do not say, stated first because the numbers invite the wrong
 reading.** Weis's abstract is explicit: *"None of this is close to practical,
-and several ingredients are heuristic."* (revised abstract, 2026-09-18; v1 read
-*"None of the Classic McEliece computations is close to practical"*). The
+and several ingredients are heuristic."* (abstract as revised on 2026-09-18 and
+unchanged on 2026-09-25; v1 read *"None of the Classic McEliece computations is
+close to practical"*). The 2026-09-25 revision changes only the note on the
+paper's page, which now says that earlier versions over-estimated the McEliece
+parameter sizes needed for the claimed security levels and had *"some errors in
+the cost analysis"* (re-checked 2026-09-26). The
 demonstrations are on toy challenge instances, not parameter sets — Weis solved
 TII label 253 ($`m=8`$, $`t=9`$, $`n=214`$); Saarinen solved TII-254 ($`m=8`$,
 $`t=12`$, $`n=223`$, a $`[223,127]`$ code) using 27.2 GPU-hours on GH200s
@@ -214,9 +234,12 @@ specifically and predates Weis's extraction, so it is not a refutation of the
 whole line. Citing it as one would be the mirror image of citing the cost
 estimates as a break.
 
-**What this changes here, precisely.** The hybrid argument in the table above is
-untouched: code-based and lattice-based remain different assumptions, and a
-composite still requires breaking both. What is being re-estimated is the stated
+**What this changes here, precisely.** The hybrid argument in the Rosenpass row
+of the table above is untouched: code-based and lattice-based remain different
+assumptions, and a composite still requires breaking both. Since 2026-09-26 its
+reach is also smaller: mceliece460896 protects the key of the `wg1` data tunnel
+only, because arnika's combiner, and so the `wg0` key and the IPsec PPK, no
+longer takes Rosenpass's output. What is being re-estimated is the stated
 *reason* for the choice. The pinned `rosenpass/src/pqkem.rs` says: *"Classic
 McEliece is chosen because of its high security margin and its small
 ciphertexts."* The margin is the thing under scrutiny.
@@ -255,9 +278,10 @@ per instrument, each read at its source:
 | UK NCSC, [PQC migration timelines](https://www.ncsc.gov.uk/guidance/pqc-migration-timelines) | UK organisations | discovery and an initial plan by **2028**; highest-priority migrations by **2031**; complete by **2035** | guidance, not statute |
 | Japan, inter-ministerial liaison council on PQC use in government agencies, [interim summary](https://www.cas.go.jp/jp/seisaku/pqc/pdf/report_202511.pdf) (2025-11) | Japanese government agencies | migrate "in principle" by **2035**; a roadmap is to follow | interim, government-internal |
 | Singapore CSA, *Quantum-Safe Migration Handbook V1* (2026-07-16) | Critical Information Infrastructure operators | migration plan **2027-03-31**; procurement **2028-01-01**; complete **2031-12-31** | guidance; the enforcing instrument is the CCoP |
+| ANSSI, *Transition post-quantique d'IPsec*, technical sheet [ANSSI-FT-117](https://messervices.cyber.gouv.fr/documents-guides/transition_post_quantique_ipsec.pdf), version 1.0 (2026-02-02) | IPsec/IKEv2 deployments | none; a pre-shared key "can be a temporary measure" in the transition, and hybridisation must follow | recommendations, stated as non-normative |
 
-The Japanese report is in Japanese, and its phrases below are this project's
-translation.
+The Japanese report and the ANSSI sheet are in Japanese and French, and their
+phrases below are this project's translation.
 
 **These instruments do not agree about this design, and the disagreement is
 quoted rather than summarised because it is the point.**
@@ -354,22 +378,39 @@ the same way on the PQC side only: [CRYPTREC LS-0001-2022R2](https://www.cryptre
 (updated 2026-03-30) adds a PQC table whose only key-establishment entries are
 ML-KEM-768 and ML-KEM-1024 -- no Classic McEliece and no ML-KEM-512.
 
+**Conditionally, from France, on this exact mechanism.** ANSSI-FT-117 is the
+one instrument found that addresses the delivery mechanism here, an IKEv2 PPK,
+by RFC number. Its section 3.1 accepts a pre-shared key for post-quantum
+confidentiality, "notably if" the key's classical and post-quantum
+confidentiality and integrity are assured, and says that using one "can be a
+temporary measure" in the transition; hybridisation is "the solution preferred
+by ANSSI" and has to follow. It states RFC 8784's limitation -- the pre-shared
+key protects the keys of later Child SAs, not the IKEv2 exchanges themselves
+-- and cites RFC 9867 as the extension that lifts it, the limitation
+[`vici-ppk.md`](vici-ppk.md) section 2 records for this lane. And it warns that
+a compromise of the pre-shared key is **retroactive**: every IKEv2 session that
+used it falls with it to a store-now-decrypt-later attacker, so classical
+forward secrecy survives and post-quantum forward secrecy does not. That is the
+case for rotating the PPK (§2.1). QKD appears nowhere in it.
+
 **Against, from the EU, more explicitly than the roadmap itself.** The NIS
 Cooperation Group's roadmap never mentions QKD; its FAQ does. It defines a
 hybrid as a post-quantum algorithm combined with a quantum-vulnerable one and
 says *"The EU Roadmap on PQC does not consider hybrids mechanisms using quantum
 key distribution (QKD) or using more than one PQC mechanism"* (section 3.1),
 and it concludes that *"QKD is currently not considered a viable quantum-safe
-alternative"* (section 5.6). Under that definition neither arnika's QKD ‖ PQC
-combination nor Rosenpass's McEliece + Kyber pairing counts as a hybrid; the
-IPsec lane's ECP-256 + ML-KEM-768 exchange is the one construction here that
-does.
+alternative"* (section 5.6). Under that definition arnika's QKD ‖ PQC
+combination does not count as a hybrid, and neither does Rosenpass's McEliece +
+Kyber pairing, which joins two post-quantum mechanisms. Two constructions here
+do: the IPsec lane's ECP-256 + ML-KEM-768 exchange, and the MLKEM1024-P384 KEM
+inside arnika's PQC-HPKE half, which pairs ML-KEM-1024 with P-384 ECDH.
 
 **How to hold these together.** No authority surveyed endorses the whole
 construction. BSI recommends the McEliece parameter set this ships and does not
 recommend QKD ([`references.md`](references.md)); OMB is wary of both hybrid
 complexity and symmetric-key protocols, and the DoW memo phases PSK-based
-quantum resistance out across its Components; the EU treats QKD as not viable;
+quantum resistance out across its Components; ANSSI accepts a PPK only as a
+temporary measure and prefers hybridisation; the EU treats QKD as not viable;
 Singapore endorses layered QKD and AES-256 PSK; Japan lists QKD as something
 that could be considered. A reading that quotes only the supportive ones is
 overclaiming, and the honest framing is the **crypto-agility and
@@ -393,13 +434,16 @@ the CNSA 2.0 FAQ. Nothing dated after that appears on it, so the CNSA 2.0
 timeline is unchanged as far as this page shows.
 
 Counting the instruments in this section and in [`references.md`](references.md)
-section 4: of eight surveyed, **five are sceptical of QKD** (NSA, BSI, the DoW,
-the EU NIS Cooperation Group, the UK NCSC), **one never mentions it** (OMB and
-EO 14412), and **two treat it as an option** (Singapore for layered defence,
-Japan as something that could be considered). None endorses the whole
-construction. The conditionals matter -- NSA's objection is "unless the
-limitations are overcome", not "never" -- but a reading that cites Singapore
-without the other seven is selecting its evidence.
+section 4: of nine surveyed, **five are sceptical of QKD** (NSA, BSI, the DoW,
+the EU NIS Cooperation Group, the UK NCSC), **two never mention it** (OMB and
+EO 14412; ANSSI-FT-117), and **two treat it as an option** (Singapore for
+layered defence, Japan as something that could be considered). ANSSI's
+scepticism about QKD is on record elsewhere, in the 2024 joint position paper
+listed in [`references.md`](references.md) section 4; the IPsec sheet itself
+is silent. None endorses the whole construction. The conditionals matter --
+NSA's objection is "unless the limitations are overcome", not "never" -- but a
+reading that cites Singapore without the other eight is selecting its
+evidence.
 
 **CNSA 2.0** (US National Security Systems) names **ML-KEM-1024** for key
 establishment and **ML-DSA-87** for signatures as its only general-purpose
@@ -430,7 +474,10 @@ both `IKE_PROPOSALS` and `ESP_PROPOSALS` in `docker-compose.strongswan.yml`
 would change curve and KEM together (`ecp384-ke1_mlkem1024`). Even then the
 lane would not conform: it authenticates with a PSK and a PPK rather than
 ML-DSA-87, and it mixes in a QKD-derived key, which the same FAQ tells NSS
-owners not to use without consulting NSA. Stated as a direction, not as done.
+owners not to use without consulting NSA. arnika's PQC-HPKE half happens to
+pair ML-KEM-1024 with P-384, but it reaches IKEv2 only as part of a PPK derived
+with HKDF-SHA3-256 alongside the QKD key, so it does not change that
+conclusion. Stated as a direction, not as done.
 
 ## 6. What this project does not claim
 
@@ -454,6 +501,7 @@ owners not to use without consulting NSA. Stated as a direction, not as done.
 | US federal dates | EO 14412 (2026-06-22), sections 4(b) and 6(c); OMB M-26-15 (2026-06-24) ([PDF](https://www.whitehouse.gov/wp-content/uploads/2026/06/M-26-15-Execution-of-the-Migration-to-Post-Quantum-Cryptography.pdf)) |
 | EU hybrid definition and QKD position | NIS Cooperation Group, *EU Roadmap on PQC -- Frequently Asked Questions*, 2026-04-15, sections 3.1, 5.6 and 6 ([PDF](https://ec.europa.eu/newsroom/dae/redirection/document/132120)) |
 | Japan | Inter-ministerial liaison council on PQC use in government agencies, interim summary, November 2025 ([PDF](https://www.cas.go.jp/jp/seisaku/pqc/pdf/report_202511.pdf), in Japanese); CRYPTREC LS-0001-2022R2, updated 2026-03-30 |
+| France, IKEv2 pre-shared keys | ANSSI, *Transition post-quantique d'IPsec*, ANSSI-FT-117, version 1.0, 2026-02-02 ([PDF](https://messervices.cyber.gouv.fr/documents-guides/transition_post_quantique_ipsec.pdf), in French), section 3.1; read 2026-09-26. Published under Licence Ouverte v2.0, which permits reuse with attribution to the source and the date of its last update |
 | Physical resource estimates | the arXiv preprints linked in section 3, each read at its abstract page 2026-09-25 |
 
 
@@ -461,10 +509,11 @@ owners not to use without consulting NSA. Stated as a direction, not as done.
 
 `submodules/arnika`'s README states that arnika **v1.x** was developed within
 the EU EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
-(<https://qci-cat.at/hsm-backup-using-qkd>). The pinned `main` is later work:
-upstream credits CANCOM Converged Services GmbH with the initial prototype and
-earlier versions, and says development has continued at XBC Digital GmbH since
-Q2 2026. Because this repository vendors arnika and cites that lineage, a
+(<https://qci-cat.at/hsm-backup-using-qkd>). The pin is later work -- the head
+of the open pull request arnika#51, built on `main` -- and upstream credits
+CANCOM Converged Services GmbH with the initial prototype and earlier versions,
+and says development has continued at XBC Digital GmbH since Q2 2026. Because
+this repository vendors arnika and cites that lineage, a
 reader could reasonably assume it implements that use case. It does not, and
 the difference is worth stating precisely.
 
@@ -498,7 +547,7 @@ only; see [`references.md`](references.md) section 3 for the document):
 
 | Item | D6.1 |
 |---|---|
-| Sites | a CANCOM data centre at Euro Plaza, Vienna, and NTT's "Vienna 1" data centre, about 3.8 km apart |
+| Sites | a CANCOM data centre at Euro Plaza, Vienna, and NTT's "Vienna 1" data centre, about 2.5 km apart by road and joined by dark fibre about 3.8 km long (D6.1 pp. 27-28; the link budget assumed 4 km of fibre, p. 30). This row said "about 3.8 km apart" until 2026-09-26, which is the fibre length |
 | QKD | ID Quantique Cerberis XG, provided by AIT; arnika reads keys over ETSI 014 from its embedded KMS |
 | HSMs | two Thales Luna A700 network HSMs, firmware LunaSA 7.8.4 |
 | VPN | WireGuard only; IPsec was evaluated and not chosen |

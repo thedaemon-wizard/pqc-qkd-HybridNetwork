@@ -4,8 +4,10 @@ Actionable work items beyond the current PoC. The code base must remain stable
 before starting any of these.
 
 Status is stated and dated per entry, and reviewed against the implemented
-tree rather than carried forward untouched. Last full review: 2026-09-25. A
-review date older than the newest entry below is a defect in this file.
+tree rather than carried forward untouched. Last full review: 2026-09-25; the
+entries dated 2026-09-26 came with the arnika #51 adoption and were checked
+against the tree that day. A review date older than the newest entry below is
+a defect in this file.
 
 ## Completed since this roadmap was written
 
@@ -35,7 +37,7 @@ open" below.
 |---|---|
 | No real error correction | `reconciliation.py` hashes Alice's bits and applies a heuristic entropy margin. $`f_{\mathrm{EC}}`$ is an assumed constant, and no leakage is measured. |
 | ~~First-order finite-key term only~~ **CLOSED 2026-08-28** | Was "not a composable security proof". It now is one: Lim et al. PRA 89, 022307 (2014) with $`\varepsilon_{\text{sec}}`$ and $`\varepsilon_{\text{cor}}`$ tracked separately and a key LENGTH in bits. See [`keyrate.md`](keyrate.md) section 5. The residual caveat is different in kind and is stated there -- the counts fed to the estimators are EXPECTED under the channel model, not observed, so the output is an expected key length and the $`\varepsilon_{\text{sec}}`$ guarantee does not attach to a simulated number. |
-| **Upstream plans to remove the file-based PQC handover** | Open arnika PR [#51](https://github.com/arnika-project/arnika/pull/51), *feat(keyreader): pqc-hpke (RFC 9180)*, replaces it with an HPKE key reader. This PoC's PQC half IS that handover: Rosenpass writes `/var/lib/rosenpass/pqc.psk` and arnika reads it through `PQC_PSK_FILE`, wired in `nodes/alice/entrypoint.sh` and asserted in the `ipsec` CI job. Measured on 2026-09-25 at head `f4cf9ba` (55 commits, +10,721/-1,264 across 68 files): `PQC_PSK_FILE` is removed from `config/`, and the three files this repository's build asserts on move -- `repositories/kms.go` to `repositories/kms/kms.go`, `repositories/wireguard-netlink.go` to `repositories/wgnetlink/netlink.go`, and `wireguardnetlink.go` to `wire_wireguard_netlink.go`. So the `grep -q` guards in both node Dockerfiles and the build-tag rewrite in `services/arnika-vici/build.sh` will fail on a bump past it, loudly and by design. **Not urgent -- `main` still has `PQC_PSK_FILE`** and the pin (`3a8cc13`) is on `main`. What changes is the planning assumption: the Rosenpass-file integration has a stated end of life. Re-read the PR before the next pin bump. |
+| ~~Upstream plans to remove the file-based PQC handover~~ **ADOPTED 2026-09-26** | Open arnika PR [#51](https://github.com/arnika-project/arnika/pull/51), *feat(keyreader): pqc-hpke (RFC 9180)*, replaced the file handover this PoC's PQC half used (Rosenpass wrote `/var/lib/rosenpass/pqc.psk`, arnika read it through `PQC_PSK_FILE`) with an in-band HPKE key agreement between the arnika peers. This repository now pins `f4cf9ba`, the PR's head (2026-09-24), ahead of its merge: every arnika instance runs `PQC_ENABLED=true` with `QkdAndPqcRequired`, and Rosenpass keys the separate `wg1` data tunnel inside `wg0`, the layering of the reference paper. The three files the build asserts on moved as recorded here before (`repositories/kms/kms.go`, `repositories/wgnetlink/netlink.go`, `wire_wireguard_netlink.go`), and the VICI adapter moved to the one-method port. What remains open is listed under "Follow-ups from adopting arnika #51" below. |
 | Static channel model | Measured field data (arXiv:2608.18869): the mostly aerial link showed about twice the QBER of the mostly buried one despite lower attenuation, measured in separate campaigns, and its QBER correlates with wind speed (r = 0.78 at 15-minute resolution, section IV.B). See [`references.md`](references.md). The model cannot express that. |
 | The asymptotic decoy bound takes $`Y_0`$ as known | `asymptotic_skr_per_pulse` and its TypeScript port use the configured dark-count yield directly. A real protocol bounds it from the vacuum decoy ($`Y_0^L`$). The finite-key rate the backends report already estimates the vacuum term from decoy counts; see [`keyrate.md`](keyrate.md) sections 4 and 5. Recorded 2026-09-25. |
 | Rotation cadence set by policy, not by link capacity | At the measured 12-22 bit/s a 256-bit key needs 12-20 s to accumulate; `ARNIKA_INTERVAL` should be derived from measured SKR. |
@@ -373,10 +375,11 @@ or comes back as new work.
 ## Deferred from the 2026-09-25 batch
 
 Found or decided during the 2026-09-25 batch and left for a later change of
-its own. Two related items live elsewhere in this file and are not repeated:
-$`Y_0^L`$ in the asymptotic bound (Known gaps) and the arnika bump past PR #51
-(Known gaps); Protocol Lab maximum-flow capacity and concurrent demands are
-under that decision record's "Still open".
+its own. Related items live elsewhere in this file and are not repeated:
+$`Y_0^L`$ in the asymptotic bound (Known gaps); the arnika bump past PR #51,
+done on 2026-09-26 (Known gaps, and its follow-ups below); Protocol Lab
+maximum-flow capacity and concurrent demands, under that decision record's
+"Still open".
 
 | Item | What is wrong or missing | What closing it involves |
 |---|---|---|
@@ -387,7 +390,25 @@ under that decision record's "Still open".
 | oqs-provider | The pin is `5fd81fb` (2026-05-12), 37 commits past 0.10.0 on `main`. `main` has 20 commits more, among them four fixes the pin lacks -- a heap overflow (#810), a double free (#816), a use-after-free (#829) and missing length checks on hybrid KEM public keys (#814), listed in the header of `services/pqc-tls-demo/Dockerfile.oqs-provider` -- and the re-activation of HQC (#787). 0.11.0 (2025-12-24) is on a release branch that does not contain the pin, and 0.12.0 is at rc2 (2026-09-16). | Bump once 0.12.0 is final, rebuilding against the pinned liboqs; the Dockerfile's per-group negotiation check then shows whether HQC groups can join `TLS_GROUPS`. |
 | qkdnetsim v3.1.4 | The pin `1cda34c` (2026-05-03) is three commits before v3.1.3 and four before v3.1.4 (2026-09-21). Those four add QKD+PQC key mixing to the key-management layer (`7a99fc17`) and move qkdnetsim to NS-3 v3.48, while `services/qkdnetsim-kme/Dockerfile` builds NS-3 v3.46. | Low priority: nothing runs qkdnetsim. Bump the pin and `NS3_REF` together, and build the image by hand, since CI does not build it. |
 | Strawberry Fields | Archived upstream on 2026-01-16, and still installed in the `bb84-kme` image (editable, from `submodules/strawberryfields`) because the `cvqkd` backend runs its Gaussian simulator. It imports `pkg_resources`, which holds `setuptools<81` in `services/bb84-kme/requirements.txt` and `constraints.txt`. | Replace the dependency in `cvqkd_backend.py`, then drop the submodule and the `setuptools` hold. `tests/test_cvqkd_is_a_cv_protocol.py` must keep passing. |
-| Base images | The WireGuard node image (`nodes/alice/Dockerfile`) is still on bookworm: its runtime (`debian:bookworm-slim`, line 89), its Rust stage (`rust:1.90-bookworm`, line 65) and its arnika stage (`golang:1.26-bookworm`, line 27). The strongSwan node's runtime is on trixie, but its arnika stage is `golang:1.26-bookworm` too (`nodes/strongswan/Dockerfile`, line 82). `services/qkdnetsim-kme/Dockerfile` is on `ubuntu:22.04`. | Move the bookworm stages to trixie and the Rust stage to a current image, each verified by the `images` CI job. The Go stages must stay on Go 1.26 or later (arnika uses `runtime/secret`). |
+| Base images | The WireGuard node image (`nodes/alice/Dockerfile`) is still on bookworm: its runtime (`debian:bookworm-slim`), its Rust stage (`rust:1.90-bookworm`) and its arnika stage (`golang:1.26-bookworm`). The strongSwan node's runtime is on trixie, but its arnika stage is `golang:1.26-bookworm` too (`nodes/strongswan/Dockerfile`). `services/qkdnetsim-kme/Dockerfile` is on `ubuntu:22.04`. | Move the bookworm stages to trixie and the Rust stage to a current image, each verified by the `images` CI job. The Go stages must stay on Go 1.26 or later (arnika uses `runtime/secret`). |
+
+## Follow-ups from adopting arnika #51 (2026-09-26)
+
+The pin moved to `f4cf9ba`, the head of the open arnika PR #51, for release
+0.2.0, which is not tagged yet (see Known gaps above and
+[`phases.md`](phases.md)). What that left open:
+
+| Item | What is open | What closing it involves |
+|---|---|---|
+| Re-pin on merge | `submodules/arnika` points at the head of a pull request that is open and has no upstream review (checked 2026-09-26), not at a commit on upstream `main`. A change to the branch before it merges would change what the pin means, while the notices, the build guards and these documents describe `f4cf9ba`. | Re-pin to the merge commit on `main` as soon as #51 merges: diff it against `f4cf9ba`, re-run the build guards and CI, and update the `arnika` row of [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Until then, move the pin only after reading what changed on the branch. |
+| Before/after measurement of the IPsec lane's authentication failures | Planned, not done. Two arms of 168 hours on the same host and configuration, one at the previous pin `3a8cc13` and one at `f4cf9ba`, with the counting rules fixed before either run. | Run both arms, then report each arm's rotations and failures split by alice's role and by class, with exact binomial confidence intervals. The design, the held-constant settings and the counting rules are in [`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race). |
+| What `3e02741` does to the rotation race | Expected to move, not close, the window -- unmeasured. Reading the code, the BACKUP now installs before it ACKs and the PRIMARY after, so intervals where alice is PRIMARY are expected to be safe from this race and intervals where alice is BACKUP to become the exposed ones, since alice is always the IKE initiator. | The measurement above decides it. If failures appear in alice-BACKUP intervals, the candidate mitigations are a generation-scoped `PPK_ID` ([`vici-ppk.md`](vici-ppk.md), "The actual fix") or delaying the initiator's reauthentication; neither is started before the numbers exist. |
+| New fail-closed paths and start offsets | Under `QkdAndPqcRequired` the pinned arnika installs a random key when a BACKUP interval ends without a `key_id`, when the PRIMARY gets no ACK, and when no PQC-HPKE key exists yet. Its interval counter is per process, so two processes started at different moments disagree about which interval a `key_id` belongs to: local runs without alignment showed `no key_id from the peer` invalidations on the later-started node, at the end of 13 of its 21 BACKUP intervals over three WireGuard runs and twice in one IPsec run of about 6 minutes (observations, not a measurement). The WireGuard entrypoint now starts arnika on a wall-clock interval boundary, which restores the start synchronisation that lane had before; the IPsec entrypoint deliberately does not, so that both arms of the measurement run the same entrypoint start behaviour, with the start offset measured in each arm ([`BUILD.md` 7.3](BUILD.md#73-starting-arnika-on-the-interval-boundary)). Neither is a mitigation of the rotation race. The alignment also holds only at the start: each ticker re-bases after its own processing, so the offset between the two ends wanders by milliseconds per interval (in that IPsec run, from about 255 ms to about 217 ms over 12 intervals). From reading the code, a BACKUP that lags its PRIMARY by more than the PRIMARY's KMS fetch time can receive the `key_id` before its own boundary and count it in its previous interval, and it then fails closed at the end of the current interval if the next `key_id` is not early too, in practice at its BACKUP-to-PRIMARY transitions; in the IPsec run bob received early `key_id`s in intervals 2 to 8, 10 and 11 and invalidated only at 8 and 11. | Count `no key_id from the peer` on both nodes of each lane over a long window (on the IPsec lane, arm B's), beside the offset between the two ends' interval boundaries over time, the early `key_id`s and any interval in which their interval numbers differ, so the effect of the start offset and its drift is a number rather than an expectation. `scripts/ppk_race_report.py` records these for the IPsec pair; no tool records them for the WireGuard pair yet, whose lines are compared by hand. |
+| Raise the single-restart case on arnika#51 | Neither lane's start timing helps a node restarted alone: its count starts again at 0 while its peer's does not, the two HMAC elections stop being complementary, and in each interval where both come out BACKUP both ends fail closed. On the WireGuard lane two containers that reach the alignment on either side of a boundary start whole intervals apart, with the same result. This is #51's behaviour, from reading the code; not measured. | Measure it first: a local run that recreates only `bob-ipsec`, counting both-BACKUP intervals and invalidations on both nodes against a run that recreates both. Then raise it on #51 with those numbers and the drift above, leaving the design (for example a shared interval epoch) to upstream. Until then the operating rule stands: the two nodes of a pair are recreated together. |
+| The PQC-HPKE read gap | Each peer reads the latest published PQC-HPKE key when it builds its PSK: the PRIMARY before it sends the `key_id` (`main.go:369`), the BACKUP after its `dec_keys` request. The two reads are apart by the `key_id` delivery plus a KME round trip, and a round published between them gives the peers different keys until the next rotation. Upstream's `docs/pqc-hpke.md` calls closing it an open design question. | Upstream's to settle. Here, compare the two nodes' `round agreed a fresh PQC key` lines for any failing interval, so this cause is not confused with the race. |
+| SP 800-227, the PQC input | The combiner's PQC input is now an HPKE export over MLKEM1024-P384. Whether that counts as derived from an approved KEM is open, and FixedInfo is still absent ([`vici-ppk.md`](vici-ppk.md#appendix-sp-800-227-and-this-projects-key-combiner)). | Revisit when draft-ietf-hpke-pq is published as an RFC or a draft of SP 800-56C Rev. 3 appears. |
+| One Rosenpass initiator per pair | Only the node with the lower `wg0` address initiates the Rosenpass exchange; the other answers and never initiates, which is how rosenpass v0.2.3 behaves when a peer has no endpoint, not an interface it documents ([`BUILD.md` 7.2](BUILD.md#72-arnika-and-the-two-wireguard-interfaces)). With both ends initiating, cold starts left the two ends on different `wg1` keys for 120 s. | `tests/test_rosenpass_responder_never_initiates.py` ties the assumption to the pinned rosenpass commit (`512fe42`, v0.2.3) and checks the source lines it rests on. Re-check the behaviour whenever `submodules/rosenpass` moves; that test fails on the new commit until it is updated, so a bump cannot skip the re-check. |
+| Upstream's description of this project | The arnika README, at `f4cf9ba` too, describes this project's lanes as fusing the key of a McEliece + Kyber512 PQC sidecar, which stopped being true on 2026-09-26. | Offer the maintainers replacement text; the wording of their README is theirs to decide. |
 
 ## Status as of 2026-08-21
 
@@ -470,8 +491,8 @@ Re-verified 2026-09-25 against the code.
 - **ETSI GS QKD 014 runs without TLS.** The KMEs serve plain HTTP and arnika
   connects without a client certificate, while ETSI 014 specifies mutually
   authenticated TLS between SAE and KME. arnika at the pin already reads
-  `CERTIFICATE`, `PRIVATE_KEY` and `CA_CERTIFICATE` (`config/config.go:21-23`,
-  `keyreader.go:10`); this repository's compose files and entrypoints set none
+  `CERTIFICATE`, `PRIVATE_KEY` and `CA_CERTIFICATE` (`config/config.go:26-28`,
+  used at `wire_qkd_kms.go:30`); this repository's compose files and entrypoints set none
   of them, the KME configures no TLS, and nothing consumes `pki/`. Required
   before any hardware-in-the-loop run against a real KMS; see
   [`LIMITATIONS.md`](LIMITATIONS.md).
@@ -487,17 +508,20 @@ Re-verified 2026-09-25 against the code.
     `dispensable()`. Upstream: given that 503, `kmsRequest` read a closed
     response body after its retry loop
     ([arnika#43](https://github.com/arnika-project/arnika/issues/43)). That was
-    fixed by #44 and #49, both merged 2026-09-02 (#44 as `40f96ec`), and the
-    pin `3a8cc13` contains them. Both node Dockerfiles assert it
-    (`grep -q "ErrKMSUnavailable"`), so a bump to a revision without the fix
-    fails the build.
+    fixed by #44 and #49, both merged 2026-09-02 (#44 as `40f96ec`), and both
+    the previous pin `3a8cc13` and the current `f4cf9ba` contain them. Both
+    node Dockerfiles assert it (the KMS sentinel, `ErrUnavailable` in package
+    `kms` since #51), so a bump to a revision without the fix fails the build.
   * The failing run of 2026-09-25 carries neither signature: no retrieval
     failure, and both sides fed HKDF the same QKD half. The PQC half written by
-    the Rosenpass sidecar is the input not yet ruled out. The 2026-08-23 finding
-    that both nodes held byte-identical PQC halves held for that run only.
-  * How often runs fail has not been re-measured on the current pin, so no
-    rate is stated here; the per-run figures of 2026-08-29 predate it. The
-    20 % ceiling in `.github/workflows/ci.yml` is unchanged.
+    the Rosenpass sidecar was the input not yet ruled out for that run; the
+    2026-08-23 finding that both nodes held byte-identical PQC halves held for
+    that run only. Since 2026-09-26 there is no such file on this lane: the PQC
+    half is arnika's own PQC-HPKE key, and the corresponding suspect is the
+    read gap described in [`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race).
+  * How often runs fail has not been measured on either of the last two pins,
+    so no rate is stated here; the per-run figures of 2026-08-29 predate both.
+    The 20 % ceiling in `.github/workflows/ci.yml` is unchanged.
 
   Withdrawn readings, kept so they are not re-derived: that the failure count
   was "bimodal, 4 or 0, never 1 to 3" (the series once the dump was made
@@ -530,6 +554,11 @@ Kept with their dates so the roadmap does not argue for work that exists.
   * **Ping is not the check.** After the WireGuard fix it was 0 % loss in all
     directions while alice had installed no PSK at all -- WireGuard runs
     perfectly well unprotected. Count PSK installs. Checklist rows 2.11 and 3.5.
+    Since version 0.2.0 both halves of this changed: every `wg0` and `wg1`
+    peer starts with a random placeholder PSK, so a `preshared key` line no
+    longer shows that a daemon wrote it, and an unkeyed tunnel no longer
+    passes traffic. The evidence is arnika's install lines together with a
+    recent handshake and a ping that answers over the interface.
   * **`docker compose up` does not rebuild.** One attempt at "the second
     instance never started" was the old entrypoint still in the image; the
     running container had no trace of the variable it was supposed to read.

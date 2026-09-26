@@ -1,8 +1,12 @@
-// Package repositories provides arnika key-writer adapters.
+// Package swanvici is an arnika key writer for strongSwan.
 //
-// This file implements a strongSwan key-writer that speaks the VICI protocol
-// natively over its unix socket, delivering the arnika-derived HKDF(QKD || PQC)
-// secret as an RFC 8784 Post-quantum Preshared Key (PPK).
+// It speaks the VICI protocol natively over charon's unix socket and delivers
+// the arnika-derived HKDF-SHA3-256(QKD || PQC-HPKE) secret as an RFC 8784
+// Post-quantum Preshared Key (PPK).
+//
+// One package per adapter, as upstream's KEYCONTROL.md lays out
+// ("repositories/<pkg>/", like wgnetlink and wgmikrotik). The name is not
+// "vici" so it cannot clash with govici's own package of that name.
 //
 // Why a PPK and not an IKEv2 PSK
 //
@@ -28,18 +32,15 @@
 //	command performs a destructive sync: it calls get-shared and then
 //	unload-shared for every vici-injected id absent from swanctl.conf, which
 //	would silently delete the rotating QKD PPK.
-package repositories
+package swanvici
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/strongswan/govici/vici"
@@ -61,28 +62,30 @@ import (
 // invented, and an invented MUST in a security citation is what a reviewer
 // checks first.
 //
-// 32 bytes is nevertheless the right floor here, for a reason specific to this
-// deployment rather than to the RFC: every PPK reaching SetPSK is a 32-byte
-// HKDF-SHA3-256 output from arnika. A shorter one means the key path is broken
-// upstream, not that an operator chose weaker material, so rejecting it is a
-// liveness check rather than a policy knob.
+// 32 bytes is nevertheless the right floor here, for a reason specific to arnika
+// rather than to the RFC. Every key arnika hands to SetPSK is 32 bytes:
+//
+//   - with PQC_ENABLED=true (this lane), the HKDF-SHA3-256 output of kdf.DeriveKey,
+//     whose length is fixed at 32 bytes;
+//   - with PQC_ENABLED=false, the raw QKD key passed through unchanged, which is
+//     32 bytes because arnika requests `size=256` bits from the KME;
+//   - on invalidation, the 32 random bytes of KeyWriterService.InvalidateTunnel.
+//
+// A shorter key therefore means the key path is broken upstream, not that an
+// operator chose weaker material, so rejecting it is a liveness check rather
+// than a policy knob. The second case is the one that could change without a
+// code change here: a KME that ignores the requested size would reach this
+// check, which is the point of it.
 const minPPKBytes = 32
 
 // unloadTimeout bounds a single unload-shared. See unloadPPK for why it does not
 // share the rotation's deadline.
 const unloadTimeout = 5 * time.Second
 
-// randRead is indirected so tests can assert InvalidateTunnel's behaviour
-// deterministically. Production always reads from crypto/rand.
-var randRead = func(b []byte) error {
-	_, err := rand.Read(b)
-	return err
-}
-
-// ViciConfig is the configuration surface of the strongSwan VICI key writer.
+// Config is the configuration surface of the strongSwan VICI key writer.
 // Every field is required; there are no defaults that could silently mask a
 // misconfiguration.
-type ViciConfig struct {
+type Config struct {
 	// SocketPath is charon's VICI unix socket (charon.plugins.vici.socket).
 	SocketPath string
 	// ConnectionName is the swanctl connection to reauthenticate, and must
@@ -137,7 +140,7 @@ type ViciConfig struct {
 	DriveReauth bool
 }
 
-func (c ViciConfig) validate() error {
+func (c Config) validate() error {
 	switch {
 	case c.SocketPath == "":
 		return errors.New("vici: SocketPath must be set")
@@ -157,18 +160,25 @@ func (c ViciConfig) validate() error {
 	return nil
 }
 
-// StrongswanViciRepository is an arnika key-writer backed by strongSwan's VICI
-// interface. It satisfies the services.KeyWriterService repository port:
+// Repository is an arnika key writer backed by strongSwan's VICI interface. It
+// satisfies arnika's one-method key-writer port (services/keywriter.go):
 //
-//	InvalidateTunnel() error
-//	SetPSK(psk string) error
-type StrongswanViciRepository struct {
-	cfg ViciConfig
+//	SetPSK(psk []byte) error
+//
+// Invalidation is not implemented here. arnika's KeyWriterService.InvalidateTunnel
+// generates 32 random bytes and calls SetPSK with them, which over VICI is
+// exactly what this adapter's own InvalidateTunnel used to do: load a PPK the
+// peer cannot match and reauthenticate, so the next IKE_AUTH fails visibly.
+//
+// There is no mutex either. KeyWriterService.mu serialises every SetPSK call,
+// including the ones InvalidateTunnel makes, so the generation counter and
+// loadedID below are only ever touched by one call at a time.
+type Repository struct {
+	cfg Config
 
 	// dial is indirected so tests can supply a fake VICI server.
 	dial func() (*vici.Session, error)
 
-	mu         sync.Mutex
 	generation uint64
 	// loadedID is the credential id currently installed, retained so it can be
 	// unloaded only after its successor is confirmed live.
@@ -178,14 +188,14 @@ type StrongswanViciRepository struct {
 	bootstrapRetired bool
 }
 
-// NewStrongswanViciRepository creates a VICI-backed key writer. It performs a
-// version() round trip so that a bad socket path or a charon without the vici
-// plugin fails here, at construction, rather than at the first key rotation.
-func NewStrongswanViciRepository(cfg ViciConfig) (*StrongswanViciRepository, error) {
+// NewRepository creates a VICI-backed key writer. It performs a version() round
+// trip so that a bad socket path or a charon without the vici plugin fails
+// here, at construction, rather than at the first key rotation.
+func NewRepository(cfg Config) (*Repository, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	r := &StrongswanViciRepository{
+	r := &Repository{
 		cfg: cfg,
 		dial: func() (*vici.Session, error) {
 			return vici.NewSession(vici.WithSocketPath(cfg.SocketPath))
@@ -229,7 +239,7 @@ func NewStrongswanViciRepository(cfg ViciConfig) (*StrongswanViciRepository, err
 // this node on the bootstrap PPK, mismatched against the peer, until the next
 // rotation. Older generations are unloaded because leaving several credentials
 // answering one PPK_ID makes charon's lookup ambiguous.
-func (r *StrongswanViciRepository) reconcile(ctx context.Context, sess *vici.Session) error {
+func (r *Repository) reconcile(ctx context.Context, sess *vici.Session) error {
 	ids, err := r.sharedIDs(ctx, sess)
 	if err != nil {
 		return fmt.Errorf("vici: cannot reconcile existing credentials: %w", err)
@@ -282,8 +292,12 @@ func (r *StrongswanViciRepository) reconcile(ctx context.Context, sess *vici.Ses
 // SetPSK installs psk as the RFC 8784 PPK and reauthenticates the IKE_SA so the
 // new key actually enters the key schedule.
 //
-// psk is standard base64 of the raw derived key, matching what arnika's main
-// loop hands to every key writer.
+// psk is the raw key, as arnika hands it to every key writer. It is not base64:
+// arnika stopped encoding at the caller so that the key never has to become an
+// immutable Go string it cannot clear. The caller clears psk as soon as this
+// returns (writePSK's `defer clear(psk)`, and InvalidateTunnel's own), so this
+// function must not keep a reference to the slice. It does not: loadPPK copies
+// the bytes into the VICI message, and nothing else retains them.
 //
 // The sequence is deliberately overlap-then-swap:
 //
@@ -311,22 +325,17 @@ func (r *StrongswanViciRepository) reconcile(ctx context.Context, sess *vici.Ses
 //
 // Closing that gap properly means subscribing to the `ike-updown` event stream
 // rather than polling, and is tracked in docs/roadmap.md.
-func (r *StrongswanViciRepository) SetPSK(psk string) error {
-	raw, err := base64.StdEncoding.DecodeString(psk)
-	if err != nil {
-		return fmt.Errorf("vici: PSK is not valid base64: %w", err)
-	}
-	if len(raw) < minPPKBytes {
+func (r *Repository) SetPSK(psk []byte) error {
+	if len(psk) < minPPKBytes {
 		// "this adapter requires", not "RFC 8784 requires": the RFC requires no
 		// length at all. See minPPKBytes for what its Sec. 6 actually says.
 		return fmt.Errorf(
 			"vici: PPK is %d bytes, this adapter requires at least %d -- the 256 bits "+
 				"of entropy RFC 8784 Sec. 6 calls the strongest practice",
-			len(raw), minPPKBytes)
+			len(psk), minPPKBytes)
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// No lock here: KeyWriterService.SetPSK holds its mutex around this call.
 
 	sess, err := r.dial()
 	if err != nil {
@@ -340,7 +349,7 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 	next := fmt.Sprintf("%s-%d", r.cfg.CredentialPrefix, r.generation+1)
 	previous := r.loadedID
 
-	if err := r.loadPPK(ctx, sess, next, raw); err != nil {
+	if err := r.loadPPK(ctx, sess, next, psk); err != nil {
 		return err
 	}
 	if err := r.assertLoaded(ctx, sess, next); err != nil {
@@ -375,7 +384,7 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 	r.retireBootstrap(ctx, sess)
 
 	log.Printf("[INFO] [VICI] PPK rotated (id=%s ppk_id=%s bytes=%d)",
-		next, r.cfg.PPKID, len(raw))
+		next, r.cfg.PPKID, len(psk))
 	return nil
 }
 
@@ -386,7 +395,7 @@ func (r *StrongswanViciRepository) SetPSK(psk string) error {
 // non-QKD key answering the PPK_ID for the lifetime of the process. Failure is
 // logged, never returned -- the rotation itself succeeded, and reporting an
 // error here would send arnika into InvalidateTunnel over a cleanup step.
-func (r *StrongswanViciRepository) retireBootstrap(ctx context.Context, sess *vici.Session) {
+func (r *Repository) retireBootstrap(ctx context.Context, sess *vici.Session) {
 	if r.bootstrapRetired {
 		return
 	}
@@ -444,22 +453,7 @@ func (r *StrongswanViciRepository) retireBootstrap(ctx context.Context, sess *vi
 		r.cfg.BootstrapCredentialID, r.cfg.PPKID)
 }
 
-// InvalidateTunnel installs a locally-generated random PPK, which the peer
-// cannot match, and reauthenticates. This mirrors the netlink adapter, where
-// arnika deliberately breaks the session whenever no acceptable key material is
-// available, so that a failure is visible as a dead tunnel rather than as
-// traffic still flowing under a stale key.
-func (r *StrongswanViciRepository) InvalidateTunnel() error {
-	random := make([]byte, minPPKBytes)
-	if err := randRead(random); err != nil {
-		return fmt.Errorf("vici: cannot generate random PPK: %w", err)
-	}
-	log.Printf("[WARN] [VICI] invalidating tunnel: installing a random local PPK; " +
-		"the peer cannot match it and the IKE_SA will fail to reauthenticate")
-	return r.SetPSK(base64.StdEncoding.EncodeToString(random))
-}
-
-func (r *StrongswanViciRepository) loadPPK(ctx context.Context, sess *vici.Session, id string, raw []byte) error {
+func (r *Repository) loadPPK(ctx context.Context, sess *vici.Session, id string, raw []byte) error {
 	msg := vici.NewMessage()
 	if err := msg.Set("id", id); err != nil {
 		return fmt.Errorf("vici: encoding id: %w", err)
@@ -472,6 +466,14 @@ func (r *StrongswanViciRepository) loadPPK(ctx context.Context, sess *vici.Sessi
 	}
 	// VICI values are arbitrary blobs; the 0x/0s prefixes are a swanctl.conf
 	// convention decoded client-side, not by charon. Send raw bytes.
+	//
+	// string(raw) is the one unclearable copy of the key this adapter makes, and
+	// it cannot be avoided: govici v0.8.2's Message.Set stores only string,
+	// []string or *Message (addItem in vici/message.go), and a []byte goes
+	// through its Slice branch into addItem's default case, errUnsupportedType.
+	// This is the "adapter that genuinely needs a string" that arnika's
+	// keyWriterRepository comment describes: the copy is made here, at the
+	// boundary that needs it, and not for every writer.
 	if err := msg.Set("data", string(raw)); err != nil {
 		return fmt.Errorf("vici: encoding data: %w", err)
 	}
@@ -486,7 +488,7 @@ func (r *StrongswanViciRepository) loadPPK(ctx context.Context, sess *vici.Sessi
 	return checkSuccess(resp, "load-shared "+id)
 }
 
-func (r *StrongswanViciRepository) unloadPPK(parent context.Context, sess *vici.Session, id string) error {
+func (r *Repository) unloadPPK(parent context.Context, sess *vici.Session, id string) error {
 	msg := vici.NewMessage()
 	if err := msg.Set("id", id); err != nil {
 		return fmt.Errorf("vici: encoding id: %w", err)
@@ -517,7 +519,7 @@ func (r *StrongswanViciRepository) unloadPPK(parent context.Context, sess *vici.
 // ceremony: unload-shared reports success for ids that never existed, so
 // get-shared is the only reliable existence check, and an id-less load would
 // silently not appear here at all.
-func (r *StrongswanViciRepository) assertLoaded(ctx context.Context, sess *vici.Session, id string) error {
+func (r *Repository) assertLoaded(ctx context.Context, sess *vici.Session, id string) error {
 	keys, err := r.sharedIDs(ctx, sess)
 	if err != nil {
 		return err
@@ -531,7 +533,7 @@ func (r *StrongswanViciRepository) assertLoaded(ctx context.Context, sess *vici.
 }
 
 // sharedIDs lists every shared-secret id charon currently holds.
-func (r *StrongswanViciRepository) sharedIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
+func (r *Repository) sharedIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
 	resp, err := sess.Call(ctx, "get-shared", vici.NewMessage())
 	if err != nil {
 		return nil, fmt.Errorf("vici: get-shared: %w", err)
@@ -564,7 +566,7 @@ func (r *StrongswanViciRepository) sharedIDs(ctx context.Context, sess *vici.Ses
 // multiplier, not a leak: a two-node run reached 140 concurrent IKE_SAs in nine
 // minutes and was still climbing. `ike-id` makes one rotation cost exactly one
 // reauthentication regardless of how many SAs happen to exist.
-func (r *StrongswanViciRepository) reauthenticate(ctx context.Context, sess *vici.Session) error {
+func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) error {
 	ids, err := r.saIDs(ctx, sess)
 	if err != nil {
 		return err
@@ -632,7 +634,7 @@ func (r *StrongswanViciRepository) reauthenticate(ctx context.Context, sess *vic
 //
 // The loud WARN is the point: a lane that never comes up must be visible in the
 // log rather than inferred from an empty `swanctl --list-sas`.
-func (r *StrongswanViciRepository) initiate(ctx context.Context, sess *vici.Session) error {
+func (r *Repository) initiate(ctx context.Context, sess *vici.Session) error {
 	msg := vici.NewMessage()
 	if err := msg.Set("child", r.cfg.ChildName); err != nil {
 		return fmt.Errorf("vici: encoding child: %w", err)
@@ -693,7 +695,7 @@ func newestSAID(ids []string) string {
 // failure is not merely noisy: arnika answers a failed SetPSK by calling
 // InvalidateTunnel, which installs a deliberately unmatched random PPK, turning
 // a benign startup race into a tunnel that cannot come up at all.
-func (r *StrongswanViciRepository) saIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
+func (r *Repository) saIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
 	msg := vici.NewMessage()
 	if err := msg.Set("ike", r.cfg.ConnectionName); err != nil {
 		return nil, fmt.Errorf("vici: encoding ike: %w", err)

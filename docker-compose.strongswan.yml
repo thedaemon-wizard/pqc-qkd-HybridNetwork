@@ -2,8 +2,16 @@
 # Override file: strongSwan IPsec/IKEv2 nodes (alice-ipsec, bob-ipsec).
 #
 #   * RFC 9370 hybrid key exchange : ECP-256 + ML-KEM-768
-#   * RFC 8784 PPK                 : arnika's HKDF(QKD || PQC) output,
-#                                    injected natively over the VICI socket
+#   * RFC 8784 PPK                 : arnika's HKDF-SHA3-256(QKD || PQC-HPKE)
+#                                    output, injected natively over the VICI
+#                                    socket
+#
+# No Rosenpass on this lane. The PQC half is agreed by arnika itself, over
+# HPKE with the peer (KEM MLKEM1024-P384, codepoint 0x0051 from
+# draft-ietf-hpke-pq, not yet an RFC), on the same authenticated UDP channel
+# as the key_ID, so these nodes mount no key file and depend on no WireGuard
+# node. The arnika pin is the head of the still-OPEN upstream PR #51; see
+# .gitmodules.
 #
 # Apply with:
 #   docker compose -f docker-compose.yml -f docker-compose.strongswan.yml \
@@ -43,6 +51,15 @@ x-ipsec-crypto: &ipsec-crypto
   VICI_PPK_ID: ppk-qkd@pqcqkd.local
   VICI_REAUTH_TIMEOUT: ${VICI_REAUTH_TIMEOUT:-10s}
   ARNIKA_MODE: ${ARNIKA_MODE:-QkdAndPqcRequired}
+  # arnika's own HPKE key agreement with the peer supplies the PQC half.
+  # Set here, in the anchor, and not per node: both peers must agree, and
+  # MODE=QkdAndPqcRequired refuses to start with it off. entrypoint.sh
+  # rejects any value but exactly `true` or `false`, because arnika treats
+  # every other string as off. The PQC round settings (PQC_ROUND_INTERVAL,
+  # PQC_ROUND_TIMEOUT, PQC_MAX_KEY_AGE) are left unset on purpose: arnika
+  # derives them from INTERVAL, and pinning copies here would let them drift
+  # from ARNIKA_INTERVAL below.
+  PQC_ENABLED: "true"
   # 30s is a DEVIATION from the reference design, recorded here because it is a
   # candidate variable in the unresolved intermittent PPK mismatch rather than a
   # value that was reasoned about when it was chosen.
@@ -62,8 +79,11 @@ x-ipsec-crypto: &ipsec-crypto
   # (IsPrimary in submodules/arnika/config/config.go), so at 30s the role is
   # re-elected four times as often as at 120s. What survived the change is the
   # exchange itself: the PRIMARY fetches enc_keys and sends the key_id, and the
-  # BACKUP resolves it through dec_keys. That exchange is where the mismatch has
-  # been localised.
+  # BACKUP resolves it through dec_keys. At the previous pin (3a8cc13) that
+  # exchange was where the mismatch had been localised. At this pin the PRIMARY
+  # writes its key only after the BACKUP acknowledges the key_id; reading the
+  # code suggests that moves the exposed intervals from alice-PRIMARY to
+  # alice-BACKUP rather than removing them. That is not measured yet.
   #
   # Moving this lane to a CNSA 2.0 profile is not a change of one variable
   # either. NSA's IKEv2 profile keeps CNSA 1.0 key establishment (ECDH P-384)
@@ -76,7 +96,6 @@ x-ipsec-crypto: &ipsec-crypto
   # interval is not the only thing setting the cadence. See docs/vici-ppk.md.
   ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
   ARNIKA_PSK: ${ARNIKA_PSK:?ARNIKA_PSK must be set in .env}
-  PQC_PSK_FILE: /var/lib/rosenpass/pqc.psk
 
 services:
 
@@ -116,17 +135,12 @@ services:
       # decides both. It is unrelated to arnika's PRIMARY/BACKUP election, which
       # alternates every interval and decides who *generates* the key.
       VICI_IKE_ROLE: initiator
-    volumes:
-      # The PQC half of HKDF(QKD || PQC). Without this mount PQC_PSK_FILE never
-      # exists, arnika's PQC reader yields nothing, and MODE=QkdAndPqcRequired
-      # correctly refuses to derive a key -- the previous config omitted the
-      # mount entirely and silently degraded to QKD-only.
-      - pqc-psk-alice:/var/lib/rosenpass
+    # Only the KME. The PQC half no longer comes from a Rosenpass key file
+    # written by the WireGuard node, so there is no volume to share with it
+    # and no reason to start it first.
     depends_on:
       bb84-kme-a:
         condition: service_healthy
-      alice:
-        condition: service_started
     # The ping is an ESP probe, not a health criterion: `|| true` keeps a
     # dropped echo (the moment between two CHILD_SAs) from marking the node
     # unhealthy. Without it nothing on the host ever sent traffic through the
@@ -173,13 +187,9 @@ services:
       # See alice-ipsec. Must be the opposite role.
       VICI_IKE_ROLE: responder
       VICI_CREDENTIAL_PREFIX: qkd-alice
-    volumes:
-      - pqc-psk-bob:/var/lib/rosenpass
     depends_on:
       bb84-kme-b:
         condition: service_healthy
-      bob:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "swanctl --list-algs | grep -q ML_KEM_768"]
       interval: 15s

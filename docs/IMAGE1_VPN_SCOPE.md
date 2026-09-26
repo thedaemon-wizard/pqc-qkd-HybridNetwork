@@ -28,18 +28,18 @@ in [`roadmap.md`](roadmap.md) on the three "phase" schemes.
 | Image element | On `/e2e` (`e2eSim.ts`, `QuantumSecureE2E.tsx`) | Running counterpart, outside `/e2e` |
 |---|---|---|
 | Site A / Site B boundary | `ArchSvg`, centre divider line | Two containers on one host; see [`LIMITATIONS.md`](LIMITATIONS.md) |
-| **KEY-CONTROL function** "ARNIKA" | Step 2 draws the QKD surrogate; step 3 runs the HKDF | `submodules/arnika` (Go, unmodified) in `alice`/`bob` |
-| **PQC function** "ROSENPASS" | Step 3: `pqcSecret = randomBytes(32)` in modes B and C; nothing is exchanged | Rosenpass sidecar in `alice`/`bob` (Classic McEliece 460896 + Kyber512) |
-| **VPN function** "WIREGUARD" | Step 4: ChaCha20-Poly1305 over 64 ping-sized payloads keyed by the derived value | Kernel WireGuard in `alice`/`bob`, or `wireguard-go` when the kernel module is absent |
+| **KEY-CONTROL function** "ARNIKA" | Step 2 draws the QKD surrogate; step 3 runs the HKDF | `submodules/arnika` (Go, not modified here; pinned to the head of the open upstream PR #51) in `alice`/`bob` |
+| **PQC function** "ROSENPASS" | Step 3: `pqcSecret = randomBytes(32)` in modes B and C; nothing is exchanged | No single component since 2026-09-26. The PQC key arnika mixes in (label B) now comes from arnika itself, a PQC-HPKE round with its peer (HPKE, MLKEM1024-P384). Rosenpass still runs in `alice`/`bob` (Classic McEliece 460896 + Kyber512), but it keys the separate `wg1` data tunnel, which is the reference paper's layering rather than this figure's |
+| **VPN function** "WIREGUARD" | Step 4: ChaCha20-Poly1305 over 64 ping-sized payloads keyed by the derived value | Kernel WireGuard in `alice`/`bob`, or `wireguard-go` when the kernel module is absent: `wg0`, keyed by arnika, and `wg1` inside it, keyed by Rosenpass |
 | **KMS Keystore [ETSI 014]** | A key-pool counter: step 1 adds one key, step 2 draws one in modes A and C | `services/bb84-kme/app/etsi014.py` |
 | **QKD KEY** (label A) | Step 2: `qkdKey = randomBytes(32)` and `keyId = crypto.randomUUID()`, modes A and C | ETSI 014 `enc_keys` / `dec_keys` between arnika and `bb84-kme` |
-| **PQC KEY** (label B) | Step 3: `pqcSecret = randomBytes(32)`, modes B and C | The Rosenpass output file arnika reads through `PQC_PSK_FILE` |
+| **PQC KEY** (label B) | Step 3: `pqcSecret = randomBytes(32)`, modes B and C | The 32-byte export of arnika's PQC-HPKE round, held in memory; no file (`PQC_PSK_FILE` was removed by the unmerged arnika#51 that the pin follows) |
 | **QKD+PQC KEY** (label C) | Step 3: `deriveHkdfSha3(qkdKey, pqcSecret, mode)` in `lib/sim/crypto.ts`, 32 bytes | arnika `DeriveKey`, `submodules/arnika/kdf/kdf.go:17-39` |
 | **HKDF (SHA3)** (circle inside ARNIKA) | HKDF-SHA3-256 over `qkd ‖ pqc`, salt `pqcqkd-e2e`, info `mode-A`/`mode-B`/`mode-C` | Same hash, different parameters: arnika passes a nil salt and nil info, so the page's value is **not** the PSK arnika would derive from the same inputs |
 | **QKD key_ID exchange** (green dashed line) | SVG animation during step 2 only; no `dec_keys` request is made | arnika peers send the `key_ID` over UDP and the BACKUP resolves it with `dec_keys` |
-| **PQC KEY exchange** (pink curve) | SVG animation during step 3, modes B and C only | The Rosenpass handshake between the two sidecars |
+| **PQC KEY exchange** (pink curve) | SVG animation during step 3, modes B and C only | The PQC-HPKE round between the two arnika peers, over arnika's own UDP socket |
 | **Quantum channel** (purple dashed arc) | SVG animation during step 1 only | The BB84 simulation inside `bb84-kme`, which depends on the selected backend |
-| **Mode A / B / C** labels | `setMode(...)` calls `simRef.current.setMode(...)`, no HTTP. A omits the PQC secret, B omits the QKD key, C uses both | arnika's `MODE` is a fallback policy, not a fixed key set; compose defaults `ARNIKA_MODE` to `QkdAndPqcRequired` |
+| **Mode A / B / C** labels | `setMode(...)` calls `simRef.current.setMode(...)`, no HTTP. A omits the PQC secret, B omits the QKD key, C uses both | arnika's `MODE` is a fallback policy, not a fixed key set; compose defaults `ARNIKA_MODE` to `QkdAndPqcRequired`, with `PQC_ENABLED` true on every arnika instance |
 | **ETSI interface E** | Badge animation during step 2 | `etsi014.py` serves `/api/v1/keys/{SAE}/{enc,dec}_keys`; wire format below |
 | **Secure Application Entity** (purple dashed box) | SVG only | arnika's README defines the SAE as WireGuard + PQC + arnika, i.e. each node container |
 
@@ -47,7 +47,7 @@ in [`roadmap.md`](roadmap.md) on the three "phase" schemes.
 comparison of `kms.go` against `etsi014.py` is not well-formed -- the first is
 an HTTP *client*, the second a FastAPI *server*, and no code path compares
 them. What arnika depends on is the field names: its `kmsKey` and
-`kmsResponse` structs (`submodules/arnika/repositories/kms.go:43-50`) read
+`kmsResponse` structs (`submodules/arnika/repositories/kms/kms.go:43-50`) read
 `key_ID`, `key` and `keys`, `etsi014.py` (`KeyDTO`, `KeysResponse`) emits
 exactly those, and the CI job `live-stack` drives the real endpoints with
 `tests/test_etsi014_contract.py`.
@@ -93,11 +93,11 @@ secrets into the WireGuard PSK channel. The closest alternative is
 
 | | `arnika` (this PoC) | `mullvad/wgephemeralpeer` |
 |---|---|---|
-| Origin | Originally CANCOM Converged Services GmbH (v1.x under EU EUROQCI / QCI-CAT); maintained at XBC Digital GmbH since Q2 2026. The pin is on `main`, which has diverged from `v1.x` | Mullvad VPN |
+| Origin | Originally CANCOM Converged Services GmbH (v1.x under EU EUROQCI / QCI-CAT); maintained at XBC Digital GmbH since Q2 2026. The pin is the head of the open PR #51, built on `main`, which has diverged from `v1.x` | Mullvad VPN |
 | Language | Go | Go |
 | License | Apache-2.0 | GPL-3.0 |
-| Pinned revision | `3a8cc13` (2026-09-11) | `0080bf8` (2026-05-08) |
-| Key sources | QKD (ETSI 014) ‖ PQC (Rosenpass file) | PQC handshake: Classic McEliece 460896 Round3 + ML-KEM-1024 (default `-kem cme-mlkem`; the Kyber1024 variants are listed as obsolete) |
+| Pinned revision | `f4cf9ba` (2026-09-24) | `0080bf8` (2026-05-08) |
+| Key sources | QKD (ETSI 014) ‖ PQC (its own HPKE round with the peer, MLKEM1024-P384) | PQC handshake: Classic McEliece 460896 Round3 + ML-KEM-1024 (default `-kem cme-mlkem`; the Kyber1024 variants are listed as obsolete) |
 | KDF | HKDF-SHA3-256 (`submodules/arnika/kdf/kdf.go:17-39`) | embedded in `mullvad-upgrade-tunnel` |
 | WireGuard hook | `wgctrl` netlink, write `preshared-key` | `PostUp = mullvad-upgrade-tunnel -wg-interface %i` |
 | QKD support | Yes (ETSI 014 native) | No (PQC-only) |

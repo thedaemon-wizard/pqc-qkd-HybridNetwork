@@ -8,23 +8,23 @@ are kept short; the longer history of a pin is under
 
 | Submodule | License | Project | Phase | Activity (verified 2026-09-25) |
 |---|---|---|---|---|
-| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `3a8cc13` (2026-09-11), which is `main` HEAD: post-v1.x work, not the `v1.x` branch. Three fixes reported from this project are upstream (#42, #44, #49). Open PR #51 would make the next bump a breaking one. See [arnika](#arnika). |
-| `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | pinned to `5a1a854b`, the tag **0.16.0** (2026-07-09), built into the `pqc-validator` and `pqc-tls-demo` images. It is not the liboqs in the Rosenpass lane (see `oqs-sys` below). Inside the affected range of GHSA-wh5q-mpc8-67wf, whose code is not compiled here. See [liboqs](#liboqs). |
+| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `f4cf9ba` (2026-09-24), the head of the **open, unmerged** PR #51 (`pqc-hpke`), not a `main` commit: post-v1.x work, not the `v1.x` branch. It contains all of `main` except its two newest commits, which touch only the README (`164ee4e`, and `3a8cc13`, the previous pin). To be re-pinned to the merge commit once #51 merges. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-09-26. See [arnika](#arnika). |
+| `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | pinned to `5a1a854b`, the tag **0.16.0** (2026-07-09), built into the `pqc-validator` and `pqc-tls-demo` images. It is not the liboqs in the Rosenpass exchange (see `oqs-sys` below), and arnika uses none. Inside the affected range of GHSA-wh5q-mpc8-67wf, whose code is not compiled here. See [liboqs](#liboqs). |
 | `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `5fd81fb4`, a `main` commit 37 past the 0.10.0 tag, not a release. 22 commits behind 0.12.0-rc2 and missing four memory-safety fixes made there; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
-| `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange. Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
+| `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange that keys the `wg1` data tunnel (since 2026-09-26; it no longer feeds arnika). Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
 | `SimQN` | GPL-3.0 (upstream: "GPLv3") | QNLab, USTC (Cui et al.) | 8 | pinned to `29a94689`, the tag **v0.2.3**, the latest release. `main` is 42 commits ahead, with changes to modules this project does not import. The installed distribution reports version 0.2.1, from upstream's own `setup.py`. Imported in-process by `bb84-kme`; see the licence notes below. |
 | `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | pinned to `ffd7c837`, the tag **v1.0.0** (2026-06-17). v1.2.0 is out (`344c3997`, 2026-09-12, 64 commits past the pin) and deferred to its own change. Brings the LGPL `gmpy2` into the `bb84-kme` process. See [SeQUeNCe](#sequence). |
 | `qkdnetsim` | GPL-2.0-only (SPDX headers; `LICENSE` is the GPL v2 text) | QKDNetSim project (Mehic et al.) | 8 | pinned to `1cda34cb` (2026-05-03), 4 commits behind `v3.1.4` (`e6330fe6`, 2026-09-21). Not bumped: no qkdnetsim binary is executed here. Compiled together with ns-3 (below) by `services/qkdnetsim-kme/Dockerfile`. See [qkdnetsim](#qkdnetsim). |
 | `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | pinned to `f952c355`, the tag **v2.2.0** (2026-06-17). Vendored for the roadmap; nothing shipped is produced from it. |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | pinned to `162125d8`, the final `master` commit, 8 commits past the last tag `v0.23.0-post1`. **Archived on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
 | `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned to `4cac9df0`, the tag **v2.0.4** (2026-02); `tno` backend and key-rate cross-check. |
-| `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; des/md4/md5 plugins differ) | strongSwan project | 9 | pinned to `b43f6bfe`, the annotated tag **6.1.0** (tagged 2026-09-06, released 2026-09-07), moved up from 6.0.7 for [`50177b40`](https://github.com/strongswan/strongswan/commit/50177b4004d1fec4299cd7bed4a3c7fb0f4208d7), which enforces `ppk_required` on the initiator (see [`vici-ppk.md`](vici-ppk.md)). Built into the `alice-ipsec` / `bob-ipsec` image only. See [strongswan](#strongswan). |
+| `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; des/md4/md5 plugins differ) | strongSwan project | 9 | pinned to `b43f6bfe`, the annotated tag **6.1.0** (tagged 2026-09-06, released 2026-09-07), moved up from 6.0.7 for [`50177b40`](https://github.com/strongswan/strongswan/commit/50177b4004d1fec4299cd7bed4a3c7fb0f4208d7), which enforces `ppk_required` on the initiator (see [`vici-ppk.md`](vici-ppk.md)). 6.1.0 is also this lane's **security floor**: it fixes CVE-2026-78133 (6.0.0 and later, reachable here because the lane accepts multiple key exchanges) and CVE-2026-78127 (4.1.2 and later). Built into the `alice-ipsec` / `bob-ipsec` image only. See [strongswan](#strongswan). |
 | `qkd-pqc-paper-supplementary` | **NONE — no licence file of any kind** | aparcar / Spooren et al. | 9 | pinned to `712e4b36`. Reference only: not redistributed, not built into any image, and not to be vendored into a derived work without the authors' permission. |
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | pinned to `0080bf8d` (2026-05-08), 45 commits past the latest release v1.0.6 (2025-02-03), which is an ancestor of the pin rather than a newer release. Vendored as a benchmark reference; not built or integrated. |
 | `qkd_kme_server` | MIT (`LICENSE`: "MIT License, Copyright (c) 2025 Thomas Prévost") | Thomas Prévost (`thomasarmel`) | 14 | pinned to `4d53a3dc` (2026-04-01), upstream HEAD, 80 commits past its only tag, the pre-release `v0.0.1-alpha`. No upstream commits since, so current rather than actively developed. Rust ETSI GS QKD 014 v1.1.1 KME, **vendored for reference and not built**: no Dockerfile, compose file or Makefile target compiles or runs it (checked 2026-09-25). |
 | `oqs-sys` (crate) | MIT OR Apache-2.0; the liboqs 0.8.0 it bundles is MIT with per-component terms (see [rosenpass](#rosenpass)) | Open Quantum Safe project | 0–7 | 0.8.0, from Rosenpass's `Cargo.lock`. Vendors liboqs **0.8.0** (2023) and compiles it statically into `rosenpass` in the `node-alice` image; that image redistributes it. |
 | `govici` (Go module) | MIT | strongSwan project | 9 | v0.8.2 (the latest, 2026-02-27), the official VICI client; compiled into the `arnika` binary of the strongSwan node image by `services/arnika-vici/build.sh`. |
-| arnika's Go dependencies | BSD-3-Clause, MIT or Apache-2.0, per module | various | 0–7, 9 | every `arnika` binary statically links the modules it imports from `submodules/arnika/go.mod`: `golang.org/x/*`, `wgctrl` and `wireguard`, `google/uuid`, `mdlayher/*`, `containernetworking/plugins`, and `josharian/native` (MIT), which `mdlayher/netlink` imports and so comes with it. Most of these are `// indirect` in that `go.mod`, reached through its four direct requirements (`containernetworking/plugins`, `google/uuid`, `golang.org/x/crypto` and `wgctrl`). |
+| arnika's Go dependencies | BSD-3-Clause, MIT or Apache-2.0, per module | various | 0–7, 9 | every `arnika` binary statically links the modules it imports from `submodules/arnika/go.mod`: `golang.org/x/*`, `wgctrl` and `wireguard`, `google/uuid`, `mdlayher/*`, `containernetworking/plugins`, and `josharian/native` (MIT), which `mdlayher/netlink` imports and so comes with it. Most of these are `// indirect` in that `go.mod`, reached through its five direct requirements (`containernetworking/plugins`, `google/uuid`, `golang.org/x/crypto`, `golang.org/x/sys` and `wgctrl`); `golang.org/x/sys` became direct with #51, at the same v0.45.0, for its process hardening. The PQC-HPKE key agreement adds no module: it is the Go standard library's `crypto/hpke` and `crypto/mlkem` (BSD-3-Clause, like the rest of the standard library every Go binary links). |
 | `ns-3` (ns-3-dev, tag `ns-3.46`) | GPL-2.0-only | nsnam | 8 | not vendored: cloned at build time by `services/qkdnetsim-kme/Dockerfile` and compiled with qkdnetsim; the build output ships in the image that carries it and is never executed here. See [qkdnetsim](#qkdnetsim). |
 | `gmpy2` (PyPI) | **LGPL-3.0-or-later** | gmpy2 developers; GMP, MPFR and MPC projects | 8 | 2.3.1 in the `bb84-kme` image, required by SeQUeNCe and imported into the service process. Its wheel bundles GMP (LGPL-3.0-or-later or GPL-2.0-or-later), MPFR and MPC (both LGPL-3.0-or-later) as shared objects. |
 | `certifi`, `tqdm`, `fqdn` (PyPI) | MPL-2.0 (`tqdm`: MPL-2.0 AND MIT) | respective authors | 0–12 | certifi 2026.7.22 in `bb84-kme` and `webui-backend`; tqdm 4.70.1 and fqdn 1.5.1 in `bb84-kme`. Transitive and unmodified. |
@@ -65,32 +65,38 @@ retry loop reported 503 and 403 identically -- requested in review on #44 and
 taken rather than left to the maintainer). The patch files and their
 `git apply` steps are deleted. What remains is a build-time assertion for each
 fix that the image actually compiles: `nodes/alice/Dockerfile` asserts both
-(`found := false` for #42, **`ErrKMSUnavailable`** for #44/#49), and
-`nodes/strongswan/Dockerfile` asserts `ErrKMSUnavailable` only, because the
-netlink peer lookup #42 fixed is not compiled into the VICI build. A future bump
-to a revision lacking either fix fails the build rather than shipping silently.
-The assertion targets the SENTINEL NAME, not the message text: the wording
-changed once between the PR and the merge, and
-`errors.Is(err, ErrKMSUnavailable)` is what a caller branches on.
+(`found := false` for #42, the KMS sentinel for #44/#49), and
+`nodes/strongswan/Dockerfile` asserts the sentinel only, because the netlink
+peer lookup #42 fixed is not compiled into the VICI build. A future bump to a
+revision lacking either fix fails the build rather than shipping silently. At
+the `f4cf9ba` pin the checks read `repositories/wgnetlink/netlink.go` and
+`repositories/kms/kms.go`, where #51 moved them, and the sentinel is
+`ErrUnavailable` in package `kms`: #51 renamed `ErrKMSUnavailable` when it gave
+the reader its own package, with the message text unchanged. The assertion
+targets the sentinel rather than the message because
+`errors.Is(err, kms.ErrUnavailable)` is what a caller branches on; the rename
+means each bump has to re-check the name as well.
 
-**The previous bump also moved a build tag.** Upstream added
-`&& !wireguard_netlink_netns` to `wireguardnetlink.go` when it landed the netns
-writer (#48), which `build.sh` asserts on and which correctly failed the build
-until updated. The underlying shape is unchanged -- the default writer is
-selected by a trailing negation, so every new adapter must be enumerated or it
-collides -- and `strongswan_vici` is still not enumerated upstream, so the
-local narrowing in `build.sh` is still required.
+**The build tag the local build narrows kept its first line.** #51 renamed
+`wireguardnetlink.go` to `wire_wireguard_netlink.go`, and its first line is
+byte-identical to the one `services/arnika-vici/build.sh` rewrites. The shape is
+unchanged -- the default writer is selected by a trailing negation, so every new
+adapter must be enumerated or it collides -- and `strongswan_vici` is still not
+enumerated upstream, so the local narrowing is still required. `build.sh` now
+also stops if upstream ever ships a `wire_strongswan_vici.go` or a
+`repositories/swanvici/` of its own.
 
-**The next bump will be a breaking one.** Open PR #51 (`pqc-hpke`; 55 commits,
-+10,721/-1,264 on 2026-09-25) removes the file-based PQC source,
-`PQC_PSK_FILE`, which is the path the Rosenpass lane feeds, and moves three
-files the local build asserts on: `repositories/kms.go` to
-`repositories/kms/kms.go`, `repositories/wireguard-netlink.go` to
-`repositories/wgnetlink/netlink.go`, and `wireguardnetlink.go` to
-`wire_wireguard_netlink.go`. The `grep -q` guards and the build-tag rewrite fail
-loudly on such a tree by design, so the bump cannot ship silently; the Rosenpass
-integration needs a new path first. See [`roadmap.md`](roadmap.md) for the
-maintainer's statement of the direction.
+**#51 is adopted, ahead of its merge.** The pin moved on 2026-09-26 from
+`3a8cc13` to `f4cf9ba`, the head of the open PR #51 (`pqc-hpke`; 55 commits past
+the merge base, +10,721/-1,264 across 68 files). It removes the file-based PQC
+source, `PQC_PSK_FILE`, which is how Rosenpass's output used to reach arnika: arnika now
+agrees its PQC key with its peer over HPKE, and Rosenpass keys the separate
+`wg1` data tunnel instead. It also replaced the two-method key-writer port with
+`SetPSK(psk []byte) error`, which is why the VICI adapter moved to its own
+package. The pin is an unreviewed pull request head, so three things follow:
+the "on `main`" statements this row used to make no longer hold, a change to
+the branch before merge may alter what is pinned here, and the pin is re-pinned
+to the merge commit as soon as #51 merges. See [`roadmap.md`](roadmap.md).
 
 **NOT post-v1.0.1.** `v1.0.1` (`ef5a5c6`) lives only on the `v1.x` branch and
 the two have **diverged**, so the pin does not contain what GitHub labels the
@@ -116,8 +122,9 @@ the affected range, but nothing built here compiles the affected code:
 `services/pqc-tls-demo/Dockerfile.oqs-provider` passes any stateful-signature
 option to CMake. Bump to 0.17.0, with `liboqs-python`, when it is tagged.
 
-This pin does not reach the WireGuard lane: Rosenpass compiles its own liboqs
-0.8.0 (see [rosenpass](#rosenpass)).
+This pin reaches neither VPN lane: Rosenpass compiles its own liboqs 0.8.0
+(see [rosenpass](#rosenpass)), and arnika's PQC-HPKE half uses the Go standard
+library.
 
 ### oqs-provider
 
@@ -165,7 +172,7 @@ later, because a dependency (`clap_lex` 1.1.0) declares edition 2024, so
 **The KEMs come from liboqs 0.8.0.** Rosenpass depends on `oqs-sys` 0.8 with the
 `classic_mceliece` and `kyber` features; `oqs-sys` 0.8.0 vendors liboqs 0.8.0
 (released 2023) and its build script always compiles that copy, statically,
-into the `rosenpass` binary. So the WireGuard lane's post-quantum key exchange
+into the `rosenpass` binary. So the post-quantum key exchange that keys `wg1`
 does not use the liboqs pin above and does not get its fixes. In particular
 0.8.0 predates liboqs 0.9.1, 0.9.2 and 0.10.1, each a security release for
 potential non-constant-time behaviour in Kyber (KyberSlash). Two things limit
@@ -230,6 +237,23 @@ the next architecture pass rather than treating the pin as evidence the field
 is static.
 
 ### strongswan
+
+**6.1.0 is a security floor for this lane, not only a behaviour fix.** Its
+release notes list eleven CVEs. Read against this lane's configuration:
+CVE-2026-78133 (a use-after-free in rekey collisions that involve multiple key
+exchanges, potentially remote code execution by an authenticated peer; every
+release since 6.0.0, including the previous pin 6.0.7) applies, because the
+advisory exempts only servers that do not accept multiple key exchanges and
+this lane negotiates `ke1_mlkem768`. The lane seldom exercises that path --
+the IKE SA is reauthenticated rather than rekeyed -- but it is reachable.
+CVE-2026-78127 (memory exhaustion through the logging of IKE messages; every
+release since 4.1.2, except builds compiled with `DEBUG_LEVEL=0`, which
+`nodes/strongswan/Dockerfile` does not set) applies too. CVE-2026-78135 (a
+usable Child SA from `CREATE_CHILD_SA` before authentication completes) is
+fixed in 6.1.0 but does not apply: its advisory exempts servers that do not
+accept EAP, and this lane authenticates with `auth = psk`. Do not move the pin
+below 6.1.0. Checked against strongSwan's advisories and its release notes on
+2026-09-26.
 
 **`blowfish` was dropped from the licence cell with the 6.1.0 bump**: 6.1.0
 removes that plugin -- `src/libstrongswan/plugins/blowfish` is gone and
@@ -328,12 +352,14 @@ canonical one above -- it caught that on the first run of this section.)
   final `master` commit, 8 commits ahead of the last tag `v0.23.0-post1`.
   Nothing newer exists.
 
-- **arnika**, pin `3a8cc13`, on `main`. The `v1.0.1` tag is a **divergent
-  line**, not a newer release. Both of its security fixes
-  (GHSA-rc6v-5rmx-w5mv, and removing `InsecureSkipVerify`) are present on
-  `main` as re-applied changes: `config/config.go` rejects a PSK file looser
-  than 0600, and `repositories/kms.go` carries the removal comment. No security
-  gap from staying.
+- **arnika**, pin `f4cf9ba`, the head of the open PR #51, not a release. The
+  `v1.0.1` tag is a **divergent line**, not a newer release. Its advisory,
+  GHSA-rc6v-5rmx-w5mv, named three areas; at the pin, `repositories/kms/kms.go`
+  carries the comment removing `InsecureSkipVerify` for it, the ACK path in
+  `transport/server.go` checks the timestamp window, and the PQC key file the
+  third area concerned no longer exists, because #51 removed it. (The previous
+  pin `3a8cc13` handled that third area by rejecting a PSK file looser than
+  0600.) No security gap from not taking `v1.0.1`.
 
 ### One genuine candidate, deliberately not taken
 
@@ -408,7 +434,8 @@ with a documentation pass.
   clause only forbids marketing a derived product *as endorsed by* Argonne.
 - **rosenpass (MIT / Apache-2.0 dual)** is a pinned submodule (**v0.2.3**) built
   from source into the `nodes/alice` image; it performs the real post-quantum
-  key exchange whose OSK is HKDF-combined with the QKD key by arnika. Both
+  key exchange whose output key becomes the preshared key of the `wg1` data
+  tunnel (until 2026-09-26 it was HKDF-combined with the QKD key by arnika). Both
   licenses are permissive and fully compatible with the Apache-2.0 baseline, as
   are `oqs-sys` and the liboqs 0.8.0 it links statically (see the notes above
   for the component terms).

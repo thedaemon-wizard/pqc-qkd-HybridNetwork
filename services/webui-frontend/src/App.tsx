@@ -76,12 +76,36 @@ export default function App() {
             Rosenpass does ML-KEM. It does not -- the pinned Rosenpass is
             Classic McEliece 460896 + Kyber512. ML-KEM-768 is genuine here, but
             it is the IKEv2 key exchange (RFC 9370), not the PQC half of the
-            KDF. Widths measured against the 187px content box before
-            committing; the longest line renders at 164px. */}
+            KDF.
+
+            Release 0.2.0 changed who does what. The PQC half of arnika's HKDF
+            is now PQC-HPKE: HPKE Base mode (RFC 9180) with the hybrid KEM
+            MLKEM1024-P384, which arnika agrees with its peer itself. Rosenpass
+            no longer feeds the HKDF at all; it keys wg1, the WireGuard data
+            tunnel that runs inside the wg0 hop tunnel. So each line below
+            names its owner: the HKDF, PQC-HPKE, IKEv2, or wg1.
+
+            The IKEv2 line sits between the PQC-HPKE line and the Rosenpass
+            line on purpose. The KEM-name guard
+            (tests/test_rosenpass_kem_names_match_the_submodule.py) scans
+            across line breaks for Rosenpass within 70 characters of an
+            ML-KEM name, and this order keeps ML-KEM-1024 out of the
+            Rosenpass line's reach while the ML-KEM-768 next to it carries its
+            IKEv2 owner.
+
+            Widths measured in the browser against the 187px content box
+            before committing (2026-09-26, 11px, the fallback sans-serif of a
+            Linux host). The longest line, the HKDF one, renders at 170px. Its
+            first form, "HKDF-SHA3-256 (QKD ‖ PQC-HPKE)", measured 185px, 2px
+            short of wrapping, and "wg1: Rosenpass (McEliece + Kyber512)"
+            measured 195px and did wrap; hence the shorter HKDF line and the
+            Rosenpass entry on two lines. */}
         <div style={{ marginTop: 36, fontSize: 11, color: "#6b7796", lineHeight: 1.5 }}>
           ETSI GS QKD 014<br />
-          HKDF-SHA3-256 (QKD ‖ PQC)<br />
+          HKDF-SHA3-256: QKD, PQC-HPKE<br />
+          PQC-HPKE: ML-KEM-1024 + P-384<br />
           IKEv2: ML-KEM-768 (RFC 9370)<br />
+          wg1 PSK: Rosenpass<br />
           Rosenpass: McEliece + Kyber512<br />
           arnika · liboqs · rosenpass
         </div>

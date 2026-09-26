@@ -19,8 +19,9 @@ const NAMES = [
 /**
  * Remove SGR colour codes before the log reaches the screen or an export.
  *
- * arnika writes ANSI escapes, and `/api/logs/{name}` passes the container's
- * stdout through verbatim -- the live endpoint returns, literally:
+ * The arnika pin before release 0.2.0 (3a8cc13) wrote ANSI escapes into every
+ * line, and `/api/logs/{name}` passes the container's stdout and stderr
+ * through verbatim -- the live endpoint returned, literally:
  *
  *   [INFO] \u001b[36mPRIMARY[1]\u001b[0m [OK] HKDF derivation completed
  *
@@ -30,10 +31,23 @@ const NAMES = [
  * render and the export read the same state, so both are fixed by cleaning it
  * on arrival.
  *
+ * The current pin (f4cf9ba, the head of the still-open arnika PR #51) logs
+ * through slog as key=value lines, with the role as an attribute:
+ *
+ *   time=... level=INFO msg="sending the key_id to the peer" arnika_id=1 role=primary key_id=<uuid> peer=...
+ *
+ * and colours a record only when stderr is a terminal (logging.go there), so
+ * its lines normally carry no escapes and pass through unchanged. They arrive
+ * on the container's stderr, not its stdout: that slog handler writes to
+ * os.Stderr (logging.go:42 and :63 there), and the route returns both streams. When they do
+ * -- a container run with a TTY -- the escape wraps the whole record, and this
+ * strips it the same way. Kept for both reasons: a node rolled back to the old
+ * pin still writes the old form.
+ *
  * Stripping rather than rendering as colour: the codes carry no information the
- * text does not already have -- arnika prefixes every line with its role
- * (PRIMARY/BACKUP) in plain text -- and a log offered as a citable artefact is
- * better as plain text.
+ * text does not already have -- the old form printed the role (PRIMARY/BACKUP)
+ * as plain text, the slog form as `role=` -- and a log offered as a citable
+ * artefact is better as plain text.
  */
 const ANSI_SGR = /\x1b\[[0-9;]*m/g;
 
@@ -82,7 +96,7 @@ export default function Console() {
     <div>
       <PageHeader
         title="Container Console"
-        subtitle="Live tail of container stdout (Docker logs)."
+        subtitle="Live tail of container stdout and stderr (Docker logs)."
       />
       <div style={{ marginBottom: 12 }}>
         {/* logProvider, not logService. This page already holds the exact text

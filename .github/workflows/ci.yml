@@ -56,8 +56,12 @@ jobs:
       # predates the formatter and reformatting it would be a ~38-file
       # cosmetic diff; that is worth doing as its own change, not as a gate
       # that fails every PR until someone does it.
+      #
+      # scripts/ is linted too: it carries Python (the published-text scanner
+      # and the PPK outcome report), and an unlinted directory is where an
+      # undefined name survives until the one run that needs it.
       - name: Lint
-        run: ruff check services/ tests/ tools/ benchmarks/
+        run: ruff check services/ tests/ tools/ benchmarks/ scripts/
 
       # Three of the fourteen submodules, shallowly -- not `submodules:
       # recursive`. Each is here because a guard DERIVES a claim from it and
@@ -200,14 +204,21 @@ jobs:
       # first place a compile error shows up.
       # Build, vet and test all run inside the tree build.sh assembles.
       #
-      # -tags strongswan_vici is required, not decorative: strongswanvici.go
-      # carries that build constraint, so without it the adapter selector --
-      # including the VICI_IKE_ROLE validation that decides which peer owns the
-      # IKE_SA -- is excluded from both vet and test. But the tag only compiles
-      # once build.sh has narrowed wireguardnetlink.go's own tag; otherwise both
-      # adapters define getKeyWriterService. That is why this is one step and
-      # not two: a separate step with its own copy of the overlay drifted from
+      # -tags strongswan_vici is required, not decorative: the wiring file
+      # services/arnika-vici/wire_strongswan_vici.go carries that build
+      # constraint, so without it the adapter selector -- including the
+      # VICI_IKE_ROLE validation that decides which peer owns the IKE_SA -- is
+      # excluded from both vet and test. But the tag only compiles once build.sh
+      # has narrowed upstream's wire_wireguard_netlink.go; otherwise both wiring
+      # files define getKeyWriterService. That is why this is one step and not
+      # two: a separate step with its own copy of the overlay drifted from
       # build.sh and vetted an unpatched tree.
+      #
+      # The layout is upstream PR #51's (the pin is its head, f4cf9ba): one
+      # package per adapter, so the adapter itself is
+      # services/arnika-vici/repositories/swanvici/ and implements the one-method
+      # port SetPSK([]byte). build.sh stops with FATAL if upstream already ships
+      # either overlaid file, rather than silently replacing it.
       - name: Build, vet and test with the strongswan_vici adapter
         env:
           ARNIKA_VICI_VET_AND_TEST: "1"
@@ -225,13 +236,31 @@ jobs:
           python3 -m pip install --quiet pytest
           python3 -m pytest tests/test_the_build_tag_narrowing_is_exhaustive.py -q
 
-      # Same reason, same tree: it fails if the pinned arnika stops reading
-      # PQC_PSK_FILE while the lane still sets it -- the PQC-HPKE migration of
-      # upstream PR #51, which would otherwise drop the PQC half of the key
-      # without an error anywhere.
-      - name: PQC_PSK_FILE is still read by the pinned arnika
+      # Same reason, same tree. At the pin the PQC half of the PSK is agreed by
+      # arnika itself over PQC-HPKE; the Rosenpass file handover
+      # (PQC_PSK_FILE) is gone upstream. This fails if the pinned tree stops
+      # offering PQC_ENABLED or loses repositories/pqchpke/, if anything in
+      # the deployment still sets PQC_PSK_FILE (a variable nothing reads), or
+      # if the two peers of a pair disagree on MODE or PQC_ENABLED, which the
+      # pinned arnika requires to be identical on both ends. The compose half
+      # needs pyyaml, which this job does not otherwise install.
+      #
+      # tests/test_ppk_race_report.py runs here for the same reason: besides
+      # its synthetic fixtures, it checks that the message strings
+      # scripts/ppk_race_report.py keys on are still written by the pinned
+      # arnika and the pinned charon, and both trees are only checked out here.
+      #
+      # So does tests/test_entrypoints_validate_their_input.py. Most of it
+      # runs the entrypoints' checks under bash and needs no submodule, but
+      # the entrypoint comments cite line ranges of the pinned main.go, and
+      # the test that those ranges still hold the cited code skips without the
+      # arnika tree. The `python` job runs the whole suite without that tree,
+      # so there the test would go green having asserted nothing, which
+      # tests/test_no_guard_is_inert_in_ci.py reports.
+      - name: The PQC half comes from the pinned arnika, and the report reads its logs
         run: |
-          python3 -m pytest tests/test_pqc_psk_file_is_read_by_the_pinned_arnika.py -q
+          python3 -m pip install --quiet pytest pyyaml
+          python3 -m pytest tests/test_pqc_half_comes_from_the_pinned_arnika.py tests/test_ppk_race_report.py tests/test_entrypoints_validate_their_input.py -q
 
       # Same tree again: /keyflow quotes arnika's HKDF call as code, and this
       # fails when a quoted line is no longer in the pinned kdf/kdf.go.
@@ -309,20 +338,72 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      #
+      # The event values arrive through env rather than being pasted into the
+      # script by `${{ }}`, so a ref name is data to the shell, never code.
       - name: Commit messages disclose no tooling, private file or host
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
           set -eu
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            range="origin/${{ github.base_ref }}..HEAD"
-          else
-            range="${{ github.event.before }}..${{ github.sha }}"
-          fi
-          # A first push to a new branch reports an all-zero "before".
-          case "${range}" in 0000000*) range="HEAD~1..HEAD" ;; esac
-
           # pytest only because the shared pattern module is a test module.
           python -m pip install --quiet pytest
-          python scripts/scan_published_text.py --git-range "${range}"
+
+          if [ "${EVENT_NAME}" = "pull_request" ]; then
+            python scripts/scan_published_text.py --git-range "origin/${BASE_REF}..HEAD"
+          elif git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            python scripts/scan_published_text.py --git-range "${BEFORE}..${AFTER}"
+          else
+            # "before" is not a commit in this checkout, so "before..after" is
+            # not a range git can resolve and the step used to fail on it
+            # instead of scanning. Two ways to get here:
+            #
+            #   - a forced push that rewrote history: "before" is the old tip,
+            #     which the rewrite made unreachable from every ref the checkout
+            #     fetched. The push run after the history rewrite of 2026-09-26
+            #     failed exactly here.
+            #   - the first push of a branch, which reports an all-zero
+            #     "before". The old fallback scanned only HEAD~1..HEAD there,
+            #     so every earlier commit of a new branch went unread.
+            #
+            # In both cases nothing says which commits are new, so every one is
+            # scanned: --all-commits reads each commit reachable from the refs
+            # this full-depth checkout fetched, which includes all of HEAD's
+            # history. A rewritten history is published in full, so scanning
+            # all of it is the check the push actually needs.
+            echo "push 'before' ${BEFORE} is not in this checkout (forced push or new branch); scanning every commit"
+            python scripts/scan_published_text.py --all-commits
+          fi
+
+      # A pull request's title and body are published beside the tree too, and
+      # neither gitleaks nor the step above reads them. Same matchers, same rule
+      # of printing the category and never the matched text.
+      #
+      # Both values reach the script through env and then stdin, and are never
+      # pasted into it with `${{ }}`: on a pull request from a fork the title
+      # and body are text anyone can write, and interpolated into `run:` they
+      # would be shell code.
+      #
+      # `!cancelled()` instead of the default success(), so a finding in a
+      # commit message above does not hide one in the pull-request text.
+      #
+      # Coverage: `pull_request` without `types:` runs on opened, synchronize
+      # and reopened. Editing only the title or body starts no run, so text
+      # edited after the last push is read at the next push.
+      - name: Pull-request title and body disclose no tooling, private file or host
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -eu
+          # pytest only because the shared pattern module is a test module.
+          python -m pip install --quiet pytest
+          printf '%s\n\n%s\n' "${PR_TITLE}" "${PR_BODY}" \
+            | python scripts/scan_published_text.py --label "pr text"
 
   images:
     name: Container images build
@@ -556,9 +637,25 @@ jobs:
             sas=$(docker exec "$node" swanctl --list-sas | grep -c ESTABLISHED || true)
             authfail=$(docker logs "$node" 2>&1 | grep -cE 'AUTH_FAILED|no PPK found' || true)
             rot=$(docker logs "$node" 2>&1 | grep -c 'PPK rotated' || true)
-            echo "$node: $sas SA(s), $rot rotation(s), $authfail auth failure(s)"
+            # Every PPK write logs `PPK rotated`, including the random PPK arnika
+            # writes when it fails closed: `configuring a random PSK to
+            # invalidate` at f4cf9ba (after `no key_id from the peer`, `the
+            # peer did not confirm the key_id` and the other failure paths),
+            # `configure random PSK to invalidate` at the previous pin. The
+            # gates below count writes, as they did at the previous pin, so
+            # they apply the same rule at both pins. The effect need not be
+            # the same: at f4cf9ba invalidation writes can be more frequent
+            # (f4cf9ba adds fail-closed paths, such as a BACKUP interval
+            # without a key_id, that the previous pin did not have), and every
+            # such write enlarges the denominator, so the ratio gate can be
+            # slightly looser there. That rests on the code and one short
+            # local run, not on a measurement of this job. The invalidations
+            # are printed beside the writes, and the report step below
+            # separates key-driven rotations from them.
+            inval=$(docker logs "$node" 2>&1 | grep -cE 'configur(e|ing) (a )?random PSK to invalidate' || true)
+            echo "$node: $sas SA(s), $rot PPK write(s), $inval invalidation(s), $authfail auth failure(s)"
 
-            [ "$rot" -ge 2 ] || { echo "::error::$node rotated $rot times, expected >= 2"; fail=1; }
+            [ "$rot" -ge 2 ] || { echo "::error::$node wrote $rot PPKs, expected >= 2"; fail=1; }
             # NOT -eq 0. Rotating a PPK under a stable PPK_ID cannot be atomic
             # across two hosts: the initiator reauthenticates microseconds after
             # its own load, and the responder's load of the same generation can
@@ -627,19 +724,64 @@ jobs:
             #
             # So the alternation now covers arnika's OWN key-acquisition path,
             # not just charon's reaction to it. Every branch that can end an
-            # interval without a PSK is listed, from submodules/arnika/main.go
-            # and udpserver.go. Note `[STOP] configure random PSK` in
+            # interval without a PSK is listed. Note the invalidation line in
             # particular: on failure arnika deliberately installs a random PPK
             # the peer cannot match, which would produce an identical
             # AUTH_FAILED -- so its presence or absence separates "arnika gave
             # up loudly" from "arnika never ran the interval".
-            echo "--- $node: $authfail auth failure(s) in $rot rotations, in context ---"
+            #
+            # The pin is upstream PR #51's head (f4cf9ba), which logs through
+            # log/slog as key=value records, so the pin-era bracketed tags quoted
+            # above never appear any more. The alternation lists both vocabularies:
+            #
+            #   charon and the VICI adapter (unchanged; the adapter still logs
+            #   through log.Printf, which the slog bridge wraps into msg="...")
+            #     AUTH_FAILED ... reauthenticating IKE_SA
+            #   arnika at 3a8cc13, the previous pin (kept so a rollback's logs
+            #   still read)
+            #     [SND] [RCV] [REQ] [OK] [STOP], no ACK after, failed to send
+            #     key_id, waiting for key_id, psk mismatch or message corrupted
+            #   arnika at f4cf9ba, each string read from its source
+            #     main.go             requesting a new QKD key, serving this
+            #                         interval, sending the key_id to the peer,
+            #                         requesting the QKD key for the peer's
+            #                         key_id (the apostrophe is matched by `.`,
+            #                         because this script is single-quoted),
+            #                         the peer did not confirm the key_id,
+            #                         waiting for a key_id, no key_id from the
+            #                         peer, the KMS returned an empty key_id,
+            #                         configuring a random PSK to invalidate,
+            #                         failed to retrieve, failed to derive,
+            #                         failed to configure, no key material,
+            #                         falling back to the, PQC-only PSK,
+            #                         HKDF derivation completed, PSK configured
+            #                         on WireGuard interface
+            #     transport/server.go received a key_id from the peer, packet
+            #                         rejected, QKD queue full, PQC frame not
+            #                         accepted
+            #     repositories/pqchpke/pqchpke.go
+            #                         round agreed (a fresh PQC key, or a newer
+            #                         round already published), round failed,
+            #                         round abandoned, round is behind,
+            #                         startup round did not complete
+            #   `no QKD key received` is in both vocabularies.
+            #
+            # The cap is a named count, not a guess: about 12 lines match per
+            # rotation interval per node (the role line, the key_id lines, the
+            # derivation, the PQC round, the PPK load, unload, reauth and
+            # establishment), and the job lasts under 20 intervals (at most
+            # 300 s to establish plus the 240 s sleep, at INTERVAL 30 s). The
+            # previous cap of 200 fitted the pin-era vocabulary and would cut
+            # the tail of a run now, which is exactly where the interesting
+            # interval tends to be.
+            max_lines=400
+            echo "--- $node: $authfail auth failure(s) in $rot PPK writes, in context ---"
             docker logs -t "$node" 2>&1 \
-              | grep -nE 'AUTH_FAILED|no PPK found|MAC mismatched|tried [0-9]+ shared key|loaded PPK shared key|unloaded shared key|unloaded the bootstrap|unloaded orphaned|PPK rotated|IKE_SA .* established|reauthenticating IKE_SA|\[SND\]|\[RCV\]|\[REQ\]|\[OK\]|\[STOP\]|no ACK after|failed to retrieve QKD key|failed to retrieve PQC key|failed to send key_id|failed to derive key|waiting for key_id|psk mismatch or message corrupted|no QKD key received' \
-              | head -200
+              | grep -nE 'AUTH_FAILED|no PPK found|MAC mismatched|tried [0-9]+ shared key|loaded PPK shared key|unloaded shared key|unloaded the bootstrap|unloaded orphaned|PPK rotated|IKE_SA .* established|reauthenticating IKE_SA|\[SND\]|\[RCV\]|\[REQ\]|\[OK\]|\[STOP\]|no ACK after|failed to send key_id|waiting for key_id|psk mismatch or message corrupted|no QKD key received|requesting a new QKD key|serving this interval|sending the key_id to the peer|received a key_id from the peer|requesting the QKD key for the peer.s key_id|the peer did not confirm the key_id|waiting for a key_id|no key_id from the peer|the KMS returned an empty key_id|configuring a random PSK to invalidate|failed to retrieve|failed to derive|failed to configure|no key material|falling back to the|PQC-only PSK|HKDF derivation completed|PSK configured on WireGuard interface|packet rejected|QKD queue full|PQC frame not accepted|round agreed|round failed|round abandoned|round is behind|startup round did not complete' \
+              | head -n "$max_lines"
 
             if [ $((authfail * 5)) -gt "$rot" ]; then
-              echo "::error::$node saw $authfail auth failures in $rot rotations (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
+              echo "::error::$node saw $authfail auth failures in $rot PPK writes (>20%) -- the peers are systematically resolving different PPKs, not losing a race"
               # Print the evidence. This job used to report only the COUNT, so
               # when it fired there was nothing to diagnose from: two runs on
               # 2026-08-22 reported exactly 4 failures against 6 and then 8
@@ -680,8 +822,18 @@ jobs:
       # exactly one of the two halves must differ, and nothing in the system
       # ever compares them across the pair. This step does.
       #
-      # Hashes only -- never key material -- and truncated, so the output
-      # identifies agreement/disagreement without disclosing anything useful.
+      # The PQC half is no longer a file. At the pin (upstream PR #51's head,
+      # f4cf9ba) arnika agrees it with the peer itself over PQC-HPKE, one key
+      # per numbered round, and holds it only in memory, so the sha256 of
+      # /var/lib/rosenpass/pqc.psk this step used to print has nothing left to
+      # hash. What both peers do log is which round each one agreed
+      # (`round agreed a fresh PQC key ... round=N as=initiator|responder`,
+      # repositories/pqchpke/pqchpke.go). Two peers that agreed different sets
+      # of rounds, or failed one the other agreed, can feed HKDF different PQC
+      # keys; identical round lists put the PQC half out of suspicion for the
+      # rounds shown. Round numbers and roles only -- no key material is in
+      # these lines.
+      #
       # Non-fatal by design: it is evidence, not an assertion. Making it fail
       # the build before the mechanism is understood would only add a second
       # red job saying the same thing as the first.
@@ -689,40 +841,76 @@ jobs:
         if: always()
         run: |
           set -u
-          echo "=== PQC half: sha256(/var/lib/rosenpass/pqc.psk), first 24 hex ==="
+          echo "=== PQC half: the PQC-HPKE rounds each peer agreed (last 12) ==="
           for node in alice-ipsec bob-ipsec; do
-            h=$(docker exec "$node" sh -c \
-                  'sha256sum /var/lib/rosenpass/pqc.psk 2>/dev/null | cut -c1-24' 2>/dev/null || true)
-            printf '  %-12s %s\n' "$node" "${h:-<absent or unreadable>}"
+            echo "  --- $node"
+            docker logs -t "$node" 2>&1 \
+              | sed -nE 's/^([^ ]+) .*msg="round agreed a fresh PQC key".* (round=[0-9]+) (as=[a-z]+).*/\1 \2 \3/p' \
+              | tail -12 | sed 's/^/      /' || true
+            n_fail=$(docker logs "$node" 2>&1 | grep -cE 'msg="round (failed|abandoned)' || true)
+            echo "      -- rounds failed or abandoned: ${n_fail}"
           done
           echo "=== QKD half: the key_id exchange, WITH roles ==="
           # Bare ids are not enough. Measured on 2026-08-23: a failing run showed
           # two ids on alice that were absent from bob's list, which looks like
           # the answer -- but the ids alone cannot distinguish "bob never
           # received it" from "the tail cut it off". Only one id carried role
-          # context, and that one was healthy:
+          # context, and that one was healthy (pin-era format):
           #   PRIMARY[11] [SND] send key_id c7f2a948
           #   BACKUP[12]  [RCV] received key_id c7f2a948
           #   BACKUP[12]  [REQ] request QKD key for key_id c7f2a948
           # arnika elects a PRIMARY per interval; it fetches enc_keys, sends the
-          # id, and the BACKUP resolves that id via dec_keys. If an id is SND on
-          # one node with no matching RCV on the other, the two ends derive from
-          # different QKD keys -- which, with the PQC halves byte-identical, is
-          # the whole defect. Capture SND/RCV/REQ so the next failure settles it.
+          # id, and the BACKUP resolves that id via dec_keys. If an id is sent
+          # on one node with no matching receipt on the other, the two ends
+          # derive from different QKD keys. Capture both sides so the next
+          # failure settles it.
+          #
+          # At f4cf9ba the same three events are slog records, with the role
+          # attached by `.With("role", ...)` (main.go, transport/server.go):
+          #   msg="sending the key_id to the peer" arnika_id=11 role=primary key_id=<uuid> peer=...
+          #   msg="received a key_id from the peer" arnika_id=12 role=backup key_id=<uuid> peer=...
+          #   msg="requesting the QKD key for the peer's key_id" arnika_id=12 role=backup key_id=<uuid> kms=...
+          # Both patterns are kept, so a rollback's logs still read. The
+          # docker timestamp stays on each line, since the question is often
+          # "when", not only "whether".
           for node in alice-ipsec bob-ipsec; do
             echo "  --- $node"
-            docker logs "$node" 2>&1 \
-              | grep -aoE '(PRIMARY|BACKUP)\[[0-9]+\].{0,14}\[(SND|RCV|REQ|OK)\].{0,60}key_id [0-9a-f-]{36}' \
+            docker logs -t "$node" 2>&1 \
+              | sed -nE \
+                  -e 's/^([^ ]+) .*(msg="[^"]*"[^"]{0,40}role=(primary|backup) key_id=[0-9a-fA-F-]{36}).*/\1 \2/p' \
+                  -e 's/^([^ ]+) .*((PRIMARY|BACKUP)\[[0-9]+\].{0,14}\[(SND|RCV|REQ|OK)\].{0,60}key_id [0-9a-fA-F-]{36}).*/\1 \2/p' \
               | tail -14 | sed 's/^/      /' || true
-            echo "      -- bare ids (fallback if the pattern above misses):"
+            echo "      -- bare ids (fallback if the patterns above miss):"
             docker logs "$node" 2>&1 \
-              | grep -aoE 'key_id [0-9a-f-]{36}' | sort -u | tail -10 | sed 's/^/        /' || true
+              | grep -aoE 'key_id[= ][0-9a-fA-F-]{36}' | sort -u | tail -10 | sed 's/^/        /' || true
           done
           echo
-          echo "Reading it: identical PQC hashes + a shared key_id means both"
-          echo "inputs agreed and the divergence is downstream of the KDF."
-          echo "Differing PQC hashes localise it to the rosenpass half; a"
-          echo "key_id present on one node only localises it to the QKD half."
+          echo "Reading it: the same PQC rounds on both peers + a shared key_id"
+          echo "means both inputs agreed and the divergence is downstream of the"
+          echo "KDF. A round agreed on one peer only localises it to the PQC half;"
+          echo "a key_id present on one node only localises it to the QKD half."
+
+      # The same logs, counted rather than listed: rotations R, failures F and
+      # the five failure classes, split by alice's role in the interval, with
+      # Clopper-Pearson intervals. scripts/ppk_race_report.py reads both
+      # arnika log formats (the previous pin's bracketed tags and f4cf9ba's
+      # slog records), so a before/after comparison reads the same rules on
+      # both arms. It also pairs the two nodes' interval boundaries per
+      # wall-clock tick and prints the offset between them, any tick whose
+      # interval numbers differ, and, per segment of the window, how many
+      # key_ids arrived before the BACKUP's boundary and how many BACKUP
+      # intervals ended in a `no key_id from the peer` invalidation. With
+      # --json it also lists every paired tick. It prints counts, generation
+      # numbers, interval numbers, offsets and timestamps only, never a
+      # key_id, a credential id or an identity.
+      #
+      # Evidence, not a gate: continue-on-error keeps a crash of the report
+      # visible as an annotation without failing the lane over it. The runner's
+      # own python3 suffices; the script uses the standard library only.
+      - name: PPK outcomes by alice's role
+        if: always()
+        continue-on-error: true
+        run: python3 scripts/ppk_race_report.py report --docker
 
       - name: Assert traffic actually traverses ESP
         run: |
