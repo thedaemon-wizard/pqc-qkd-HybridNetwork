@@ -8,7 +8,21 @@ import { useRuntimeConfig } from "../lib/useConfig";
 const STACK_POLL_MS = 3000;
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
+import ScrollRegion from "../components/ScrollRegion";
 import { useContainerControl } from "../lib/useConfig";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
+
+/**
+ * The two-column grid of this page: the layer diagram beside the container
+ * table. Below the shell's breakpoint (lib/layout.ts) it is one column.
+ *
+ * Measured on 2026-09-26 with the collapsed shell: at a 375px viewport the two
+ * `1fr` tracks could not shrink below their content (a bare `1fr` has an
+ * `auto` minimum), so they came to 200px + 182px in a 343px row and the page
+ * scrolled sideways by 39px; at 320px, by 94px. The container table's Status
+ * column and the "Container Status" heading were what stuck out.
+ */
+const OVERVIEW_WIDE_COLUMNS = "1fr 1fr";
 
 const STATUS_COLOR: Record<string, string> = {
   running: "#3ddc84", restarting: "#f5a623", created: "#5b8def",
@@ -71,6 +85,7 @@ export default function Overview() {
   // containers while the endpoint refused every click with 403.
   const canControl = useContainerControl();
   const runtime = useRuntimeConfig();
+  const narrow = useNarrowLayout();
   const [actionError, setActionError] = useState<string>("");
 
   // Why the status table is empty, when it is. The page had no failure path:
@@ -120,7 +135,7 @@ export default function Overview() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, OVERVIEW_WIDE_COLUMNS), gap: 16, marginTop: 20 }}>
         <ArchPanel />
         <div>
           <h3>Container Status</h3>
@@ -130,6 +145,12 @@ export default function Overview() {
               {stack.length ? " The table below is the last successful reading." : ""}
             </p>
           )}
+          {/* A <table> does not scroll itself, so if a long container name
+              or chip ever makes it wider than a phone, it scrolls inside this
+              box instead of widening the page. While it does, the box is also
+              a labelled region the keyboard can reach; while the table fits,
+              it is a plain div and no Tab stop (components/ScrollRegion). */}
+          <ScrollRegion aria-label="Container status table">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: "left", color: "#6b7796" }}>
@@ -175,6 +196,7 @@ export default function Overview() {
               ))}
             </tbody>
           </table>
+          </ScrollRegion>
           {/* The profile comes from the row; nothing here says which profiles
               a deploy script can start. It said "which this host's deploy
               script does not start" for every absent row, and that is false
@@ -182,7 +204,11 @@ export default function Overview() {
               bob-ipsec with --ipsec. What the row does establish is that the
               profile was not started on this host. */}
           {stack.filter((s) => s.optional && s.status === "absent").map((s) => (
-            <p key={s.name} style={{ fontSize: 11, color: "#9aa9d8", margin: "8px 0 0", lineHeight: 1.5 }}>
+            // overflowWrap only when narrow: a compose file name is one
+            // unbreakable token, and in a phone-width column it may break
+            // rather than stick out. Wider, the note lays out as before.
+            <p key={s.name} style={{ fontSize: 11, color: "#9aa9d8", margin: "8px 0 0", lineHeight: 1.5,
+                                     overflowWrap: narrow ? "anywhere" : undefined }}>
               <code>{s.name}</code>: not deployed on this host. It is defined only in{" "}
               <code>{s.compose_file ?? "(compose file not reported)"}</code> behind the{" "}
               <code>{s.profile ?? "(profile not reported)"}</code> profile, which was not

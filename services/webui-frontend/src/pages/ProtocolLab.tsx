@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import KPI from "../components/KPI";
@@ -10,8 +10,10 @@ import SBufferQueue from "../components/SBufferQueue";
 import SDNControlPanel from "../components/SDNControlPanel";
 import LoadPresetDropdown from "../components/LoadPresetDropdown";
 import MessageTimeline from "../components/MessageTimeline";
+import ScrollRegion from "../components/ScrollRegion";
 import { colors } from "../lib/commonStyles";
 import { formatRate, formatReported } from "../lib/formatRate";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
 import {
   DEFAULT_PRESET_ID, presetById, quantityValue, scenarioById,
   type FailureTarget, type Quantity,
@@ -29,7 +31,35 @@ import {
  * from the running stack, and the page makes no request of its own (exports
  * excepted, as on every page). The banner says so before anything runs.
  */
+
+/**
+ * The narrowest the "Links as published" table is laid out below the shell's
+ * breakpoint, in CSS px; its own box scrolls sideways past that. The table
+ * has width: 100%, so in a phone's panel (263px at 320px, 318px at 375px) the
+ * auto layout gave every column its min-content width and the Length and model
+ * columns became about 45px wide, one word per line: the tallest SECOQC row
+ * was 432px and Thuringia's 500px (measured 2026-09-26 at 375px). At 800px the
+ * tallest row of any preset is 194px. From 768px up the table is laid out as
+ * before, so this applies only when narrow.
+ */
+const NARROW_LINKS_TABLE_MIN_PX = 800;
+
+/**
+ * Below the breakpoint, the Q-buffer gauges' rows (a link id and its rate)
+ * may break a word anywhere. overflow-wrap is inherited, so this reaches the
+ * rate text inside QBufferGauge. Today's values have spaces and fit, but an
+ * unbroken one is not caught by anything else: measured on 2026-09-26,
+ * seventy-five "x" characters put in place of each rate ran to x = 476px,
+ * 185px past its row at a 320px viewport and 130px at 375px (the rate is not
+ * monospace, so other characters end elsewhere). "anywhere", not
+ * "break-word", because only "anywhere" lowers the text's min-content width,
+ * which is what lets the flex item shrink to the row. From 768px up the
+ * gauges are as before.
+ */
+const NARROW_GAUGE_TEXT: CSSProperties = { overflowWrap: "anywhere" };
+
 export default function ProtocolLab() {
+  const narrow = useNarrowLayout();
   const [state, setState] = useState<ProtocolLabState | null>(null);
   const [target, setTarget] = useState<string>("");
   const [rate, setRate] = useState<string>("1");
@@ -192,11 +222,18 @@ export default function ProtocolLab() {
         {state?.seed_pinned && <div style={{ fontSize: 11, color: colors.textMute, marginTop: 4 }}>Random outages pinned by ?seed={state.seed}</div>}
       </Panel>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginBottom: 12 }}>
+      {/* The 300px minimum is wider than a 320px phone's content box (288px
+          after the 16px gutters), so the one column auto-fit made there was
+          12px wider than <main> and every store panel ran into the right
+          gutter. Below the breakpoint it is one shrinkable column; from 768px
+          up the template is unchanged. */}
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, "repeat(auto-fit, minmax(300px, 1fr))"), gap: 12, marginBottom: 12 }}>
         <Panel title="Link key stores (Q-buffers)">
-          {state?.links.filter((l) => l.kind === "qkd").map((l) => (
-            <QBufferGauge key={l.id} link={l} accounting={state.accounting} keyBits={state.key_bits} scaleBits={scaleBits} />
-          ))}
+          <div style={narrow ? NARROW_GAUGE_TEXT : undefined}>
+            {state?.links.filter((l) => l.kind === "qkd").map((l) => (
+              <QBufferGauge key={l.id} link={l} accounting={state.accounting} keyBits={state.key_bits} scaleBits={scaleBits} />
+            ))}
+          </div>
         </Panel>
         <Panel title="Service-side store (S-buffer)">
           {state && <SBufferQueue state={state} />}
@@ -218,8 +255,9 @@ export default function ProtocolLab() {
       </Panel>
 
       <Panel title="Links as published" style={{ marginBottom: 12 }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", fontSize: 12, color: colors.textSec, width: "100%" }}>
+        <ScrollRegion aria-label="Links as published table">
+          <table style={{ borderCollapse: "collapse", fontSize: 12, color: colors.textSec, width: "100%",
+                          minWidth: narrow ? NARROW_LINKS_TABLE_MIN_PX : undefined }}>
             <thead>
               <tr>{["Link", "System", "Length", "Loss", "Rate (reported)", "QBER (reported)", "Rate (model, this project)", "Notes"].map((h) =>
                 <th key={h} style={{ ...cell, textAlign: "left", color: colors.textPri }}>{h}</th>)}</tr>
@@ -243,7 +281,7 @@ export default function ProtocolLab() {
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
         <div style={{ fontSize: 11, color: colors.textMute, marginTop: 6 }}>
           Reported values keep the source's digits and qualifiers; hover a value for its reference.
           The model column is {MODEL_LABEL}. It is not a prediction for the vendor's system and never drives the simulation.

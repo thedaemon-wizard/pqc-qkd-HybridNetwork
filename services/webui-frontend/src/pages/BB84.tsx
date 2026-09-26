@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Plot from "react-plotly.js";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
 import { PLOT_CONFIG } from "../lib/plotConfig";
 import { Bb84Engine, type TierTrial, type Bb84Frame } from "../lib/sim/bb84Sim";
 import { engineChoiceSummary } from "../lib/sim/engineChoice";
@@ -71,6 +72,7 @@ export default function BB84() {
   const [workerPps, setWorkerPps] = useState<number | null>(null);
   const [qberThreshold, setQberThreshold] = useState(DEFAULT_PARAMS.qberThresholdAbort);
   const engineRef = useRef<Bb84Engine | null>(null);
+  const narrow = useNarrowLayout();
 
   useEffect(() => {
     const eng = new Bb84Engine((u) => {
@@ -248,8 +250,10 @@ export default function BB84() {
         </div>
       )}
 
-      {/* Plots */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      {/* Plots. Side by side from 768px up; one column below it (lib/layout.ts).
+          At 375px each chart card got half of a 343px column, about 164px, and
+          the QBER chart's title took four lines above a plot that narrow. */}
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, "1fr 1fr"), gap: 16 }}>
         <ChartCard title={`QBER (last ${HISTORY_ROUNDS} rounds; gaps are rounds that sifted nothing)`}>
           <Plot
             data={[{ y: qberHistory, type: "scatter", mode: "lines+markers", line: { color: "#ff5e7e" } }]}
@@ -271,13 +275,20 @@ export default function BB84() {
                 // config/qkd_params.yaml states this; the chart did not, so a
                 // reader watching Eve push QBER to 0.257 with nothing happening
                 // had no way to know which of the two conditions this line is.
-                text: `hard abort ceiling ${(qberThreshold * 100).toFixed(1)} % (`
+                //
+                // Two lines below 768px. On one line the label is 283px of 10px
+                // text, anchored at the right edge; a 262px chart at 320px has a
+                // 212px plot area, so its start ("hard ab...") was cut off at
+                // the chart's left edge. On two lines it is 170px wide.
+                text: `hard abort ceiling ${(qberThreshold * 100).toFixed(1)} %`
+                  + (narrow ? "<br>" : " ") + "("
                   + (Math.abs(qberThreshold - SHOR_PRESKILL_QBER) < SHOR_PRESKILL_TOLERANCE ? "Shor-Preskill; " : "")
                   + "not the accept criterion)",
                 font: { color: "#9aa9d8", size: 10 },
               }],
             }}
             config={PLOT_CONFIG}
+            useResizeHandler
             style={{ width: "100%" }}
           />
         </ChartCard>
@@ -286,36 +297,48 @@ export default function BB84() {
             data={[{ y: poolHistory, type: "scatter", mode: "lines", line: { color: "#3ddc84" }, fill: "tozeroy" }]}
             layout={{ ...plotLayout, height: 240, yaxis: { color: "#9aa9d8" } }}
             config={PLOT_CONFIG}
+            useResizeHandler
             style={{ width: "100%" }}
           />
         </ChartCard>
       </div>
 
-      {/* Frames + stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+      {/* Frames + stats. One column below 768px (lib/layout.ts). This row is
+          what scrolled the page sideways at 375px, by 82px: a bare `1fr` track
+          is minmax(auto, 1fr), so the stats card's <pre> widened its column to
+          the longest JSON line and pushed the whole page past the screen. */}
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, "1fr 1fr"), gap: 16, marginTop: 16 }}>
         <ChartCard title="Sample photon frames">
-          <table style={{ width: "100%", fontSize: 12, color: "#d8e1ff" }}>
-            <thead>
-              <tr style={{ color: "#6b7796" }}>
-                <th>#</th><th>A bit</th><th>A basis</th><th>B basis</th><th>B bit</th><th>Match</th>
-              </tr>
-            </thead>
-            <tbody>
-              {frames.slice(0, 14).map((f) => (
-                <tr key={f.i} style={{ background: f.basis_match ? "transparent" : "#1a1124" }}>
-                  <td>{f.i}</td>
-                  <td>{f.alice_bit}</td>
-                  <td>{f.alice_basis === 0 ? "+" : "x"}</td>
-                  <td>{f.bob_basis === 0 ? "+" : "x"}</td>
-                  <td style={{ color: f.alice_bit !== f.bob_bit && f.basis_match ? "#ff5e7e" : "#d8e1ff" }}>{f.bob_bit}</td>
-                  <td>{f.basis_match ? "✓" : "—"}</td>
+          {/* Scrolls inside its card if six columns ever outgrow it, rather
+              than widening the page. At 1280px it fits and does not scroll. */}
+          <div style={{ overflowX: "auto", maxWidth: "100%" }}>
+            <table style={{ width: "100%", fontSize: 12, color: "#d8e1ff" }}>
+              <thead>
+                <tr style={{ color: "#6b7796" }}>
+                  <th>#</th><th>A bit</th><th>A basis</th><th>B basis</th><th>B bit</th><th>Match</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {frames.slice(0, 14).map((f) => (
+                  <tr key={f.i} style={{ background: f.basis_match ? "transparent" : "#1a1124" }}>
+                    <td>{f.i}</td>
+                    <td>{f.alice_bit}</td>
+                    <td>{f.alice_basis === 0 ? "+" : "x"}</td>
+                    <td>{f.bob_basis === 0 ? "+" : "x"}</td>
+                    <td style={{ color: f.alice_bit !== f.bob_bit && f.basis_match ? "#ff5e7e" : "#d8e1ff" }}>{f.bob_bit}</td>
+                    <td>{f.basis_match ? "✓" : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </ChartCard>
         <ChartCard title="Live engine stats (client-side)">
-          <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5" }}>
+          {/* overflowX: a JSON line longer than the card (a pinned seed, a long
+              engine name) scrolls inside the <pre>; nothing is wrapped, so each
+              line still reads as one key and its value. */}
+          <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5",
+                        overflowX: "auto", maxWidth: "100%" }}>
 {JSON.stringify({
   engine: engineName,
   // Present only when the run is reproducible. Absent is the honest value
@@ -337,14 +360,34 @@ export default function BB84() {
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8, padding: 12 }}>
+    // minWidth: 0, at every width. A bare `1fr` track is minmax(auto, 1fr), so
+    // a chart still drawn at the previous column's width held its card, and
+    // the column, open; Plotly then re-measured a container its own <svg> was
+    // propping and kept that width. Measured on 2026-09-26 with `autosize` on
+    // and without this line, loading at 1280px, going to 375px and back: the
+    // charts settled at 590px in 616px cards and the page scrolled 220px
+    // sideways. With it they return to 464px. On a load at 768px or 1280px
+    // every card's content is narrower than its column, so this changes nothing.
+    <div style={{ background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8, padding: 12,
+                  minWidth: 0 }}>
       <h3 style={{ margin: "0 0 8px 0", fontSize: 14, color: "#9aa9d8" }}>{title}</h3>
       {children}
     </div>
   );
 }
 
+/**
+ * `autosize`, with `useResizeHandler` on each <Plot>. Without them Plotly reads
+ * its container's width on the first draw and keeps it. The charts are one
+ * column below 768px and two above it (lib/layout.ts), so a phone turned to
+ * landscape, or a window resized across the breakpoint, left each chart at
+ * the old column's width. With `autosize` every redraw (one per round here)
+ * re-reads the container, and the resize handler covers a resize while no
+ * round arrives. The first draw is unchanged: it already took the
+ * container's width, 464px at 1280px and 317px at 375px.
+ */
 const plotLayout: any = {
+  autosize: true,
   paper_bgcolor: "transparent", plot_bgcolor: "transparent",
   margin: { l: 40, r: 10, t: 10, b: 30 },
   font: { color: "#9aa9d8" },

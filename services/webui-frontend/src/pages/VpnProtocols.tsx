@@ -1,7 +1,51 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { usePoll } from "../lib/usePoll";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
 import ExportToolbar from "../components/ExportToolbar";
+import ScrollRegion, { scrollRegionAttributes, useScrollsSideways } from "../components/ScrollRegion";
 import { statusColor, wgStatusBadge } from "./wgStatusBadge";
+
+/**
+ * The two lane panels side by side, from 768px up: the template this page has
+ * always used there. Below that the shell has no sidebar and the lanes stack
+ * in one column (narrowColumns). Two columns on a phone were the worst case
+ * measured on 2026-09-26: at a 320px viewport each panel row was about 100px
+ * wide, narrower than the label "PPK required, both ends" (147px) on its own,
+ * so labels ran 51px past the screen and ten values wrapped one or two
+ * characters per line, the IPsec proposal string among them 570px tall.
+ */
+const LANE_COLUMNS = "1fr 1fr";
+
+/**
+ * The space between a row's label and its value when they share a line: the
+ * `gap: 12` that Row's comment explains, named now that the narrow row also
+ * uses it.
+ */
+const ROW_GAP_PX = 12;
+
+/**
+ * The space between a label and its value when a narrow row puts the value
+ * on the line below: small, so the value still reads as that label's and not
+ * as a row of its own (adjacent rows are 6px apart: Row's padding is 3px above
+ * and 3px below each row).
+ */
+const NARROW_ROW_LINE_GAP_PX = 2;
+
+/** The heading over the column-aligned notes, and the source of their region's name. */
+const MECHANISMS_HEADING = "Two independent mechanisms — why both are needed";
+
+/**
+ * The notes' region's name: the heading's words with the em dash as a comma,
+ * so the name reads the same however a screen reader treats punctuation.
+ */
+const MECHANISMS_REGION_LABEL = MECHANISMS_HEADING.replace(" — ", ", ");
+
+/**
+ * The narrow notes' side padding, in CSS px. The region's focus ring is drawn
+ * at its edge, and without it the first column of text ran flush against the
+ * ring at the left.
+ */
+const NARROW_NOTES_PAD_X_PX = 4;
 
 /**
  * Poll interval, paired with the backend's VPN_SAMPLE_TTL_S (5 s): at 3 s
@@ -202,6 +246,7 @@ export default function VpnProtocols() {
   const [wg, setWg] = useState<VpnStatus | null>(null);
   const [ipsec, setIpsec] = useState<VpnStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const narrow = useNarrowLayout();
 
   // Why the lanes read nothing, when they do. A failed request used to be
   // swallowed and both panels stayed on "Loading..." for good.
@@ -300,7 +345,8 @@ export default function VpnProtocols() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, LANE_COLUMNS),
+                     gap: 16, marginTop: 16 }}>
         <Panel title="WireGuard (kernel / wireguard-go)" color="#3ddc84">
           {wg ? (
             <>
@@ -351,7 +397,7 @@ export default function VpnProtocols() {
               <Row k="Status" v={<Badge text={ipsec.status} color={statusColor(ipsec.status)} />} />
               <Row k="Active SA" v={ipsec.active_sa ?? "—"} />
               {/* No fallback constant: an unnegotiated SA must read as such. */}
-              <Row k="Proposal" v={ipsec.proposal ?? "— not negotiated —"} />
+              <Row k="Proposal" v={<IpsecProposal proposal={ipsec.proposal} />} />
               {/* `? :` would render "no" for "unknown" -- see TriState. */}
               <Row k="PQ key exchange" v={
                 <TriState v={ipsec.pq_key_exchange} yes="RFC 9370 ML-KEM" no="classical only" />
@@ -380,10 +426,40 @@ export default function VpnProtocols() {
       <div style={{ marginTop: 24, background: "#0d1320", border: "1px solid #1d2741",
                      borderRadius: 8, padding: 14 }}>
         <h3 style={{ marginTop: 0, fontSize: 14, color: "#9aa9d8" }}>
-          Two independent mechanisms — why both are needed
+          {MECHANISMS_HEADING}
         </h3>
-        <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5", overflowX: "auto" }}>
-{`RFC 9370 — strengthens the KEY EXCHANGE
+        <MechanismsNote narrow={narrow} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The column-aligned notes under the lanes.
+ *
+ * The lines are aligned by column, so on a narrow screen this block scrolls
+ * inside itself rather than wrapping, and it is never wider than the panel it
+ * sits in. From 768px up that is the <pre>'s own overflowX and maxWidth,
+ * exactly as before.
+ *
+ * In the narrow layout the scrolling box is a ScrollRegion around the <pre>
+ * instead, so that it is a named region the keyboard can reach. Measured in
+ * headless Chrome 152 on 2026-09-26: the block is 570px wide and scrolls in a
+ * 313px box at a 375px viewport (258px at 320px). Chrome did reach the bare
+ * <pre> with Tab, because it focuses a scrolling box that holds nothing
+ * focusable, and the arrow keys scrolled it. But the stop had the role
+ * "generic" and, as its name, the block's whole text (2,157 characters), and
+ * a browser that does not focus scrolling boxes would not reach it at all. The
+ * region is the same Tab stop (the sixth at 375px) with the role "region" and
+ * a short name. Inside it the <pre> has no overflowX of its own: the region is
+ * the one box that scrolls, so it is the one the arrow keys scroll.
+ *
+ * From 768px up the <pre> itself gets the same role, Tab stop and name while
+ * it scrolls, as at 768px, where it is narrower than the block, and none
+ * while it does not. Attributes take no space, so its box is as before.
+ */
+function MechanismsNote({ narrow }: { narrow: boolean }) {
+  const text = `RFC 9370 — strengthens the KEY EXCHANGE
    IKE_SA_INIT        KE payload   ECP-256
    IKE_INTERMEDIATE   KE payload   ML-KEM-768 (1184 B; encrypted, so fragmentable per RFC 9242)
    SKEYSEED(n) = prf(SK_d(n-1), SK(n) | Ni | Nr)      <- chained: secure if ANY round is
@@ -420,11 +496,43 @@ Known limits, stated plainly:
          both, so that single notify settles which specification is running.
     Note that N(IKE_INT_SUP) also appears on this lane; it is RFC 9242's
     intermediate exchange, present for RFC 9370's ML-KEM key exchange, and is
-    NOT an RFC 9867 indicator.`}
-        </pre>
-      </div>
-    </div>
+    NOT an RFC 9867 indicator.`;
+  const [wideRef, wideScrolls] = useScrollsSideways<HTMLPreElement>();
+  const textStyle = { margin: 0, fontSize: 12, lineHeight: 1.5, color: "#cbd6f5" } as const;
+  if (!narrow) {
+    return (
+      <pre ref={wideRef} {...scrollRegionAttributes(wideScrolls, MECHANISMS_REGION_LABEL)}
+           style={{ ...textStyle, overflowX: "auto", maxWidth: "100%" }}>{text}</pre>
+    );
+  }
+  return (
+    <ScrollRegion aria-label={MECHANISMS_REGION_LABEL}>
+      <pre style={{ ...textStyle, padding: `0 ${NARROW_NOTES_PAD_X_PX}px` }}>{text}</pre>
+    </ScrollRegion>
   );
+}
+
+/**
+ * The IPsec Proposal row's value, or "not negotiated" when there is none.
+ *
+ * An IKE proposal such as
+ * "AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK" is one word to
+ * the line breaker: Chrome breaks it after the hyphen and otherwise wherever
+ * Row's overflowWrap "anywhere" lets it. Measured in headless Chrome 152 on
+ * 2026-09-26, the narrow row broke it mid-name at a 320px viewport
+ * ("...ECP_256/KE1_ML_KE" / "M_768/PPK") and left a lone "K" on the last line at
+ * 375px. So in the narrow layout there is a line-break opportunity (<wbr>)
+ * after every "/", and a line ends between two algorithms. <wbr> adds no
+ * characters, so the value reads and copies the same. From 768px up the value
+ * is the plain string, exactly as before.
+ */
+export function IpsecProposal({ proposal }: { proposal: string | null | undefined }) {
+  const narrow = useNarrowLayout();
+  if (proposal == null) return <>— not negotiated —</>;
+  if (!narrow) return <>{proposal}</>;
+  return <>{proposal.split("/").map((part, i, parts) => (
+    <Fragment key={i}>{part}{i < parts.length - 1 && <>/<wbr /></>}</Fragment>
+  ))}</>;
 }
 
 /** "n of m", or an em dash when either side was not observed. */
@@ -489,6 +597,15 @@ function ofPeers(n: number | null | undefined, peers: number | null | undefined)
  * the 12px gap each leaves room for "1 of 1" (39px in the monospace value
  * font) on one line. The definitions of "Fresh" and "Ever" therefore go in a
  * caption under the rows, not in the labels.
+ *
+ * Those widths were taken with the 220px sidebar at a 700px viewport. Below
+ * 768px the shell now has no sidebar and the two lanes stack (LANE_COLUMNS),
+ * so a row is nearly as wide as the screen, and a row too narrow for its
+ * label and value puts the value on the next line (Row). The narrowest
+ * two-column row is now the one at 768px: 201px, measured in headless Chrome
+ * on 2026-09-26. Every label fits there with room for its value; the tightest
+ * is "PSK writer (configured)" (140px), which with the gap leaves its value
+ * 49px, so arnika's writer name wraps over several lines at that one width.
  */
 export function WgInterface({ s, heading }: { s: VpnStatus; heading: string }) {
   const badge = wgStatusBadge(s);
@@ -608,7 +725,9 @@ function EspCounters({ kids }: { kids?: ChildSa[] | null }) {
       {kids.map((k) => (
         <div key={`${k.name}-${k.reqid}-${k.in?.spi ?? k.out?.spi}`}
              style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 11, color: "#9aa9d8" }}>
+          {/* An ESP proposal is one unbroken token (AES_GCM_16-256/...), so
+              it may break anywhere rather than run past a phone's edge. */}
+          <div style={{ fontSize: 11, color: "#9aa9d8", overflowWrap: "anywhere" }}>
             {k.name} · {k.state}{k.esp_proposal ? ` · ${k.esp_proposal}` : ""}
           </div>
           <Row k="in" v={dir(k.in)} />
@@ -710,6 +829,7 @@ function Panel({ title, color, children }: { title: string; color: string; child
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  const narrow = useNarrowLayout();
   return (
     // `gap` and the shrink rules are load-bearing, not tidying.
     //
@@ -727,11 +847,31 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
     // flexShrink 0 on the key keeps the label whole; minWidth 0 lets the value
     // wrap inside its own column instead of pushing into the label; textAlign
     // right keeps a wrapped value visually attached to its own side.
+    //
+    // Those rules assume the label fits with room to spare, and on a phone it
+    // did not. A whole label leaves the value only what is left of the row,
+    // and a value with overflowWrap "anywhere" will take one character's
+    // width if that is all there is: at a 375px viewport with the lanes still
+    // side by side, measured on 2026-09-26, "1 of 1", "RFC 9370 ML-KEM" and
+    // "yes — mixed into SK_d" each wrapped one or two characters per line,
+    // and at 320px labels kept whole ran past the screen's edge. Stacking the
+    // lanes (LANE_COLUMNS) gives a row the page's width, 255px at 320px, but
+    // "PSK writer (configured)" (140px) and the gap would still leave arnika's
+    // writer name 103px. So in the narrow layout (below 768px) the row may
+    // wrap: when label, gap and value do not fit on one line the value moves
+    // to the line below, where it has the row's full width, and marginLeft
+    // auto keeps it on the right. The label may shrink too, which with its
+    // default minimum width means wrapping between words, only if it is wider
+    // than the whole row on its own. From 768px up the row is exactly as
+    // above.
     <div style={{ display: "flex", justifyContent: "space-between",
-                   gap: 12, padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+                   gap: narrow ? `${NARROW_ROW_LINE_GAP_PX}px ${ROW_GAP_PX}px` : ROW_GAP_PX,
+                   padding: "3px 0", fontSize: 13,
+                   ...(narrow ? { flexWrap: "wrap" } : {}) }}>
+      <span style={{ color: "#9aa9d8", flexShrink: narrow ? 1 : 0 }}>{k}</span>
       <span style={{ fontFamily: "monospace", minWidth: 0, textAlign: "right",
-                     overflowWrap: "anywhere" }}>{v}</span>
+                     overflowWrap: "anywhere",
+                     ...(narrow ? { marginLeft: "auto" } : {}) }}>{v}</span>
     </div>
   );
 }
@@ -745,7 +885,9 @@ function Badge({ text, color, title }: { text: string; color: string; title?: st
 }
 
 function NotObserved({ why }: { why: string }) {
-  return <div role="status" style={{ color: "#f5a623", fontSize: 12 }}>Not observed -- GET /api/vpn/protocols failed: {why}</div>;
+  // `why` is the backend's error text, which can carry a path or a URL with no
+  // space in it; overflowWrap lets it break instead of widening the panel.
+  return <div role="status" style={{ color: "#f5a623", fontSize: 12, overflowWrap: "anywhere" }}>Not observed -- GET /api/vpn/protocols failed: {why}</div>;
 }
 
 function Loading() {

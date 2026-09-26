@@ -9,11 +9,29 @@ import { getStats } from "../api";
 import KPI from "../components/KPI";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
+import { NARROW_COLUMN, useNarrowLayout } from "../lib/layout";
 
 /** The KME this page reports. Named once, used everywhere, exported. */
 const BENCH_NODE = "alice" as const;
 
+/** The four counter cards in one row: the layout from 768px up, unchanged. */
+const KPI_WIDE_COLUMNS = "repeat(4, 1fr)";
+
+/**
+ * Two cards per row below the shell's breakpoint (lib/layout.ts). Four in a
+ * row at a 320px viewport leave each card 37px for its value, and a value such
+ * as "0.020" in the cards' 22px monospace measured 55px wide, so it ran out of
+ * its card (KPI.tsx leaves the choice of how many cards share a row to the
+ * page). Two per row leave 112px (measured 2026-09-26). Each track is
+ * NARROW_COLUMN, so the pair shares the row evenly whatever the labels say.
+ */
+const KPI_NARROW_COLUMNS = `repeat(2, ${NARROW_COLUMN})`;
+
+/** Each chart's height from 768px up, as before. */
+const CHART_HEIGHT_PX = 260;
+
 export default function Benchmarks() {
+  const narrow = useNarrowLayout();
   const [rounds, setRounds] = useState<RoundRec[]>([]);
   const roundMsHist = rounds.filter((r) => r.ms !== null);
   const qberHist = rounds.filter((r) => r.qber !== null);
@@ -161,22 +179,33 @@ export default function Benchmarks() {
         )}
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrow ? KPI_NARROW_COLUMNS : KPI_WIDE_COLUMNS, gap: 12, marginBottom: 16 }}>
         <KPI label="Rounds accepted" value={accepted ?? "—"} />
         <KPI label="Rounds aborted" value={aborted ?? "—"} />
         <KPI label="Avg round ms" value={roundMsHist.length ? (roundMsHist.reduce((a, b) => a + b.ms!, 0) / roundMsHist.length).toFixed(0) : "—"} />
         <KPI label="Avg QBER" value={qberHist.length ? (qberHist.reduce((a, b) => a + b.qber!, 0) / qberHist.length).toFixed(3) : "—"} />
       </div>
 
+      {/* useResizeHandler on both charts: Plotly reads its width from the
+          page once, when it first draws, and the shell keeps this page
+          mounted when the viewport crosses its breakpoint (a phone turned
+          sideways, a window resized). Measured on 2026-09-26 without it:
+          drawn at 1280px and resized to 375px, each chart stayed 996px wide
+          in a 343px column and the page scrolled sideways. With it they
+          follow the column (343px, and back to 996px). At a fixed viewport
+          the first draw is the same as before. */}
       <Plot
         data={[
           { x: roundMsHist.map((r) => r.round), y: roundMsHist.map((r) => r.ms), type: "scatter", mode: "lines", name: "round ms", line: { color: "#5b8def" } },
         ]}
         layout={{
-          ...common, height: 260,
-          title: { text: "BB84 round latency (ms)", font: { color: "#9aa9d8", size: 14 } },
+          ...common, height: CHART_HEIGHT_PX,
+          title: { text: "BB84 round latency (ms)", font: { color: "#9aa9d8", size: 14 },
+                   ...(narrow ? NARROW_TITLE : {}) },
+          ...(narrow ? NARROW_TITLE_BAND : {}),
         }}
         style={{ width: "100%" }}
+        useResizeHandler
         config={PLOT_CONFIG}
       />
       <Plot
@@ -184,10 +213,13 @@ export default function Benchmarks() {
           { x: qberHist.map((r) => r.round), y: qberHist.map((r) => r.qber), type: "scatter", mode: "lines", name: "QBER", line: { color: "#ff5e7e" }, fill: "tozeroy" },
         ]}
         layout={{
-          ...common, height: 260, yaxis: { range: [0, 0.5], color: "#9aa9d8" },
-          title: { text: "QBER history", font: { color: "#9aa9d8", size: 14 } },
+          ...common, height: CHART_HEIGHT_PX, yaxis: { range: [0, 0.5], color: "#9aa9d8" },
+          title: { text: "QBER history", font: { color: "#9aa9d8", size: 14 },
+                   ...(narrow ? NARROW_TITLE : {}) },
+          ...(narrow ? NARROW_TITLE_BAND : {}),
         }}
         style={{ width: "100%" }}
+        useResizeHandler
         config={PLOT_CONFIG}
       />
     </div>
@@ -198,4 +230,41 @@ const common: any = {
   paper_bgcolor: "transparent", plot_bgcolor: "transparent",
   margin: { l: 50, r: 10, t: 30, b: 30 },
   font: { color: "#9aa9d8" },
+};
+
+/**
+ * Below the shell's breakpoint the chart titles move out from under the
+ * modebar.
+ *
+ * Plotly draws the modebar in each chart's top-right corner and centres the
+ * title in the same band. Measured on 2026-09-26: the modebar is 192px wide and
+ * runs from 2px to 25px below the chart's top edge at every width, and the
+ * title from 2px to 18px. At a 320px viewport the chart is 288px wide and the
+ * modebar starts 94px in, over the middle of "BB84 round latency (ms)"
+ * (67-221px); at 375px it starts 149px in (title 94-249px). Left-aligning the
+ * title would not clear it: the title is 154px and the modebar 192px, 346px
+ * together, wider than the chart at either width. From 768px up the title and
+ * margin are unchanged.
+ *
+ * So when narrow the title is anchored by its bottom to the top of the plot
+ * area, and the top margin grows to hold it below the modebar. Measured with
+ * these values at 320, 375, 414 and 600px: the title runs from 33px to 49px,
+ * 8px clear of the modebar, and the plot area is 200px tall as it is from
+ * 768px up.
+ */
+const NARROW_TOP_MARGIN_PX = 52;
+
+/** Plotly's title.pad.b when narrow: keeps the title off the plot area's top edge. */
+const NARROW_TITLE_PAD_PX = 6;
+
+/** The title just above the plot area, below the modebar's band, when narrow. */
+const NARROW_TITLE = { yref: "paper", y: 1, yanchor: "bottom", pad: { b: NARROW_TITLE_PAD_PX } };
+
+/**
+ * The taller top margin that holds the title when narrow. The chart grows by
+ * the same amount so the plot area keeps the height it has from 768px up.
+ */
+const NARROW_TITLE_BAND = {
+  margin: { ...common.margin, t: NARROW_TOP_MARGIN_PX },
+  height: CHART_HEIGHT_PX + NARROW_TOP_MARGIN_PX - common.margin.t,
 };

@@ -7,6 +7,7 @@ import { useLiveParamOverrides } from "../lib/useConfig";
 import { usePoll } from "../lib/usePoll";
 import ExportToolbar from "../components/ExportToolbar";
 import FieldReferencePanel from "../components/FieldReferencePanel";
+import { NARROW_COLUMN, narrowColumns, useNarrowLayout } from "../lib/layout";
 
 /**
  * Physics parameter editor.
@@ -122,6 +123,17 @@ const LOCAL_ONLY_REASON =
 /** The Optimize button's grid: this page's own, named so the result can cite it. */
 const OPT_GRID = { muFrom: 0.20, muTo: 0.90, nuFrom: 0.02, nuBelowMu: 0.01, step: 0.02 } as const;
 
+/**
+ * Key-rate cells per row below the breakpoint in lib/layout.ts. The wide row
+ * puts all four side by side; at 375px that is 69px a cell, 47px inside its
+ * padding, and a value such as "1.262e-1" in the cell's 15px monospace is
+ * 60px, so the row would run out of its panel. Two per row gives each value
+ * 101px at 320px (measured). The value is never wrapped: a number broken over
+ * two lines reads as two numbers.
+ */
+const NARROW_KPI_COLUMNS = 2;
+const NARROW_KPI_TEMPLATE = `repeat(${NARROW_KPI_COLUMNS}, ${NARROW_COLUMN})`;
+
 /** Per-KME outcome of a fan-out POST, as `_fanout_result` in webui-backend reports it. */
 interface FanoutNode { ok?: boolean; status?: number | null; error?: string }
 
@@ -160,6 +172,8 @@ export default function PhysicsParams() {
   /** `qkdnetsim-kme`'s status from /api/stack, or null when it could not be read. */
   const [qkdnetsim, setQkdnetsim] = useState<string | null>(null);
   const live = useLiveParamOverrides();
+  // Before the early return below: a hook must run on every render.
+  const narrow = useNarrowLayout();
   /** True when `fields` came from BUNDLED_PARAMS rather than the running
    *  stack. Drives the banner; never inferred from the values themselves. */
   const [bundled, setBundled] = useState(false);
@@ -514,7 +528,12 @@ export default function PhysicsParams() {
         </p>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      {/* The parameter groups. Two columns from 768px up; one below it
+          (lib/layout.ts). This grid is what scrolled the page sideways at
+          375px, by 157px: each row's 120px number input does not shrink, and a
+          bare `1fr` track is minmax(auto, 1fr), so the tracks grew to fit
+          label plus input and ran the right-hand column past the screen. */}
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, "1fr 1fr"), gap: 16 }}>
         {GROUPS.map((g) => {
           const groupFields = fields.filter((f) => f.path.startsWith(g.prefix));
           if (groupFields.length === 0) return null;
@@ -568,7 +587,8 @@ export default function PhysicsParams() {
 
       {/* Live client-side key-rate (recomputes as you edit; closed-form Lo-Ma) */}
       <Panel title="Key-rate (client-side · closed-form Lo-Ma, asymptotic)">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div style={{ display: "grid",
+                       gridTemplateColumns: narrow ? NARROW_KPI_TEMPLATE : "repeat(4, 1fr)", gap: 12 }}>
           <KpiCell label="η_total (transmittance)" value={kpi(model?.etaTotal, (x) => x.toExponential(3))} />
           <KpiCell label="QBER E_μ" value={kpi(model?.qber, (x) => (x * 100).toFixed(2) + " %")} />
           <KpiCell label="SKR (bits/pulse)" value={kpi(model?.skrPerPulse, (x) => x.toExponential(3))} />
@@ -716,7 +736,14 @@ const resetBtn: React.CSSProperties = {
   borderRadius: 4, padding: "6px 14px", fontSize: 13, cursor: "pointer",
 };
 
+/**
+ * The Optimize result. Its "method" and "grid" lines are 70 and 83 characters,
+ * the <pre> is 483px wide with them, and at 375px it ran 124px past the screen.
+ * maxWidth keeps it inside the row and overflowX scrolls the long lines inside
+ * the box. At 768px and 1280px it fits, so neither applies there.
+ */
 const preBox: React.CSSProperties = {
   background: "#070b14", border: "1px solid #1d2741", borderRadius: 8,
   padding: 12, color: "#cbd6f5", fontSize: 11, lineHeight: 1.45, marginTop: 12,
+  maxWidth: "100%", overflowX: "auto",
 };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import PageHeader from "../components/PageHeader";
 import ExportToolbar from "../components/ExportToolbar";
 import KPI from "../components/KPI";
@@ -9,9 +9,41 @@ import PhaseSequenceSvg from "../components/PhaseSequenceSvg";
 import PacketFlowTable from "../components/PacketFlowTable";
 import FailureCascadeTimeline from "../components/FailureCascadeTimeline";
 import { colors } from "../lib/commonStyles";
+import { NARROW_COLUMN, narrowColumns, useNarrowLayout } from "../lib/layout";
 import {
   DEFAULT_HOP_COUNT, MAX_HOP_COUNT, paperCsvRows, PaperSim, type PaperFlowState,
 } from "../lib/sim/paperSim";
+
+/**
+ * KPI cards per row below the breakpoint in lib/layout.ts. The wide row puts
+ * all five side by side. Measured on 2026-09-26 in headless Chrome: on a
+ * 375px phone that left each card 59px, the labels broke inside words
+ * ("packe / ts", "hands / hake"), and a five-character value such as 10.27
+ * (55px) ran 9px past its card; at 320px, with a run in progress, the last
+ * card's value ended at x=324 and pushed the page 4px wide. Two per row gives
+ * a card 138px at 320px, a 112px content box: room for a label's longest word
+ * and for an eight-digit value (88px in the KPI's 22px monospace). One per
+ * row would also fit and would make the row five cards tall.
+ */
+const NARROW_KPI_COLUMNS = 2;
+const NARROW_KPI_TEMPLATE = `repeat(${NARROW_KPI_COLUMNS}, ${NARROW_COLUMN})`;
+
+/**
+ * The grid-column of a card that takes a whole row of the narrow KPI grid.
+ * Five cards in NARROW_KPI_COLUMNS = 2 leave the fifth alone on the last row,
+ * where at its one track it filled half the row and left the other half
+ * empty; spanning every track (1 to -1) gives it the row.
+ */
+const NARROW_FULL_ROW = "1 / -1";
+
+/**
+ * Below the breakpoint, puts `children` (one KPI card) in a grid item that
+ * spans the whole row. From 768px up it renders the card on its own, so the
+ * five-across row is the same markup as before the narrow layout existed.
+ */
+function FullRowWhenNarrow({ narrow, children }: { narrow: boolean; children: ReactNode }) {
+  return narrow ? <div style={{ gridColumn: NARROW_FULL_ROW }}>{children}</div> : <>{children}</>;
+}
 
 /**
  * Paper Data Exchange page.
@@ -42,6 +74,7 @@ export default function PaperDataExchange() {
   const [state, setState] = useState<PaperFlowState | null>(null);
   const [hopCount, setHopCount] = useState(DEFAULT_HOP_COUNT);
   const simRef = useRef<PaperSim | null>(null);
+  const narrow = useNarrowLayout();
 
   // Round 5: the multi-hop orchestration runs CLIENT-SIDE (no /ws/paper-flow).
   useEffect(() => {
@@ -160,7 +193,8 @@ export default function PaperDataExchange() {
         quantity this page really produces: the ~64-byte ChaCha20-Poly1305
         record phase 5 seals. Named and footnoted as derived.
       */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)",
+      <div style={{ display: "grid",
+                     gridTemplateColumns: narrow ? NARROW_KPI_TEMPLATE : "repeat(5, 1fr)",
                      gap: 12, marginBottom: 16 }}>
         <KPI label="Paper packets / handshake"
              value={state?.paper_budgets.total_handshake_packets ?? "—"} />
@@ -185,8 +219,10 @@ export default function PaperDataExchange() {
             multiplication finds it fails and cannot tell which number is
             wrong. Nothing could have caught it: both values were right, only
             the relation between them was invented. */}
-        <KPI label="Sim bytes accrued (per completed phase)"
-             value={state?.bytes_total ?? 0} />
+        <FullRowWhenNarrow narrow={narrow}>
+          <KPI label="Sim bytes accrued (per completed phase)"
+               value={state?.bytes_total ?? 0} />
+        </FullRowWhenNarrow>
       </div>
       <div style={{ fontSize: 11, color: colors.textSec, lineHeight: 1.5,
                      marginTop: -8, marginBottom: 16 }}>
@@ -275,8 +311,12 @@ export default function PaperDataExchange() {
         <PhaseSequenceSvg budgets={budgets} currentPhase={phase} />
       </Panel>
 
-      {/* Packet flow + cascade */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr",
+      {/* Packet flow + cascade. Side by side from 768px up; one column below
+          it. Measured on 2026-09-26: at 375px the two columns were 164px
+          each, and the packet table, 280px at its narrowest, ran out of its
+          own panel and across the cascade panel beside it, while the cascade
+          SVG shrank to 139px. */}
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, "1fr 1fr"),
                      gap: 16, marginTop: 16 }}>
         <PacketFlowTable budgets={budgets} currentPhase={phase} />
         <FailureCascadeTimeline

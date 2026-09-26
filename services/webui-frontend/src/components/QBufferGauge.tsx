@@ -1,4 +1,5 @@
-import { colors } from "../lib/commonStyles";
+import { colors, spacing } from "../lib/commonStyles";
+import { useNarrowLayout } from "../lib/layout";
 import type { Accounting, LinkState } from "../lib/sim/protocolLabSim";
 import { MIB_BITS } from "../lib/sim/protocolLab/publishedNetworks";
 
@@ -12,6 +13,7 @@ export default function QBufferGauge({ link, accounting, keyBits, scaleBits }: {
   /** Stores mode: the largest cited initial store, so every bar shares one scale. */
   scaleBits: number | null;
 }) {
+  const narrow = useNarrowLayout();
   let fill: number | null = null;
   let caption: string;
   if (accounting === "keys" && link.storedKeys !== null && link.maxKeys) {
@@ -27,7 +29,14 @@ export default function QBufferGauge({ link, accounting, keyBits, scaleBits }: {
   }
   return (
     <div style={{ marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+      {/* Below the breakpoint the rate drops under the link id when both do
+          not fit. Without the wrap, a downed link at 320px squeezed the two
+          into side-by-side halves of about 110px and 165px, each broken over
+          two lines ("CAPE-TREL / (node-down)" beside "generates 2580000
+          bit/s / (reported)"; measured 2026-09-26). From 768px up the row is
+          unchanged: there the halves shrink as they always have. */}
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12,
+                    ...(narrow ? { flexWrap: "wrap", columnGap: spacing.sm } as const : {}) }}>
         <span style={{ color: link.down ? colors.danger : colors.textPri, fontFamily: "monospace" }}>
           {link.id}{link.down ? ` (${link.downReason})` : ""}
         </span>
