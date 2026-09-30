@@ -13,7 +13,7 @@
 | its endpoint, so every wg1 packet is carried inside wg0             |
 +---------------------------------------------------------------------+
 | Layer 2 — Transport orchestration                                   |
-| arnika (Go; submodules/arnika, the head of open upstream PR #51)    |
+| arnika (Go; submodules/arnika at f4cf9ba, #51's head on 2026-09-24) |
 | - ETSI 014 client (plain HTTP; mTLS not implemented)                |
 | - PQC-HPKE round with its peer over arnika's own UDP socket:        |
 |   HPKE Base mode (RFC 9180), MLKEM1024-P384, HKDF-SHA384            |
@@ -177,7 +177,9 @@ The mechanism, the rotation sequence and the open issues are in
 
 These are the points we depend on; changing them in upstream arnika would require
 contract updates here. Line numbers are at the pinned submodule commit,
-`f4cf9ba` (the head of open PR #51).
+`f4cf9ba`, the head of the open PR #51 as of 2026-09-24. The PR's later head,
+`da00e6d` (2026-09-30), changes comments, documentation and tests, not
+behaviour, but it shifts these line numbers, so they hold at `f4cf9ba` only.
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|
@@ -222,7 +224,7 @@ pqc-qkd-HybridNetwork/
 ├── .github/workflows/ci.yml           # CI
 ├── references/                        # Reference papers (only where the licence permits)
 ├── submodules/                        # Git submodules, pinned and unmodified
-│   ├── arnika/                        # Go; built into the node images (head of open PR #51)
+│   ├── arnika/                        # Go; built into the node images (open PR #51, f4cf9ba)
 │   ├── rosenpass/                     # PQC handshake daemon keying wg1, built into the node image
 │   ├── strongswan/                    # IKEv2 daemon, built into the IPsec image
 │   ├── wgephemeralpeer/               # Mullvad ephemeral-peer reference (not built)

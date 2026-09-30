@@ -57,7 +57,7 @@ The goal of this PoC is to reproduce the three-layer model from
 | Layer | Role | Implementation |
 |---|---|---|
 | End-to-End (PQC) | Post-quantum key exchange between alice and bob, carried inside the hop tunnel; its key protects the end-to-end data tunnel `wg1` | Rosenpass v0.2.3 (Classic McEliece 460896 + Kyber512), which writes `wg1`'s WireGuard preshared key through its own WireGuard output |
-| Transport | Fetches the QKD key over ETSI 014, agrees a PQC-HPKE key with its peer, fuses the two with HKDF-SHA3-256 and injects the result | **arnika (Go), pinned to the head of the open upstream PR #51 and not modified here; this project adds a strongSwan VICI key-writer adapter** |
+| Transport | Fetches the QKD key over ETSI 014, agrees a PQC-HPKE key with its peer, fuses the two with HKDF-SHA3-256 and injects the result | **arnika (Go), pinned to `f4cf9ba`, the head of the open upstream PR #51 as of 2026-09-24, and not modified here; this project adds a strongSwan VICI key-writer adapter** |
 | Hop (WireGuard) | Real encryption with ChaCha20-Poly1305 + Noise + PSK, keyed by arnika | WireGuard `wg0` (kernel module, or `wireguard-go` without one) |
 
 **PQC-HPKE** is arnika's own key agreement: HPKE in Base mode (RFC 9180) with
@@ -65,9 +65,12 @@ the KEM MLKEM1024-P384, the KDF HKDF-SHA384 and an export-only AEAD, run over
 the UDP socket the two arnika peers already share, one round per interval. The
 KEM is itself a hybrid of ML-KEM-1024 and P-384 ECDH, and its codepoint
 (0x0051) comes from draft-ietf-hpke-pq, which is **not yet an RFC**. The arnika
-pin (`f4cf9ba`, 2026-09-24) is the head of arnika's **unmerged** PR #51, which
-adds PQC-HPKE, not a commit on upstream `main`; it will be re-pinned to the
-merge commit once #51 merges. See [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md#arnika).
+pin (`f4cf9ba`) is the head of arnika's **unmerged** PR #51 as of 2026-09-24,
+which adds PQC-HPKE, not a commit on upstream `main`; the PR's later head,
+`da00e6d` (2026-09-30), changes comments, documentation and tests, not
+behaviour. The pin stays until the before/after measurement of this change has
+been reported, and is then re-pinned to the merge commit once #51 merges. See
+[`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md#arnika).
 
 The QKD layer is supplied by a **pluggable BB84 physical simulator** wrapped
 behind the ETSI GS QKD 014 REST API; seven backends are selectable at runtime
@@ -152,7 +155,7 @@ including the browser pass over every page -- are in
 |---|---|
 | KMS-free layered overlay | Implemented |
 | ETSI GS QKD 014 client/server contract | Implemented; contract tested in CI against two live KMEs |
-| arnika as key injector | Implemented; the pin is the head of open upstream PR #51, not modified here, and this project adds a strongSwan VICI key-writer adapter |
+| arnika as key injector | Implemented; the pin is `f4cf9ba`, the head of open upstream PR #51 as of 2026-09-24, not modified here, and this project adds a strongSwan VICI key-writer adapter |
 | Rosenpass PQC layer | Implemented with the real binary, as the paper layers it: the exchange runs through the `wg0` hop tunnel and its key becomes the preshared key of the `wg1` data tunnel |
 | Multi-hop trusted-node chain | Implemented under the `multihop` profile, both layers per leg; unlike the paper, the relay also terminates each leg's `wg1`. Checklist row 3.5 checks every leg |
 | Adaptive security levels (QuLore L1-L4) | Not implemented; see [`docs/roadmap.md`](docs/roadmap.md) |
@@ -189,7 +192,7 @@ offers as "Cite this repository".
   Foundation for Research, Technology and Development), which covered
   arnika v1.x; maintained by XBC Digital GmbH since Q2 2026. The pinned
   revision is later than the QCI-CAT-funded v1.x line: `f4cf9ba`, the head of
-  the open pull request arnika#51 (2026-09-24), which adds the PQC-HPKE key
+  the open pull request arnika#51 as of 2026-09-24, which adds the PQC-HPKE key
   agreement.
 - liboqs / oqs-provider: Open Quantum Safe project
 - Rosenpass: Rosenpass project contributors

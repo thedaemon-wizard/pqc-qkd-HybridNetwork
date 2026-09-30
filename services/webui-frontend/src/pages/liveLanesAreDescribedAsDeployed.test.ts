@@ -15,7 +15,9 @@
  *   * PQC-HPKE is defined wherever it is named, including that its KEM comes
  *     from an Internet-Draft and not an RFC;
  *   * no live page says Rosenpass feeds arnika or writes a key file;
- *   * the pin is said to be an unmerged PR head, and no page claims that the
+ *   * the pin is said to be an unmerged PR's head as of a stated date, the
+ *     later head is named, the pin is said to stay until the before/after
+ *     measurement is reported, and no page claims that the
  *     PR's rotation-ordering commit fixes the intermittent PPK mismatch -- that
  *     has not been measured.
  *
@@ -261,7 +263,11 @@ describe("the pin is an unmerged PR head, and no fix is claimed", () => {
     it(`${name} says so`, () => {
       const t = norm(code(text));
       expect(t).toMatch(/pull request #51, which is still open/);
-      expect(t).toContain("f4cf9ba");
+      expect(t).toMatch(/f4cf9ba<\/code>, that pull request&apos;s head commit on 2026-09-24/);
+      // The PR's head moved on 2026-09-30; a bare "the pin is the head" went
+      // stale that day, so the later head is named beside the date.
+      expect(t).toMatch(/later head(\{" "\})? <code>da00e6d<\/code>/);
+      expect(t).toMatch(/pin stays until the before\/after measurement of this change is reported/);
       expect(t).toMatch(/re-pinned to the merge commit once #51 merges/);
     });
   }

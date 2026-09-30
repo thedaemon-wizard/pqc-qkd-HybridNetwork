@@ -435,13 +435,13 @@ async def stats():
 # 2026-09-25 by value LENGTH only (44 characters, a base64 32-byte key); the
 # value itself was never printed.
 #
-# The current pin (f4cf9ba, the head of the still-open arnika PR #51) prints
-# the same label with redactSecret()'s `(set, N bytes)` instead of the value
+# The current pin (f4cf9ba, the head of the still-open arnika PR #51 as of
+# 2026-09-24) prints the same label with redactSecret()'s `(set, N bytes)` instead of the value
 # (config/config.go:119 and :168-173 there). The banner rule below still
 # matches that line and replaces an already-redacted value, which costs only
 # the byte count. It stays because the label is all this rule can see: a node
 # rolled back to 3a8cc13 writes the same label with the key after it, and the
-# PR head is not yet a merge commit.
+# pin is not yet a merge commit.
 #
 # The same missing cap let one request make the backend serialise alice-ipsec's
 # 3.4 million log lines.

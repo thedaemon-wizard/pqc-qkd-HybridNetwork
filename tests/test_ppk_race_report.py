@@ -2,7 +2,7 @@
 
 The report exists for one comparison: the intermittent PPK mismatch on the
 IPsec lane before and after the pin moved from arnika 3a8cc13 to upstream PR
-#51's head (f4cf9ba). The two arms log in different formats -- bracketed Go
+#51's head as of 2026-09-24 (f4cf9ba). The two arms log in different formats -- bracketed Go
 `log` tags before, log/slog key=value records after -- so the same rule has to
 be exercised against both, or the comparison measures the parser.
 

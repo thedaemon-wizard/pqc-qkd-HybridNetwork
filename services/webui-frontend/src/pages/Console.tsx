@@ -31,8 +31,9 @@ const NAMES = [
  * render and the export read the same state, so both are fixed by cleaning it
  * on arrival.
  *
- * The current pin (f4cf9ba, the head of the still-open arnika PR #51) logs
- * through slog as key=value lines, with the role as an attribute:
+ * The current pin (f4cf9ba, the head of the still-open arnika PR #51 as of
+ * 2026-09-24) logs through slog as key=value lines, with the role as an
+ * attribute:
  *
  *   time=... level=INFO msg="sending the key_id to the peer" arnika_id=1 role=primary key_id=<uuid> peer=...
  *

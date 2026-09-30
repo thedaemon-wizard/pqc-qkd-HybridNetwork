@@ -101,14 +101,14 @@ post-quantum protection is a separate end-to-end tunnel between the two end
 nodes, which the trusted nodes forward without holding its key. Since
 2026-09-26 the two-node WireGuard lane here has the same shape -- a `wg1` data
 tunnel keyed by Rosenpass, carried inside the `wg0` hop tunnel -- with one
-difference: arnika's hop key is not QKD-only, because the pinned arnika (the
-head of its PR #51) also HKDF-mixes in a PQC-HPKE key it agrees with its peer.
-In the multi-hop compose the relay holds both legs' hop keys, as a trusted node
-does, and it also terminates each leg's `wg1`, so it holds each leg's
-Rosenpass key too: unlike the paper's, this end-to-end layer ends at the
-trusted node. Until 2026-09-26 the post-quantum half was Rosenpass's key
-mixed into each hop's PSK, and a separate end-to-end layer existed only in the
-`/paper-flow` simulation. The paper's PQC tool is **QuantShake**
+difference: arnika's hop key is not QKD-only, because the pinned arnika
+(`f4cf9ba`, the head of its PR #51 as of 2026-09-24) also HKDF-mixes in a
+PQC-HPKE key it agrees with its peer. In the multi-hop compose the relay holds
+both legs' hop keys, as a trusted node does, and it also terminates each leg's
+`wg1`, so it holds each leg's Rosenpass key too: unlike the paper's, this
+end-to-end layer ends at the trusted node. Until 2026-09-26 the post-quantum
+half was Rosenpass's key mixed into each hop's PSK, and a separate end-to-end
+layer existed only in the `/paper-flow` simulation. The paper's PQC tool is **QuantShake**
 ([github.com/aparcar/quantshake](https://github.com/aparcar/quantshake), MIT, by
 an author of the paper, marked unaudited in its own README), run with sntrup761
 and, separately, ML-KEM-768 to show agility, renegotiating every 120 s, which is
@@ -441,8 +441,9 @@ on 2023-01-01, and the end date on its deliverable covers moved in stages --
 so the project has ended. The initial prototype and earlier versions were
 developed at CANCOM Converged Services GmbH; since **Q2 2026** the people behind
 arnika have maintained it at **XBC Digital GmbH**, and the pin is that later
-work rather than the QCI-CAT v1.x line: the head of the open PR #51, built on
-`main`. The Credits section of `submodules/arnika/README.md` records both.
+work rather than the QCI-CAT v1.x line: `f4cf9ba`, the head of the open PR #51
+as of 2026-09-24, built on `main`. The Credits section of
+`submodules/arnika/README.md` records both.
 
 ### arnika v1.x's design document, and what it settles
 
@@ -489,10 +490,10 @@ repository, each with that scope:
    survives is the exchange itself: PRIMARY sends the `key_id` and BACKUP
    resolves it, and that handover is where this project's intermittent PPK
    mismatch was investigated ([`vici-ppk.md`](vici-ppk.md), "Known
-   limitation"). At the pinned head of #51 the BACKUP installs its key before
-   it acknowledges the `key_id`, and the PRIMARY installs only after the
-   acknowledgement. D6.1's statement is v1.x design intent, not evidence about
-   the current code path.
+   limitation"). At the pin (`f4cf9ba`, #51's head as of 2026-09-24) the BACKUP
+   installs its key before it acknowledges the `key_id`, and the PRIMARY
+   installs only after the acknowledgement. D6.1's statement is v1.x design
+   intent, not evidence about the current code path.
 3. **IPsec was evaluated and not chosen, partly over patents.** D6.1 says the
    use case *"favored WireGuard over IPSEC"* for its simplicity, efficiency and
    modern design, and records that several methods for post-quantum IPsec have

@@ -13,8 +13,8 @@
 #        carried inside wg0, with the Rosenpass exchange itself inside wg0
 # (nodes/alice/entrypoint.sh). arnika is built by nodes/alice/Dockerfile from
 # submodules/arnika, pinned to f4cf9ba: the head of the open, unmerged upstream
-# PR arnika-project/arnika#51, to be re-pinned to the merge commit once #51
-# merges. PQC-HPKE is HPKE Base mode (RFC 9180) with the hybrid KEM
+# PR arnika-project/arnika#51 as of 2026-09-24 (.gitmodules says when it is
+# re-pinned). PQC-HPKE is HPKE Base mode (RFC 9180) with the hybrid KEM
 # MLKEM1024-P384 (draft-ietf-hpke-pq, not yet an RFC), HKDF-SHA384 and an
 # export-only AEAD.
 # BB84-KME is a Python service implementing QuTiP + ETSI GS QKD 014 REST.

@@ -214,8 +214,8 @@ jobs:
       # two: a separate step with its own copy of the overlay drifted from
       # build.sh and vetted an unpatched tree.
       #
-      # The layout is upstream PR #51's (the pin is its head, f4cf9ba): one
-      # package per adapter, so the adapter itself is
+      # The layout is upstream PR #51's (the pin, f4cf9ba, is its head as of
+      # 2026-09-24): one package per adapter, so the adapter itself is
       # services/arnika-vici/repositories/swanvici/ and implements the one-method
       # port SetPSK([]byte). build.sh stops with FATAL if upstream already ships
       # either overlaid file, rather than silently replacing it.
@@ -730,9 +730,10 @@ jobs:
             # AUTH_FAILED -- so its presence or absence separates "arnika gave
             # up loudly" from "arnika never ran the interval".
             #
-            # The pin is upstream PR #51's head (f4cf9ba), which logs through
-            # log/slog as key=value records, so the pin-era bracketed tags quoted
-            # above never appear any more. The alternation lists both vocabularies:
+            # The pin is f4cf9ba (upstream PR #51's head as of 2026-09-24),
+            # which logs through log/slog as key=value records, so the pin-era
+            # bracketed tags quoted above never appear any more. The alternation
+            # lists both vocabularies:
             #
             #   charon and the VICI adapter (unchanged; the adapter still logs
             #   through log.Printf, which the slog bridge wraps into msg="...")
@@ -822,17 +823,16 @@ jobs:
       # exactly one of the two halves must differ, and nothing in the system
       # ever compares them across the pair. This step does.
       #
-      # The PQC half is no longer a file. At the pin (upstream PR #51's head,
-      # f4cf9ba) arnika agrees it with the peer itself over PQC-HPKE, one key
-      # per numbered round, and holds it only in memory, so the sha256 of
-      # /var/lib/rosenpass/pqc.psk this step used to print has nothing left to
-      # hash. What both peers do log is which round each one agreed
+      # The PQC half is no longer a file. At the pin (f4cf9ba, upstream PR #51's
+      # head as of 2026-09-24) arnika agrees it with the peer itself over
+      # PQC-HPKE, one key per numbered round, and holds it only in memory, so the
+      # sha256 of /var/lib/rosenpass/pqc.psk this step used to print has nothing
+      # left to hash. What both peers do log is which round each one agreed
       # (`round agreed a fresh PQC key ... round=N as=initiator|responder`,
-      # repositories/pqchpke/pqchpke.go). Two peers that agreed different sets
-      # of rounds, or failed one the other agreed, can feed HKDF different PQC
-      # keys; identical round lists put the PQC half out of suspicion for the
-      # rounds shown. Round numbers and roles only -- no key material is in
-      # these lines.
+      # repositories/pqchpke/pqchpke.go). Two peers that agreed different sets of
+      # rounds, or failed one the other agreed, can feed HKDF different PQC keys;
+      # identical round lists put the PQC half out of suspicion for the rounds
+      # shown. Round numbers and roles only -- no key material is in these lines.
       #
       # Non-fatal by design: it is evidence, not an assertion. Making it fail
       # the build before the mechanism is understood would only add a second

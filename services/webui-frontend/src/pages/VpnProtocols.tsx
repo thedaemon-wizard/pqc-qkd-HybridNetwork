@@ -281,10 +281,13 @@ export default function VpnProtocols() {
             with the KEM MLKEM1024-P384, a hybrid of ML-KEM-1024 and P-384
             (codepoint 0x0051, from draft-ietf-hpke-pq, not yet an RFC), the
             KDF HKDF-SHA384 and an export-only AEAD. Note: it comes from arnika
-            pull request #51, which is still open; the arnika pin is that pull
-            request&apos;s head commit (<code>f4cf9ba</code>), not a merge
-            commit, and will be re-pinned to the merge commit once #51
-            merges.</li>
+            pull request #51, which is still open; the arnika pin is{" "}
+            <code>f4cf9ba</code>, that pull request&apos;s head commit on
+            2026-09-24, not a merge commit (the later head{" "}
+            <code>da00e6d</code>, 2026-09-30, changes comments, docs and tests,
+            not behaviour). The pin stays until the before/after measurement of
+            this change is reported, and will be re-pinned to the merge commit
+            once #51 merges.</li>
       </ul>
       {/* Rows 2.3 and 2.11 are read from this page, and row 2.14's counts
           from the rotations panel, so it produces evidence and must be able

@@ -32,9 +32,9 @@
 # does not exist in earlier toolchains and is gated behind a GOEXPERIMENT.
 # CGO_ENABLED / GOEXPERIMENT mirror upstream's own Makefile build vars.
 #
-# The pin is f4cf9ba (2026-09-24), the head of the OPEN, unmerged upstream PR
-# arnika-project/arnika#51. It will be re-pinned to the merge commit once #51
-# merges. The layout moved in that PR: one package per adapter under
+# The pin is f4cf9ba, the head of the OPEN, unmerged upstream PR
+# arnika-project/arnika#51 as of 2026-09-24; .gitmodules says when it is
+# re-pinned. The layout moved in that PR: one package per adapter under
 # repositories/, and the wiring files are wire_*.go. The assertions below
 # name the new paths.
 FROM golang:1.26-bookworm AS arnika-build

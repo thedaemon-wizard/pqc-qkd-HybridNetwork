@@ -28,7 +28,7 @@ in [`roadmap.md`](roadmap.md) on the three "phase" schemes.
 | Image element | On `/e2e` (`e2eSim.ts`, `QuantumSecureE2E.tsx`) | Running counterpart, outside `/e2e` |
 |---|---|---|
 | Site A / Site B boundary | `ArchSvg`, centre divider line | Two containers on one host; see [`LIMITATIONS.md`](LIMITATIONS.md) |
-| **KEY-CONTROL function** "ARNIKA" | Step 2 draws the QKD surrogate; step 3 runs the HKDF | `submodules/arnika` (Go, not modified here; pinned to the head of the open upstream PR #51) in `alice`/`bob` |
+| **KEY-CONTROL function** "ARNIKA" | Step 2 draws the QKD surrogate; step 3 runs the HKDF | `submodules/arnika` (Go, not modified here; pinned to `f4cf9ba`, the head of the open upstream PR #51 as of 2026-09-24) in `alice`/`bob` |
 | **PQC function** "ROSENPASS" | Step 3: `pqcSecret = randomBytes(32)` in modes B and C; nothing is exchanged | No single component since 2026-09-26. The PQC key arnika mixes in (label B) now comes from arnika itself, a PQC-HPKE round with its peer (HPKE, MLKEM1024-P384). Rosenpass still runs in `alice`/`bob` (Classic McEliece 460896 + Kyber512), but it keys the separate `wg1` data tunnel, which is the reference paper's layering rather than this figure's |
 | **VPN function** "WIREGUARD" | Step 4: ChaCha20-Poly1305 over 64 ping-sized payloads keyed by the derived value | Kernel WireGuard in `alice`/`bob`, or `wireguard-go` when the kernel module is absent: `wg0`, keyed by arnika, and `wg1` inside it, keyed by Rosenpass |
 | **KMS Keystore [ETSI 014]** | A key-pool counter: step 1 adds one key, step 2 draws one in modes A and C | `services/bb84-kme/app/etsi014.py` |
@@ -93,7 +93,7 @@ secrets into the WireGuard PSK channel. The closest alternative is
 
 | | `arnika` (this PoC) | `mullvad/wgephemeralpeer` |
 |---|---|---|
-| Origin | Originally CANCOM Converged Services GmbH (v1.x under EU EUROQCI / QCI-CAT); maintained at XBC Digital GmbH since Q2 2026. The pin is the head of the open PR #51, built on `main`, which has diverged from `v1.x` | Mullvad VPN |
+| Origin | Originally CANCOM Converged Services GmbH (v1.x under EU EUROQCI / QCI-CAT); maintained at XBC Digital GmbH since Q2 2026. The pin is the head of the open PR #51 as of 2026-09-24, built on `main`, which has diverged from `v1.x` | Mullvad VPN |
 | Language | Go | Go |
 | License | Apache-2.0 | GPL-3.0 |
 | Pinned revision | `f4cf9ba` (2026-09-24) | `0080bf8` (2026-05-08) |

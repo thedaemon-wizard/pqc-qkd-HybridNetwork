@@ -10,8 +10,8 @@
 # HPKE with the peer (KEM MLKEM1024-P384, codepoint 0x0051 from
 # draft-ietf-hpke-pq, not yet an RFC), on the same authenticated UDP channel
 # as the key_ID, so these nodes mount no key file and depend on no WireGuard
-# node. The arnika pin is the head of the still-OPEN upstream PR #51; see
-# .gitmodules.
+# node. The arnika pin, f4cf9ba, is the head of the still-OPEN upstream PR #51
+# as of 2026-09-24; see .gitmodules.
 #
 # Apply with:
 #   docker compose -f docker-compose.yml -f docker-compose.strongswan.yml \

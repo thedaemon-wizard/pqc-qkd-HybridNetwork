@@ -837,11 +837,12 @@ boringtun.
 The first change after the `v0.1.0` tag, to be released as 0.2.0 (see
 [`../CHANGELOG.md`](../CHANGELOG.md)); the `v0.2.0` tag and its date are set
 after the merge. It moves `submodules/arnika` from
-`3a8cc13` to `f4cf9ba`, the head of the open, unmerged arnika PR #51 (dated
-2026-09-24), because that PR removes the file handover this project's PQC half
+`3a8cc13` to `f4cf9ba`, the head of the open, unmerged arnika PR #51 as of
+2026-09-24, because that PR removes the file handover this project's PQC half
 depended on (`PQC_PSK_FILE`) and replaces it with PQC-HPKE, a key agreement
 between the arnika peers themselves. The pin is re-pinned to the merge commit
-once #51 merges ([`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika
+once #51 merges, and not before the after-arm of the before/after measurement
+has been reported ([`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika
 #51").
 
 ### What went in

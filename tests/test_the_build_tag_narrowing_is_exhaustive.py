@@ -12,14 +12,14 @@ about. `strongswan_vici` is not among them, and every writer's wiring file
 defines `getKeyWriterService`, so `-tags strongswan_vici` yields two
 definitions. The narrowing adds `&& !strongswan_vici`.
 
-The layout is upstream PR #51's, which the pin (f4cf9ba) is the head of: one
-package per adapter under `repositories/<pkg>/` and one wiring file per backend
-at the root, named `wire_` plus the build tag (its KEYCONTROL.md, "Naming and
-File Layout Conventions"). So the default writer's wiring is
-`wire_wireguard_netlink.go`, the adapter is `repositories/swanvici/`, and its
-wiring is `wire_strongswan_vici.go`. The first line of the default writer is
-byte-identical to the pre-#51 `wireguardnetlink.go`, so the narrowing itself is
-unchanged; what moved is the file it is applied to.
+The layout is upstream PR #51's (the pin, f4cf9ba, is its head as of
+2026-09-24): one package per adapter under `repositories/<pkg>/` and one wiring
+file per backend at the root, named `wire_` plus the build tag (its
+KEYCONTROL.md, "Naming and File Layout Conventions"). So the default writer's
+wiring is `wire_wireguard_netlink.go`, the adapter is `repositories/swanvici/`,
+and its wiring is `wire_strongswan_vici.go`. The first line of the default
+writer is byte-identical to the pre-#51 `wireguardnetlink.go`, so the narrowing
+itself is unchanged; what moved is the file it is applied to.
 
 WHAT THIS FILE PINS, AND WHY IT IS NOT OBVIOUS. The open question when the
 narrowing was introduced was whether it breaks the netns build upstream had just

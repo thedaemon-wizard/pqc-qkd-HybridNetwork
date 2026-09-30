@@ -14,17 +14,21 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 Not tagged yet: the date and the `v0.2.0` tag are set when the change is
 tagged, after it is merged.
 
-The arnika pin moves to the head of arnika PR #51, which replaces the file
-handover of the PQC key with a key agreement between the arnika peers, and the
-WireGuard lane takes the layering of the reference paper
-(arXiv:2604.05599, 4.2). Detail:
+The arnika pin moves to `f4cf9ba`, the head of arnika PR #51 as of 2026-09-24,
+which replaces the file handover of the PQC key with a key agreement between
+the arnika peers, and the WireGuard lane takes the layering of the reference
+paper (arXiv:2604.05599, 4.2). Detail:
 [`docs/phases.md`](docs/phases.md#2026-09-26--arnika-51-adopted-and-the-wireguard-lane-layered-as-in-the-paper-release-020).
 
 ### Changed
 
-- `submodules/arnika` is pinned to `f4cf9ba` (2026-09-24), the head of the
-  **open, unmerged** arnika PR #51, instead of `3a8cc13` on upstream `main`. It
-  will be re-pinned to the merge commit once #51 merges.
+- `submodules/arnika` is pinned to `f4cf9ba`, the head of the **open,
+  unmerged** arnika PR #51 as of 2026-09-24, instead of `3a8cc13` on upstream
+  `main`. The PR's later head, `da00e6d` (2026-09-30), changes comments,
+  documentation and tests, not behaviour. The pin is not moved during the
+  168 h after-arm of the before/after measurement (checklist row 2.17), even
+  if #51 merges in that week; it is re-pinned to the merge commit only after
+  the after-arm has been reported.
 - arnika's PQC half is PQC-HPKE on every instance: HPKE in Base mode
   (RFC 9180) with the KEM MLKEM1024-P384 (a hybrid of ML-KEM-1024 and P-384
   ECDH, codepoint 0x0051 of draft-ietf-hpke-pq, not yet an RFC), HKDF-SHA384

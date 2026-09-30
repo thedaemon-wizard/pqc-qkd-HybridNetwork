@@ -8,7 +8,7 @@ are kept short; the longer history of a pin is under
 
 | Submodule | License | Project | Phase | Activity (verified 2026-09-25) |
 |---|---|---|---|---|
-| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `f4cf9ba` (2026-09-24), the head of the **open, unmerged** PR #51 (`pqc-hpke`), not a `main` commit: post-v1.x work, not the `v1.x` branch. It contains all of `main` except its two newest commits, which touch only the README (`164ee4e`, and `3a8cc13`, the previous pin). To be re-pinned to the merge commit once #51 merges. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-09-26. See [arnika](#arnika). |
+| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `f4cf9ba` (2026-09-24), the head of the **open, unmerged** PR #51 (`pqc-hpke`) as of that date, not a `main` commit: post-v1.x work, not the `v1.x` branch. It contains all of `main` except its two newest commits, which touch only the README (`164ee4e`, and `3a8cc13`, the previous pin). The PR's later head, `da00e6d` (2026-09-30), changes comments, documentation and tests, not behaviour. To be re-pinned to the merge commit once #51 merges, but not before the after-arm of the before/after measurement has been reported. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-09-26. See [arnika](#arnika). |
 | `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | pinned to `5a1a854b`, the tag **0.16.0** (2026-07-09), built into the `pqc-validator` and `pqc-tls-demo` images. It is not the liboqs in the Rosenpass exchange (see `oqs-sys` below), and arnika uses none. Inside the affected range of GHSA-wh5q-mpc8-67wf, whose code is not compiled here. See [liboqs](#liboqs). |
 | `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `5fd81fb4`, a `main` commit 37 past the 0.10.0 tag, not a release. 22 commits behind 0.12.0-rc2 and missing four memory-safety fixes made there; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange that keys the `wg1` data tunnel (since 2026-09-26; it no longer feeds arnika). Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
@@ -87,16 +87,19 @@ also stops if upstream ever ships a `wire_strongswan_vici.go` or a
 `repositories/swanvici/` of its own.
 
 **#51 is adopted, ahead of its merge.** The pin moved on 2026-09-26 from
-`3a8cc13` to `f4cf9ba`, the head of the open PR #51 (`pqc-hpke`; 55 commits past
-the merge base, +10,721/-1,264 across 68 files). It removes the file-based PQC
-source, `PQC_PSK_FILE`, which is how Rosenpass's output used to reach arnika: arnika now
+`3a8cc13` to `f4cf9ba`, the head of the open PR #51 as of 2026-09-24
+(`pqc-hpke`; 55 commits past the merge base, +10,721/-1,264 across 68 files).
+The PR's later head, `da00e6d` (2026-09-30), is one commit on top of it that
+changes comments, documentation and tests, not behaviour. It removes the
+file-based PQC source, `PQC_PSK_FILE`, which is how Rosenpass's output used to reach arnika: arnika now
 agrees its PQC key with its peer over HPKE, and Rosenpass keys the separate
 `wg1` data tunnel instead. It also replaced the two-method key-writer port with
 `SetPSK(psk []byte) error`, which is why the VICI adapter moved to its own
 package. The pin is an unreviewed pull request head, so three things follow:
 the "on `main`" statements this row used to make no longer hold, a change to
 the branch before merge may alter what is pinned here, and the pin is re-pinned
-to the merge commit as soon as #51 merges. See [`roadmap.md`](roadmap.md).
+to the merge commit once #51 merges, but not during the 168 h after-arm of the
+before/after measurement. See [`roadmap.md`](roadmap.md).
 
 **NOT post-v1.0.1.** `v1.0.1` (`ef5a5c6`) lives only on the `v1.x` branch and
 the two have **diverged**, so the pin does not contain what GitHub labels the
@@ -352,10 +355,11 @@ canonical one above -- it caught that on the first run of this section.)
   final `master` commit, 8 commits ahead of the last tag `v0.23.0-post1`.
   Nothing newer exists.
 
-- **arnika**, pin `f4cf9ba`, the head of the open PR #51, not a release. The
-  `v1.0.1` tag is a **divergent line**, not a newer release. Its advisory,
-  GHSA-rc6v-5rmx-w5mv, named three areas; at the pin, `repositories/kms/kms.go`
-  carries the comment removing `InsecureSkipVerify` for it, the ACK path in
+- **arnika**, pin `f4cf9ba`, the head of the open PR #51 as of 2026-09-24, not
+  a release. The `v1.0.1` tag is a **divergent line**, not a newer release.
+  Its advisory, GHSA-rc6v-5rmx-w5mv, named three areas; at the pin,
+  `repositories/kms/kms.go` carries the comment removing `InsecureSkipVerify`
+  for it, the ACK path in
   `transport/server.go` checks the timestamp window, and the PQC key file the
   third area concerned no longer exists, because #51 removed it. (The previous
   pin `3a8cc13` handled that third area by rejecting a PSK file looser than
