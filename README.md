@@ -67,8 +67,9 @@ KEM is itself a hybrid of ML-KEM-1024 and P-384 ECDH, and its codepoint
 (0x0051) comes from draft-ietf-hpke-pq, which is **not yet an RFC**. The arnika
 pin (`f4cf9ba`) is the head of arnika's **unmerged** PR #51 as of 2026-09-24,
 which adds PQC-HPKE, not a commit on upstream `main`; the PR's later head,
-`da00e6d` (2026-09-30), changes comments, documentation and tests, not
-behaviour. The pin stays until the before/after measurement of this change has
+`da00e6d` (2026-09-30), removes comments, refactors some non-test code and
+updates documentation and tests, behaviour-identical by our reading of its
+diff. The pin stays until the before/after measurement of this change has
 been reported, and is then re-pinned to the merge commit once #51 merges. See
 [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md#arnika).
 

@@ -178,8 +178,9 @@ The mechanism, the rotation sequence and the open issues are in
 These are the points we depend on; changing them in upstream arnika would require
 contract updates here. Line numbers are at the pinned submodule commit,
 `f4cf9ba`, the head of the open PR #51 as of 2026-09-24. The PR's later head,
-`da00e6d` (2026-09-30), changes comments, documentation and tests, not
-behaviour, but it shifts these line numbers, so they hold at `f4cf9ba` only.
+`da00e6d` (2026-09-30), removes comments, refactors some non-test code and
+updates documentation and tests -- behaviour-identical by our reading of its
+diff -- but it shifts these line numbers, so they hold at `f4cf9ba` only.
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|

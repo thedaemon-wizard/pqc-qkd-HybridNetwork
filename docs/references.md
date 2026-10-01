@@ -425,7 +425,7 @@ Licences for everything vendored under `submodules/` are recorded in
 
 | Project | Role | Licence |
 |---|---|---|
-| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management, including the PQC-HPKE key agreement of its open PR #51, which is the pin; the key-writer port this project extends | Apache-2.0 |
+| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management, including the PQC-HPKE key agreement of its open PR #51, whose head as of 2026-09-24 (`f4cf9ba`) is the pin; the key-writer port this project extends | Apache-2.0 |
 | [strongSwan](https://github.com/strongswan/strongswan) | IKEv2 daemon (pinned 6.1.0) | GPL-2.0 + OpenSSL exception |
 | [govici](https://github.com/strongswan/govici) | Official VICI client (pinned v0.8.2) | MIT |
 | [Rosenpass](https://github.com/rosenpass/rosenpass) | Post-quantum key exchange for WireGuard; keys the `wg1` data tunnel here | MIT / Apache-2.0 |

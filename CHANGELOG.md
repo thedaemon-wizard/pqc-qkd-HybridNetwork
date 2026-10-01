@@ -24,8 +24,10 @@ paper (arXiv:2604.05599, 4.2). Detail:
 
 - `submodules/arnika` is pinned to `f4cf9ba`, the head of the **open,
   unmerged** arnika PR #51 as of 2026-09-24, instead of `3a8cc13` on upstream
-  `main`. The PR's later head, `da00e6d` (2026-09-30), changes comments,
-  documentation and tests, not behaviour. The pin is not moved during the
+  `main`. The PR's later head, `da00e6d` (2026-09-30), is one commit on top
+  of it that removes comments, refactors some non-test code, updates
+  documentation and tests and adds Makefile `lint` and `fmt` targets; it is
+  behaviour-identical by our reading of its diff. The pin is not moved during the
   168 h after-arm of the before/after measurement (checklist row 2.17), even
   if #51 merges in that week; it is re-pinned to the merge commit only after
   the after-arm has been reported.

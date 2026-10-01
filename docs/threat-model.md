@@ -509,11 +509,11 @@ conclusion. Stated as a direction, not as done.
 
 `submodules/arnika`'s README states that arnika **v1.x** was developed within
 the EU EUROQCI / QCI-CAT programme for the use case **"HSM BACKUP USING QKD"**
-(<https://qci-cat.at/hsm-backup-using-qkd>). The pin is later work -- the head
-of the open pull request arnika#51, built on `main` -- and upstream credits
-CANCOM Converged Services GmbH with the initial prototype and earlier versions,
-and says development has continued at XBC Digital GmbH since Q2 2026. Because
-this repository vendors arnika and cites that lineage, a
+(<https://qci-cat.at/hsm-backup-using-qkd>). The pin is later work -- `f4cf9ba`,
+the head of the open pull request arnika#51 as of 2026-09-24, built on `main` --
+and upstream credits CANCOM Converged Services GmbH with the initial prototype
+and earlier versions, and says development has continued at XBC Digital GmbH
+since Q2 2026. Because this repository vendors arnika and cites that lineage, a
 reader could reasonably assume it implements that use case. It does not, and
 the difference is worth stating precisely.
 

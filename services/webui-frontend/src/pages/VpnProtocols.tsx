@@ -284,10 +284,11 @@ export default function VpnProtocols() {
             pull request #51, which is still open; the arnika pin is{" "}
             <code>f4cf9ba</code>, that pull request&apos;s head commit on
             2026-09-24, not a merge commit (the later head{" "}
-            <code>da00e6d</code>, 2026-09-30, changes comments, docs and tests,
-            not behaviour). The pin stays until the before/after measurement of
-            this change is reported, and will be re-pinned to the merge commit
-            once #51 merges.</li>
+            <code>da00e6d</code>, 2026-09-30, removes comments and refactors
+            some code, behaviour-identical by our reading of its diff). The
+            pin stays until the before/after measurement of this change is
+            reported, and will be re-pinned to the merge commit once #51
+            merges.</li>
       </ul>
       {/* Rows 2.3 and 2.11 are read from this page, and row 2.14's counts
           from the rotations panel, so it produces evidence and must be able

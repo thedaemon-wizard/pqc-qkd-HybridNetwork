@@ -12,8 +12,10 @@
 	branch = main
 	# The pin is f4cf9ba40747f3d85936ff101133e962eb417482, the head of upstream
 	# PR #51 (PQC-HPKE key agreement, wire_*.go layout, one-method key-writer
-	# port) as of 2026-09-24. The PR's later head, da00e6d (2026-09-30), changes
-	# comments, documentation and tests, not behaviour. That PR is OPEN and NOT
+	# port) as of 2026-09-24. The PR's later head, da00e6d (2026-09-30), is one
+	# commit on top of it that removes comments, refactors some non-test code,
+	# updates documentation and tests and adds Makefile lint/fmt targets; it is
+	# behaviour-identical by our reading of its diff. That PR is OPEN and NOT
 	# merged, so the pin is not on `main` even though `branch = main` stays for
 	# the day it is. Do not run `git submodule update --remote` on this entry:
 	# it would move the pin to main's head and silently drop the PQC-HPKE reader

@@ -18,7 +18,8 @@ key file is mounted.
 
 `submodules/arnika` is pinned to `f4cf9ba`, the head of upstream PR #51 as of
 2026-09-24; the PR is **open and not merged**. Its later head, `da00e6d`
-(2026-09-30), changes comments, documentation and tests, not behaviour. The pin
+(2026-09-30), removes comments, refactors some non-test code and updates
+documentation and tests; behaviour-identical by our reading of its diff. The pin
 is re-pinned to the merge commit once #51 merges, but not during the 168 h
 after-arm of the before/after measurement (checklist row 2.17). Until then,
 "upstream" in this file means `f4cf9ba`, not arnika's `main`.

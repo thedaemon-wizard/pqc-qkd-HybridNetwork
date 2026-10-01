@@ -572,8 +572,9 @@ the requested window.
 ### 2026-09-26: arnika #51 head, what changes for the rotation race
 
 The arnika pin moved from `3a8cc13` to `f4cf9ba`, the head of the open PR #51
-as of 2026-09-24. (Its later head, `da00e6d` of 2026-09-30, changes comments,
-documentation and tests, not behaviour.)
+as of 2026-09-24. (Its later head, `da00e6d` of 2026-09-30, removes comments,
+refactors some non-test code and updates documentation and tests;
+behaviour-identical by our reading of its diff.)
 Its commit `3e02741` (2026-09-24) makes the BACKUP install before it ACKs and
 the PRIMARY install only after the ACK (section 5). Read against this lane,
 that **moves** the exposed intervals; it does not remove them. This is from
