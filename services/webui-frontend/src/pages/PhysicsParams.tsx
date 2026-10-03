@@ -489,8 +489,9 @@ export default function PhysicsParams() {
         />
       </div>
       <p style={{ color: "#9aa9d8", maxWidth: 760 }}>
-        Defaults come from <code>config/qkd_params.yaml</code>, grounded in
-        the precomputed table in <code>config/qkd_keyrate_table.json</code>.
+        Defaults come from <code>config/qkd_params.yaml</code>. The precomputed
+        table in <code>config/qkd_keyrate_table.json</code> is reference data:
+        nothing reads it at run time.
         The key-rate panel below is the Lo&ndash;Ma two-decoy <b>asymptotic</b>{" "}
         bound (Lo&ndash;Ma&ndash;Chen, PRL 94, 230504); the KMEs and{" "}
         <code>/protocol-lab</code> use the finite-key rate of Lim et al.,

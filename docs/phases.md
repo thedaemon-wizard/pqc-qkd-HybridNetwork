@@ -40,6 +40,10 @@ conversions, π/2 etc., and explicitly documented CV-QKD defaults).
 4. scikit-optimize gp_minimize (Bayesian Optimization on closed-form SKR)
 ```
 
+> 2026-10-03 note: items 3 and 4 are not on the run-time path. Nothing reads
+> the table at run time, and the optimiser is command-line only, with
+> `optimizer.enabled: false` (see "Parameter optimisation" below).
+
 ### Backend selection
 Set via `SIMULATOR_BACKEND` env or `simulator.backend` YAML key, or switch the
 **runtime** backend live from the WebUI "Physics Params" page's selector (which
@@ -173,7 +177,7 @@ python tools/precompute_keyrate_table_fallback.py
 # wrote 1170 rows to config/qkd_keyrate_table.json
 ```
 
-The table is committed to git, so the shipped configuration has production defaults without re-running this script; regenerate it whenever the physical parameters change.
+The table is committed to git as reference data; the shipped configuration does not read it (2026-10-03 note). Regenerate it whenever the physical parameters change.
 
 ---
 

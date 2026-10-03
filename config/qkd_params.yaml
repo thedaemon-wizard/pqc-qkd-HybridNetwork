@@ -43,7 +43,7 @@ detector:
 source:
   source_type: "WCP"                     # weak coherent pulse
   pulse_rate_hz: 1.0e9                   # 1 GHz industry standard
-  intensity_signal_mu: 0.5               # set to "auto" to invoke Bayesian Opt
+  intensity_signal_mu: 0.5               # a number; nothing selects it at run time
   intensity_decoy_1_nu1: 0.1
   intensity_decoy_2_nu2: 0.0
   basis_bias_pz: 0.5                     # symmetric BB84

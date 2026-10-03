@@ -193,7 +193,7 @@ diff -- but it shifts these line numbers, so they hold at `f4cf9ba` only.
 | `keyWriterRepository` | `submodules/arnika/services/keywriter.go:23-25` | The one-method port (`SetPSK(psk []byte) error`) the VICI adapter implements |
 | `RunKeyIDWorker()` | `submodules/arnika/transport/server.go:361-377` | The BACKUP installs its key before it ACKs; the PRIMARY writes after the ACK (`main.go:369-394`) |
 | `IsPrimary()` | `submodules/arnika/config/config.go:102-113` | Per-interval PRIMARY/BACKUP election; why the two `ARNIKA_ID`s must differ in parity (since #51 the parity also picks each direction's HMAC key) |
-| Operational modes | `submodules/arnika/config/config.go:42`, validated at `:280-283` | 4 modes drive WebUI ControlPanel choices; both peers must use the same one |
+| Operational modes | `submodules/arnika/config/config.go:42`, validated at `:280-283` | 4 modes; every node of this deployment runs `QkdAndPqcRequired`, and both peers must use the same one. The WebUI does not select a mode |
 
 ## 6. Why this matches the paper
 

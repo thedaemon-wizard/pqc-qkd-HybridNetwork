@@ -63,6 +63,10 @@ build/
 .env
 .env.local
 .env.*.local
+# Dated copies of local configuration, e.g. .env.bak-20260925 or
+# deploy/Caddyfile.bak-20260803-2024: they can carry the same secrets.
+.env.bak*
+*.bak-[0-9]*
 
 # ============================================
 # Build artifacts
