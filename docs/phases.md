@@ -927,7 +927,7 @@ has been reported ([`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika
 
 ## 2026-09-26 — Responsive shell: the WebUI on a phone (release 0.2.0)
 
-Also part of the unreleased 0.2.0 (see [`../CHANGELOG.md`](../CHANGELOG.md)).
+Also part of 0.2.0, released on 2026-10-03 (see [`../CHANGELOG.md`](../CHANGELOG.md)).
 Until this change the shell kept its 220 px sidebar at every width, so on a
 phone each page was laid out in what the sidebar left.
 
@@ -1117,3 +1117,48 @@ was going.
 - Nothing here was measured on the deployed demo; it is a local build.
 
 ---
+
+## 2026-10-03 — Release 0.2.0 tagged and deployed
+
+#133 was merged with a merge commit (`8e5517b`); #134 was retargeted to
+`main`, given the release date (`c5cb5bb`) and merged (`3baead1`). The
+annotated tag `v0.2.0` is on `3baead1`, with a GitHub Release that attaches
+no binaries. The tag message, the tagger identities and the Release body each
+pass `scripts/scan_published_text.py` with 0 findings (checklist row 6.15).
+
+### The switch on the public host
+
+- Before anything was rebuilt, the `docker logs -t` of the four node
+  containers were exported and `docker inspect` and `docker compose ...
+  config` were recorded (row 2.17). The previous images keep a
+  `rollback-v0.1.0` tag.
+- Both pairs and the WebUI were recreated in one command, `docker compose ...
+  up -d --no-deps --force-recreate alice bob alice-ipsec bob-ipsec
+  webui-backend webui-frontend`, issued at 07:04:01 UTC. The IPsec nodes'
+  `StartedAt` is 2026-10-03T07:04:06Z, which starts row 2.17's arm B. The
+  KMEs, `pqc-validator` and Caddy were not recreated.
+- The configuration diff of `alice-ipsec` and `bob-ipsec` between the arms is
+  the one row 2.17 fixes before the runs, and nothing else: the dropped
+  `depends_on` on the WireGuard node, `PQC_PSK_FILE` replaced by
+  `PQC_ENABLED: "true"`, and the removed `pqc-psk-*` volume, besides the image
+  rebuilt at the new arnika pin.
+
+### Measured after the switch (2026-10-03)
+
+- `/api/vpn/protocols`: the IPsec lane is `established` with
+  `AES_GCM_16-256/PRF_HMAC_SHA2_384/ECP_256/KE1_ML_KEM_768/PPK`, and
+  `ppk_used_both_ends`, `ppk_required_both_ends` and `spi_paired` are true.
+  The WireGuard lane's `wg0` reports `psk_source` "arnika: HKDF-SHA3-256(QKD
+  || PQC-HPKE)" and its `data_tunnel`, `wg1`, `psk_source` "rosenpass"; both
+  are `established`.
+- Within 27 s of the start, each WireGuard node had logged one agreed
+  PQC-HPKE round and one QKD+PQC HKDF derivation, and each IPsec node one PPK
+  rotation, with no `AUTH_FAILED`.
+- Two pings from alice to bob over `wg1`, and two over `wg0`: two replies
+  each.
+- Browser pass of the deployed build, in headless Chrome: all 14 routes
+  render, with no error boundary and no Japanese text. At 320, 375, 768 and
+  1280 px, none of the 56 route-width pairs scrolls sideways, sticks out
+  past the viewport, wraps text into one- or two-character columns or has a
+  control without an accessible name. Below 768 px the sidebar collapses
+  into the Menu button.

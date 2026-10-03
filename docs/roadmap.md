@@ -395,8 +395,8 @@ maximum-flow capacity and concurrent demands, under that decision record's
 ## Follow-ups from adopting arnika #51 (2026-09-26)
 
 The pin moved to `f4cf9ba`, the head of the open arnika PR #51 as of
-2026-09-24, for release 0.2.0, which is not tagged yet (see Known gaps above
-and [`phases.md`](phases.md)). What that left open:
+2026-09-24, for release 0.2.0, tagged and deployed on 2026-10-03 (see Known
+gaps above and [`phases.md`](phases.md)). What that left open:
 
 | Item | What is open | What closing it involves |
 |---|---|---|
