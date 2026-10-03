@@ -325,7 +325,7 @@ network, named in an early plan, was not used: no source for one was found.
 | draft-ietf-tls-mlkem-11 | ML-KEM Post-Quantum Key Agreement for TLS 1.3 (intended Informational) | ML-KEM alone as TLS named groups, with no traditional component. In the RFC Editor queue since 2026-09-08. -11 was posted on 2026-09-17 UTC, the date the draft itself carries; the datatracker history, which shows US Pacific time, lists it on 2026-09-16. Since 2026-09-24 it is **held in the queue** (RFC Editor status "blocked: Stream Hold") while complaints and appeals about its processing are reviewed, so it has no RFC number. It bears only on the `pqc-tls-demo` images, not on either VPN lane. Checked 2026-09-26. |
 | **RFC 9370** | Multiple Key Exchanges in IKEv2 | ECP-256 + ML-KEM-768 hybrid (`ke1_mlkem768`) |
 | **RFC 9242** | Intermediate Exchange in IKEv2 | Carries the ML-KEM payloads encrypted, so they can be fragmented |
-| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.1.0 does not send it**; libreswan has implemented the mechanism since v5.2 and uses the RFC's codepoints since v5.4. See [RFC 9867 implementations](#rfc-9867-implementations) below. |
+| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.1.0 does not send it**; libreswan implements the `IKE_INTERMEDIATE` part (section 3.1) since v5.2 and uses the RFC's codepoints since v5.4, but its `CREATE_CHILD_SA` part (section 3.2), the one that refreshes a PPK on rekey, was not found in v5.4's source (checked 2026-10-03). See [RFC 9867 implementations](#rfc-9867-implementations) below. |
 | RFC 7296 | IKEv2 | §2.15 defines the AUTH payload, i.e. the only place a plain PSK is used |
 | RFC 7383 | IKEv2 Fragmentation | Required for ML-KEM-sized payloads |
 | RFC 7696 | Guidelines for Cryptographic Algorithm Agility | Crypto-agility framing |
@@ -362,7 +362,7 @@ since October 2025; the table, last changed on 2025-11-11, still lists it
 under its draft name (checked 2026-09-26). So its `x` for RFC 9867 agrees
 with the source-level observations but could not stand in for them.
 
-**libreswan implements the mechanism, and the version history matters.**
+**libreswan implements the `IKE_INTERMEDIATE` part, and the version history matters.**
 libreswan added PPK in the `IKE_INTERMEDIATE` exchange in **v5.2**
 (2025-02-26), as draft-ietf-ipsecme-ikev2-qr-alt-04, on private-use notify
 values 50208 and 50209. **v5.4** (2026-08-13) is the first tag to use the IANA
@@ -372,15 +372,20 @@ codepoints. `USE_PPK_INT` is handled in `programs/pluto/ikev2_ike_sa_init.c`;
 `ikev2_ppk.c` and `ikev2_ike_intermediate.c` carry `PPK_IDENTITY_KEY`. v5.4's
 release notes do not mention PPK or RFC 9867, and its code comments still cite
 draft -04, while the RFC was published from -10. **Conformance with the final
-RFC is not verified here**; only the codepoints are.
+RFC is not verified here**; only the codepoints are. The `CREATE_CHILD_SA` part
+(RFC 9867 section 3.2), which would mix a new PPK into a rekey, has no PPK code
+in v5.4: `programs/pluto/ikev2_create_child_sa.c`, `ikev2_child.c` and
+`ikev2_crypto.c` do not mention a PPK, which appears only in
+`ikev2_ike_sa_init.c`, `ikev2_ike_intermediate.c`, `ikev2_ike_auth.c` and
+`ikev2_ppk.c` (source search of the v5.4 tag and of `main`, 2026-10-03).
 
 An earlier version of this entry said "No open-source IKEv2 implementation
 exists", and the correction that replaced it overshot to "libreswan v5.4
 implements RFC 9867". libreswan is not vendored here, so neither statement was
 checkable against this repository, and the second credited v5.4 with work that
-landed in v5.2. What it means for the project is unchanged: consuming fresh QKD
-material on every rekey is available today by changing IKE daemon, not only by
-waiting for strongSwan.
+landed in v5.2. What it means for the project: mixing a PPK into `IKE_INTERMEDIATE` is
+available today with libreswan, but refreshing a PPK on rekey without a new IKE
+SA (section 3.2) was found in neither libreswan v5.4 nor strongSwan 6.1.0.
 
 ### IETF and IRTF — HPKE (arnika's PQC half)
 
