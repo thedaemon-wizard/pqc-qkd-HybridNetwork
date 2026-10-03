@@ -9,10 +9,7 @@ interfaces. Each release is a git tag, `v` plus the number.
 This file is the summary. The build-by-build record, with how each change was
 verified at the time, is [`docs/phases.md`](docs/phases.md).
 
-## [0.2.0] - unreleased
-
-Not tagged yet: the date and the `v0.2.0` tag are set when the change is
-tagged, after it is merged.
+## [0.2.0] - 2026-10-03
 
 The arnika pin moves to `f4cf9ba`, the head of arnika PR #51 as of 2026-09-24,
 which replaces the file handover of the PQC key with a key agreement between
