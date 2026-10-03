@@ -1,8 +1,69 @@
+import type { CSSProperties } from "react";
 import Plot from "react-plotly.js";
 import { Link } from "react-router-dom";
 import ExportToolbar from "../components/ExportToolbar";
+import ScrollRegion, { scrollRegionAttributes, useScrollsSideways } from "../components/ScrollRegion";
 import { PLOT_CONFIG } from "../lib/plotConfig";
+import { colors } from "../lib/commonStyles";
+import { useNarrowLayout } from "../lib/layout";
 import { KEY_FLOW_COLORS, KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
+
+/**
+ * The narrowest the Sankey is drawn below the shell's breakpoint
+ * (lib/layout.ts), in CSS px.
+ *
+ * Plotly spaces the six node columns evenly across the chart and prints each
+ * label beside its node at a fixed 13px, so a narrower chart does not shrink
+ * the labels, it runs them into the next column. Measured on 2026-09-26 by
+ * drawing the chart at a series of widths and testing every label's box
+ * against every other label and node: at 756px and below "Reconciled (QBER
+ * ok)" runs into the "QKD key" node; from 766px up nothing touches. At a
+ * 375px viewport the chart was 343px wide and five labels overlapped. 800
+ * leaves some room for a wider fallback font. Below the breakpoint the chart
+ * keeps this width and scrolls sideways inside its own box; from 768px up it
+ * is the width of the page, as before.
+ */
+const KEY_FLOW_MIN_CHART_PX = 800;
+
+/**
+ * The visible line under the chart when narrow. The chart is wider than the
+ * phone and scrolls inside its box, but a phone's scrollbars are overlays that
+ * show only while scrolling, so nothing on screen said the flow continues past
+ * the right edge (and the modebar, at the chart's right edge, only appeared
+ * after scrolling). The region points to this line as its description
+ * (aria-describedby), so a screen reader hears the instruction once, after
+ * the region's name.
+ */
+const NARROW_SCROLL_HINT = "Scroll sideways to see the whole flow.";
+
+/** The id of that line, which the chart's region names as its description. */
+const NARROW_SCROLL_HINT_ID = "keyflow-scroll-hint";
+
+/**
+ * The kdf.go snippet is a <pre> that scrolls inside itself: its longest line
+ * is 448px, so it scrolls in the 286-380px boxes of a 320-414px phone
+ * (measured 2026-09-26) and fits from about 460px of box up. Its text is fixed,
+ * so only the box's own width decides whether it scrolls, which the
+ * ResizeObserver behind useScrollsSideways sees. While it scrolls it is a
+ * named Tab stop, like every ScrollRegion.
+ */
+const KDF_SNIPPET_LABEL = "arnika key derivation code";
+
+/**
+ * The chart's div clips what Plotly draws past its right edge, at every width,
+ * so what the scroll box around it holds is exactly as wide as the div, which
+ * is the size the box watches (components/ScrollRegion.tsx). Measured on
+ * 2026-09-26 without it: after a resize from 375px to 768px the div was 484px
+ * at once but Plotly redrew the chart at 484px only afterwards, so the box
+ * stayed a region while the chart fitted; and a hover label at the chart's
+ * right edge ran past the div and made the box scroll for as long as it
+ * showed. The clip edge is the box's own edge whenever the chart fits, so
+ * nothing that showed is cut. "clip" and not "hidden": it makes no scroll
+ * container and no new formatting context, so the div lays out as before. At
+ * 768px and 1280px the page is pixel-identical to the same page without the
+ * scroll box and without the clip (measured 2026-09-26).
+ */
+const CHART_CLIP: CSSProperties = { overflowX: "clip" };
 
 /**
  * Hybrid key derivation flow.
@@ -18,6 +79,8 @@ import { KEY_FLOW_COLORS, KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSan
  * feeds the HKDF.
  */
 export default function KeyFlow() {
+  const narrow = useNarrowLayout();
+  const [snippetRef, snippetScrolls] = useScrollsSideways<HTMLPreElement>();
   const links = toSankeyLinks();
   // By node, not by position: see KEY_FLOW_COLORS.
   const nodeColor = KEY_FLOW_NODES.map((n) => KEY_FLOW_COLORS[n]);
@@ -77,7 +140,19 @@ export default function KeyFlow() {
                        pngTargetSelector="#keyflow-sankey"
                        jsonProvider={() => ({ nodes: KEY_FLOW_NODES, labels: KEY_FLOW_LABELS, edges: KEY_FLOW_EDGES })} />
       </div>
-      <div id="keyflow-sankey">
+      {/* The scroll box is outside #keyflow-sankey, so the PNG export still
+          captures the whole chart rather than the part in view. While the
+          chart is wider than the box (always below 768px, never above it) the
+          box is a labelled, focusable region (components/ScrollRegion), so a
+          keyboard user can scroll it too. useResizeHandler: Plotly reads its
+          width once, when it first draws, and the shell keeps this page
+          mounted when the viewport crosses the breakpoint, so without it the chart
+          kept the width it was first drawn at (see Benchmarks.tsx for the
+          measurement). With it, 996px at 1280, 800px after a resize to
+          375, and 996px again after a resize back. */}
+      <ScrollRegion aria-label="Key derivation flow chart"
+                    aria-describedby={narrow ? NARROW_SCROLL_HINT_ID : undefined}>
+      <div id="keyflow-sankey" style={narrow ? { ...CHART_CLIP, minWidth: KEY_FLOW_MIN_CHART_PX } : CHART_CLIP}>
       <Plot
         data={data}
         layout={{
@@ -87,8 +162,17 @@ export default function KeyFlow() {
         }}
         config={PLOT_CONFIG}
         style={{ width: "100%" }}
+        useResizeHandler
       />
       </div>
+      </ScrollRegion>
+      {narrow && (
+        // colors.textSec: about 8.3:1 on the page background. The muted
+        // #6b7796 was about 4.3:1, under the 4.5:1 that 12px text needs.
+        <p id={NARROW_SCROLL_HINT_ID} style={{ color: colors.textSec, fontSize: 12, margin: "4px 0 0" }}>
+          {NARROW_SCROLL_HINT}
+        </p>
+      )}
       <p style={{ color: "#9aa9d8", maxWidth: 760, fontSize: 12, marginBottom: 4 }}>
         The derivation, quoted from <code>submodules/arnika/kdf/kdf.go</code>. It
         builds the combined input in a separate slice rather than with{" "}
@@ -97,7 +181,7 @@ export default function KeyFlow() {
         and it zeroes the combined keying material inside a{" "}
         <code>secret.Do</code> block.
       </p>
-      <pre style={{
+      <pre ref={snippetRef} {...scrollRegionAttributes(snippetScrolls, KDF_SNIPPET_LABEL)} style={{
         background: "#0d1320", border: "1px solid #1d2741", borderRadius: 8,
         padding: 14, color: "#cbd6f5", fontSize: 12, lineHeight: 1.55, marginTop: 4,
         overflowX: "auto",

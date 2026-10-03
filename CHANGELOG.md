@@ -9,10 +9,7 @@ interfaces. Each release is a git tag, `v` plus the number.
 This file is the summary. The build-by-build record, with how each change was
 verified at the time, is [`docs/phases.md`](docs/phases.md).
 
-## [0.2.0] - unreleased
-
-Not tagged yet: the date and the `v0.2.0` tag are set when the change is
-tagged, after it is merged.
+## [0.2.0] - 2026-10-03
 
 The arnika pin moves to `f4cf9ba`, the head of arnika PR #51 as of 2026-09-24,
 which replaces the file handover of the PQC key with a key agreement between
@@ -113,6 +110,25 @@ paper (arXiv:2604.05599, 4.2). Detail:
 
 - `PQC_PSK_FILE` and the `pqc-psk-*` volumes: the pinned arnika no longer
   reads a PQC key from a file.
+
+### Fixed
+
+- The WebUI no longer scrolls sideways on a phone. At a 375 px viewport the
+  220 px sidebar had left `<main>` 155 px wide, and 13 of the 14 routes
+  scrolled sideways, by 48 to 394 px. Below 768 px (`NARROW_LAYOUT_MAX_PX` in
+  `services/webui-frontend/src/lib/layout.ts`) the sidebar now collapses behind
+  a labelled **Menu** button, panel grids go to one column, key/value rows may
+  wrap, and wide tables and the Key Flow chart scroll in their own box. At any
+  width, a box whose content is wider than it is a named region that Tab
+  reaches, so the arrow keys scroll it, and a box whose content fits adds no
+  Tab stop. All 14 routes measured 0 px of sideways scroll at nine widths from
+  320 to 1280 px; after the scrolling box's last change, the seven routes that
+  use it measured 0 px again at 320, 375, 768 and 1280 px. From 768 px up the
+  layout is unchanged except for two fixes: the saved-exports list is kept on
+  screen at 768 px, and the `/e2e` controls row wraps at 768 px, which removes
+  a 46 px sideways scroll while a run is going
+  ([`docs/phases.md`](docs/phases.md#2026-09-26--responsive-shell-the-webui-on-a-phone-release-020),
+  [`docs/webui-pages.md`](docs/webui-pages.md#layout); checklist row 4.2.8b).
 
 ### Security
 

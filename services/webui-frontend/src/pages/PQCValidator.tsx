@@ -6,6 +6,36 @@ import {
   kemRoundtrip, sigRoundtrip, SIG_FAMILY, kemInterop, type InteropResult,
   type KemName, type SigName, type KemResult, type SigResult,
 } from "../lib/sim/pqc";
+import { narrowColumns, useNarrowLayout } from "../lib/layout";
+
+/**
+ * The KEM and signature result panels side by side, from 768px up: the
+ * template this page has always used there. Below that the shell has no
+ * sidebar and the two panels stack in one column (narrowColumns). Measured on
+ * 2026-09-26 at a 375x812 viewport after "Run round-trips": two columns left
+ * each panel's rows about 130px wide, so every "✓ pass" verdict wrapped one
+ * character per line (a 9px-wide column 95px tall), the liboqs label
+ * "Shared secrets agree (liboqs encapsulated to this browser's key)", kept
+ * whole, ran 42px past the screen's edge, and the page scrolled sideways by
+ * 63px.
+ */
+const RESULT_COLUMNS = "1fr 1fr";
+
+/**
+ * The space between a row's label and its value when they share a line: the
+ * `gap: 12` that Row's comment explains, named now that the narrow row also
+ * uses it. Same value as the Row in VpnProtocols.
+ */
+const ROW_GAP_PX = 12;
+
+/**
+ * The space between a label and its value when a narrow row puts the value
+ * on the line below: small, so the value still reads as that label's and not
+ * as a row of its own (rows are 6px apart: Row's 3px padding above and below;
+ * measured on 2026-09-26 at 375px after "Run round-trips", 6px between rows
+ * and 2px from a label to its wrapped value).
+ */
+const NARROW_ROW_LINE_GAP_PX = 2;
 
 /**
  * PQC Validator.
@@ -17,6 +47,7 @@ import {
  * a single library marking its own homework.
  */
 export default function PQCValidator() {
+  const narrow = useNarrowLayout();
   const [kemName, setKemName] = useState<KemName>("ML-KEM-768");
   const [sigName, setSigName] = useState<SigName>("ML-DSA-65");
   const [kem, setKem] = useState<KemResult | null>(null);
@@ -164,7 +195,7 @@ export default function PQCValidator() {
 
       {error && <div style={errBox}>✗ {error}</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: narrowColumns(narrow, RESULT_COLUMNS), gap: 16 }}>
         {/* Titled from the RESULT, not the picker. `kemName` is the select
             state and `kem` is set only inside run(), so changing the
             dropdown without pressing Run left the heading naming one
@@ -224,7 +255,8 @@ export default function PQCValidator() {
                 <pre style={preBox}>{JSON.stringify(server, null, 2)}</pre>
               </>
             ) : serverErr ? (
-              <p role="status" style={{ color: "#f5a623", fontSize: 12, margin: 0 }}>
+              <p role="status" style={{ color: "#f5a623", fontSize: 12, margin: 0,
+                                         overflowWrap: "anywhere" }}>
                 The liboqs round-trip was refused: {serverErr}.
               </p>
             ) : <Idle />
@@ -261,7 +293,8 @@ function Idle() {
   return <div style={{ color: "#6b7796", fontSize: 12 }}>Press “Run round-trips”.</div>;
 }
 
-function Row({ k, v }: { k: string; v: React.ReactNode }) {
+export function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  const narrow = useNarrowLayout();
   return (
     // gap / flexShrink / minWidth are load-bearing. A bare `space-between` with
     // two auto-width spans does not overflow -- the value wraps -- but with no
@@ -271,11 +304,28 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
     // Three near-identical Row components exist (VpnProtocols, PQCValidator,
     // QuantumSecureE2E; an unused fourth in components/ was deleted); all are
     // fixed the same way. Consolidating them is a separate change.
+    //
+    // Those rules assume the label fits with room to spare, and on a phone it
+    // did not. A whole label (flexShrink 0) leaves the value only what is left
+    // of the row, and a value with overflowWrap "anywhere" takes one
+    // character's width if that is all there is: at a 375px viewport, measured
+    // on 2026-09-26 after "Run round-trips", five "✓ pass" verdicts wrapped
+    // one character per line, and the longest liboqs label ran past the
+    // screen's edge. So in the narrow layout (below 768px) the row may wrap:
+    // when label, gap and value do not fit on one line the value moves to the
+    // line below, where it has the row's full width, and marginLeft auto keeps
+    // it on the right. The label may shrink too, which with its default
+    // minimum width means wrapping between words, only if it is wider than the
+    // whole row on its own. From 768px up the row is exactly as above. Same
+    // rule as the Row in VpnProtocols.
     <div style={{ display: "flex", justifyContent: "space-between",
-                   gap: 12, padding: "3px 0", fontSize: 13 }}>
-      <span style={{ color: "#9aa9d8", flexShrink: 0 }}>{k}</span>
+                   gap: narrow ? `${NARROW_ROW_LINE_GAP_PX}px ${ROW_GAP_PX}px` : ROW_GAP_PX,
+                   padding: "3px 0", fontSize: 13,
+                   ...(narrow ? { flexWrap: "wrap" } : {}) }}>
+      <span style={{ color: "#9aa9d8", flexShrink: narrow ? 1 : 0 }}>{k}</span>
       <span style={{ fontFamily: "monospace", minWidth: 0, textAlign: "right",
-                     overflowWrap: "anywhere" }}>{v}</span>
+                     overflowWrap: "anywhere",
+                     ...(narrow ? { marginLeft: "auto" } : {}) }}>{v}</span>
     </div>
   );
 }
@@ -294,12 +344,20 @@ const sel: React.CSSProperties = {
   background: "#0d1320", color: "#fff", border: "1px solid #2a3760",
   borderRadius: 4, padding: "4px 8px", fontSize: 13,
 };
+// overflowX auto with maxWidth 100%: the liboqs response is pretty-printed
+// JSON from the backend, whose line lengths this page does not control, so a
+// long line scrolls inside this box rather than widening the panel and the
+// page. (Today's response fits a 320px screen: measured 2026-09-26.)
 const preBox: React.CSSProperties = {
   background: "#070b14", border: "1px solid #1d2741", borderRadius: 6,
   padding: 10, color: "#cbd6f5", fontSize: 11, lineHeight: 1.45, margin: "8px 0 0 0",
-  overflowX: "auto",
+  overflowX: "auto", maxWidth: "100%",
 };
+// overflowWrap anywhere here and on the refused-round-trip status line: both
+// show an error's own text (a backend detail, an exception message), which may
+// hold a path or URL with no break in it that would widen the page on a phone.
 const errBox: React.CSSProperties = {
   background: "#2a0f16", border: "1px solid #6b2230", borderRadius: 6,
   padding: 10, color: "#ffb3bd", fontSize: 12, margin: "0 0 12px 0",
+  overflowWrap: "anywhere",
 };

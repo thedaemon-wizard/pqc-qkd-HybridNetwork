@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { assumptionOf, crossCheckAgility, type CrossCheckResult } from "../lib/sim/agilityCrossCheck";
 
@@ -8,7 +8,9 @@ import ExportToolbar from "../components/ExportToolbar";
 import Panel from "../components/Panel";
 import KPI from "../components/KPI";
 import Button from "../components/Button";
+import ScrollRegion from "../components/ScrollRegion";
 import { colors } from "../lib/commonStyles";
+import { NARROW_COLUMN, useNarrowLayout } from "../lib/layout";
 
 /**
  * Implementation Verification page.
@@ -23,6 +25,65 @@ import { colors } from "../lib/commonStyles";
  *     TNO-Quantum qkd_key_rate engine (Apache-2.0) at the current config.
  *  3. Paper packet-budget match — arXiv:2604.05599 Table 1 handshake budgets.
  */
+
+/** The key-rate and packet-budget rows of four KPI cards, from 768px up. */
+const KPI_ROW_OF_FOUR = "repeat(4, 1fr)";
+
+/**
+ * KPI cards per row below the breakpoint in lib/layout.ts, for the rows of
+ * four. A card is only as wide as its share of the row, and its value does not
+ * wrap (a number broken over two lines reads as two numbers, see KPI.tsx).
+ * Measured on 2026-09-26: four across, the rate "1.233e-2" (77px at the KPI's
+ * 22px monospace) had 45px inside its card at a 375px viewport and 31px at
+ * 320px, and ran over the card's border; two across, every value in these two
+ * rows fits inside its card at 320px, the rates with 11-12px to spare.
+ *
+ * The agility row of three keeps "repeat(3, 1fr)" at every width. Measured on
+ * 2026-09-26: at 375px its labels and values fit three across ("Algorithms
+ * exercised" on two lines). At 320px they do not all fit: "Algorithms
+ * exercised" breaks inside "Algorithms" (three lines), and "YES ✓" stays on
+ * one line only because of YES_KEPT_TOGETHER, running 6px into its card's
+ * right padding, inside the border.
+ */
+const NARROW_KPI_COLUMNS = 2;
+const NARROW_KPI_TEMPLATE = `repeat(${NARROW_KPI_COLUMNS}, ${NARROW_COLUMN})`;
+
+/**
+ * The "All pass" KPI's yes, below the breakpoint: the same text with a
+ * no-break space (U+00A0) instead of the space. A third of a 320px phone's
+ * panel gave the value 54px, and "YES ✓" broke into "YES" over "✓", which
+ * reads as two values (measured 2026-09-26). From 768px up it is "YES ✓".
+ */
+const YES_KEPT_TOGETHER = "YES\u00A0✓";
+
+/** A table cell's padding from 768px up, as it has always been. */
+const CELL_PAD_Y_PX = 4;
+const CELL_PAD_X_PX = 8;
+
+/**
+ * A table cell's side padding below 768px. Measured on 2026-09-26 at a 375px
+ * viewport with the thirteen-row liboqs matrix: the table was 441px wide
+ * inside a panel with 318px of room, and the page scrolled sideways by 95px.
+ * A line break allowed after each underscore in an algorithm name (see
+ * breakableName) brought it to 341px, and 4px padding to 301px, which fitted,
+ * but only because the "sizes (B)" column shrank to 43px: every KEM cell broke
+ * over five or six lines, a label on one line and its number on the next.
+ * With one pair per line, each kept whole (SizesCell), that column needs 62px
+ * and the table 325px at 4px padding, 7px wider than the panel; at 3px it is
+ * 315px, which fits with 3px to spare, and the matrix's rows went from 1188px
+ * to 899px tall in all. At 320px the panel has 263px, so the table scrolls
+ * inside its own ScrollRegion, not the page, and that box is then a named
+ * region the keyboard can reach.
+ */
+const NARROW_CELL_PAD_X_PX = 3;
+
+/**
+ * The label column of a Row table from 768px up, which lines the three tables
+ * up with each other. Below 768px it is left to the table's automatic layout:
+ * at a 320px viewport a 220px label column left the value 45px, and
+ * "HQC-1, HQC-3, HQC-5" wrapped into a column 45px wide and 110px tall.
+ */
+const ROW_LABEL_WIDTH_PX = 220;
 
 interface AgilityRow {
   algo: string; family: string; enabled: boolean; ok: boolean;
@@ -48,6 +109,7 @@ function liboqsVerdict(r: AgilityRow): { text: string; pass: boolean } {
 }
 
 export default function Verification() {
+  const narrow = useNarrowLayout();
   const [agility, setAgility] = useState<any>(null);
   // Cross-check, not replacement. Wiring agilityMatrix() in as a SUBSTITUTE
   // would falsify the panel heading, which names liboqs; running both keeps
@@ -219,39 +281,9 @@ export default function Verification() {
               <KPI label="Algorithms exercised" value={agility.summary?.total ?? "—"} />
               <KPI label="Passed" value={agility.summary?.passed ?? "—"} />
               <KPI label="All pass"
-                   value={agility.summary?.all_pass ? "YES ✓" : "no"} />
+                   value={agility.summary?.all_pass ? (narrow ? YES_KEPT_TOGETHER : "YES ✓") : "no"} />
             </div>
-            <table style={{ width: "100%", fontSize: 12, color: colors.textPri,
-                             borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ color: colors.textMute, textAlign: "left" }}>
-                  <th style={th}>Algorithm</th><th style={th}>Family</th>
-                  <th style={th}>Hardness assumption</th>
-                  <th style={th}>liboqs</th><th style={th}>sizes (B)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(agility.matrix as AgilityRow[]).map((r) => {
-                  const v = liboqsVerdict(r);
-                  return (
-                  <tr key={r.algo} style={{ borderTop: `1px solid ${colors.border}` }}>
-                    <td style={td}>{r.algo}</td>
-                    <td style={td}>{r.family}</td>
-                    <td style={td}>{r.assumption ?? assumptionOf(r.algo) ?? "not recorded"}</td>
-                    <td style={{ ...td, color: v.pass ? colors.success : r.enabled ? colors.warn : colors.textMute,
-                                  fontWeight: 700 }}>
-                      {v.text}
-                    </td>
-                    <td style={{ ...td, fontFamily: "monospace" }}>
-                      {r.family === "KEM"
-                        ? `pk ${r.pk_len ?? "–"} · ct ${r.ct_len ?? "–"} · ss ${r.ss_len ?? "–"}`
-                        : `pk ${r.pk_len ?? "–"} · sig ${r.sig_len ?? "–"}`}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <AgilityMatrix rows={agility.matrix as AgilityRow[]} />
             <p style={{ fontSize: 11, color: colors.textMute, marginTop: 8 }}>
               This matrix shows that one interface runs every listed parameter
               set — KEMs ML-KEM 512/768/1024 and HQC-1/3/5, signatures ML-DSA
@@ -338,12 +370,15 @@ export default function Verification() {
       {/* 2. Key-rate cross-check */}
       <Panel title="2 · Key-Rate Cross-Check (our closed form vs TNO-Quantum)">
         {!keyrate ? (failed.keyrate ? <NotObserved why={failed.keyrate} /> : <Loading />) : keyrate.error && !keyrate.tno ? (
-          <p style={{ color: colors.warn, fontSize: 12 }}>
+          // The error is the backend's text, which may carry a path or a URL
+          // with no break in it; on a phone that would widen the page.
+          <p style={{ color: colors.warn, fontSize: 12, overflowWrap: "anywhere" }}>
             TNO engine unavailable: {keyrate.error}
           </p>
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+            <div style={{ display: "grid",
+                           gridTemplateColumns: narrow ? NARROW_KPI_TEMPLATE : KPI_ROW_OF_FOUR,
                            gap: 12, marginBottom: 12 }}>
               <KPI label="Distance (km)" value={keyrate.distance_km ?? "—"} />
               {/* `?? 0` ahead of `.toFixed` made the trailing `?? "—"` dead
@@ -388,7 +423,8 @@ export default function Verification() {
       <Panel title="3 · Paper Packet-Budget Match (arXiv:2604.05599 Table 1)">
         {!budgets ? (failed.budgets ? <NotObserved why={failed.budgets} /> : <Loading />) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+            <div style={{ display: "grid",
+                           gridTemplateColumns: narrow ? NARROW_KPI_TEMPLATE : KPI_ROW_OF_FOUR,
                            gap: 12, marginBottom: 12 }}>
               <KPI label="Computed packets" value={budgets.computed_total_packets ?? "—"} />
               <KPI label="Table 1 rows, summed (packets)" value={budgets.paper_total_packets ?? "—"} />
@@ -417,10 +453,86 @@ export default function Verification() {
   );
 }
 
-/** A panel whose request failed: say so, and say why, instead of spinning. */
+/**
+ * The liboqs matrix: one row per algorithm the validator ran.
+ *
+ * It is the one table on this page that can be wider than a phone, so it
+ * scrolls inside its own ScrollRegion: a bare <table> widens the panel and
+ * the page instead (see Panel.tsx). The box is a region the keyboard can
+ * reach only while the table is wider than it. Below 768px its cells are
+ * also narrower (NARROW_CELL_PAD_X_PX), an algorithm name may break after an
+ * underscore (breakableName) and the sizes are one pair per line
+ * (SizesCell), which is what makes it fit a 375px screen at all.
+ */
+export function AgilityMatrix({ rows }: { rows: AgilityRow[] }) {
+  const narrow = useNarrowLayout();
+  const cell = narrow ? tdNarrow : td;
+  const head = narrow ? thNarrow : th;
+  return (
+    <ScrollRegion aria-label="PQC agility matrix">
+      <table style={{ width: "100%", fontSize: 12, color: colors.textPri,
+                       borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ color: colors.textMute, textAlign: "left" }}>
+            <th style={head}>Algorithm</th><th style={head}>Family</th>
+            <th style={head}>Hardness assumption</th>
+            <th style={head}>liboqs</th><th style={head}>sizes (B)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const v = liboqsVerdict(r);
+            return (
+            <tr key={r.algo} style={{ borderTop: `1px solid ${colors.border}` }}>
+              <td style={cell}>{narrow ? breakableName(r.algo) : r.algo}</td>
+              <td style={cell}>{r.family}</td>
+              <td style={cell}>{r.assumption ?? assumptionOf(r.algo) ?? "not recorded"}</td>
+              <td style={{ ...cell, color: v.pass ? colors.success : r.enabled ? colors.warn : colors.textMute,
+                            fontWeight: 700 }}>
+                {v.text}
+              </td>
+              <SizesCell row={r} cell={cell} narrow={narrow} />
+            </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </ScrollRegion>
+  );
+}
+
+/**
+ * The "sizes (B)" cell: "pk 1184 · ct 1088 · ss 32" from 768px up, as it has
+ * always been. Below 768px each pair is a line of its own and no line wraps,
+ * so a label stays beside its number; joined by " · " in a narrow column the
+ * cell broke between a label and its number (see NARROW_CELL_PAD_X_PX). No
+ * characters are added: the pairs and their spaces are the same. A <br/>
+ * alone, without nowrap, was tried and is not enough: at 375px each KEM cell
+ * was still five lines. The cost is at wider phones: at 600px, where the
+ * joined pairs took two lines, the matrix's rows are 661px tall in all
+ * against 559px (measured 2026-09-26).
+ */
+function SizesCell({ row: r, cell, narrow }: { row: AgilityRow; cell: React.CSSProperties; narrow: boolean }) {
+  const pairs = r.family === "KEM"
+    ? [`pk ${r.pk_len ?? "–"}`, `ct ${r.ct_len ?? "–"}`, `ss ${r.ss_len ?? "–"}`]
+    : [`pk ${r.pk_len ?? "–"}`, `sig ${r.sig_len ?? "–"}`];
+  return (
+    <td style={{ ...cell, fontFamily: "monospace", ...(narrow ? { whiteSpace: "nowrap" } as const : {}) }}>
+      {narrow
+        ? pairs.map((p, i) => <Fragment key={i}>{i > 0 && <br />}{p}</Fragment>)
+        : pairs.join(" · ")}
+    </td>
+  );
+}
+
+/**
+ * A panel whose request failed: say so, and say why, instead of spinning.
+ * `why` carries the backend's own error text, so it may break anywhere: an
+ * unbroken path or URL in it would otherwise widen the page on a phone.
+ */
 function NotObserved({ why }: { why: string }) {
   return (
-    <p role="status" style={{ color: colors.warn, fontSize: 12 }}>
+    <p role="status" style={{ color: colors.warn, fontSize: 12, overflowWrap: "anywhere" }}>
       Not observed -- the request failed: {why}. Re-run to try again.
     </p>
   );
@@ -430,16 +542,34 @@ function Loading() {
   return <p style={{ color: colors.textMute, fontSize: 12 }}>Loading…</p>;
 }
 
-function Row({ k, v, ok }: { k: string; v: any; ok?: boolean }) {
+export function Row({ k, v, ok }: { k: string; v: any; ok?: boolean }) {
+  const narrow = useNarrowLayout();
+  const cell = narrow ? tdNarrow : td;
   return (
     <tr>
-      <td style={{ ...td, color: colors.textSec, width: 220 }}>{k}</td>
-      <td style={{ ...td, color: ok === undefined ? colors.textPri
+      <td style={{ ...cell, color: colors.textSec, width: narrow ? undefined : ROW_LABEL_WIDTH_PX }}>{k}</td>
+      <td style={{ ...cell, color: ok === undefined ? colors.textPri
                     : ok ? colors.success : colors.warn,
                     fontWeight: ok ? 700 : 400 }}>{String(v ?? "—")}</td>
     </tr>
   );
 }
 
-const th: React.CSSProperties = { padding: "4px 8px", fontWeight: 600 };
-const td: React.CSSProperties = { padding: "4px 8px" };
+/**
+ * An algorithm name with a line-break opportunity after each underscore, for
+ * the narrow layout. liboqs names the SLH-DSA sets like
+ * "SLH_DSA_PURE_SHA2_128S": one unbroken word about 160px wide at 12px, which
+ * on its own made the matrix's first column 176px wide on a phone. <wbr> adds
+ * no characters, so the name reads and copies the same; the hyphenated names
+ * (ML-KEM-768) can already break after their hyphens.
+ */
+function breakableName(name: string): ReactNode {
+  return name.split("_").map((part, i, parts) => (
+    <Fragment key={i}>{part}{i < parts.length - 1 && <>_<wbr /></>}</Fragment>
+  ));
+}
+
+const td: React.CSSProperties = { padding: `${CELL_PAD_Y_PX}px ${CELL_PAD_X_PX}px` };
+const th: React.CSSProperties = { ...td, fontWeight: 600 };
+const tdNarrow: React.CSSProperties = { padding: `${CELL_PAD_Y_PX}px ${NARROW_CELL_PAD_X_PX}px` };
+const thNarrow: React.CSSProperties = { ...tdNarrow, fontWeight: 600 };

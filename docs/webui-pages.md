@@ -29,6 +29,61 @@ Thirteen of the fourteen pages carry an export toolbar (all but `/hil`) -- **hig
 
 ---
 
+## Layout
+
+One breakpoint decides the shell: `NARROW_LAYOUT_MAX_PX` (767) in
+`services/webui-frontend/src/lib/layout.ts`, the widest viewport in CSS px that
+gets the collapsed layout. From 768 px up the dashboard is the 220 px sidebar
+beside `<main>`, as before. At 767 px and below:
+
+- The sidebar collapses into a top bar with a button named **Menu**, which
+  carries `aria-expanded` and `aria-controls="site-nav"`. The panel it opens
+  holds the same fourteen links and the same algorithm attribution as the
+  sidebar. Opening it moves focus to the first link. Escape closes it and
+  returns focus to the button, and a press outside it closes it. Following a
+  link closes it and leaves focus on `<main>`, so the next Tab starts in the
+  page rather than at the top of the document. Crossing the breakpoint with
+  focus on the Menu button, a menu link or a sidebar link moves focus to its
+  counterpart in the other layout.
+- `<main>` keeps a 16 px gutter (`NARROW_MAIN_PADDING`).
+- Panel grids go to one column (`narrowColumns`), and a key/value row may put
+  its value on the line below its label.
+- A wide table, a `<pre>` or the Key Flow Sankey scrolls inside its own box, and
+  the Topology graph is cropped to its drawing, so the page itself never scrolls
+  sideways. The Sankey, the wide tables and, below 768 px, the `/vpn` notes
+  `<pre>` sit in a `ScrollRegion` (below). From 768 px up that `<pre>`, and at
+  every width the `/keyflow` `kdf.go` snippet, scroll themselves and take the
+  same rule through `useScrollsSideways`. The other `<pre>` blocks scroll
+  inside themselves.
+  Under the Key Flow chart a line says that it scrolls sideways.
+
+A box that scrolls sideways is a named Tab stop at any width, not only on a
+phone. `ScrollRegion` (`src/components/ScrollRegion.tsx`) follows its content,
+not the viewport: while the content is more than 1 px (`SUBPIXEL_OVERFLOW_PX`)
+wider than the box, the box is a `role="region"` with `tabIndex={0}` and its
+`aria-label`, so Tab reaches it and the arrow keys scroll it. On `/keyflow`
+below 768 px the region also points to the visible line under the chart with
+`aria-describedby`. While the content fits, the box is a plain div and adds no
+Tab stop. From 768 px up the `/vpn` notes `<pre>` scrolls itself and takes the
+same attributes the same way. So which boxes are Tab stops depends on the
+width and on the data. For example, measured on 2026-09-26 at 768 px, the
+`/protocol-lab` links table and the `/vpn` notes were regions with an idle
+backend, and the `/e2e` step history became one while a run filled it. If a
+box has focus when its content stops being wider, its Tab stop goes with it
+and the browser moves focus elsewhere.
+
+Pages read the breakpoint through `useNarrowLayout()` and carry none of their
+own: `src/lib/layout.test.ts` fails if any other source file calls
+`matchMedia` or writes a width media query. Two fixes in the same change also
+show from 768 px up: the saved-exports list is kept on screen at 768 px, and
+the `/e2e` controls row wraps there while a run is going
+([`phases.md`](phases.md#2026-09-26--responsive-shell-the-webui-on-a-phone-release-020)).
+The phone check, and the check that a box is a region exactly while it
+scrolls, is row 4.2.8b of
+[`VERIFICATION_CHECKLIST.md`](../VERIFICATION_CHECKLIST.md).
+
+---
+
 ## Server-side switches
 
 Environment variables on `webui-backend` that decide what a visitor can change

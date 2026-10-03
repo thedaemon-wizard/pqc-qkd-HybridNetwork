@@ -1,5 +1,15 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { colors } from "../lib/commonStyles";
+import { useNarrowLayout } from "../lib/layout";
+
+/**
+ * Where the other pages are listed: the sidebar from 768px up, and below it
+ * the top bar's Menu button (App.tsx), behind which the sidebar is hidden. A
+ * function component because the boundary is a class and cannot call hooks.
+ */
+function NavigationName() {
+  return <>{useNarrowLayout() ? "the Menu button" : "the sidebar"}</>;
+}
 
 /**
  * Catches a render error in one page so it does not blank the whole app.
@@ -31,7 +41,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, { 
             {this.state.error.message || String(this.state.error)}
           </p>
           <p style={{ color: colors.textMute, fontSize: 12 }}>
-            The other pages are unaffected; choose one from the sidebar, or reload this one.
+            The other pages are unaffected; choose one from <NavigationName />, or reload this one.
           </p>
         </div>
       );

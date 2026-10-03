@@ -13,6 +13,7 @@ abstract: >-
   in the reference paper and into a strongSwan IKEv2 lane as an RFC 8784
   post-quantum preshared key.
 version: 0.2.0
+date-released: 2026-10-03
 license: Apache-2.0
 repository-code: "https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork"
 authors:
