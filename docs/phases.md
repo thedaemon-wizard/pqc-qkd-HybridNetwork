@@ -838,9 +838,8 @@ boringtun.
 
 ## 2026-09-26 — arnika #51 adopted and the WireGuard lane layered as in the paper (release 0.2.0)
 
-The first change after the `v0.1.0` tag, to be released as 0.2.0 (see
-[`../CHANGELOG.md`](../CHANGELOG.md)); the `v0.2.0` tag and its date are set
-after the merge. It moves `submodules/arnika` from
+The first change after the `v0.1.0` tag, released as 0.2.0 on 2026-10-03 (see
+[`../CHANGELOG.md`](../CHANGELOG.md)). It moves `submodules/arnika` from
 `3a8cc13` to `f4cf9ba`, the head of the open, unmerged arnika PR #51 as of
 2026-09-24, because that PR removes the file handover this project's PQC half
 depended on (`PQC_PSK_FILE`) and replaces it with PQC-HPKE, a key agreement

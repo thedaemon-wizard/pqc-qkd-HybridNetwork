@@ -661,8 +661,10 @@ visible in the logs:
   the two nodes' `msg="round agreed a fresh PQC key" round=N` lines is what
   separates it from the race.
 
-**The before/after measurement is planned, not done.** Two arms of 168 hours
-each on the same host: arm A at `3a8cc13` under the configuration that
+**The before/after measurement is under way** (arm A from 2026-09-25T10:55Z
+to 2026-10-02T10:55Z, arm B from 2026-10-03T07:04:06Z to
+2026-10-10T07:04:06Z; no result is reported before both arms are counted).
+Two arms of 168 hours each on the same host: arm A at `3a8cc13` under the configuration that
 preceded this change, arm B at `f4cf9ba`, each with both IPsec nodes recreated
 in one step. Held constant: strongSwan 6.1.0, `IKE_PROPOSALS` and
 `ESP_PROPOSALS`, `REAUTH_TIME`, `VICI_REAUTH_TIMEOUT`, `MODE`,

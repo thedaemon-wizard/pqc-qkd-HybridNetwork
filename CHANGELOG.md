@@ -175,5 +175,5 @@ hardening of 2026-09-26.
   live simulator overrides made opt-in, allow-lists on the Docker-backed
   routes, a rate limit on mutating requests and bounded exports.
 
-[0.2.0]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/tree/v0.1.0

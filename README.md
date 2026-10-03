@@ -16,8 +16,8 @@
 > [Rosenpass](https://github.com/rosenpass/rosenpass) (Rust) exchange carried
 > through it, and an end-to-end data tunnel keyed by Rosenpass.
 >
-> Version 0.2.0, not yet released (the `v0.2.0` tag comes after the merge);
-> see [Releases and citation](#releases-and-citation).
+> Version 0.2.0, released on 2026-10-03 (tag `v0.2.0`); see
+> [Releases and citation](#releases-and-citation).
 
 Reference papers:
 - [PQC-Enhanced QKD Networks: A Layered Approach](https://arxiv.org/abs/2604.05599)
@@ -121,8 +121,8 @@ Section 4.2 of the reference paper describes the same layering, with one
 difference: the paper's hop key is the QKD key alone, while arnika here also
 mixes in the PQC-HPKE half.
 
-A second lane, strongSwan IKEv2 with ML-KEM-768 (RFC 9370) and an RFC 8784 PPK,
-runs under the `ipsec` compose profile. Its PPK is arnika's
+A second lane, strongSwan IKEv2 with ML-KEM-768 as an additional key exchange
+(RFC 9370) and an RFC 8784 PPK, runs under the `ipsec` compose profile. Its PPK is arnika's
 HKDF-SHA3-256(QKD ‖ PQC-HPKE) output, produced by a second pair of arnika
 instances that use the same KMEs and agree their own PQC-HPKE keys; Rosenpass
 plays no part in that lane. See
