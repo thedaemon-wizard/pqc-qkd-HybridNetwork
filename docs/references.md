@@ -138,7 +138,7 @@ Read directly 2026-08-29; both quotations are verbatim from the PDF text.
 
 `mceliece460896` is the exact parameter set in the pinned Rosenpass v0.2.3, which
 `tests/test_rosenpass_kem_names_match_the_submodule.py` derives from the
-submodule's own domain-separation label. Since 2026-09-26 it keys the `wg1`
+submodule's own domain-separation label. Since release 0.2.0 it keys the `wg1`
 data tunnel only; arnika's key combiner no longer takes it.
 
 **Read that endorsement with its date attached.** The current TR-02102-1 is

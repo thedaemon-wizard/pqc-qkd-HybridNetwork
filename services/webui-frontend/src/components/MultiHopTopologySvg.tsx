@@ -1,7 +1,7 @@
 /**
  * Multi-hop trusted-node topology SVG.
  *
- * Faithful to the arnika-project/arnika image:
+ * Faithful to Fig. 3 of Spooren et al., arXiv:2604.05599 (docs/IMAGE2_MULTIHOP.md):
  *   End Node Alice | Trusted Node × N | End Node Bob
  *
  * Each column stacks: QKD Device → KMS Keystore (ETSI 014) → Arnika → VPN

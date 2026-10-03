@@ -516,7 +516,7 @@ Re-verified 2026-09-25 against the code.
     failure, and both sides fed HKDF the same QKD half. The PQC half written by
     the Rosenpass sidecar was the input not yet ruled out for that run; the
     2026-08-23 finding that both nodes held byte-identical PQC halves held for
-    that run only. Since 2026-09-26 there is no such file on this lane: the PQC
+    that run only. Since release 0.2.0 there is no such file on this lane: the PQC
     half is arnika's own PQC-HPKE key, and the corresponding suspect is the
     read gap described in [`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race).
   * How often runs fail has not been measured on either of the last two pins,

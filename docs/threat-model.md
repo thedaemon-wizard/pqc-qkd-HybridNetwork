@@ -172,7 +172,7 @@ pre-standardisation parameter set and is not approved under FIPS 203 or
 CNSA 2.0. What limits the damage is that Classic McEliece is a *different*
 hardness assumption — code based, not lattice based — so the composite
 survives a Kyber512 break. That is an argument for the hybrid construction,
-not an excuse for the parameter set. Since 2026-09-26 this applies to `wg1`
+not an excuse for the parameter set. Since release 0.2.0 this applies to `wg1`
 only: arnika's combiner no longer takes Rosenpass's key.
 
 **arnika's PQC-HPKE half uses no liboqs.** It is the Go standard library's
@@ -236,7 +236,7 @@ estimates as a break.
 
 **What this changes here, precisely.** The hybrid argument in the Rosenpass row
 of the table above is untouched: code-based and lattice-based remain different
-assumptions, and a composite still requires breaking both. Since 2026-09-26 its
+assumptions, and a composite still requires breaking both. Since release 0.2.0 its
 reach is also smaller: mceliece460896 protects the key of the `wg1` data tunnel
 only, because arnika's combiner, and so the `wg0` key and the IPsec PPK, no
 longer takes Rosenpass's output. What is being re-estimated is the stated
