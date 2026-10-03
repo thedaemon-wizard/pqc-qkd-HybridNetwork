@@ -21,13 +21,22 @@
  * thicker. Nothing compared the picture to the sentence above it.
  *
  * These tests are structural, so they hold whatever the widths become.
+ *
+ * Release 0.2.0 moved Rosenpass out of the derivation: the HKDF's PQC input is
+ * now the PQC-HPKE key arnika agrees with its peer, and Rosenpass keys wg1, the
+ * data tunnel inside wg0. The last block below pins that the two never meet.
  */
 import { describe, expect, it } from "vitest";
 
-import { KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks } from "./keyFlowGraph";
+import {
+  KEY_FLOW_COLORS, KEY_FLOW_EDGES, KEY_FLOW_LABELS, KEY_FLOW_NODES, toSankeyLinks,
+} from "./keyFlowGraph";
 
 const HKDF = "HKDF-SHA3-256";
-const PSK = "WireGuard PSK (256 b)";
+const PSK = "wg0 PSK (256 b)";
+const WG1_PSK = "wg1 PSK (256 b)";
+const ROSENPASS = "Rosenpass McEliece+Kyber512";
+const HPKE = "PQC-HPKE MLKEM1024-P384";
 
 describe("the graph is connected", () => {
   it("every node is on at least one edge", () => {
@@ -42,10 +51,10 @@ describe("the graph is connected", () => {
     expect(into[0].from).toBe(HKDF);
   });
 
-  it("every node except the source and the sink has both an in and an out edge", () => {
+  it("every node except the sources and the sinks has both an in and an out edge", () => {
     for (const n of KEY_FLOW_NODES) {
-      const isSource = n === "BB84 raw bits" || n === "Rosenpass McEliece+Kyber512";
-      const isSink = n === PSK;
+      const isSource = n === "BB84 raw bits" || n === HPKE || n === ROSENPASS;
+      const isSink = n === PSK || n === WG1_PSK;
       if (isSource || isSink) continue;
       expect(KEY_FLOW_EDGES.some((e) => e.to === n), `${n} has no input`).toBe(true);
       expect(KEY_FLOW_EDGES.some((e) => e.from === n), `${n} has no output`).toBe(true);
@@ -144,17 +153,20 @@ describe("display labels stay in step with node ids", () => {
     expect(Object.keys(KEY_FLOW_LABELS).sort()).toEqual([...KEY_FLOW_NODES].sort());
   });
 
-  it("the two that collided are shortened, and only those", () => {
+  it("the measured collisions are shortened, and only those", () => {
     // Measured on the deployed page: with the full names, "HKDF-SHA3-256" and
-    // "WireGuard PSK (256 b)" render on top of each other. Shortening either
-    // one alone does not clear it; a right margin does nothing at 0, 40 or
-    // 150 px. Pinned so a future edit that restores the long labels has to
-    // re-measure rather than reintroduce the collision.
-    expect(KEY_FLOW_LABELS["HKDF-SHA3-256"]).toBe("HKDF");
-    expect(KEY_FLOW_LABELS["WireGuard PSK (256 b)"]).toBe("WireGuard PSK");
+    // the PSK sink ("WireGuard PSK (256 b)" then) render on top of each other.
+    // Shortening either one alone does not clear it; a right margin does
+    // nothing at 0, 40 or 150 px. Both sinks now sit in that terminal column,
+    // so both keep the short form. The PQC-HPKE source's full name ran into
+    // the column-1 node beside it (measured 2026-09-26). Pinned so a future
+    // edit that restores the long labels has to re-measure rather than
+    // reintroduce the collision.
+    const SHORT: Record<string, string> = {
+      [HKDF]: "HKDF", [PSK]: "wg0 PSK", [WG1_PSK]: "wg1 PSK", [HPKE]: "PQC-HPKE",
+    };
     for (const n of KEY_FLOW_NODES) {
-      if (n === "HKDF-SHA3-256" || n === "WireGuard PSK (256 b)") continue;
-      expect(KEY_FLOW_LABELS[n], `${n} was shortened without cause`).toBe(n);
+      expect(KEY_FLOW_LABELS[n], `${n} was shortened without cause`).toBe(SHORT[n] ?? n);
     }
   });
 
@@ -163,7 +175,62 @@ describe("display labels stay in step with node ids", () => {
     // moved that check onto the display label it would silently stop checking
     // the two shortened nodes -- which are the two the derivation runs through.
     const idsWithWidth = KEY_FLOW_NODES.filter((n) => /\(\d+ b\)/.test(n));
-    expect(idsWithWidth).toContain("WireGuard PSK (256 b)");
+    expect(idsWithWidth).toContain(PSK);
+    expect(idsWithWidth).toContain(WG1_PSK);
     expect(idsWithWidth.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("Rosenpass keys wg1 and never enters the derivation", () => {
+  it("the HKDF's PQC input comes from PQC-HPKE, not from Rosenpass", () => {
+    const pqcFrom = KEY_FLOW_EDGES.filter((e) => e.to === "PQC key (256 b)").map((e) => e.from);
+    expect(pqcFrom).toEqual([HPKE]);
+  });
+
+  it("Rosenpass has exactly one edge, into wg1's PSK", () => {
+    const touching = KEY_FLOW_EDGES.filter((e) => e.from === ROSENPASS || e.to === ROSENPASS);
+    expect(touching).toEqual([{ from: ROSENPASS, to: WG1_PSK, bits: 256 }]);
+  });
+
+  it("nothing reachable from Rosenpass reaches the HKDF, and the reverse", () => {
+    // Walk the edges from each source. If a later edit wires Rosenpass into
+    // any node on the derivation path, its reach grows to include the HKDF.
+    const reach = (start: string) => {
+      const seen = new Set([start]);
+      const todo = [start];
+      while (todo.length) {
+        const n = todo.pop()!;
+        for (const e of KEY_FLOW_EDGES) {
+          if (e.from === n && !seen.has(e.to)) { seen.add(e.to); todo.push(e.to); }
+        }
+      }
+      return seen;
+    };
+    expect([...reach(ROSENPASS)].sort()).toEqual([ROSENPASS, WG1_PSK].sort());
+    expect(reach(HPKE).has(WG1_PSK)).toBe(false);
+    expect(reach("BB84 raw bits").has(WG1_PSK)).toBe(false);
+    expect(reach(HPKE).has(PSK)).toBe(true);
+  });
+
+  it("names the HPKE suite as the registry writes it", () => {
+    // MLKEM1024-P384 is the HPKE KEM name in arnika's pqchpke package and in
+    // draft-ietf-hpke-pq. Its hyphen placement differs from "ML-KEM-1024" on
+    // purpose: it names the hybrid KEM, not ML-KEM alone. It is in the node
+    // id, which the JSON export carries; the chart prints the short label.
+    expect(KEY_FLOW_NODES).toContain(HPKE);
+    expect(HPKE).toContain("MLKEM1024-P384");
+  });
+});
+
+describe("colours are keyed by node", () => {
+  it("every node has a colour, and nothing else does", () => {
+    expect(Object.keys(KEY_FLOW_COLORS).sort()).toEqual([...KEY_FLOW_NODES].sort());
+  });
+
+  it("the two components do not share a source colour", () => {
+    // Links take their source's colour, so this is what keeps the Rosenpass
+    // band visibly apart from the PQC-HPKE band on the page.
+    expect(KEY_FLOW_COLORS[ROSENPASS]).not.toBe(KEY_FLOW_COLORS[HPKE]);
+    expect(KEY_FLOW_COLORS[ROSENPASS]).not.toBe(KEY_FLOW_COLORS["BB84 raw bits"]);
   });
 });

@@ -4,7 +4,7 @@
 #   * RFC 9370 hybrid key exchange  : ECP-256 (IKE_SA_INIT) + ML-KEM-768
 #                                     (IKE_INTERMEDIATE, RFC 9242)
 #   * RFC 8784 Post-quantum Preshared Key : carries the arnika-derived
-#                                     HKDF(QKD || PQC) secret
+#                                     HKDF-SHA3-256(QKD || PQC-HPKE) secret
 #
 # Why a PPK and not `secrets.ike`:
 #   An IKEv2 PSK is consumed ONLY when computing the IKE_AUTH AUTH payload
@@ -45,10 +45,22 @@ connections {
     #
     # A shunt policy (mode = pass) tells the kernel to forward these packets in
     # the clear instead of trapping them. That is correct rather than merely
-    # expedient: the channel carries only key *identifiers*, never key material
-    # (the key itself is fetched from the local KME over ETSI GS QKD 014), and
-    # arnika authenticates it with HMAC(ARNIKA_PSK, ...). Tunnelling a tunnel's
-    # own control plane inside itself cannot work in any case.
+    # expedient. The channel carries two kinds of frame, and neither is key
+    # material in the clear:
+    #
+    #   * QKD key *identifiers*. The key itself is fetched from the local KME
+    #     over ETSI GS QKD 014 and never crosses this channel.
+    #   * arnika's PQC-HPKE key-agreement frames (HPKE Base mode, KEM
+    #     MLKEM1024-P384). These carry a public key, an encapsulation and
+    #     key-confirmation tags; the agreed PQC key is exported locally on
+    #     each side and is not sent.
+    #
+    # arnika authenticates every frame with HMAC-SHA256 and encrypts its payload
+    # with AES-GCM, both keyed from ARNIKA_PSK. The PQC frames need no rule of
+    # their own: the initiator sends them from an ephemeral port to the peer's
+    # __CONTROL_PORT__ and the answer comes back from that port, which is the
+    # traffic the two children below already pass. Tunnelling a tunnel's own
+    # control plane inside itself cannot work in any case.
     #
     # Shunts are connections with no auth and no remote; strongSwan installs the
     # policy at load time. They are matched before ordinary policies, but only
@@ -109,7 +121,8 @@ connections {
         # (ike_auth.c get_ppk_r -> credmgr->get_shared(SHARED_PPK, ...)), so the
         # key must already be loaded when the exchange arrives. Key AGREEMENT is
         # therefore still arnika's job (ETSI 014 enc_keys/dec_keys plus arnika's
-        # own key_id channel); this lane only changes where the agreed key is
+        # own key_id channel for the QKD half, and its PQC-HPKE exchange with the
+        # peer for the PQC half); this lane only changes where the agreed key is
         # DELIVERED.
         ppk_id = __PPK_ID__
         # No silent downgrade: without this, a missing PPK falls back to

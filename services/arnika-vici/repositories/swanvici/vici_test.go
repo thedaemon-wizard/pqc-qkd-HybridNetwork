@@ -1,8 +1,7 @@
-package repositories
+package swanvici
 
 import (
-	"encoding/base64"
-	"errors"
+	"bytes"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,6 +10,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	// Available because this file only ever runs inside the arnika tree that
+	// build.sh assembles. Used to test the adapter in the composition the
+	// wiring file builds, where invalidation now lives.
+	"github.com/arnika-project/arnika/services"
 )
 
 // --- Fake VICI server -------------------------------------------------------
@@ -98,9 +102,9 @@ func newFakeVici(t *testing.T) *fakeVici {
 		t.Fatalf("listen: %v", err)
 	}
 	f := &fakeVici{
-		t:         t,
-		ln:        ln,
-		path:      path,
+		t:          t,
+		ln:         ln,
+		path:       path,
 		responses:  map[string]map[string]string{},
 		loaded:     map[string]bool{},
 		failOn:     map[string]string{},
@@ -215,7 +219,7 @@ func (f *fakeVici) reply(req request) []byte {
 		}
 		// Success either way -- that is the whole point. charon returns success
 		// for ids it never held, which is why get-shared is the only existence
-		// check (see assertLoaded's comment in strongswan-vici.go).
+		// check (see assertLoaded's comment in vici.go).
 		fields = map[string]string{"success": "yes"}
 
 	case "get-shared":
@@ -351,38 +355,40 @@ func encodeResponse(fields map[string]string, lists map[string][]string) []byte 
 
 // --- helpers ----------------------------------------------------------------
 
-func testConfig(path string) ViciConfig {
-	return ViciConfig{
-		SocketPath:       path,
-		ConnectionName:   "pqcqkd-vpn",
-		ChildName:        "tunnel",
-		PPKID:            "ppk-qkd@pqcqkd.local",
-		CredentialPrefix: "qkd-bob",
+func testConfig(path string) Config {
+	return Config{
+		SocketPath:            path,
+		ConnectionName:        "pqcqkd-vpn",
+		ChildName:             "tunnel",
+		PPKID:                 "ppk-qkd@pqcqkd.local",
+		CredentialPrefix:      "qkd-bob",
 		BootstrapCredentialID: "ppk-qkd-bootstrap",
-		ReauthTimeout:    5 * time.Second,
+		ReauthTimeout:         5 * time.Second,
 		// The tests exercise the rotation path, which only the peer that owns
 		// the IKE_SA walks. The responder path is a single early return.
 		DriveReauth: true,
 	}
 }
 
-func psk32(fill byte) string {
+func psk32(fill byte) []byte {
 	b := make([]byte, 32)
 	for i := range b {
 		b[i] = fill
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return b
 }
 
 // --- tests ------------------------------------------------------------------
 
 func TestValidateRejectsIncompleteConfig(t *testing.T) {
-	for name, mutate := range map[string]func(*ViciConfig){
-		"no socket":     func(c *ViciConfig) { c.SocketPath = "" },
-		"no connection": func(c *ViciConfig) { c.ConnectionName = "" },
-		"no ppk id":     func(c *ViciConfig) { c.PPKID = "" },
-		"no prefix":     func(c *ViciConfig) { c.CredentialPrefix = "" },
-		"no timeout":    func(c *ViciConfig) { c.ReauthTimeout = 0 },
+	for name, mutate := range map[string]func(*Config){
+		"no socket":     func(c *Config) { c.SocketPath = "" },
+		"no connection": func(c *Config) { c.ConnectionName = "" },
+		"no child":      func(c *Config) { c.ChildName = "" },
+		"no ppk id":     func(c *Config) { c.PPKID = "" },
+		"no prefix":     func(c *Config) { c.CredentialPrefix = "" },
+		"no bootstrap":  func(c *Config) { c.BootstrapCredentialID = "" },
+		"no timeout":    func(c *Config) { c.ReauthTimeout = 0 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := testConfig("/tmp/x")
@@ -396,7 +402,7 @@ func TestValidateRejectsIncompleteConfig(t *testing.T) {
 
 func TestSetPSKPerformsOverlapThenSwap(t *testing.T) {
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -455,7 +461,7 @@ func TestBootstrapCredentialIsRetiredOnce(t *testing.T) {
 	// selecting it would present as PPK-protected while delivering none of the
 	// quantum contribution the lane exists for.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -489,7 +495,7 @@ func TestReconcileAdoptsNewestAndDropsOlderOrphans(t *testing.T) {
 	f.loaded["qkd-bob-5"] = true
 	f.loaded["some-other-cred"] = true
 
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -525,7 +531,7 @@ func TestSetPSKAlwaysSetsAnID(t *testing.T) {
 	// An id-less load-shared accumulates one entry per rotation forever, is
 	// invisible to get-shared, and can never be removed except by clear-creds.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -543,7 +549,7 @@ func TestSetPSKDrivesReauthNotPlainRekey(t *testing.T) {
 	// A CREATE_CHILD_SA rekey carries no AUTH payload and never re-reads
 	// credentials, so without reauth=yes the new PPK would never be used.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -582,7 +588,7 @@ func TestSetPSKInitiatesWhenNoSAExists(t *testing.T) {
 	f := newFakeVici(t)
 	f.saIDs = nil
 
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -614,7 +620,7 @@ func TestSetPSKOnResponderLoadsButDoesNotDrive(t *testing.T) {
 	cfg := testConfig(f.path)
 	cfg.DriveReauth = false
 
-	repo, err := NewStrongswanViciRepository(cfg)
+	repo, err := NewRepository(cfg)
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -642,7 +648,7 @@ func TestSetPSKFailsWhenRekeyMatchesNothing(t *testing.T) {
 	f := newFakeVici(t)
 	f.responses["rekey"] = map[string]string{"success": "yes", "matches": "0"}
 
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -659,7 +665,7 @@ func TestSetPSKDoesNotUnloadPreviousWhenReauthFails(t *testing.T) {
 	f := newFakeVici(t)
 	f.failOn["rekey"] = "no matching SA"
 
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -678,12 +684,11 @@ func TestSetPSKRejectsShortKey(t *testing.T) {
 	// minPPKBytes. The message still cites the RFC, because that is where the
 	// number comes from; it must not claim the RFC compels it.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
-	short := base64.StdEncoding.EncodeToString(make([]byte, 16))
-	err = repo.SetPSK(short)
+	err = repo.SetPSK(make([]byte, 16))
 	if err == nil {
 		t.Fatal("expected short PPK to be rejected")
 	}
@@ -700,67 +705,96 @@ func TestSetPSKRejectsShortKey(t *testing.T) {
 	}
 }
 
-func TestSetPSKRejectsNonBase64(t *testing.T) {
-	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
-	if err != nil {
-		t.Fatalf("construct: %v", err)
-	}
-	if err := repo.SetPSK("not!valid!base64"); err == nil {
-		t.Fatal("expected non-base64 PSK to be rejected")
+// The port arnika's KeyWriterService calls (services/keywriter.go,
+// keyWriterRepository). A compile-time check, so a signature drift fails the
+// build of this test file rather than surfacing as "does not implement" in the
+// wiring file, which only compiles under -tags strongswan_vici.
+var _ interface{ SetPSK([]byte) error } = (*Repository)(nil)
+
+func TestInvalidationStaysWithTheService(t *testing.T) {
+	// arnika moved InvalidateTunnel out of every adapter and into
+	// KeyWriterService, so that "a fresh random 32-byte key" is one rule and
+	// not one copy per writer. An adapter method of the same name would be
+	// dead code that could drift from the service's behaviour unnoticed.
+	if _, ok := any((*Repository)(nil)).(interface{ InvalidateTunnel() error }); ok {
+		t.Fatal("Repository implements InvalidateTunnel; invalidation belongs to " +
+			"arnika's KeyWriterService, which calls SetPSK with random bytes")
 	}
 }
 
-func TestInvalidateTunnelInstallsRandomKey(t *testing.T) {
+func TestInvalidationThroughTheServiceReachesCharon(t *testing.T) {
+	// The composition the wiring file builds: services.NewKeyWriterService over
+	// this repository. Invalidation must still do over VICI what the adapter's
+	// own InvalidateTunnel used to do -- load 32 random bytes the peer cannot
+	// match and drive a reauthentication, so the next IKE_AUTH fails visibly
+	// instead of traffic continuing under the superseded PPK.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
+	svc := services.NewKeyWriterService(repo)
 
-	orig := randRead
-	t.Cleanup(func() { randRead = orig })
-	randRead = func(b []byte) error {
-		for i := range b {
-			b[i] = 0xAB
-		}
-		return nil
-	}
-
-	if err := repo.InvalidateTunnel(); err != nil {
+	if err := svc.InvalidateTunnel(); err != nil {
 		t.Fatalf("invalidate: %v", err)
 	}
 	loads := f.callsTo("load-shared")
 	if len(loads) != 1 {
 		t.Fatalf("want 1 load-shared, got %d", len(loads))
 	}
-	if data := loads[0].fields["data"]; len(data) != 32 || data[0] != 0xAB {
-		t.Errorf("data = %d bytes starting %#x, want 32 bytes of 0xAB", len(data), data[0])
+	data := loads[0].fields["data"]
+	if len(data) != minPPKBytes {
+		t.Fatalf("invalidation PPK is %d bytes, want %d", len(data), minPPKBytes)
+	}
+	if data == string(make([]byte, minPPKBytes)) {
+		t.Fatal("invalidation PPK is all zeroes, so no random key was generated")
+	}
+	rekeys := f.callsTo("rekey")
+	if len(rekeys) != 1 || rekeys[0].fields["reauth"] != "yes" {
+		t.Fatalf("invalidation must drive one reauthentication, got rekeys %v", rekeys)
+	}
+
+	// A real rotation after an invalidation continues the numbering rather
+	// than reusing the id the random key occupied.
+	if err := svc.SetPSK(psk32(0x31)); err != nil {
+		t.Fatalf("rotate after invalidation: %v", err)
+	}
+	loads = f.callsTo("load-shared")
+	if got := loads[len(loads)-1].fields["id"]; got != "qkd-bob-2" {
+		t.Errorf("rotation after invalidation used id %q, want qkd-bob-2", got)
 	}
 }
 
-func TestInvalidateTunnelPropagatesRandomnessFailure(t *testing.T) {
+func TestSetPSKDoesNotDependOnTheCallerKeepingTheKey(t *testing.T) {
+	// arnika clears the slice as soon as SetPSK returns (writePSK's
+	// `defer clear(psk)`, and InvalidateTunnel's `defer clear(psk[:])`). An
+	// adapter that handed the slice to something that reads it later would
+	// then install zeroes. The key must have reached charon, intact, by the
+	// time SetPSK returns.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
-
-	orig := randRead
-	t.Cleanup(func() { randRead = orig })
-	randRead = func([]byte) error { return errors.New("entropy pool drained") }
-
-	if err := repo.InvalidateTunnel(); err == nil {
-		t.Fatal("expected randomness failure to surface, not be silently replaced")
+	key := psk32(0x5A)
+	want := bytes.Clone(key)
+	if err := repo.SetPSK(key); err != nil {
+		t.Fatalf("SetPSK: %v", err)
 	}
-	if n := len(f.callsTo("load-shared")); n != 0 {
-		t.Fatalf("issued load-shared despite failed randomness (%d calls)", n)
+	clear(key)
+
+	loads := f.callsTo("load-shared")
+	if len(loads) != 1 {
+		t.Fatalf("want 1 load-shared, got %d", len(loads))
+	}
+	if got := []byte(loads[0].fields["data"]); !bytes.Equal(got, want) {
+		t.Fatalf("charon received % x, want the original key % x", got, want)
 	}
 }
 
 func TestConstructorFailsOnUnreachableSocket(t *testing.T) {
 	cfg := testConfig(filepath.Join(t.TempDir(), "absent.vici"))
-	if _, err := NewStrongswanViciRepository(cfg); err == nil {
+	if _, err := NewRepository(cfg); err == nil {
 		t.Fatal("expected construction to fail against a missing socket")
 	}
 }
@@ -769,7 +803,7 @@ func TestNeverInvokesLoadCreds(t *testing.T) {
 	// swanctl --load-creds is a destructive sync that would unload the rotating
 	// QKD PPK. This adapter must never trigger that path.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -782,7 +816,6 @@ func TestNeverInvokesLoadCreds(t *testing.T) {
 		}
 	}
 }
-
 
 // The bootstrap credential is the pre-QKD key: it answers the SAME PPK_ID as
 // every rotated credential and contains no QKD material. Retiring it is what
@@ -798,15 +831,14 @@ func TestRetireBootstrapConfirmsWithGetShared(t *testing.T) {
 	// Success reply, credential kept -- exactly what charon does for an id it
 	// did not hold, and what a genuinely failed unload looks like on the wire.
 	f.unloadIsCosmetic = true
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
 	// Put the bootstrap credential where get-shared will report it.
 	f.loaded[repo.cfg.BootstrapCredentialID] = true
 
-	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
-	if err := repo.SetPSK(key); err != nil {
+	if err := repo.SetPSK(make([]byte, minPPKBytes)); err != nil {
 		t.Fatalf("SetPSK: %v", err)
 	}
 
@@ -824,14 +856,13 @@ func TestRetireBootstrapLatchesOnceConfirmed(t *testing.T) {
 	// The other direction. A check that can only refuse is as useless as one
 	// that can only accept, and would make the adapter retry forever.
 	f := newFakeVici(t)
-	repo, err := NewStrongswanViciRepository(testConfig(f.path))
+	repo, err := NewRepository(testConfig(f.path))
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
 	f.loaded[repo.cfg.BootstrapCredentialID] = true
 
-	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
-	if err := repo.SetPSK(key); err != nil {
+	if err := repo.SetPSK(make([]byte, minPPKBytes)); err != nil {
 		t.Fatalf("SetPSK: %v", err)
 	}
 	if !repo.bootstrapRetired {

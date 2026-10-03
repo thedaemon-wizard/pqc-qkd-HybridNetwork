@@ -101,6 +101,27 @@ describe("the container log is readable", () => {
     expect(stripAnsi(plain)).toBe(plain);
   });
 
+  // The arnika pin since release 0.2.0 (f4cf9ba) logs through slog as
+  // key=value lines. The message strings below are the ones in its main.go
+  // and repositories/pqchpke/pqchpke.go; the attribute values are
+  // placeholders of the right shape.
+  const SLOG_LINE =
+    'time=2026-09-26T10:00:00.000Z level=INFO msg="sending the key_id to the peer" '
+    + "arnika_id=1 role=primary key_id=3f2a9c1e-7b4d-4e2a-9f10-0c5d8e7a6b21 peer=bob:9999";
+
+  it("leaves an slog line, which carries no escapes off a terminal, unchanged", () => {
+    expect(stripAnsi(SLOG_LINE)).toBe(SLOG_LINE);
+    const round = 'time=2026-09-26T10:00:00.000Z level=INFO msg="round agreed a fresh PQC key" '
+      + "arnika_id=1 component=pqc-hpke round=42 as=initiator";
+    expect(stripAnsi(round)).toBe(round);
+  });
+
+  it("strips the whole-record colour slog uses on a terminal", () => {
+    // f4cf9ba's colorWriter wraps each record in one code and a reset, and
+    // only when stderr is a terminal: `\x1b[36m` for an odd ARNIKA_ID.
+    expect(stripAnsi(`\x1b[36m${SLOG_LINE}\x1b[0m`)).toBe(SLOG_LINE);
+  });
+
   it("handles multiple codes on one line and multi-line input", () => {
     expect(stripAnsi("\x1b[1m\x1b[31mA\x1b[0m\n\x1b[36mB\x1b[0m")).toBe("A\nB");
   });

@@ -39,8 +39,9 @@
  *     execution guarantees a constant-time claim would need.
  *
  * Both are acceptable here because this is a simulator with no real secrets.
- * The production key paths in this project (arnika, Rosenpass, strongSwan) use
- * native Go/Rust/C implementations, never this module.
+ * The production key paths in this project use native implementations, never
+ * this module: arnika's PQC-HPKE (Go standard library HPKE), Rosenpass for the
+ * WireGuard data tunnel wg1 (Rust), and strongSwan (C).
  */
 
 import { ml_kem512, ml_kem768, ml_kem1024 } from "@noble/post-quantum/ml-kem.js";

@@ -86,6 +86,65 @@ tail-logs: ## (Phase 12-A) Tail rotating log files inside pqcqkd-logs volume
 # -------------------------------------------------------------------
 # Verification / Smoke
 # -------------------------------------------------------------------
+# The two WireGuard tunnels of the node pair, as docker-compose.yml defaults
+# them (WG_BOB_IP and WG1_BOB_IP). wg0 is the hop tunnel arnika keys; wg1 is the
+# data tunnel Rosenpass keys, and its endpoint is bob's wg0 address, so an echo
+# answered on WG1_PEER_IP has crossed both tunnels. Override both if .env moves
+# the addresses.
+WG0_PEER_IP ?= 10.0.0.2
+WG1_PEER_IP ?= 10.0.1.2
+
+# How long the smoke waits for each tunnel to answer. Neither is up the moment
+# the containers are: every peer starts with a random placeholder PSK, so a
+# tunnel answers only once its keying daemon has installed the same key on
+# both ends. wg0 waits for arnika, which starts at the next wall-clock multiple
+# of ARNIKA_INTERVAL (up to one interval) and whose first interval can fail
+# closed before the first PQC key is agreed; four intervals at the default 30s.
+# The number does not follow ARNIKA_INTERVAL: if .env changes the interval,
+# raise SMOKE_WG0_WAIT_S to about four intervals too (for example 480 at 2m),
+# or the smoke reports a false FAIL while arnika is still waiting to start.
+# wg1 then waits for the first Rosenpass exchange, which runs inside wg0 and
+# retransmits at most 10 s apart (RETRANSMIT_DELAY_END), and for WireGuard's
+# next handshake attempt, 5 s apart (REKEY_TIMEOUT).
+SMOKE_WG0_WAIT_S ?= 120
+SMOKE_WG1_WAIT_S ?= 60
+# WireGuard's REJECT_AFTER_TIME: a session older than this carries no data, so
+# a latest handshake older than this is not evidence of a working tunnel.
+WG_REJECT_AFTER_TIME_S = 180
+
+# $(call smoke_ping,<iface>,<peer tunnel ip>,<wait s>): wait up to <wait s>
+# for one echo, then require three.
+define smoke_ping
+	@deadline=$$(( $$(date +%s) + $(3) )); \
+	until $(DC) exec -T alice ping -c 1 -W 2 $(2) >/dev/null 2>&1; do \
+	  if [ "$$(date +%s)" -ge "$$deadline" ]; then \
+	    echo "FAIL: no answer from $(2) over $(1) within $(3)s"; exit 1; \
+	  fi; \
+	  sleep 1; \
+	done
+	$(DC) exec -T alice ping -c 3 -W 2 $(2) || (echo "FAIL: ping over $(1)"; exit 1)
+endef
+
+# $(call smoke_handshake,<iface>,<peer tunnel ip>): the peer that owns
+# <peer tunnel ip>/32 has completed a handshake within WG_REJECT_AFTER_TIME_S.
+# This, not a `preshared key` line, is the evidence that the keying daemon
+# wrote the key: every peer carries a random placeholder PSK from the moment it
+# is added, so a preshared key is always present, and only matching keys on
+# both ends complete a handshake. Reads allowed-ips and latest-handshakes,
+# neither of which prints a key.
+define smoke_handshake
+	@peer=$$($(DC) exec -T alice wg show $(1) allowed-ips \
+	  | awk -v ip="$(2)/32" '{ for (i = 2; i <= NF; i++) if ($$i == ip) print $$1 }'); \
+	if [ -z "$$peer" ]; then echo "FAIL: $(1) has no peer for $(2)"; exit 1; fi; \
+	hs=$$($(DC) exec -T alice wg show $(1) latest-handshakes \
+	  | awk -v k="$$peer" '$$1 == k { print $$2 }'); \
+	age=$$(( $$(date +%s) - $${hs:-0} )); \
+	if [ "$${hs:-0}" -eq 0 ] || [ "$$age" -gt $(WG_REJECT_AFTER_TIME_S) ]; then \
+	  echo "FAIL: $(1) peer $(2) has no handshake in the last $(WG_REJECT_AFTER_TIME_S)s"; exit 1; \
+	fi; \
+	echo "$(1) peer $(2): latest handshake $${age}s ago"
+endef
+
 .PHONY: smoke
 # Three of these four steps used to end in a pipe or a `sleep`, so the recipe
 # took THAT command's exit status: `... | head -c 400; echo` is always 0, and so
@@ -108,8 +167,12 @@ smoke: ## Quick end-to-end smoke test
 	@out=$$($(DC) exec -T bb84-kme-a curl -sf "http://localhost:8080/api/v1/keys/ALICE/enc_keys?number=1&size=256"); \
 	echo "$$out" | head -c 400; echo; \
 	echo "$$out" | grep -q '"key_ID"' || { echo "FAIL: /enc_keys returned no key_ID"; exit 1; }
-	@echo "==> Verify wg0 ping alice->bob..."
-	$(DC) exec -T alice ping -c 3 -W 2 10.0.0.2 || (echo "FAIL: ping over wg0"; exit 1)
+	@echo "==> Verify wg0 alice->bob (hop tunnel, keyed by arnika), waiting up to $(SMOKE_WG0_WAIT_S)s..."
+	$(call smoke_ping,wg0,$(WG0_PEER_IP),$(SMOKE_WG0_WAIT_S))
+	$(call smoke_handshake,wg0,$(WG0_PEER_IP))
+	@echo "==> Verify wg1 alice->bob (data tunnel inside wg0, keyed by Rosenpass), waiting up to $(SMOKE_WG1_WAIT_S)s..."
+	$(call smoke_ping,wg1,$(WG1_PEER_IP),$(SMOKE_WG1_WAIT_S))
+	$(call smoke_handshake,wg1,$(WG1_PEER_IP))
 	@echo "==> Check PSK rotation logs..."
 	@n=$$($(DC) logs alice --since=2m 2>&1 | grep -cE "PSK configured|HKDF derivation completed"); \
 	$(DC) logs alice --since=2m 2>&1 | grep -E "PSK configured|HKDF derivation completed" | head -n 5; \
@@ -119,6 +182,15 @@ smoke: ## Quick end-to-end smoke test
 .PHONY: test
 test: ## Run pytest contract & integration tests
 	$(VENV)/python -m pytest tests/ -v
+
+# Counts, not a gate: PPK rotations R, auth failures F and the five failure
+# classes on the IPsec lane, split by alice's role, from `docker logs -t` of
+# both IPsec nodes. The rules are the ones written down in the script before any
+# before/after run. Pass ARGS=--json for a record `compare` can read later, or
+# ARGS="--since 2026-09-26T00:00:00Z" to leave out a window with a restart.
+.PHONY: ppk-race-report
+ppk-race-report: ## Count PPK rotations and failure classes on the IPsec lane
+	$(VENV)/python scripts/ppk_race_report.py report --docker $(ARGS)
 
 .PHONY: bench
 bench: ## Run latency / throughput benchmarks
@@ -212,7 +284,7 @@ pqc-list: ## List PQC algorithms exposed by oqs-provider
 # videos. Nothing imports them, no image ships them, and Manim's idioms trip
 # rules chosen for service code. `lint-animations` exists for anyone who wants
 # to look; it is deliberately not a gate.
-CI_LINT_PATHS = services/ tests/ tools/ benchmarks/
+CI_LINT_PATHS = services/ tests/ tools/ benchmarks/ scripts/
 
 # `.venv/bin/`, not `python3.12 -m`. The system interpreter has neither ruff nor
 # pytest here, so the documented commands exited "No module named ruff" -- a

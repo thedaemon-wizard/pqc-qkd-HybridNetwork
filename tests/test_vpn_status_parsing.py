@@ -211,7 +211,11 @@ peer: PUBbPUBbPUBbPUBbPUBbPUBbPUBbPUBbPUBbPUBbPUB=
 
 # A peer with no PSK installed omits the line entirely -- wireguard-tools
 # src/show.c guards that printf with `peer->flags & WGPEER_HAS_PRESHARED_KEY`.
-# That is what makes peers_with_psk a measurement rather than a restatement.
+# So peers_with_psk counts peers that have some key set, and no more: the
+# entrypoint gives every peer a random placeholder PSK when it adds it, so the
+# line is there before arnika or Rosenpass has written anything. The evidence
+# that the keying daemon wrote a key both ends share is a recent handshake
+# (with a ping across the tunnel), not this count.
 WG_SHOW_NO_PSK = WG_SHOW.replace("  preshared key: (hidden)\n", "")
 
 # Before the first handshake, `latest handshake:` is absent too (the printf is
@@ -246,16 +250,22 @@ def test_wg_parses_the_handshake_age_it_used_to_describe():
 
 
 def test_wg_counts_peers_with_a_psk_installed():
-    """The observable security fact that replaces the invented proposal."""
+    """A parsed fact from `wg show`, not evidence of the QKD-derived key.
+
+    The count separates a peer with a preshared key line from one without, and
+    that is all it shows. The key may be the entrypoint's random placeholder;
+    a recent handshake, with a ping across the tunnel, is what shows that both
+    ends hold the same key.
+    """
     assert _parse_wg(WG_SHOW)["peers_with_psk"] == 1
     assert _parse_wg(WG_SHOW)["peers"] == 1
 
     without = _parse_wg(WG_SHOW_NO_PSK)
     assert without["peers"] == 1
     assert without["peers_with_psk"] == 0, (
-        "a peer carrying no QKD-derived PSK must be distinguishable from one "
-        "that does; the tunnel comes up either way, which is what makes the "
-        "loss silent"
+        "a peer whose `wg show` block has no preshared key line must count as "
+        "without a PSK; the count only shows that some key is set, possibly "
+        "the entrypoint's placeholder, and the handshake is the evidence"
     )
 
 

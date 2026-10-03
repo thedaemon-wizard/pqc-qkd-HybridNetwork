@@ -30,9 +30,79 @@ ESP_PROPOSALS="${ESP_PROPOSALS:?ESP_PROPOSALS must be set}"
 PPK_ID="${VICI_PPK_ID:?VICI_PPK_ID must be set}"
 REAUTH_TIME="${REAUTH_TIME:?REAUTH_TIME must be set}"
 
-# Needed before the config is rendered, because the bootstrap credentials are
-# derived from it. See the note below.
-ARNIKA_PSK="${ARNIKA_PSK:?ARNIKA_PSK must be set, and must be identical on both peers}"
+# arnika's own floor (minArnikaPSKLen in submodules/arnika/config/config.go):
+# its peer authentication claim assumes 256 bits of real entropy. arnika checks
+# this too, but only once it starts -- after charon is up and after the
+# bootstrap credentials below have already been derived from this value.
+MIN_ARNIKA_PSK_BYTES=32
+# The value .env.example ships. It is 37 bytes, so it passes arnika's length
+# check, and a deployment that never replaced it would authenticate its peer
+# protocol and derive its bootstrap PPK from a string printed in this repository.
+ARNIKA_PSK_PLACEHOLDER='replace-me-run-openssl-rand-base64-32'
+
+# The checks on the two values this node hands to arnika and must agree with
+# its peer on, before anything else runs: ARNIKA_PSK is needed before the
+# config is rendered, because the bootstrap credentials are derived from it
+# (see the note below). One function, so that
+# tests/test_entrypoints_validate_their_input.py runs exactly these lines
+# under bash with a stubbed environment.
+#
+# PQC_ENABLED switches the PQC half of the PPK. arnika agrees it with the peer
+# itself, over HPKE on the same authenticated UDP channel as the key_ID
+# (repositories/pqchpke), and it never touches disk -- there is no key file to
+# mount any more. Validated here, strictly, because arnika is not strict about
+# it: config.go reads `PQC_ENABLED == "true"` and treats every other value as
+# off. "True", "1" or "yes" would silently disable the PQC half. Under
+# MODE=QkdAndPqcRequired arnika then refuses to start, but under a mode that
+# does not require PQC it would run QKD-only with nothing in the log to say
+# the operator asked for otherwise. Both peers must agree (the compose file
+# sets it once, in the shared anchor).
+validate_arnika_input() {
+    : "${ARNIKA_PSK:?ARNIKA_PSK must be set, and must be identical on both peers}"
+    # Bytes, not characters: `${#ARNIKA_PSK}` counts characters in a UTF-8
+    # locale, and arnika compares len([]byte). printf is a shell builtin, so
+    # the value does not appear on any process command line.
+    local psk_bytes
+    psk_bytes=$(printf '%s' "$ARNIKA_PSK" | wc -c | tr -d ' ')
+    if [ "$ARNIKA_PSK" = "$ARNIKA_PSK_PLACEHOLDER" ]; then
+        echo "[entrypoint] FATAL: ARNIKA_PSK is still the .env.example placeholder." >&2
+        echo "[entrypoint] Generate one with: openssl rand -base64 32" >&2
+        exit 1
+    fi
+    if [ "$psk_bytes" -lt "$MIN_ARNIKA_PSK_BYTES" ]; then
+        echo "[entrypoint] FATAL: ARNIKA_PSK is ${psk_bytes} bytes; arnika requires at least ${MIN_ARNIKA_PSK_BYTES}." >&2
+        echo "[entrypoint] Generate one with: openssl rand -base64 32" >&2
+        exit 1
+    fi
+    : "${PQC_ENABLED:?PQC_ENABLED must be set to true or false, identically on both peers}"
+    case "${PQC_ENABLED}" in
+        true|false) ;;
+        *)
+            echo "[entrypoint] FATAL: PQC_ENABLED is '${PQC_ENABLED}'; expected exactly 'true' or 'false'." >&2
+            echo "[entrypoint] arnika treats anything but 'true' as disabled." >&2
+            exit 1
+            ;;
+    esac
+}
+validate_arnika_input
+
+# ---- No start alignment in this lane ------------------------------------
+# Deliberate. arnika here starts as soon as the connection is loaded, as it did
+# at v0.1.0, and not at a wall-clock multiple of its interval as in the
+# WireGuard lane ("Start alignment" in nodes/alice/entrypoint.sh). This lane is
+# the one the before/after PPK measurement compares (docs/vici-ppk.md), and at
+# v0.1.0 its two nodes were never aligned: compose starts them together, about
+# 30 ms apart on the public demo. Both arms run this same entrypoint start
+# behaviour: no alignment, and arnika starts once the connection is loaded.
+# The start offset between the two nodes is not held equal, though: arm B
+# drops the depends_on on the WireGuard nodes, which changes when compose
+# starts these nodes, so the offset is measured in each arm. Whatever the
+# pinned arnika's fail-closed path for an interval without a key_id
+# (submodules/arnika/main.go:409-418) does under that start offset is a
+# finding to measure, not something to hide with a start change made in one
+# arm only. The inference in that comment, about how the offset between the
+# two ends wanders after the start and when a BACKUP then fails closed,
+# applies here too, from whatever offset the start leaves.
 
 # Also needed before rendering: the control-plane bypass shunt is built from
 # these. They are re-exported for arnika further down.
@@ -43,7 +113,8 @@ SERVER_ADDRESS="${SERVER_ADDRESS:?SERVER_ADDRESS must be set}"
 # "initiator", one "responder". The same value gates both halves of SA
 # ownership -- who initiates (start_action, here) and who reauthenticates after
 # a key rotation (VICI_IKE_ROLE, read by the adapter) -- so they cannot drift
-# apart. See the comment on ViciConfig.DriveReauth for what two drivers cost.
+# apart. See the comment on swanvici.Config.DriveReauth for what two drivers
+# cost.
 VICI_IKE_ROLE="${VICI_IKE_ROLE:?VICI_IKE_ROLE must be set to initiator or responder, and the two peers must differ}"
 # The responder is purely reactive: it never initiates and never reauthenticates.
 # Leaving charon's own reauth_time active on it makes it a third initiation
@@ -73,25 +144,35 @@ mkdir -p /etc/swanctl/conf.d
 # because the VICI adapter rotates only the PPK, never the IKEv2 PSK.
 #
 # Derive them from ARNIKA_PSK, which is already mandatory and already identical
-# on both peers (it keys arnika's master election and its UDP key_ID channel).
-# Two separate `info` strings keep the two derived values independent, so
-# recovering one tells you nothing about the other.
+# on both peers (it keys arnika's PRIMARY/BACKUP election and authenticates and
+# encrypts its UDP peer channel: the key_ID frames and, since the PQC-HPKE
+# reader, the HPKE key-agreement frames). Two separate `info` strings keep the
+# two derived values independent, so recovering one tells you nothing about
+# the other.
 #
 # These are BOOTSTRAP values and are NOT QKD material: they exist only so the
-# first IKE_AUTH can complete. arnika replaces the PPK with HKDF(QKD || PQC)
-# output on its first rotation, and every reauthentication after that consumes
-# QKD-derived material.
+# first IKE_AUTH can complete. arnika replaces the PPK with
+# HKDF-SHA3-256(QKD || PQC-HPKE) output on its first rotation, and every
+# reauthentication after that consumes QKD-derived material.
+#
+# `od -v`, in both places: without it od prints a repeated 16-byte line as a
+# single `*`, so a PSK that repeats a 16-byte block (16 x U+00E9 is 32 bytes
+# and passes the length check) reached openssl as a hexkey with a `*` in it
+# and killed the node with "odd number of digits".
+ARNIKA_PSK_TMP=/run/arnika-psk.tmp
 derive_bootstrap_secret() {
-    printf '%s' "$ARNIKA_PSK" > /run/arnika-psk.tmp
-    chmod 600 /run/arnika-psk.tmp
-    # hexkey via a file keeps ARNIKA_PSK off the process command line, which is
-    # world-readable through /proc.
+    # Created 0600, not chmod-ed afterwards, so it is never readable by others.
+    ( umask 077; printf '%s' "$ARNIKA_PSK" > "$ARNIKA_PSK_TMP" )
+    # The raw value goes through the file, so it is never an argument of od.
+    # Its hex form does become one: `openssl kdf` takes a key only as a
+    # -kdfopt, so the hex is on openssl's command line, readable through /proc
+    # inside this container, for as long as openssl runs.
     openssl kdf -keylen 32 \
         -kdfopt digest:SHA256 \
-        -kdfopt "hexkey:$(od -An -tx1 < /run/arnika-psk.tmp | tr -d ' \n')" \
+        -kdfopt "hexkey:$(od -v -An -tx1 < "$ARNIKA_PSK_TMP" | tr -d ' \n')" \
         -kdfopt "info:$1" \
-        -binary HKDF | od -An -tx1 | tr -d ' \n'
-    rm -f /run/arnika-psk.tmp
+        -binary HKDF | od -v -An -tx1 | tr -d ' \n'
+    rm -f "$ARNIKA_PSK_TMP"
 }
 
 BOOTSTRAP_PSK=$(derive_bootstrap_secret "pqcqkd bootstrap ike-psk")
@@ -155,15 +236,20 @@ fi
 # rejects the connection at load time -- previously hidden behind `|| true`.
 # `swanctl --list-algs` asks the running daemon, so this proves the plugin is
 # loaded, not just compiled.
-if ! swanctl --list-algs | grep -q 'ML_KEM_768'; then
+#
+# Read once into a variable, not piped into `grep -q`: under pipefail, grep -q
+# exiting at the first match can end swanctl with SIGPIPE, and the pipeline's
+# failure would then report ML-KEM missing when it is present (SC2337).
+CHARON_ALGS="$(swanctl --list-algs)"
+if ! grep -q 'ML_KEM_768' <<< "${CHARON_ALGS}"; then
     echo "[entrypoint] FATAL: ML_KEM_768 is not available in charon." >&2
     echo "[entrypoint] The 'ml'/'openssl' plugins must be built AND named in" >&2
     echo "[entrypoint] the charon load line (/etc/strongswan.conf)." >&2
     echo "[entrypoint] Key-exchange methods charon actually offers:" >&2
-    swanctl --list-algs | sed -n '/^ke:/,/^[a-z-]*:/p' >&2
+    sed -n '/^ke:/,/^[a-z-]*:/p' <<< "${CHARON_ALGS}" >&2
     exit 1
 fi
-echo "[entrypoint] ML_KEM_768 available: $(swanctl --list-algs | grep 'ML_KEM_768')"
+echo "[entrypoint] ML_KEM_768 available: $(grep 'ML_KEM_768' <<< "${CHARON_ALGS}")"
 
 # ---- 4) Load configuration and initiate --------------------------------
 # --load-conns, NOT --load-all/--load-creds. `swanctl --load-creds` performs a
@@ -204,13 +290,33 @@ export INTERVAL="${ARNIKA_INTERVAL:?ARNIKA_INTERVAL must be set}"
 export MODE="${ARNIKA_MODE:?ARNIKA_MODE must be set}"
 export KMS_URL="${KMS_URL:?KMS_URL must be set}"
 export LISTEN_ADDRESS SERVER_ADDRESS   # validated above, before rendering
-export PQC_PSK_FILE="${PQC_PSK_FILE:?PQC_PSK_FILE must be set}"
+# The PQC half of the PPK; validated at the top (validate_arnika_input).
+export PQC_ENABLED
 
-# See nodes/alice/entrypoint.sh for why these two cannot be defaulted: arnika's
-# master election is HMAC(ARNIKA_PSK, interval) XOR ARNIKA_ID, so the IDs must
-# differ between peers and the PSK must match.
-export ARNIKA_ID="${ARNIKA_ID:?ARNIKA_ID must be set, and must differ between the two peers}"
-export ARNIKA_PSK="${ARNIKA_PSK:?ARNIKA_PSK must be set, and must be identical on both peers}"
+# INFO, and only INFO. The VICI adapter logs through the standard `log`
+# package, which arnika's slog.SetDefault bridges into its handler at INFO.
+# LOG_LEVEL=warn or error would therefore drop every "PPK rotated" line --
+# the lines the WebUI counts for /api/vpn/ppk-rotations and the CI ipsec job
+# greps -- while the tunnel kept rotating. debug logs one line per rejected
+# datagram on the packet path, which arnika's rate limiter bounds in work but
+# not in log volume (see LOG_LEVEL in arnika's logging.go).
+case "${LOG_LEVEL:-info}" in
+    info) ;;
+    *)
+        echo "[entrypoint] FATAL: LOG_LEVEL is '${LOG_LEVEL}'; this node requires 'info'." >&2
+        echo "[entrypoint] A higher level hides the adapter's rotation log lines." >&2
+        exit 1
+        ;;
+esac
+export LOG_LEVEL=info
+
+# See nodes/alice/entrypoint.sh for why these two cannot be defaulted: arnika
+# elects PRIMARY/BACKUP from HMAC-SHA256(ARNIKA_PSK, interval) XOR ARNIKA_ID, so
+# the PSK must match and the IDs must differ in their lowest bit. The parity
+# also picks each direction's HMAC key (auth.DirectionFor), so same-parity
+# peers now fail authentication outright rather than only mis-electing.
+export ARNIKA_ID="${ARNIKA_ID:?ARNIKA_ID must be set, and must differ in parity between the two peers}"
+export ARNIKA_PSK   # validated above: set, >= MIN_ARNIKA_PSK_BYTES, not the placeholder
 
 # arnika's config parser requires these even for a non-WireGuard key writer.
 # They are unused by the VICI adapter; making them conditional on the selected
@@ -227,11 +333,22 @@ echo "[entrypoint] starting arnika VICI key-writer (MODE=${MODE} INTERVAL=${INTE
 # discards the trap -- so the previous version installed a handler that could
 # never fire and charon was never reaped. Run arnika as a child and clean up
 # after it instead.
-trap 'kill "${CHARON_PID}" 2>/dev/null || true' EXIT INT TERM
+trap 'kill "${CHARON_PID}" 2>/dev/null || true' EXIT
+# INT and TERM end the script, and the EXIT trap then stops charon. When the
+# INT/TERM trap only stopped charon, `wait` below returned the signal's status
+# while arnika was still running, and every `docker stop` logged a false
+# "arnika exited with status 143". The statuses are 128 plus the signal
+# number, as a shell reports a child the signal killed.
+EXIT_STATUS_ON_SIGINT=130
+EXIT_STATUS_ON_SIGTERM=143
+trap 'exit "${EXIT_STATUS_ON_SIGINT}"' INT
+trap 'exit "${EXIT_STATUS_ON_SIGTERM}"' TERM
 
 /usr/local/bin/arnika &
 ARNIKA_PID=$!
-wait "${ARNIKA_PID}"
-ARNIKA_RC=$?
+# `|| ARNIKA_RC=$?`, because under `set -e` a bare failing `wait` exits the
+# script before the line below can report the status.
+ARNIKA_RC=0
+wait "${ARNIKA_PID}" || ARNIKA_RC=$?
 echo "[entrypoint] arnika exited with status ${ARNIKA_RC}; stopping charon" >&2
 exit "${ARNIKA_RC}"

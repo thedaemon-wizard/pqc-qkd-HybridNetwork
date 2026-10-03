@@ -586,7 +586,7 @@ const thuringia: TopologyPreset = {
   notes: [
     "The two QKD rates come from separate campaigns, two and 22 days long; the links were not run at the same time (section IV.A).",
     "Table I's ± values are temporal standard deviations over each campaign, not measurement uncertainties (section IV.A).",
-    "The paper runs arnika with QKD keys only on each hop and carries post-quantum protection in a separate end-to-end tunnel (QuantShake, SND to UKJ) that the trusted nodes forward without holding its key (sections III and V). This repository instead mixes a Rosenpass key into each hop's WireGuard PSK through arnika (also per leg in docker-compose.multihop.yml, where the relay node holds both legs' keys); a separate end-to-end layer exists here only in the /paper-flow simulation. Relaying key across this chain exists only in the simulation.",
+    "The paper runs arnika with QKD keys only on each hop and carries post-quantum protection in a separate end-to-end tunnel (QuantShake, SND to UKJ) that the trusted nodes forward without holding its key (sections III and V). This repository's two-node WireGuard lane follows that layering (a wg0 hop tunnel, with Rosenpass keying a wg1 data tunnel inside it), but arnika mixes a PQC-HPKE key agreed hop by hop into each hop's WireGuard PSK, where the paper uses QKD keys alone (also per leg in docker-compose.multihop.yml, where the relay node holds both legs' keys). An end-to-end layer across a relay exists here only in the /paper-flow simulation. Relaying key across this chain exists only in the simulation.",
   ],
   freePlay: { accounting: "keys", why: "Both QKD links have a reported rate; the keystore hop is never routed." },
   defaultDemand: { from: "SND", to: "IOF" },

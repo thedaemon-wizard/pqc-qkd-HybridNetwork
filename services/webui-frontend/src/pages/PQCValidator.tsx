@@ -245,7 +245,9 @@ export default function PQCValidator() {
         <b>self-audited</b>, not independently audited, and makes{" "}
         <b>no constant-time guarantee</b> — pure JavaScript cannot provide one.
         That is fine for a simulator with no real secrets. This project's actual
-        key paths (arnika, Rosenpass, strongSwan) use native implementations.
+        key paths use native implementations: arnika&apos;s PQC-HPKE (the Go
+        standard library&apos;s HPKE), Rosenpass for the WireGuard data tunnel
+        (Rust), and strongSwan (C).
       </p>
     </div>
   );
