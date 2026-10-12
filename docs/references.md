@@ -106,7 +106,7 @@ difference: arnika's hop key is not QKD-only, because the pinned arnika
 PQC-HPKE key it agrees with its peer. In the multi-hop compose the relay holds
 both legs' hop keys, as a trusted node does, and it also terminates each leg's
 `wg1`, so it holds each leg's Rosenpass key too: unlike the paper's, this
-end-to-end layer ends at the trusted node. Until 2026-09-26 the post-quantum
+end-to-end layer ends at the trusted node. Before release 0.2.0 the post-quantum
 half was Rosenpass's key mixed into each hop's PSK, and a separate end-to-end
 layer existed only in the `/paper-flow` simulation. The paper's PQC tool is **QuantShake**
 ([github.com/aparcar/quantshake](https://github.com/aparcar/quantshake), MIT, by
@@ -163,18 +163,20 @@ they depend on.
 All six are Creative Commons Attribution. IACR ePrint has had no default licence
 since 2022, so each was checked on its own page rather than assumed.
 
-**What this changes, and what it does not.** Until 2026-09-26,
+**What this changes, and what it does not.** Before release 0.2.0,
 [`vici-ppk.md`](vici-ppk.md) recorded that arnika's PQC half, then Rosenpass's
 key, is not an approved KEM under **NIST SP 800-227**. That was a statement
-about SP 800-227, not about every authority: under BSI the same parameter set
-is recommended for long-term confidentiality. Both framings are correct about
-different standards and neither should be quoted as the other. Since
-2026-09-26 the Classic McEliece judgement applies to the `wg1` data tunnel
-only; arnika's PQC half is now an HPKE export over ML-KEM-1024 with P-384,
+about SP 800-227, not about every authority: BSI's TR-02102-1 recommends the
+same parameter set, in hybrid use only, and BSI's
+[note of 2026-09-29](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Notes_Classic_McEliece.pdf?__blob=publicationFile&v=2)
+advises against Classic McEliece in new developments pending a revision of
+TR-02102-1 expected in early 2027. Both framings are correct about different
+standards and neither should be quoted as the other. Since release 0.2.0 the
+Classic McEliece judgement applies to the `wg1` data tunnel only; arnika's PQC half is now an HPKE export over ML-KEM-1024 with P-384,
 and whether that counts as approved-KEM-derived is open, as the appendix of
 [`vici-ppk.md`](vici-ppk.md) sets out.
 
-**Do not read the McEliece endorsement as European support for QKD.** BSI is on
+**Do not read BSI's McEliece recommendation as European support for QKD.** BSI is on
 record against QKD protocols in the same document. A project that mixes QKD with
 PQC has to say which half each authority is endorsing.
 
@@ -207,12 +209,14 @@ losses and QBERs, this project's weak-coherent decoy-BB84 model gives
   section IV.A; the sentence is absent from v1). So the model's zero beside a
   measured 12.7 bit/s is not a model-versus-link gap: a campaign mean is the
   wrong input for either.
-- **Jena–Erfurt** (21 dB, 6.1 %) fails on two counts. It is past the
-  finite-key loss cut-off of about 19.7 dB that the shipped block size and
-  misalignment give, and 6.1 % is just past the model's roughly 6 % asymptotic
-  error threshold. The loss cut-off moves with block size; the error threshold
-  does not. The averaging caveat above does not apply here: this link's QBER
-  varied little (6.1 ± 0.8 %).
+- **Jena–Erfurt** (21 dB, 6.1 %) gives no key at the shipped block size: it is
+  past the finite-key loss cut-off of about 19.7 dB that the shipped block size
+  and misalignment give, and its QBER is far above what the model tolerates at
+  that block size. With a large enough block the question stays open: 6.1 %, as
+  printed, stands for 6.05 to 6.15 %, which is level with the model's
+  large-block tolerance at this loss (6.06 %), so the model does not settle it,
+  and `/physics` says so. The averaging caveat above does not apply here: this
+  link's QBER varied little (6.1 ± 0.8 %).
 
 Both are set against 12.7 and 22.2 bit/s measured by an entanglement-based
 BBM92 system the model does not describe. The two campaigns ran separately, for

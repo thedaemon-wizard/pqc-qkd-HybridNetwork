@@ -244,9 +244,23 @@ longer takes Rosenpass's output. What is being re-estimated is the stated
 McEliece is chosen because of its high security margin and its small
 ciphertexts."* The margin is the thing under scrutiny.
 
-**Two dates belong together.** BSI TR-02102-1 recommends mceliece460896
-([`references.md`](references.md)) and its current version is dated 2026-01-23 —
-seven months before this line began. It has not been revisited since.
+**BSI has since responded.** BSI TR-02102-1 recommends mceliece460896
+([`references.md`](references.md)); its current version is dated 2026-01-23,
+seven months before this line began. On 2026-09-29 BSI published
+[*Notes on recent developments concerning Classic McEliece*](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Notes_Classic_McEliece.pdf?__blob=publicationFile&v=2),
+an initial assessment of this line of work. It advises that Classic McEliece
+*"should currently no longer be used in new developments"*, names FrodoKEM,
+ML-KEM and, once standardised, HQC for key agreement instead, and records that
+TR-02102-1 recommends Classic McEliece only in hybrid use with a classical
+scheme, so that such a combination still gives at least the classical scheme's
+security. It finds no practical attack on the recommended parameter sets so
+far, and expects to revise the recommendation in the next TR-02102-1, in early
+2027. Here Rosenpass's key goes into WireGuard's preshared-key slot on `wg1`, so
+`wg1`'s key agreement still includes WireGuard's X25519 handshake, and `wg1`
+runs inside `wg0`, whose preshared key comes from arnika's QKD ‖ PQC-HPKE
+combiner: no data path here rests on Classic McEliece alone. Replacing
+Rosenpass's KEM is the Rosenpass project's decision; this repository pins
+v0.2.3 and records the advice.
 
 **The team's silence is informative because responding is their habit.**
 `classic.mceliece.org/nist.html` (page version 2026.06.23) carries dated
@@ -406,8 +420,9 @@ do: the IPsec lane's ECP-256 + ML-KEM-768 exchange, and the MLKEM1024-P384 KEM
 inside arnika's PQC-HPKE half, which pairs ML-KEM-1024 with P-384 ECDH.
 
 **How to hold these together.** No authority surveyed endorses the whole
-construction. BSI recommends the McEliece parameter set this ships and does not
-recommend QKD ([`references.md`](references.md)); OMB is wary of both hybrid
+construction. BSI recommends the McEliece parameter set this ships only in hybrid
+use and, since 2026-09-29, not for new developments, and does not recommend QKD
+([`references.md`](references.md)); OMB is wary of both hybrid
 complexity and symmetric-key protocols, and the DoW memo phases PSK-based
 quantum resistance out across its Components; ANSSI accepts a PPK only as a
 temporary measure and prefers hybridisation; the EU treats QKD as not viable;

@@ -188,7 +188,7 @@ diff -- but it shifts these line numbers, so they hold at `f4cf9ba` only.
 | `kms.Repository.GetNewKey()` | `submodules/arnika/repositories/kms/kms.go:94-96` | Defines `enc_keys?number=1&size=256` URL |
 | `kms.Repository.GetKeyByID()` | `submodules/arnika/repositories/kms/kms.go:98-104` | Defines `dec_keys?key_ID=...` URL (`:102`) |
 | `type kmsKey struct` | `submodules/arnika/repositories/kms/kms.go:43-46` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract visualised in the Sankey/Manim; byte-identical to the previous pin `3a8cc13` |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract shown in the `/keyflow` Sankey (the Manim scene in `animations/` is not rendered or shipped); byte-identical to the previous pin `3a8cc13` |
 | `pqcSuite()` | `submodules/arnika/repositories/pqchpke/pqchpke.go:222-224` | The PQC half: MLKEM1024-P384, HKDF-SHA384, export-only |
 | `keyWriterRepository` | `submodules/arnika/services/keywriter.go:23-25` | The one-method port (`SetPSK(psk []byte) error`) the VICI adapter implements |
 | `RunKeyIDWorker()` | `submodules/arnika/transport/server.go:361-377` | The BACKUP installs its key before it ACKs; the PRIMARY writes after the ACK (`main.go:369-394`) |

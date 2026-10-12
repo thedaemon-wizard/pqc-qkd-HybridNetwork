@@ -445,7 +445,7 @@ with a documentation pass.
 - **rosenpass (MIT / Apache-2.0 dual)** is a pinned submodule (**v0.2.3**) built
   from source into the `nodes/alice` image; it performs the real post-quantum
   key exchange whose output key becomes the preshared key of the `wg1` data
-  tunnel (until 2026-09-26 it was HKDF-combined with the QKD key by arnika). Both
+  tunnel (before release 0.2.0 it was HKDF-combined with the QKD key by arnika). Both
   licenses are permissive and fully compatible with the Apache-2.0 baseline, as
   are `oqs-sys` and the liboqs 0.8.0 it links statically (see the notes above
   for the component terms).
