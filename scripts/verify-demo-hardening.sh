@@ -10,9 +10,10 @@
 # Container control, which started and stopped containers through a mounted
 # docker.sock, was a privilege-escalation path on a reachable host; this build
 # has none, and the socket is held by stack-status, which no request from
-# outside can reach. ENABLE_LIVE_PARAM_OVERRIDES opens shared state to every
-# visitor. A test inside the image cannot see how the running instance was
-# launched, or which build it runs; only an HTTP request from outside can.
+# outside can reach. ENABLE_LIVE_PARAM_OVERRIDES and ENABLE_SHARED_EXPORT_DELETE
+# open shared state to every visitor. A test inside the image cannot see how
+# the running instance was launched, or which build it runs; only an HTTP
+# request from outside can.
 #
 # Usage:
 #   sh scripts/verify-demo-hardening.sh https://<host>
@@ -190,6 +191,51 @@ say "GET /api/logs/caddy" "HTTP $code"
     echo "::error::expected 404 for a container outside the log allow-list, got $code"
     fail=1
 }
+
+# ---- 9) deleting from the shared export gallery must be OFF ---------------
+# DELETE /api/exports/{filename} removes a file from a gallery every visitor
+# shares, so it is opt-in (ENABLE_SHARED_EXPORT_DELETE) and must be off here.
+# A host on a build from before the switch reports no such field and fails.
+case "$cfg" in
+    *'"shared_export_delete":false'*) say "shared export deletion disabled" "ok" ;;
+    *'"shared_export_delete":true'*)
+        echo "::error::shared_export_delete is TRUE on $BASE -- any visitor can"
+        echo "         delete every saved export, anyone's. Unset"
+        echo "         ENABLE_SHARED_EXPORT_DELETE."
+        fail=1 ;;
+    *)
+        echo "::error::could not read shared_export_delete from /api/config"
+        fail=1 ;;
+esac
+
+# ---- 10) ... and the route itself must refuse ----------------------------
+# Same belt and braces as checks 3 and 7. The probe names a file that does not
+# exist, so a WRONGLY enabled host answers 404 instead of deleting anything,
+# and only the refusal body passes. A DELETE spends a token of the rate limit,
+# like every mutating request.
+del_body=$(mktemp)
+code=$(curl -s -o "$del_body" -w '%{http_code}' --max-time 20 \
+       -X DELETE "$BASE/api/exports/hardening-probe-does-not-exist.txt" \
+       2>/dev/null || echo 000)
+body=$(cat "$del_body")
+rm -f "$del_body"
+say "DELETE /api/exports/<absent>" "HTTP $code"
+case "$code" in
+    403)
+        case "$body" in
+            *'deleting saved exports is disabled'*) say "export deletion refused" "ok" ;;
+            *) echo "::error::403 from DELETE /api/exports, but not the deletion refusal."
+               echo "         body: $body"
+               fail=1 ;;
+        esac ;;
+    404)
+        echo "::error::404 from DELETE /api/exports/<absent>: deletion is ENABLED"
+        echo "         on $BASE and only the file was absent."
+        fail=1 ;;
+    *) echo "::error::DELETE /api/exports/<absent> answered $code, expected the 403 refusal"
+       echo "         body: $body"
+       fail=1 ;;
+esac
 
 [ "$fail" -eq 0 ] && echo "ok: $BASE is hardened"
 exit "$fail"

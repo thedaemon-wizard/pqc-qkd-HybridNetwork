@@ -20,6 +20,8 @@ Endpoints:
     POST /api/sim/backend, /api/sim/params, /api/sim/params/reset
                              : live KME overrides; 403 unless
                                ENABLE_LIVE_PARAM_OVERRIDES is set
+    DELETE /api/exports/{filename}
+                             : 403 unless ENABLE_SHARED_EXPORT_DELETE is set
     GET  /api/topology       : graph nodes/edges for D3
 
     This module holds no Docker socket and imports no Docker SDK. What it
@@ -205,6 +207,37 @@ def _require_live_param_overrides() -> None:
         raise HTTPException(403, LIVE_PARAM_OVERRIDES_DISABLED_DETAIL)
 
 
+# Deleting from the shared export gallery is OPT-IN, in the same shape.
+#
+# The gallery is one directory for every visitor: what one visitor saves, all
+# can list and download. `DELETE /api/exports/{filename}` let any of them
+# delete any file in it -- someone else's export included -- with nothing but
+# the rate limiter between an anonymous loop and an empty gallery. Off (the
+# default), the route answers 403 with SHARED_EXPORT_DELETE_DISABLED_DETAIL
+# before the file name is even read, /api/config reports the flag as
+# `shared_export_delete`, and the picker offers no Delete button and says why.
+# The store needs no deletes to stay bounded: _gc_export_dir evicts the oldest
+# files past EXPORT_MAX_FILES and EXPORT_MAX_TOTAL_BYTES. Set it on a
+# single-user host to delete from the page.
+SHARED_EXPORT_DELETE_ENABLED = _truthy(os.environ.get("ENABLE_SHARED_EXPORT_DELETE"))
+SHARED_EXPORT_DELETE_DISABLED_DETAIL = (
+    "deleting saved exports is disabled on this host "
+    "(ENABLE_SHARED_EXPORT_DELETE=false); the gallery is shared by every "
+    "visitor and drops its oldest files by itself"
+)
+
+
+def _require_shared_export_delete() -> None:
+    """403 unless this host opted in to letting a visitor delete saved exports.
+
+    A dependency, like _require_live_param_overrides, so the refusal comes
+    before the handler body: no file name is sanitised, no path is built and
+    nothing on disk is touched. Reads the module global at call time.
+    """
+    if not SHARED_EXPORT_DELETE_ENABLED:
+        raise HTTPException(403, SHARED_EXPORT_DELETE_DISABLED_DETAIL)
+
+
 @app.middleware("http")
 async def demo_rate_limit(request, call_next):
     """Per-IP token-bucket on POST, PUT, PATCH and DELETE requests. ALWAYS ON.
@@ -280,6 +313,9 @@ async def config() -> dict[str, Any]:
         # Whether POST /api/sim/{backend,params,params/reset} reach the shared
         # KMEs. False means /physics edits change only the in-browser model.
         "live_param_overrides": LIVE_PARAM_OVERRIDES_ENABLED,
+        # Whether DELETE /api/exports/{filename} deletes. False means the
+        # saved-exports picker offers no Delete button and says why.
+        "shared_export_delete": SHARED_EXPORT_DELETE_ENABLED,
         # The rotation interval arnika was started with, as configured
         # (ARNIKA_INTERVAL, e.g. "30s"). The Overview used to print "30 s" as a
         # literal; this is the value compose actually passed. None when unset,
@@ -561,8 +597,10 @@ def download_log(service: str, lines: int = Query(1000, ge=1, le=LOGS_MAX_TAIL))
 # them for download via a stable URL. Lets users save/share simulation outputs
 # beyond a single browser session.
 #
-# The store is public: anyone who can reach the host can list, download and
-# delete what is in it. So its bounds are set HERE, whatever DEMO_MODE says.
+# The store is public: anyone who can reach the host can list and download what
+# is in it, and delete from it where ENABLE_SHARED_EXPORT_DELETE is set (see
+# SHARED_EXPORT_DELETE_ENABLED). So its bounds are set HERE, whatever DEMO_MODE
+# says.
 # They used to be tightened only by deploy/docker-compose.demo.yml, and the
 # public host does not run that overlay, so it ran on the looser defaults
 # (50 MiB x 200 files, roughly 10 GB of disk reachable by anonymous POSTs).
@@ -713,8 +751,14 @@ async def export_download(filename: str):
     return FileResponse(p, media_type=media_type, filename=safe)
 
 
-@app.delete("/api/exports/{filename}")
+@app.delete("/api/exports/{filename}", dependencies=[Depends(_require_shared_export_delete)])
 async def export_delete(filename: str):
+    """Delete one saved export. Opt-in; see SHARED_EXPORT_DELETE_ENABLED.
+
+    With the flag off the dependency answers 403 before this body runs, so
+    the sanitiser and the path below are reached only on a host that allows
+    deleting.
+    """
     import re
     from pathlib import Path
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]

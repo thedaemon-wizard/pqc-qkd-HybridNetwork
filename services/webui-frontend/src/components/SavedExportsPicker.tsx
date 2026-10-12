@@ -3,12 +3,30 @@
  *
  * Pops a dropdown that lists every artefact stored in /var/lib/pqcqkd-exports
  * (PNG / JSON / CSV / GIF / WebM / log). Each entry has a Download link that points
- * at the stable backend URL plus a Delete button.
+ * at the stable backend URL, and a Delete button only where the backend allows
+ * deleting.
  *
- * The list refreshes on open and after any delete.
+ * The gallery is one directory for every visitor of the host, so a Delete here
+ * would remove anyone's file. The backend refuses it unless
+ * ENABLE_SHARED_EXPORT_DELETE is set, and reports which in /api/config as
+ * `shared_export_delete`. When it is not allowed, no row offers Delete and the
+ * list says why, in the backend's own words (DELETE_DISABLED_REASON).
+ *
+ * The list refreshes on open and after any delete, and a delete the backend
+ * refused says so rather than leaving the file listed with no explanation.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { deleteExport } from "../api";
+import { useSharedExportDelete } from "../lib/useConfig";
 import Button from "./Button";
+
+/**
+ * Why no row offers Delete: the detail of the backend's 403 for
+ * DELETE /api/exports/{filename}, word for word, so the page and the API say
+ * the same thing (tests/test_shared_export_delete_is_opt_in.py compares them).
+ */
+export const DELETE_DISABLED_REASON =
+  "deleting saved exports is disabled on this host (ENABLE_SHARED_EXPORT_DELETE=false); the gallery is shared by every visitor and drops its oldest files by itself";
 
 /**
  * The open list's width bounds when the viewport has room for them: wide
@@ -84,6 +102,8 @@ export default function SavedExportsPicker() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Entry[] | null>(null);
   const [err, setErr] = useState<string>("");
+  // False until the backend says otherwise (useConfig fails closed).
+  const canDelete = useSharedExportDelete();
   const boxRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -142,11 +162,16 @@ export default function SavedExportsPicker() {
   }, [open, items, err]);
 
   async function remove(name: string) {
+    // Offered only while the backend allows deleting, but the answer is read,
+    // not assumed: the host can change its mind, and another visitor can
+    // delete the file first. A failure refreshes the list and then says why.
     try {
-      await fetch(`/api/exports/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await deleteExport(name);
       await refresh();
     } catch (e) {
-      setErr(String(e));
+      const why = e instanceof Error ? e.message : String(e);
+      await refresh();
+      setErr(`Not deleted: ${why}`);
     }
   }
 
@@ -178,6 +203,12 @@ export default function SavedExportsPicker() {
             </span>
             <Button variant="ghost" size="sm" onClick={refresh}>Refresh</Button>
           </div>
+          {/* Text, not a tooltip: a tooltip is invisible on touch screens. */}
+          {!canDelete && (
+            <div style={{ fontSize: 11, color: "#6b7796", marginBottom: 6, lineHeight: 1.4 }}>
+              Delete is not offered here: {DELETE_DISABLED_REASON}.
+            </div>
+          )}
           {err && <div style={{ fontSize: 11, color: "#e25555" }}>{err}</div>}
           {items === null && (
             <div style={{ fontSize: 11, color: "#6b7796" }}>loading…</div>
@@ -208,8 +239,10 @@ export default function SavedExportsPicker() {
                  title="Download from backend">
                 Download
               </a>
-              <Button variant="ghost" size="sm" title="Delete from backend"
-                      onClick={() => remove(it.name)}>Delete</Button>
+              {canDelete && (
+                <Button variant="ghost" size="sm" title="Delete from backend"
+                        onClick={() => remove(it.name)}>Delete</Button>
+              )}
             </div>
           ))}
         </div>

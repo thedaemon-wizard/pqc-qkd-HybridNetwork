@@ -95,6 +95,7 @@ attempting the call it guards.
 | Variable | Default | Effect | Reported in `/api/config` as |
 |---|---|---|---|
 | `ENABLE_LIVE_PARAM_OVERRIDES` | off | When off, `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` answer **403**. `GET` routes are unaffected. | `live_param_overrides` |
+| `ENABLE_SHARED_EXPORT_DELETE` | off | When off, `DELETE /api/exports/{filename}` answers **403** before it reads the name, and the saved-exports picker offers no Delete button and says why. Listing, downloading and saving are unaffected, and the store still drops its oldest files by itself. | `shared_export_delete` |
 | `DEMO_MODE` | off | Removes nothing any more: it vetoed container control, which no build has now (below). `deploy/docker-compose.demo.yml` sets it beside a sim-only profile that runs no privileged node and no `stack-status`, so no container of that profile holds the Docker socket. It does not switch the rate limit. | `demo_mode` |
 | `DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S` | 120 per 60 s | A token bucket on every mutating request (POST, PUT, PATCH, DELETE), **always on** whatever `DEMO_MODE` says; an empty bucket answers **429**. | `rate_limit` |
 | `EXPORT_MAX_FILES` / `EXPORT_MAX_BYTES` / `EXPORT_MAX_TOTAL_BYTES` | 100 files / 25 MiB each / 512 MiB in total | Bounds the saved-exports store, oldest file removed first; a single file over the per-file limit, or over the total if that is smaller, answers **413**. | -- |
@@ -110,6 +111,11 @@ single-user or local stack.
 rate and the μ/ν optimiser in the browser, so Apply and Reset change only the
 in-browser model, and the page says so plainly. The backend-switch buttons
 are disabled with the same explanation. Nothing on the KMEs changes.
+
+**Why deleting saved exports is off by default.** The gallery is one directory
+for every visitor of a host. With deletes allowed, any visitor could empty it,
+other visitors' exports included, and the rate limiter would only slow that
+down. Turn it on for a single-user or local stack.
 
 **Container control is not a switch.** `ENABLE_CONTAINER_CONTROL` used to
 enable `POST /api/stack/{action}/{name}` through the Docker socket the backend

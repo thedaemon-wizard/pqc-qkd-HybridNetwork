@@ -15,6 +15,7 @@ const RESTRICTIVE: RuntimeConfig = {
   demo_mode: true,
   container_control: false,
   live_param_overrides: false,
+  shared_export_delete: false,
   rate_limit: null,
   arnika_interval: null,
 };
@@ -56,4 +57,17 @@ export function useContainerControl(): boolean {
  */
 export function useLiveParamOverrides(): boolean {
   return useRuntimeConfig().live_param_overrides === true;
+}
+
+/**
+ * Whether the backend will delete a file from the shared saved-exports
+ * gallery (ENABLE_SHARED_EXPORT_DELETE, off by default).
+ *
+ * `=== true`, like the two above. A backend that predates the field omits it,
+ * and that backend's route does delete; an absent flag still reads as "not
+ * allowed", because the page cannot tell an old backend from an unreachable
+ * one, and a missing button costs less than one that deletes everyone's files.
+ */
+export function useSharedExportDelete(): boolean {
+  return useRuntimeConfig().shared_export_delete === true;
 }

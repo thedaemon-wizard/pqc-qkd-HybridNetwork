@@ -125,9 +125,10 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
 
 What the backend then allows is set by the switches in section 7, not by
 `DEMO_MODE`: the per-IP rate limit on mutating requests (`POST`, `PUT`,
-`PATCH`, `DELETE`) is always on, container control exists in no profile, and
+`PATCH`, `DELETE`) is always on, container control exists in no profile,
 live parameter overrides are off unless `ENABLE_LIVE_PARAM_OVERRIDES` is set,
-which the demo overlay does not do. With no `stack-status`, the overlay also
+and deleting saved exports is off unless `ENABLE_SHARED_EXPORT_DELETE` is
+set; the demo overlay sets neither. With no `stack-status`, the overlay also
 sets `STACK_STATUS_URL` empty, so the container-status, log and VPN routes say
 their data is not available on this deployment. Which pages need the backend
 at all, and which degrade to bundled defaults without it, is tabulated once,
@@ -188,6 +189,7 @@ it. Every variable in this table is referenced by a compose file.
 | `WEBUI_BACKEND_PORT` | `8000` | Backend port (host) | docker-compose |
 | `WEBUI_FRONTEND_PORT` | `5173` | Frontend nginx port (host) | docker-compose |
 | `ENABLE_LIVE_PARAM_OVERRIDES` | `false` | Lets `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` change the running simulator. Off, they return 403 and `/physics` applies edits to the in-browser model only; `GET /api/config` reports it as `live_param_overrides` | `services/webui-backend/app/main.py`, forwarded by `docker-compose.yml` |
+| `ENABLE_SHARED_EXPORT_DELETE` | `false` | Lets `DELETE /api/exports/{filename}` delete a file from the saved-exports gallery, which every visitor of the host shares. Off, the route returns 403 before it reads the name, and the picker offers no Delete button and says why; the store still drops its oldest files by itself. `GET /api/config` reports it as `shared_export_delete` | `services/webui-backend/app/main.py`, forwarded by `docker-compose.yml` |
 
 **Numeric BB84 tunables are not environment variables.** They come from
 `config/qkd_params.yaml`, which `services/bb84-kme/app/config_loader.py`
@@ -202,8 +204,9 @@ naming a Python file as its source of truth; no Python file read any of them.
 `services/webui-backend/app/main.py` reads the variables below from its own
 environment, but `docker-compose.yml` sets only `KME_A_URL`, `KME_B_URL`,
 `PQC_VALIDATOR_URL`, `LOG_LEVEL`, `ARNIKA_INTERVAL`,
-`ENABLE_LIVE_PARAM_OVERRIDES` and `STACK_STATUS_URL` on `webui-backend`. Of
-these, only `ARNIKA_INTERVAL` and `ENABLE_LIVE_PARAM_OVERRIDES` come from
+`ENABLE_LIVE_PARAM_OVERRIDES`, `ENABLE_SHARED_EXPORT_DELETE` and
+`STACK_STATUS_URL` on `webui-backend`. Of these, only `ARNIKA_INTERVAL`,
+`ENABLE_LIVE_PARAM_OVERRIDES` and `ENABLE_SHARED_EXPORT_DELETE` come from
 `.env`; the rest are fixed service URLs and `LOG_LEVEL=INFO`. **Setting any of
 the variables below in `.env` has no effect.** Set them in the `environment:`
 block of `webui-backend` in a compose override, as the two overlays in
@@ -237,9 +240,9 @@ mounted; the backend now mounts none, `stack-status` offers no control, and
 `POST /api/stack/{action}/{name}` answers 403 whatever the environment says.
 A backend started with the variable set logs that it has no effect.
 
-The two boolean switches (`ENABLE_LIVE_PARAM_OVERRIDES`, `DEMO_MODE`) accept
-`1`, `true`, `yes` or `on` (any case) as on; anything else, including unset,
-is off.
+The three boolean switches (`ENABLE_LIVE_PARAM_OVERRIDES`,
+`ENABLE_SHARED_EXPORT_DELETE`, `DEMO_MODE`) accept `1`, `true`, `yes` or `on`
+(any case) as on; anything else, including unset, is off.
 
 `stack-status` reads one variable, `LOG_LEVEL` (`INFO` in
 `docker-compose.yml`). Its port (8081), its Docker timeout and its bounds are

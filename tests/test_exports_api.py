@@ -181,6 +181,17 @@ class TestCapacity:
         assert r.json() == {"exports": []}
 
 
+@pytest.fixture
+def delete_enabled(monkeypatch):
+    """A host that opted in to deleting from the gallery (ENABLE_SHARED_EXPORT_DELETE).
+
+    Off by default, and off on the public host; what the route does then is in
+    tests/test_shared_export_delete_is_opt_in.py. These tests are about what a
+    delete does where one is allowed.
+    """
+    monkeypatch.setattr(main, "SHARED_EXPORT_DELETE_ENABLED", True)
+
+
 class TestDownloadAndDelete:
     @pytest.mark.parametrize("hostile", ["../main.py", "..%2Fmain.py", "a/b"])
     def test_download_refuses_to_leave_the_store(self, client, hostile):
@@ -196,17 +207,17 @@ class TestDownloadAndDelete:
     def test_download_of_a_missing_file_is_404(self, client):
         assert client.get("/api/exports/download/20260101-000000-nope.png").status_code == 404
 
-    def test_delete_removes_the_file(self, client, tmp_path):
+    def test_delete_removes_the_file(self, client, tmp_path, delete_enabled):
         name = _save(client).json()["filename"]
         assert client.delete(f"/api/exports/{name}").status_code == 200
         assert list(tmp_path.iterdir()) == []
 
     @pytest.mark.parametrize("hostile", ["../main.py", "..%2Fmain.py"])
-    def test_delete_refuses_to_leave_the_store(self, client, hostile):
+    def test_delete_refuses_to_leave_the_store(self, client, hostile, delete_enabled):
         r = client.delete(f"/api/exports/{hostile}")
         assert r.status_code in (400, 404)
 
-    def test_deleting_something_absent_is_404_not_a_success(self, client):
+    def test_deleting_something_absent_is_404_not_a_success(self, client, delete_enabled):
         # It answered {"ok": true} whether or not anything was removed, so a
         # delete that removed nothing read as a deletion. Still not a 500: the
         # picker deletes optimistically, and "not found" is the honest answer

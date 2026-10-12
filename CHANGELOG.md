@@ -24,6 +24,8 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   which its image copies in, so the two services read one file. It runs with
   a read-only root filesystem, every capability dropped and no privilege
   gain. The sim-only demo overlay does not start it.
+- `ENABLE_SHARED_EXPORT_DELETE` (default `false`), reported by `/api/config`
+  as `shared_export_delete`.
 
 ### Changed
 
@@ -35,6 +37,12 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   `unknown` with an `error`, a 503, or a per-node `error`. In that case
   `/api/vpn/protocols` answers 503 instead of reporting both lanes `absent`,
   which said "looked, and not there" when nobody had looked.
+- `DELETE /api/exports/{filename}` answers 403 unless
+  `ENABLE_SHARED_EXPORT_DELETE` is set: the gallery is shared by every
+  visitor, so any visitor could delete anyone's export. The saved-exports
+  picker then offers no Delete button and says why, and a delete the backend
+  refused or failed is shown instead of leaving the file listed with no
+  explanation.
 - `/` says why a row reads `unknown`.
 
 ### Removed

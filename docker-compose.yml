@@ -323,6 +323,13 @@ services:
       # model it already computes key rates from. Set true on a single-user
       # local stack to drive the live KMEs from the page.
       ENABLE_LIVE_PARAM_OVERRIDES: ${ENABLE_LIVE_PARAM_OVERRIDES:-false}
+      # Deleting from the saved-exports gallery is OPT-IN too. The gallery is
+      # one directory for every visitor, so DELETE /api/exports/{filename}
+      # would let any visitor delete anyone's export. Off (the default), the
+      # route answers 403, /api/config reports `shared_export_delete: false`
+      # and the picker offers no Delete button; the store still drops its
+      # oldest files by itself. Set true on a single-user local stack.
+      ENABLE_SHARED_EXPORT_DELETE: ${ENABLE_SHARED_EXPORT_DELETE:-false}
       # Container status, logs, `wg show` and `swanctl` come from stack-status
       # (below), the only service that mounts the Docker socket. This backend
       # holds neither the socket nor the Docker SDK; with this unset, those
