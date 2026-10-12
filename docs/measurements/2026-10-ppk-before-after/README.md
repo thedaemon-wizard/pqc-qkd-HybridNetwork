@@ -40,19 +40,19 @@ and U were 0 in every window; intervals are 95 % Clopper-Pearson):
 
 | | A, alice PRIMARY | A, alice BACKUP | B (in-step), alice PRIMARY | B (in-step), alice BACKUP |
 |---|---|---|---|---|
-| Rotations $R$ | 10,035 | 10,120 | 7,241 | 7,354 |
-| Failures $F$ | 39 | 4 | 0 | 1,848 |
+| Rotations $`R`$ | 10,035 | 10,120 | 7,241 | 7,354 |
+| Failures $`F`$ | 39 | 4 | 0 | 1,848 |
 | C1 | 0 | 0 | 0 | 1,844 |
 | C3 | 31 | 0 | 0 | 4 |
 | C4 | 8 | 4 | 0 | 0 |
-| C3 / $R$ | 2.10e-3 to 4.38e-3 | 0 to 3.64e-4 | 0 to 5.09e-4 | 1.48e-4 to 1.39e-3 |
+| C3 / $`R`$ | 2.10e-3 to 4.38e-3 | 0 to 3.64e-4 | 0 to 5.09e-4 | 1.48e-4 to 1.39e-3 |
 
 **The comparison fixed before the runs** (exact conditional binomial test,
 [`compare_A_primary_vs_B_instep_C3.txt`](compare_A_primary_vs_B_instep_C3.txt)):
 C3 in 31 of 20,155 rotations in arm A against 4 of 14,595 in arm B, one-sided
-$p = 9.04 \times 10^{-5}$. By cell, alice-PRIMARY went from 31 to 0
-($p = 4.86 \times 10^{-8}$) and alice-BACKUP from 0 to 4 (two-sided
-$p = 0.031$); the cell tests and the sensitivity window
+$`p = 9.04 \times 10^{-5}`$. By cell, alice-PRIMARY went from 31 to 0
+($`p = 4.86 \times 10^{-8}`$) and alice-BACKUP from 0 to 4 (two-sided
+$`p = 0.031`$); the cell tests and the sensitivity window
 ([`compare_A_sensitivity_vs_B_C3.txt`](compare_A_sensitivity_vs_B_C3.txt),
 32 against 31 in arm A) were not fixed beforehand.
 
