@@ -1,0 +1,44 @@
+PPK rotation outcomes on the IPsec lane (alice initiates, bob responds)
+  arnika log format: alice pin-era, bob pin-era
+  window (docker timestamps, UTC): 2026-09-25T16:01:55.021258Z .. 2026-09-25T16:11:43.306096Z
+  process starts: alice 0, bob 0
+  invalidation writes (random PPK, not counted in R), by what failed closed:
+    alice: 0 = 0 'no key_id from the peer', 0 'the peer did not confirm the key_id', 0 other
+    bob: 0 = 0 'no key_id from the peer', 0 'the peer did not confirm the key_id', 0 other
+  key_ids: 20 distinct, 20 UUID-shaped, 0 other
+  classes, tried in this order, first match wins: C1 invalidation, C2 startup, C5 lag, C3 race, C4 divergence, U unclassified
+
+  cell                 R     F   C1   C2   C3   C4   C5    U   (F-C1)/R 95% CP             C3/R CP
+  alice PRIMARY       16     3    0    0    0    3    0    0   [4.05e-02, 4.56e-01]        [0.00e+00, 2.06e-01]
+  alice BACKUP         4     1    0    0    0    1    0    0   [6.31e-03, 8.06e-01]        [0.00e+00, 6.02e-01]
+  role unknown         0     0    0    0    0    0    0    0   n/a                         n/a
+  all                 20     4    0    0    0    4    0    0   [5.73e-02, 4.37e-01]        [0.00e+00, 1.68e-01]
+  read-gap candidates among C4: 0
+  bob: 4 MAC mismatched, 4 N(AUTH_FAILED), 20 key-driven rotations; alice: 16 'using PPK for PPK_ID'
+
+  interval boundaries, paired per wall-clock tick (docker timestamps):
+    alice 19 (16 PRIMARY, 3 BACKUP), bob 4 (4 PRIMARY, 0 BACKUP); interval 30.002 s; 3 tick(s) paired, unpaired alice 16, bob 1
+    offset bob - alice: size median 286.3 ms, p95 300.9 ms, max 300.9 ms; first +300.9 ms, last +286.3 ms, slope -138.4 ms/h; change per paired tick median 21.7 ms, max 29.0 ms; bob later in 3 of 3
+    offset over the window, 7 equal segment(s); 'early' counts the key_ids that reached the BACKUP before its boundary, of those where that could be told:
+      from 2026-09-25T16:03:36.777671Z       1 tick(s)  median    +300.9 ms  max size 300.9 ms  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:04:19.642799Z       0 tick(s)  median          n/a  max size n/a  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:05:02.507927Z       1 tick(s)  median    +271.9 ms  max size 271.9 ms  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:05:45.373055Z       0 tick(s)  median          n/a  max size n/a  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:06:28.238183Z       0 tick(s)  median          n/a  max size n/a  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:07:11.103311Z       0 tick(s)  median          n/a  max size n/a  early 0 of 0  no-key_id invalidations 0
+      from 2026-09-25T16:07:53.968439Z       1 tick(s)  median    +286.3 ms  max size 286.3 ms  early 0 of 0  no-key_id invalidations 0
+    'no key_id from the peer' invalidations: alice 0, bob 0; 0 of them in the paired ticks above
+    PRIMARY KMS fetch, request to 'serving this interval': alice median 3.4 ms, max 7.9 ms; bob median 4.0 ms, max 4.2 ms
+    interval-number mismatch: none in 3 paired tick(s)
+    same role on both ends: both PRIMARY 0, both BACKUP 0
+    key_ids received before the receiver's own boundary of the sender's tick: alice n/a (not slog), bob n/a (not slog)
+
+  failures:
+    2026-09-25T16:02:07.017666Z  generation 615     alice PRIMARY   C4 matched by key_id
+    2026-09-25T16:02:37.012658Z  generation 616     alice PRIMARY   C4 matched by key_id
+    2026-09-25T16:03:07.012179Z  generation 617     alice PRIMARY   C4 matched by key_id
+    2026-09-25T16:03:38.012090Z  generation 618     alice BACKUP    C4 matched by key_id
+  Note: alice: no process start in the window, so no startup (C2) window can be placed for it
+  Note: bob: no process start in the window, so no startup (C2) window can be placed for it
+  Note: alice: pin-era format; a BACKUP there logs its boundary only when no key_id reached it since its previous boundary, so the paired ticks are a biased sample of the offset
+  Note: bob: pin-era format; a BACKUP there logs its boundary only when no key_id reached it since its previous boundary, so the paired ticks are a biased sample of the offset

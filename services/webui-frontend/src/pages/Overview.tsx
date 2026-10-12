@@ -42,6 +42,11 @@ const STATUS_COLOR: Record<string, string> = {
  * The backend now sends `optional`, `profile` and `compose_file`; this only
  * decides how to show them. A row without those fields is unchanged. */
 function chip(s: StackItem): { label: string; color: string; title?: string } {
+  // Nobody could look, and the row says why; unknownReasons() also prints it
+  // under the table, because a tooltip is invisible on touch screens.
+  if (s.status === "unknown" && s.error) {
+    return { label: s.status, color: STATUS_COLOR.unknown, title: s.error };
+  }
   if (s.optional && s.status === "absent") {
     return {
       // "not deployed here", not "not started": whether a profile runs is a
@@ -62,6 +67,24 @@ function chip(s: StackItem): { label: string; color: string; title?: string } {
 }
 
 /**
+ * Why rows read `unknown`, once per reason, with the rows each applies to.
+ *
+ * `unknown` means nobody could look: Docker failed for that container, or the
+ * backend could not ask stack-status, the service that holds the Docker
+ * socket -- including on a deployment that runs none, where every row carries
+ * the same "not available on this deployment". A column of grey chips said
+ * nothing of which.
+ */
+export function unknownReasons(stack: StackItem[]): { names: string[]; why: string }[] {
+  const byReason = new Map<string, string[]>();
+  for (const s of stack) {
+    if (s.status !== "unknown" || !s.error) continue;
+    byReason.set(s.error, [...(byReason.get(s.error) ?? []), s.name]);
+  }
+  return [...byReason].map(([why, names]) => ({ names, why }));
+}
+
+/**
  * What a profile-gated service IS, for the visible note under the table. Only
  * services whose absence needs explaining are listed; the backend supplies the
  * compose file and profile, this adds the one sentence it cannot.
@@ -74,15 +97,17 @@ const OPTIONAL_ROLE: Record<string, string> = {
 
 export default function Overview() {
   const [stack, setStack] = useState<StackItem[]>([]);
-  // `useContainerControl`, not `useDemoMode`. Its own doc comment prescribes
-  // exactly this -- "Gate the UI on this rather than on !demo_mode: container
-  // control is opt-in server-side, so 'not a demo' no longer implies 'control
-  // is available'" -- and this page never adopted it.
+  // `useContainerControl`, not `useDemoMode`. Its own doc comment prescribed
+  // exactly this -- "Gate the UI on this rather than on !demo_mode" -- and
+  // this page never adopted it.
   //
   // The two predicates disagree in one configuration, and it is the one the
   // public demo runs: /api/config reports demo_mode false AND
   // container_control false, so `!demo` rendered a restart button for all ten
-  // containers while the endpoint refused every click with 403.
+  // containers while the endpoint refused every click with 403. Since the
+  // backend gave up the Docker socket it reports container_control false on
+  // every host, so the buttons appear nowhere; the gate stays, so that a
+  // backend which ever offers control again is what turns them on.
   const canControl = useContainerControl();
   const runtime = useRuntimeConfig();
   const narrow = useNarrowLayout();
@@ -197,6 +222,14 @@ export default function Overview() {
             </tbody>
           </table>
           </ScrollRegion>
+          {unknownReasons(stack).map(({ names, why }) => (
+            // The names only when the reason is not every row's, as it is on
+            // a deployment with no stack-status.
+            <p key={why} role="status" style={{ fontSize: 11, color: "#f5a623", margin: "8px 0 0",
+                                                lineHeight: 1.5, overflowWrap: "anywhere" }}>
+              Not observed{names.length === stack.length ? "" : ` (${names.join(", ")})`}: {why}.
+            </p>
+          ))}
           {/* The profile comes from the row; nothing here says which profiles
               a deploy script can start. It said "which this host's deploy
               script does not start" for every absent row, and that is false

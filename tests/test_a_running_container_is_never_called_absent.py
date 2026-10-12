@@ -35,6 +35,11 @@ Exception:`, so a Docker API error or a socket timeout -- "we could not look"
 -- was reported as "not there", and for qkdnetsim-kme annotated "not that
 anything failed". `docker.errors.NotFound` (Docker's 404) is now the only
 exception that yields `absent`; anything else yields `unknown` with the error.
+
+The lookup moved to stack-status with the Docker socket, and these guards
+moved with it: stack-status classifies (its `_stack_rows`), and webui-backend
+adds the profile gating to what it is told. The gating half is checked at the
+end, through both services.
 """
 from __future__ import annotations
 
@@ -43,23 +48,25 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import load_service_app
+from conftest import load_service_app, load_stack_status_main, stack_status_client
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = (ROOT / "services" / "webui-backend" / "app" / "main.py").read_text(encoding="utf-8")
+SRC = (ROOT / "services" / "stack-status" / "app" / "main.py").read_text(encoding="utf-8")
 
 
 def _stack_handler() -> str:
     """The code that looks containers up and classifies them.
 
-    That was the body of `async def stack(`. Since 2026-09-25 `stack` is a plain
-    `def` that serves a short-lived cache, and the lookup lives in
-    `_stack_uncached` -- so find that, not the decorator, or this guard would
-    silently stop reading the code it exists to read.
+    That was the body of `async def stack(` in webui-backend, then of its
+    `_stack_uncached` once `stack` became a plain `def` serving a cache
+    (2026-09-25). Since the socket left the backend it is stack-status's
+    `_stack_rows` -- so find that, or this guard would silently stop reading
+    the code it exists to read.
     """
-    i = SRC.index("def _stack_uncached(")
-    j = SRC.index("\n@app.", i)
-    return SRC[i:j]
+    i = SRC.index("def _stack_rows(")
+    m = re.search(r"\n(?:def |class )", SRC[i + 1:])
+    assert m, "nothing follows _stack_rows; the slice below would run to the end"
+    return SRC[i:i + 1 + m.start()]
 
 
 def test_the_lookup_and_the_image_read_are_separate_blocks():
@@ -115,6 +122,7 @@ def test_the_measurement_is_recorded_where_the_next_reader_will_be():
 
 # ---- behaviour, not only source text ------------------------------------------
 docker = pytest.importorskip("docker")
+_status = load_stack_status_main()
 load_service_app("webui-backend", "webui_backend_app")
 _main = importlib.import_module("webui_backend_app.main")
 
@@ -145,7 +153,9 @@ class _Docker:
 
 
 def _stack_with(monkeypatch, behaviour):
-    monkeypatch.setattr(_main.app.state, "docker", _Docker(behaviour), raising=False)
+    """The public /api/stack rows: stack-status's classification, the backend's gating."""
+    monkeypatch.setattr(_main.app.state, "stack_status",
+                        stack_status_client(_Docker(behaviour)), raising=False)
     return {row["name"]: row for row in _main._stack_uncached()}
 
 
@@ -153,6 +163,21 @@ def test_a_docker_404_is_absent(monkeypatch):
     rows = _stack_with(monkeypatch, lambda n: docker.errors.NotFound(f"no {n}"))
     assert rows["bb84-kme-a"]["status"] == "absent"
     assert rows["qkdnetsim-kme"]["status"] == "absent"
+
+
+def test_the_classification_is_stack_status_s(monkeypatch):
+    """stack-status says absent, unknown or the container's status; the backend
+    passes the word on and adds only the gating."""
+    def behaviour(n):
+        return {"alice": _Running(), "bob": docker.errors.NotFound("no bob")}.get(
+            n, docker.errors.APIError("500 Server Error"))
+    direct = {r["name"]: r for r in _status._stack_rows(_Docker(behaviour))}
+    public = _stack_with(monkeypatch, behaviour)
+    assert (direct["alice"]["status"], direct["bob"]["status"],
+            direct["bb84-kme-a"]["status"]) == ("running", "absent", "unknown")
+    for name, row in direct.items():
+        assert {k: public[name][k] for k in row} == row, name
+    assert public["alice"]["image"] == "pqcqkd/example:local"
 
 
 @pytest.mark.parametrize("error", [

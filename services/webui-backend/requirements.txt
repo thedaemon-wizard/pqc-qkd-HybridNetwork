@@ -7,7 +7,11 @@ starlette==1.7.0
 uvicorn[standard]==0.32.1
 httpx==0.28.1
 pydantic==2.10.4
-docker==7.1.0
+# docker (the Docker SDK) was pinned here at 7.1.0 and REMOVED when this
+# service stopped mounting /var/run/docker.sock. Everything it read through
+# the SDK now comes from stack-status over HTTP (httpx, above), and
+# services/stack-status/requirements.txt carries the pin instead. An SDK left
+# installed here would be the first half of putting the socket back.
 websockets==13.1
 # cryptography was pinned here at 44.0.0 and REMOVED 2026-08-28.
 #

@@ -1,0 +1,6 @@
+C4 per key-driven rotation, arm A vs arm B (exact conditional binomial test)
+  cell                    A: k/R          B: k/R   p one-sided (B lower)   p two-sided
+  alice PRIMARY        8/10035         0/10039                    0.0039        0.0039
+  alice BACKUP         4/10120         0/10120                    0.0625         0.125
+  role unknown         0/0             0/0                           n/a           n/a
+  all                 12/20155         0/20159                  0.000244      0.000244

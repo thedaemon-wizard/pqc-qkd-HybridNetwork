@@ -117,19 +117,22 @@ independent sim on their own device and a public multi-user demo puts ~no load
 on the server.
 
 ```bash
-# Sim-only public-demo profile (DEMO_MODE=1, no privileged WG nodes / docker.sock):
+# Sim-only public-demo profile (DEMO_MODE=1, no privileged WG nodes, and no
+# stack-status, so no container holds the Docker socket):
 docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
   up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
 ```
 
-What the backend then allows is set by the switches in section 7.1, not by
-`DEMO_MODE` alone: the per-IP rate limit on mutating requests (`POST`, `PUT`,
-`PATCH`, `DELETE`) is always on, container control is off (`DEMO_MODE` vetoes
-it even where `ENABLE_CONTAINER_CONTROL` is set), and live parameter overrides
-are off unless `ENABLE_LIVE_PARAM_OVERRIDES` is set, which the demo overlay
-does not do. Which pages need the backend at all, and which degrade to
-bundled defaults without it, is tabulated once, in
-[`deployment-economics.md`](deployment-economics.md).
+What the backend then allows is set by the switches in section 7, not by
+`DEMO_MODE`: the per-IP rate limit on mutating requests (`POST`, `PUT`,
+`PATCH`, `DELETE`) is always on, container control exists in no profile,
+live parameter overrides are off unless `ENABLE_LIVE_PARAM_OVERRIDES` is set,
+and deleting saved exports is off unless `ENABLE_SHARED_EXPORT_DELETE` is
+set; the demo overlay sets neither. With no `stack-status`, the overlay also
+sets `STACK_STATUS_URL` empty, so the container-status, log and VPN routes say
+their data is not available on this deployment. Which pages need the backend
+at all, and which degrade to bundled defaults without it, is tabulated once,
+in [`deployment-economics.md`](deployment-economics.md).
 
 ---
 
@@ -156,7 +159,8 @@ the animations and plots:
 python3.12 -m venv .venv
 .venv/bin/pip install ruff pytest pytest-asyncio httpx \
     -r services/bb84-kme/requirements.txt \
-    -r services/webui-backend/requirements.txt
+    -r services/webui-backend/requirements.txt \
+    -r services/stack-status/requirements.txt
 .venv/bin/pip install manim matplotlib     # optional: animations/, benchmarks/plot_results.py
 ```
 
@@ -185,6 +189,7 @@ it. Every variable in this table is referenced by a compose file.
 | `WEBUI_BACKEND_PORT` | `8000` | Backend port (host) | docker-compose |
 | `WEBUI_FRONTEND_PORT` | `5173` | Frontend nginx port (host) | docker-compose |
 | `ENABLE_LIVE_PARAM_OVERRIDES` | `false` | Lets `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` change the running simulator. Off, they return 403 and `/physics` applies edits to the in-browser model only; `GET /api/config` reports it as `live_param_overrides` | `services/webui-backend/app/main.py`, forwarded by `docker-compose.yml` |
+| `ENABLE_SHARED_EXPORT_DELETE` | `false` | Lets `DELETE /api/exports/{filename}` delete a file from the saved-exports gallery, which every visitor of the host shares. Off, the route returns 403 before it reads the name, and the picker offers no Delete button and says why; the store still drops its oldest files by itself. `GET /api/config` reports it as `shared_export_delete` | `services/webui-backend/app/main.py`, forwarded by `docker-compose.yml` |
 
 **Numeric BB84 tunables are not environment variables.** They come from
 `config/qkd_params.yaml`, which `services/bb84-kme/app/config_loader.py`
@@ -198,18 +203,20 @@ naming a Python file as its source of truth; no Python file read any of them.
 
 `services/webui-backend/app/main.py` reads the variables below from its own
 environment, but `docker-compose.yml` sets only `KME_A_URL`, `KME_B_URL`,
-`PQC_VALIDATOR_URL`, `LOG_LEVEL`, `ARNIKA_INTERVAL` and
-`ENABLE_LIVE_PARAM_OVERRIDES` on `webui-backend`. Of these, only
-`ARNIKA_INTERVAL` and `ENABLE_LIVE_PARAM_OVERRIDES` come from `.env`; the rest
-are fixed service URLs and `LOG_LEVEL=INFO`. **Setting any of the variables
-below in `.env` has no effect.** Set them in the `environment:` block of
-`webui-backend` in a compose override, as the two overlays in `deploy/` do
-(with fixed values, not `${VAR}` references).
+`PQC_VALIDATOR_URL`, `LOG_LEVEL`, `ARNIKA_INTERVAL`,
+`ENABLE_LIVE_PARAM_OVERRIDES`, `ENABLE_SHARED_EXPORT_DELETE` and
+`STACK_STATUS_URL` on `webui-backend`. Of these, only `ARNIKA_INTERVAL`,
+`ENABLE_LIVE_PARAM_OVERRIDES` and `ENABLE_SHARED_EXPORT_DELETE` come from
+`.env`; the rest are fixed service URLs and `LOG_LEVEL=INFO`. **Setting any of
+the variables below in `.env` has no effect.** Set them in the `environment:`
+block of `webui-backend` in a compose override, as the two overlays in
+`deploy/` do (with fixed values, not `${VAR}` references).
 
 | Variable | Default in code | Purpose | Set by |
 |---|---|---|---|
-| `ENABLE_CONTAINER_CONTROL` | off | Enables `/api/stack/*` container start/stop/restart through the mounted Docker socket. Opt-in, and vetoed by `DEMO_MODE` | no compose file; opting in takes an override |
-| `DEMO_MODE` | off | Removes capability for a shared public host: vetoes container control. The demo overlay also runs no privileged WireGuard nodes and mounts no Docker socket. It does not switch the rate limit on or off | `deploy/docker-compose.demo.yml` (`"1"`) |
+| `STACK_STATUS_URL` | unset | Where `stack-status`, the only service that mounts the Docker socket, answers. `/api/stack`, `/api/logs/{name}`, `/api/wg/{node}`, `/api/vpn/protocols` and `/api/vpn/ppk-rotations` get their data from it; unset or empty, they say it is not available on this deployment, and nothing falls back to a socket | `docker-compose.yml` (`http://stack-status:8081`); `deploy/docker-compose.demo.yml` empties it, because that profile starts no `stack-status` |
+| `STACK_STATUS_TIMEOUT_S` | `10.0` s | How long one request to `stack-status` may take. Above `stack-status`'s own per-call Docker timeout (8 s), so a hung daemon comes back as an `error` in the reply rather than as a timeout | no compose file |
+| `DEMO_MODE` | off | Reported in `/api/health` and `/api/config` as `demo_mode`. It used to veto container control, which no longer exists; the demo overlay sets it beside running no privileged WireGuard node and no `stack-status`. It does not switch the rate limit on or off | `deploy/docker-compose.demo.yml` (`"1"`) |
 | `DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S` | `120` / `60` s | Per-IP token bucket on every `POST`, `PUT`, `PATCH` and `DELETE`; over budget, 429. Always on, whatever `DEMO_MODE` says; the names are kept for compatibility | `deploy/docker-compose.demo.yml`, at the code defaults |
 | `EXPORT_MAX_BYTES` | 25 MiB | Largest single file `POST /api/exports/save` accepts (413 above it, or above `EXPORT_MAX_TOTAL_BYTES` if that is smaller) | both `deploy/` overlays, at the code default |
 | `EXPORT_MAX_FILES` | `100` | Files kept in the server-side export store; the oldest are deleted first | both `deploy/` overlays, at the code default |
@@ -222,10 +229,25 @@ defaults beside the line that reads them in `main.py`: `STACK_TTL_S`,
 `LOGS_TTL_S`, `LOGS_MAX_TAIL`, `KEYRATE_TTL_S`, `VPN_SAMPLE_TTL_S`,
 `VPN_ROTATION_TTL_S`, `VPN_ROTATION_WINDOW_MAX_S`, `WG_SHOW_TTL_S` (the
 per-node cache of `GET /api/wg/{node}`, 5 s by default) and `EXPORT_DIR`.
+`LOGS_MAX_TAIL` (2000 lines) and `VPN_ROTATION_WINDOW_MAX_S` (3600 s) can
+lower the backend's bound but not raise it: `stack-status` enforces the same
+two bounds, from `services/webui-backend/app/stack_contract.py`, and refuses
+anything above them.
+
+`ENABLE_CONTAINER_CONTROL` is no longer a switch. It enabled `/api/stack/*`
+container start, stop and restart through the Docker socket the backend
+mounted; the backend now mounts none, `stack-status` offers no control, and
+`POST /api/stack/{action}/{name}` answers 403 whatever the environment says.
+A backend started with the variable set logs that it has no effect.
 
 The three boolean switches (`ENABLE_LIVE_PARAM_OVERRIDES`,
-`ENABLE_CONTAINER_CONTROL`, `DEMO_MODE`) accept `1`, `true`, `yes` or `on`
+`ENABLE_SHARED_EXPORT_DELETE`, `DEMO_MODE`) accept `1`, `true`, `yes` or `on`
 (any case) as on; anything else, including unset, is off.
+
+`stack-status` reads one variable, `LOG_LEVEL` (`INFO` in
+`docker-compose.yml`). Its port (8081), its Docker timeout and its bounds are
+constants of the service and the contract, not configuration, so that the one
+container holding the socket has nothing a misconfiguration could widen.
 
 ### 7.2 arnika and the two WireGuard interfaces
 

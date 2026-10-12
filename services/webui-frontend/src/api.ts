@@ -13,6 +13,10 @@ export type StackItem = {
   compose_file?: string;
   /** Human-readable form of the three fields above, from the backend. */
   note?: string;
+  /** Why the row reads `unknown`: Docker failed for this container, or the
+   *  backend could not ask -- stack-status did not answer, or this deployment
+   *  runs none ("not available on this deployment"). */
+  error?: string;
 };
 export type Stats = Record<string, any>;
 export type Topo = { nodes: { id: string; label: string; type: string }[]; edges: { source: string; target: string; label: string }[] };
@@ -21,8 +25,9 @@ export type Topo = { nodes: { id: string; label: string; type: string }[]; edges
 export type RuntimeConfig = {
   demo_mode: boolean;
   /** Whether the backend will actually accept /api/stack/* container control.
-   *  Reported separately from demo_mode because control is opt-in server-side,
-   *  so "not a demo" does not imply "control is available". */
+   *  Reported separately from demo_mode, because "not a demo" never implied
+   *  "control is available". False from every current build: the backend
+   *  holds no Docker socket, so it has no control to offer. */
   container_control: boolean;
   /** Whether the backend accepts POST /api/sim/params, /api/sim/params/reset
    *  and /api/sim/backend (ENABLE_LIVE_PARAM_OVERRIDES, off by default). Those
@@ -30,6 +35,11 @@ export type RuntimeConfig = {
    *  visitor's edit would silently become every visitor's. When false, /physics
    *  keeps edits in this browser only. */
   live_param_overrides: boolean;
+  /** Whether DELETE /api/exports/{filename} deletes (ENABLE_SHARED_EXPORT_DELETE,
+   *  off by default). The saved-exports gallery is one directory for every
+   *  visitor, so on a shared host one visitor could delete everyone's files.
+   *  When false the picker offers no Delete button and says why. */
+  shared_export_delete: boolean;
   rate_limit: { max: number; window_s: number } | null;
   /** ARNIKA_INTERVAL as compose passed it (e.g. "30s"), or null if unset. */
   arnika_interval: string | null;
@@ -84,6 +94,24 @@ export async function postStack(action: "start"|"stop"|"restart", name: string) 
   const body = await r.json().catch(() => ({} as Record<string, unknown>));
   if (!r.ok) {
     throw new Error(String(body.detail ?? `${action} ${name} failed: HTTP ${r.status}`));
+  }
+  return body;
+}
+
+/**
+ * Delete one file from the saved-exports gallery.
+ *
+ * Throws on a non-2xx, with the server's `detail`, for the reason postStack
+ * does: SavedExportsPicker used to `await fetch(..., { method: "DELETE" })`
+ * and refresh, so a refused or failed delete -- a 403 from a host that does not
+ * allow it, a 404 for a file another visitor removed first -- looked exactly
+ * like one that worked, except that the file was still listed.
+ */
+export async function deleteExport(name: string) {
+  const r = await fetch(`${BASE}/api/exports/${encodeURIComponent(name)}`, { method: "DELETE" });
+  const body = await r.json().catch(() => ({} as Record<string, unknown>));
+  if (!r.ok) {
+    throw new Error(String(body.detail ?? `delete ${name} failed: HTTP ${r.status}`));
   }
   return body;
 }

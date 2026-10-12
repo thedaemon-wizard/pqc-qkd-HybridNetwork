@@ -15,7 +15,7 @@ class HKDFCombineScene(Scene):
         qkd = Rectangle(width=3.5, height=0.8, color=GREEN, fill_opacity=0.3).shift(UP * 1.5 + LEFT * 3.5)
         qkd_t = Text("QKD key (BB84)", font_size=20).move_to(qkd.get_center())
         pqc = Rectangle(width=3.5, height=0.8, color=PURPLE, fill_opacity=0.3).shift(UP * 1.5 + RIGHT * 3.5)
-        pqc_t = Text("PQC key (Rosenpass)", font_size=20).move_to(pqc.get_center())
+        pqc_t = Text("PQC key (PQC-HPKE)", font_size=20).move_to(pqc.get_center())
         self.play(Create(qkd), Write(qkd_t), Create(pqc), Write(pqc_t))
 
         # HKDF box

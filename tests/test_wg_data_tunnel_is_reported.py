@@ -59,11 +59,13 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import load_service_app
+from conftest import load_service_app, stack_status_client
 from fastapi.testclient import TestClient
 
 load_service_app("webui-backend", "webui_backend_app")
 _main = importlib.import_module("webui_backend_app.main")
+# The commands are the contract's: stack-status runs them, not this backend.
+_contract = _main.stack_contract
 
 # Placeholder keys, real shape: 43 base64 characters + '='.
 _PRIV = "PRIVpvtKEYplaceholder0000000000000000000000="
@@ -185,18 +187,20 @@ class _Docker:
 
 
 def _answers(wg1=(0, WG1)):
-    return {_main.WG_SHOW_CMD: (0, WG0), _main.WG_DATA_SHOW_CMD: wg1}
+    return {_contract.WG_SHOW_CMD: (0, WG0), _contract.WG_DATA_SHOW_CMD: wg1}
 
 
 def _get(path: str, fake: _Docker):
-    prev = getattr(_main.app.state, "docker", None)
+    """Through both services: stack-status's own handler reads the fake Docker."""
+    pytest.importorskip("docker")
+    prev = getattr(_main.app.state, "stack_status", None)
     try:
         with TestClient(_main.app) as client:
-            # TestClient's lifespan re-runs startup, which resets the client.
-            _main.app.state.docker = fake
+            # The lifespan has just set the client from STACK_STATUS_URL.
+            _main.app.state.stack_status = stack_status_client(fake)
             return client.get(path)
     finally:
-        _main.app.state.docker = prev
+        _main.app.state.stack_status = prev
 
 
 @pytest.fixture(autouse=True)
@@ -214,9 +218,9 @@ _SAMPLE_FIELDS = {"data_tunnel", "observed_at", "cache_ttl_s"}
 # ---- 1. /api/wg/{node} --------------------------------------------------
 def test_the_data_tunnel_command_is_the_non_dump_form():
     """The one-word difference that leaked wg0's keys applies to wg1 too."""
-    assert "dump" not in _main.WG_DATA_SHOW_CMD
-    assert _main.WG_DATA_SHOW_CMD.split() == ["wg", "show", "wg1"]
-    assert _main.WG_SHOW_CMD.split() == ["wg", "show", "wg0"]
+    assert "dump" not in _contract.WG_DATA_SHOW_CMD
+    assert _contract.WG_DATA_SHOW_CMD.split() == ["wg", "show", "wg1"]
+    assert _contract.WG_SHOW_CMD.split() == ["wg", "show", "wg0"]
 
 
 def test_the_psk_sources_are_the_ones_the_contract_names():
@@ -249,7 +253,7 @@ def test_the_route_reports_wg0_at_the_top_and_wg1_as_the_data_tunnel(node):
     # Same keys on both, so one renderer reads either.
     assert set(dt) == set(body) - _SAMPLE_FIELDS
     # Both commands ran, wg0 first, and nothing else was asked.
-    assert fake.seen == [_main.WG_SHOW_CMD, _main.WG_DATA_SHOW_CMD]
+    assert fake.seen == [_contract.WG_SHOW_CMD, _contract.WG_DATA_SHOW_CMD]
 
 
 def test_wg1_goes_through_the_redactor():
@@ -304,7 +308,7 @@ def test_a_second_request_inside_the_ttl_costs_no_exec():
     fake = _Docker(_answers())
     first = _get("/api/wg/alice", fake).json()
     second = _get("/api/wg/alice", fake).json()
-    assert fake.seen == [_main.WG_SHOW_CMD, _main.WG_DATA_SHOW_CMD], (
+    assert fake.seen == [_contract.WG_SHOW_CMD, _contract.WG_DATA_SHOW_CMD], (
         "the second request ran `wg show` again; the route is uncached")
     assert second == first
     # The answer says when it was taken and for how long it is reused.
@@ -330,21 +334,41 @@ def test_an_expired_entry_is_sampled_again():
 
 
 def test_a_404_is_cached_too():
-    """A node whose exec fails must not cost an exec on every request."""
-    fake = _Docker({_main.WG_SHOW_CMD: RuntimeError("container is not running"),
-                    _main.WG_DATA_SHOW_CMD: (0, WG1)})
+    """A node whose exec fails must not cost an exec on every request.
+
+    stack-status runs both of a sample's commands whatever the first one did,
+    because /api/vpn/protocols reads wg1 even when wg0 failed; so the first
+    request costs the two, and the second, inside the TTL, none.
+    """
+    fake = _Docker({_contract.WG_SHOW_CMD: RuntimeError("container is not running"),
+                    _contract.WG_DATA_SHOW_CMD: (0, WG1)})
     first = _get("/api/wg/alice", fake)
     second = _get("/api/wg/alice", fake)
     assert (first.status_code, second.status_code) == (404, 404)
     assert "container is not running" in second.json()["detail"]
-    assert fake.seen == [_main.WG_SHOW_CMD]
+    assert fake.seen == [_contract.WG_SHOW_CMD, _contract.WG_DATA_SHOW_CMD]
+
+
+def test_without_stack_status_the_route_is_503_and_says_why():
+    """Unset STACK_STATUS_URL: not a 404, which would read as "no such node"."""
+    prev = getattr(_main.app.state, "stack_status", None)
+    try:
+        with TestClient(_main.app) as client:
+            _main.app.state.stack_status = None
+            first = client.get("/api/wg/alice")
+            second = client.get("/api/wg/alice")
+    finally:
+        _main.app.state.stack_status = prev
+    assert (first.status_code, second.status_code) == (503, 503)
+    assert first.json()["detail"].startswith("WireGuard status is not available on this deployment")
+    assert second.json() == first.json(), "the cached refusal must say the same"
 
 
 def test_a_404_detail_is_bounded_cached_or_not():
     """ERROR_TEXT_MAX_CHARS applies to the public 404 and to what is cached."""
     long_text = "y" * (_main.ERROR_TEXT_MAX_CHARS * 3)
-    fake = _Docker({_main.WG_SHOW_CMD: RuntimeError(long_text),
-                    _main.WG_DATA_SHOW_CMD: (0, WG1)})
+    fake = _Docker({_contract.WG_SHOW_CMD: RuntimeError(long_text),
+                    _contract.WG_DATA_SHOW_CMD: (0, WG1)})
     first = _get("/api/wg/alice", fake)
     second = _get("/api/wg/alice", fake)
     bounded = long_text[:_main.ERROR_TEXT_MAX_CHARS]

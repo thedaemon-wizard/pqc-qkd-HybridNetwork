@@ -1,10 +1,12 @@
 # ===================================================================
 # PQC-QKD Hybrid PoC — Docker Compose
 #
-# 3 networks:
+# 4 networks:
 #   - qkd-net (internal):  KME <-> arnika                ETSI 014 traffic
 #   - wan-net:             WireGuard endpoints           Public Internet sim
 #   - mgmt-net:            WebUI <-> backend <-> logs    Management plane
+#   - status-net (internal): backend <-> stack-status    The one way to the
+#                                                        Docker socket
 #
 # The WireGuard lane runs two tunnels per node pair:
 #   wg0  hop tunnel keyed by arnika (HKDF-SHA3-256 over the QKD key and a
@@ -38,6 +40,16 @@ networks:
     ipam:
       config:
         - subnet: 10.40.0.0/24
+  # webui-backend and stack-status, and nothing else. stack-status holds the
+  # Docker socket, so the only container that can reach its API is the one
+  # that needs it; the KMEs, the frontend and the reverse proxy on mgmt-net
+  # cannot. Internal: no route off the host, and stack-status needs none.
+  status-net:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.50.0.0/24
 
 volumes:
   bb84-keypool-a:
@@ -299,7 +311,7 @@ services:
       # Reported by /api/config so the Overview states the configured rotation
       # interval instead of a literal. Same default as the arnika services.
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
-      # Live parameter overrides are OPT-IN, like container control.
+      # Live parameter overrides are OPT-IN.
       #
       # POST /api/sim/params, /api/sim/params/reset and /api/sim/backend change
       # process-global state on BOTH KMEs -- the simulator backend, Eve, the
@@ -311,8 +323,23 @@ services:
       # model it already computes key rates from. Set true on a single-user
       # local stack to drive the live KMEs from the page.
       ENABLE_LIVE_PARAM_OVERRIDES: ${ENABLE_LIVE_PARAM_OVERRIDES:-false}
+      # Deleting from the saved-exports gallery is OPT-IN too. The gallery is
+      # one directory for every visitor, so DELETE /api/exports/{filename}
+      # would let any visitor delete anyone's export. Off (the default), the
+      # route answers 403, /api/config reports `shared_export_delete: false`
+      # and the picker offers no Delete button; the store still drops its
+      # oldest files by itself. Set true on a single-user local stack.
+      ENABLE_SHARED_EXPORT_DELETE: ${ENABLE_SHARED_EXPORT_DELETE:-false}
+      # Container status, logs, `wg show` and `swanctl` come from stack-status
+      # (below), the only service that mounts the Docker socket. This backend
+      # holds neither the socket nor the Docker SDK; with this unset, those
+      # routes answer that the data is not available on this deployment.
+      STACK_STATUS_URL: http://stack-status:8081
+    # No /var/run/docker.sock: it moved to stack-status. The socket was mounted
+    # here read-only, which stops a container replacing the socket file and
+    # does not make the Docker API read-only, in the process that answers the
+    # internet.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - pqcqkd-logs:/var/log/pqcqkd
       - pqcqkd-exports:/var/lib/pqcqkd-exports
     ports:
@@ -320,6 +347,52 @@ services:
     networks:
       mgmt-net: {}
       qkd-net: {}
+      status-net: {}
+
+  # -------------------------------------------------------------
+  # stack-status: the only container that mounts the Docker socket
+  # -------------------------------------------------------------
+  # Serves webui-backend a fixed, GET-only API (services/stack-status/app/
+  # main.py): container status, bounded log tails and log windows of named
+  # containers, and the fixed `wg show` and `swanctl` commands in the lane
+  # nodes. No other method, path, name, parameter or command, and no
+  # container control. Built from the repository root because its allow-list
+  # is webui-backend's stack_contract.py, copied into its image.
+  #
+  # No `ports:`, and only on status-net, which only webui-backend also joins.
+  # Not started by the sim-only demo overlay, which runs no socket at all.
+  stack-status:
+    build:
+      context: .
+      dockerfile: services/stack-status/Dockerfile
+    image: pqcqkd/stack-status:local
+    container_name: stack-status
+    environment:
+      LOG_LEVEL: INFO
+    volumes:
+      # Read-only as a FILE: the container can neither replace nor remove the
+      # socket. That does NOT make the Docker API read-only -- a client that
+      # can connect can create containers -- which is why only this service,
+      # with nothing but a fixed GET API in front of it, may connect.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # It writes no file and needs no capability. It runs as root because the
+    # socket belongs to root on the host; with every capability dropped, that
+    # root can open the socket as its owner but cannot override file
+    # permissions or gain privileges through a setuid binary.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      status-net: {}
+    healthcheck:
+      # 200 only while the Docker daemon answers a ping. Standard-library
+      # Python, so the image needs no curl.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # -------------------------------------------------------------
   # WebUI Frontend (React + Vite, served by nginx)

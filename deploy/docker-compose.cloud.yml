@@ -13,7 +13,9 @@
 #     the docker network / Caddy, never directly from the internet.
 #   - WireGuard alice/bob traffic stays container-to-container on the
 #     internal networks; no WG UDP ports are published.
-#   - Adds restart policies for unattended operation.
+#   - Adds restart policies for unattended operation, stack-status's
+#     included. stack-status, the one container with the Docker socket,
+#     publishes no port in any file; webui-backend reaches it on status-net.
 #
 # The privileged WireGuard nodes (cap NET_ADMIN/SYS_MODULE, /dev/net/tun)
 # require a real kernel — fine on a KVM VPS, impossible on managed PaaS.
@@ -60,6 +62,10 @@ services:
       # tight cap costs nothing.
       EXPORT_MAX_FILES: "100"
       EXPORT_MAX_BYTES: "26214400"   # 25 MiB
+
+  # The only holder of the Docker socket; internal, no published port.
+  stack-status:
+    restart: unless-stopped
 
   bb84-kme-a:
     restart: unless-stopped

@@ -19,7 +19,11 @@ tests/test_backend_cross_qber.py, which the CI `python` job collects. Kept becau
 
 References:
 - Snoek, Larochelle, Adams "Practical Bayesian Optimization" NeurIPS 2012
-- arXiv:2412.20265 (2024) Bayesian Optimisation for QKD intensity selection
+- I. Almosallam, "Overcoming Intensity Limits for Long-Distance Quantum Key
+  Distribution", arXiv:2412.20265 (2024): Bayesian inference of the key
+  parameters under the generalized photon-number-splitting attack, which lets
+  higher pulse intensities be used. It is not Bayesian optimisation, and its
+  bound covers that attack class only.
 - Lim et al. PRA 89, 022307 (2014), arXiv:1311.7129, finite-key key length (Eqs. 1-5)
 """
 from __future__ import annotations

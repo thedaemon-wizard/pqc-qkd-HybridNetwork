@@ -2,24 +2,36 @@
 
 Endpoints:
     GET  /api/health
-    GET  /api/stack          : container status (alice/bob/bb84-kme-*)
+    GET  /api/stack          : container status of STACK_SERVICES, from stack-status
     GET  /api/stats          : aggregated KME + arnika stats
     GET  /api/logs/{name}    : last N log lines from one of LOG_CONTAINERS; any
-                               other name is 404 before Docker is asked
+                               other name is 404 before stack-status is asked
     GET  /api/wg/{node}      : redacted `wg show wg0` (the hop tunnel) for one of
                                WG_NODES, plus `data_tunnel`: the same for `wg1`
                                (the end-to-end data tunnel inside wg0), cached
                                per node for WG_SHOW_TTL_S. NOT `dump`: that form
                                emits the interface private key and the preshared
-                               key in plaintext. See WG_SHOW_CMD.
-    POST /api/stack/{action}/{name} : start|stop|restart a service
+                               key in plaintext. See stack_contract.WG_SHOW_CMD.
+    POST /api/stack/{action}/{name} : always 403. Container control went with
+                             the Docker socket (see stack_action).
                              ^^^^^^^ the {name} segment is not optional. Omitting
                              it here is what made scripts/verify-demo-hardening.sh
                              probe a route that does not exist and pass on the 404.
     POST /api/sim/backend, /api/sim/params, /api/sim/params/reset
                              : live KME overrides; 403 unless
                                ENABLE_LIVE_PARAM_OVERRIDES is set
+    DELETE /api/exports/{filename}
+                             : 403 unless ENABLE_SHARED_EXPORT_DELETE is set
     GET  /api/topology       : graph nodes/edges for D3
+
+    This module holds no Docker socket and imports no Docker SDK. What it
+    reports about containers -- their status, their logs, `wg show` and
+    `swanctl` in the lane nodes -- comes from stack-status, a separate internal
+    service that alone mounts the socket and serves a fixed, GET-only API
+    (services/stack-status/app/main.py). Its address is STACK_STATUS_URL; with
+    the variable unset, those routes say the data is not available on this
+    deployment, and nothing falls back to a socket. The table of what may be
+    asked is stack_contract.py, the one file both services import.
 
     This module serves no bench route, and never has. The ping benchmark is
     `benchmarks/ping_loop.sh` (run by `make bench`), a shell script that does
@@ -40,13 +52,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-try:
-    import docker
-    _docker_available = True
-except ImportError:
-    _docker_available = False
-
-from . import logging_setup, paper_budgets
+from . import logging_setup, paper_budgets, stack_contract
 
 log = logging_setup.configure("webui-backend")
 
@@ -54,23 +60,37 @@ KME_A_URL = os.environ.get("KME_A_URL", "http://bb84-kme-a:8080")
 KME_B_URL = os.environ.get("KME_B_URL", "http://bb84-kme-b:8080")
 PQC_VALIDATOR_URL = os.environ.get("PQC_VALIDATOR_URL", "http://pqc-validator:8090")
 
-# How much of an exception's text, a failed command's output or an upstream
-# error body goes into a response field or a log line: enough to name the
-# failure, not enough to relay a whole log or an upstream page to the caller.
-ERROR_TEXT_MAX_CHARS = 200
+# The bound on any exception text, failed command output or upstream error
+# body this module puts in a response field or a log line. Defined in the
+# contract, so stack-status cuts its error texts at the same length.
+ERROR_TEXT_MAX_CHARS = stack_contract.ERROR_TEXT_MAX_CHARS
+
+# ----------------------- stack-status -----------------------
+# Where stack-status answers, e.g. `http://stack-status:8081`
+# (docker-compose.yml). Empty or unset means this deployment runs no
+# stack-status -- the sim-only demo overlay sets it empty -- and the routes
+# that need it answer that the data is not available here.
+STACK_STATUS_URL = (os.environ.get("STACK_STATUS_URL") or "").strip()
+# How long one request to stack-status may take, in seconds. Above
+# stack-status's own per-call Docker timeout (DOCKER_TIMEOUT_S, 8 s), so a
+# daemon that hangs comes back as an `error` in the reply rather than as a
+# timeout here.
+STACK_STATUS_TIMEOUT_S = float(os.environ.get("STACK_STATUS_TIMEOUT_S", "10.0"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.AsyncClient(timeout=4.0)
-    if _docker_available:
-        try:
-            app.state.docker = docker.from_env()
-        except Exception as e:
-            log.warning("docker SDK init failed: %s", e)
-            app.state.docker = None
-    else:
-        app.state.docker = None
+    # A synchronous client, because every route that calls stack-status is a
+    # plain `def` that FastAPI runs in its threadpool. `trust_env=False`: an
+    # HTTP proxy in the environment must not be able to stand between this
+    # process and the service that holds the Docker socket.
+    status_client = (
+        httpx.Client(base_url=STACK_STATUS_URL, timeout=STACK_STATUS_TIMEOUT_S,
+                     trust_env=False)
+        if STACK_STATUS_URL else None
+    )
+    app.state.stack_status = status_client
 
     # The /e2e and /paper-flow orchestrators used to start here. Both pages
     # moved to client-side simulation, nothing has called their endpoints
@@ -79,6 +99,9 @@ async def lifespan(app: FastAPI):
 
     yield
     await app.state.http.aclose()
+    # The client this function made, not whatever app.state holds by now.
+    if status_client is not None:
+        status_client.close()
 
 
 # The release this backend ships in (CHANGELOG.md), kept equal to the frontend's
@@ -96,11 +119,13 @@ app.add_middleware(
 def _truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
-# When DEMO_MODE is on (public multi-user host) the demo is functionally
-# EQUIVALENT to full mode EXCEPT container lifecycle control (/api/stack/*),
-# which could take the shared demo offline. Every mutating verb is rate-limited
-# whatever DEMO_MODE says (see demo_rate_limit). Local full-stack and the cloud
-# real-WG deploy run with DEMO_MODE OFF.
+# DEMO_MODE (public multi-user host) used to differ from full mode in one
+# capability, container lifecycle control (/api/stack/*), which it vetoed.
+# That capability no longer exists in any mode (see stack_action), so DEMO_MODE
+# is now what /api/health and /api/config report, and what the demo overlay
+# sets beside running no privileged node and no stack-status. Every mutating
+# verb is rate-limited whatever DEMO_MODE says (see demo_rate_limit). Local
+# full-stack and the cloud real-WG deploy run with DEMO_MODE OFF.
 #
 # This comment used to add that backend switching and parameter overrides were
 # "reversible ... and cannot damage the shared host". They cannot damage it, but
@@ -114,25 +139,33 @@ DEMO_RATE_MAX = int(os.environ.get("DEMO_RATE_MAX", "120"))        # tokens / wi
 DEMO_RATE_WINDOW_S = float(os.environ.get("DEMO_RATE_WINDOW_S", "60"))
 _rate_state: dict[str, tuple[float, float]] = {}                   # ip -> (tokens, ts)
 
-# Container lifecycle control is OPT-IN, not opt-out.
+# Container lifecycle control is GONE, not merely off.
 #
-# This endpoint can start/stop/restart containers through a mounted
-# /var/run/docker.sock, so on a reachable host it is a privilege-escalation
-# path, not merely a way to take the demo offline. It used to be enabled by
-# default and disabled only when DEMO_MODE was set — meaning a deployment that
-# simply forgot the flag exposed it to the internet. That is exactly what
-# happened to the public demo: it answered `demo_mode: false` while running the
-# full profile with docker.sock mounted.
+# POST /api/stack/{action}/{name} could start, stop and restart containers
+# through a mounted /var/run/docker.sock, so on a reachable host it was a
+# privilege-escalation path, not merely a way to take the demo offline. It was
+# first enabled by default and disabled only when DEMO_MODE was set -- the
+# public demo answered `demo_mode: false` while running the full profile with
+# docker.sock mounted -- and then made opt-in through ENABLE_CONTAINER_CONTROL,
+# which no compose file ever set.
 #
-# Inverting the default changes the failure mode: a missing or misspelled
-# variable now yields a SAFE deployment (403) rather than an exposed one.
-# Enabling it is a deliberate act, and DEMO_MODE additionally vetoes it so the
-# two cannot be switched on together by accident.
-CONTAINER_CONTROL_ENABLED = (
-    _truthy(os.environ.get("ENABLE_CONTAINER_CONTROL")) and not DEMO_MODE
+# This process now holds no socket, and stack-status, which does, serves no
+# route that changes a container. So there is nothing for a flag to enable:
+# the route answers 403 whatever the environment says, and /api/config reports
+# `container_control: false` as a statement of what this build can do.
+# ENABLE_CONTAINER_CONTROL is read only to say so in the log, because an
+# operator who sets it would otherwise see no effect and no reason.
+CONTAINER_CONTROL_DISABLED_DETAIL = (
+    "container control is disabled: webui-backend holds no Docker socket, and "
+    "stack-status serves a fixed, read-only API"
 )
+if _truthy(os.environ.get("ENABLE_CONTAINER_CONTROL")):
+    log.warning("ENABLE_CONTAINER_CONTROL is set and has no effect: %s",
+                CONTAINER_CONTROL_DISABLED_DETAIL)
 
-# Live KME overrides are OPT-IN, for the same reason and in the same shape.
+# Live KME overrides are OPT-IN: a missing or misspelled variable yields a
+# SAFE deployment (403) rather than an exposed one, which is how container
+# control was gated in its last form.
 #
 # POST /api/sim/backend, /api/sim/params and /api/sim/params/reset write to
 # state that is process-global on BOTH KMEs: the simulator backend, the
@@ -148,7 +181,7 @@ CONTAINER_CONTROL_ENABLED = (
 # three routes answer 403 with LIVE_PARAM_OVERRIDES_DISABLED_DETAIL; the GET
 # routes are unchanged, and GET /api/config reports the flag as
 # `live_param_overrides` so the page can say which model its edits reach.
-# Parsed exactly like ENABLE_CONTAINER_CONTROL; a missing or misspelled
+# Parsed by _truthy, like every boolean switch here; a missing or misspelled
 # variable yields the safe deployment.
 LIVE_PARAM_OVERRIDES_ENABLED = _truthy(os.environ.get("ENABLE_LIVE_PARAM_OVERRIDES"))
 LIVE_PARAM_OVERRIDES_DISABLED_DETAIL = (
@@ -172,6 +205,37 @@ def _require_live_param_overrides() -> None:
     """
     if not LIVE_PARAM_OVERRIDES_ENABLED:
         raise HTTPException(403, LIVE_PARAM_OVERRIDES_DISABLED_DETAIL)
+
+
+# Deleting from the shared export gallery is OPT-IN, in the same shape.
+#
+# The gallery is one directory for every visitor: what one visitor saves, all
+# can list and download. `DELETE /api/exports/{filename}` let any of them
+# delete any file in it -- someone else's export included -- with nothing but
+# the rate limiter between an anonymous loop and an empty gallery. Off (the
+# default), the route answers 403 with SHARED_EXPORT_DELETE_DISABLED_DETAIL
+# before the file name is even read, /api/config reports the flag as
+# `shared_export_delete`, and the picker offers no Delete button and says why.
+# The store needs no deletes to stay bounded: _gc_export_dir evicts the oldest
+# files past EXPORT_MAX_FILES and EXPORT_MAX_TOTAL_BYTES. Set it on a
+# single-user host to delete from the page.
+SHARED_EXPORT_DELETE_ENABLED = _truthy(os.environ.get("ENABLE_SHARED_EXPORT_DELETE"))
+SHARED_EXPORT_DELETE_DISABLED_DETAIL = (
+    "deleting saved exports is disabled on this host "
+    "(ENABLE_SHARED_EXPORT_DELETE=false); the gallery is shared by every "
+    "visitor and drops its oldest files by itself"
+)
+
+
+def _require_shared_export_delete() -> None:
+    """403 unless this host opted in to letting a visitor delete saved exports.
+
+    A dependency, like _require_live_param_overrides, so the refusal comes
+    before the handler body: no file name is sanitised, no path is built and
+    nothing on disk is touched. Reads the module global at call time.
+    """
+    if not SHARED_EXPORT_DELETE_ENABLED:
+        raise HTTPException(403, SHARED_EXPORT_DELETE_DISABLED_DETAIL)
 
 
 @app.middleware("http")
@@ -227,13 +291,17 @@ async def health() -> dict[str, Any]:
 async def config() -> dict[str, Any]:
     """Runtime flags the frontend uses to adapt the UI (e.g. hide controls).
 
-    `container_control` is reported explicitly so the deployment's posture can
-    be checked from outside without attempting the dangerous call itself --
+    The switches are reported explicitly so the deployment's posture can be
+    checked from outside without attempting the dangerous calls themselves --
     see scripts/verify-demo-hardening.sh.
     """
     return {
         "demo_mode": DEMO_MODE,
-        "container_control": CONTAINER_CONTROL_ENABLED,
+        # False in every deployment of this build: container control left with
+        # the Docker socket (see stack_action). Still reported, so the Overview
+        # keeps hiding its restart buttons and an older build that could still
+        # control containers is told apart from outside.
+        "container_control": False,
         # Reported unconditionally, because the limiter now runs
         # unconditionally. This was `... if DEMO_MODE else None`, which paired
         # with the old DEMO_MODE-gated middleware -- both off together, so the
@@ -245,6 +313,9 @@ async def config() -> dict[str, Any]:
         # Whether POST /api/sim/{backend,params,params/reset} reach the shared
         # KMEs. False means /physics edits change only the in-browser model.
         "live_param_overrides": LIVE_PARAM_OVERRIDES_ENABLED,
+        # Whether DELETE /api/exports/{filename} deletes. False means the
+        # saved-exports picker offers no Delete button and says why.
+        "shared_export_delete": SHARED_EXPORT_DELETE_ENABLED,
         # The rotation interval arnika was started with, as configured
         # (ARNIKA_INTERVAL, e.g. "30s"). The Overview used to print "30 s" as a
         # literal; this is the value compose actually passed. None when unset,
@@ -253,10 +324,67 @@ async def config() -> dict[str, Any]:
     }
 
 
+# ----------------------- stack-status client -----------------------
+class _StatusUnavailable(Exception):
+    """stack-status gave no usable answer: it is not configured on this
+    deployment, it did not answer, or it refused or garbled the reply.
+
+    The message is a predicate, "not available on this deployment: ..." or
+    "unavailable: ...", so that each route can say which data it could not
+    read: `f"container logs are {e}"`.
+    """
+
+
+_STATUS_UNSET = (
+    "not available on this deployment: STACK_STATUS_URL is not set, and "
+    "webui-backend holds no Docker socket"
+)
+
+
+def _status_detail(r: httpx.Response) -> str:
+    """The `detail` of a refusal from stack-status, else its text, bounded."""
+    try:
+        detail = r.json().get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    return stack_contract.bounded(detail if isinstance(detail, str) else r.text)
+
+
+def _status_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """GET `path` from stack-status: its JSON object, or _StatusUnavailable.
+
+    `path` is one of stack_contract's PATH_* templates, filled in with a name
+    the caller has already checked against the same table, so a well-behaved
+    caller is never refused. No retry and no fallback: whatever failed is what
+    the route reports.
+    """
+    client = getattr(app.state, "stack_status", None)
+    if client is None:
+        raise _StatusUnavailable(_STATUS_UNSET)
+    try:
+        r = client.get(path, params=params)
+    except httpx.HTTPError as e:
+        raise _StatusUnavailable(
+            "unavailable: stack-status did not answer "
+            f"({stack_contract.bounded(f'{type(e).__name__}: {e}')})")
+    if r.status_code != 200:
+        raise _StatusUnavailable(
+            f"unavailable: stack-status answered HTTP {r.status_code} ({_status_detail(r)})")
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise _StatusUnavailable(
+            "unavailable: stack-status answered with a body that is not a JSON object")
+    return body
+
+
+# ----------------------- Stack -----------------------
 # Services that exist only in a compose OVERLAY behind a profile, mapped to the
 # profile that enables them. Absent is the correct state for these whenever the
 # profile is not active, and the base `docker-compose.yml` does not define them
-# at all -- so on a healthy default stack three of the ten rows below are
+# at all -- so on a healthy default stack three of the eleven rows below are
 # absent BY DESIGN.
 #
 # Without this table `/api/stack` reported `absent` for "you did not start the
@@ -282,7 +410,8 @@ PROFILE_GATED: dict[str, tuple[str, str]] = {
 # calling the blocking Docker SDK, so each poll stalled the event loop that also
 # serves every other route -- the same defect `/api/vpn/protocols` already fixed
 # with a plain `def` and a short cache. Plain `def` lets FastAPI run it in its
-# threadpool; the cache means N viewers cost one Docker round-trip per window.
+# threadpool; the cache means N viewers cost one stack-status round trip per
+# window.
 STACK_TTL_S = float(os.environ.get("STACK_TTL_S", "3.0"))
 
 
@@ -294,6 +423,10 @@ def stack() -> list[dict[str, Any]]:
     that is the expected state unless its overlay was started, so those rows
     carry `optional: true` plus the profile and compose file that would create
     them. A consumer that ignores the flag renders exactly what it did before.
+
+    `unknown`, with an `error` saying why, means nobody could look: Docker
+    failed for that container, stack-status did not answer, or this
+    deployment runs no stack-status at all.
     """
     hit, _ = _cached("stack", STACK_TTL_S)
     if hit is not None:
@@ -301,98 +434,75 @@ def stack() -> list[dict[str, Any]]:
     return _store("stack", _stack_uncached())
 
 
-# The containers /api/stack reports on, in display order.
-STACK_SERVICES: tuple[str, ...] = (
-    "alice", "bob", "bb84-kme-a", "bb84-kme-b", "webui-backend",
-    "webui-frontend", "pqc-validator", "alice-ipsec", "bob-ipsec",
-    "qkdnetsim-kme",
-)
+# The containers /api/stack reports on, in display order: the contract's
+# table, which stack-status reads too.
+STACK_SERVICES: tuple[str, ...] = stack_contract.STACK_SERVICES
+
+# What a row may carry over from stack-status's reply. Anything else in the
+# reply is dropped, so the shape of this public route is decided here.
+_STACK_ROW_FIELDS: tuple[str, ...] = ("status", "image", "started_at", "error")
+
+
+def _gating(n: str, status: str) -> dict[str, Any]:
+    """Why this row may legitimately be absent. Empty for required ones.
+
+    The explanation of absence is attached only to an absent row. It used
+    to ride on every optional row, so a green `running` chip for
+    alice-ipsec carried the tooltip "Absent here means the overlay was not
+    started" -- a note contradicting the chip it was attached to.
+    """
+    if n not in PROFILE_GATED:
+        return {}
+    profile, compose = PROFILE_GATED[n]
+    where = (f"not in the default stack: defined only in {compose} behind "
+             f"`profiles: [\"{profile}\"]`.")
+    if status == "absent":
+        note = (f"{where} Absent here means the overlay was not started on "
+                f"this host, not that anything failed.")
+    else:
+        note = where
+    return {
+        "optional": True,
+        "profile": profile,
+        "compose_file": compose,
+        "note": note,
+    }
 
 
 def _stack_uncached() -> list[dict[str, Any]]:
-    names = STACK_SERVICES
+    """The rows of /api/stack, from stack-status's reply, in STACK_SERVICES order.
 
-    def gating(n: str, status: str) -> dict[str, Any]:
-        """Why this row may legitimately be absent. Empty for required ones.
-
-        The explanation of absence is attached only to an absent row. It used
-        to ride on every optional row, so a green `running` chip for
-        alice-ipsec carried the tooltip "Absent here means the overlay was not
-        started" -- a note contradicting the chip it was attached to.
-        """
-        if n not in PROFILE_GATED:
-            return {}
-        profile, compose = PROFILE_GATED[n]
-        where = (f"not in the default stack: defined only in {compose} behind "
-                 f"`profiles: [\"{profile}\"]`.")
-        if status == "absent":
-            note = (f"{where} Absent here means the overlay was not started on "
-                    f"this host, not that anything failed.")
-        else:
-            note = where
-        return {
-            "optional": True,
-            "profile": profile,
-            "compose_file": compose,
-            "note": note,
-        }
-
-    out: list[dict[str, Any]] = []
-    cli = app.state.docker
-    if cli is None:
+    stack-status decides absent from unknown from present, because it is the
+    one that asks Docker: only Docker's 404 for a name is `absent` there, and a
+    failed image read does not erase an observed status
+    (services/stack-status/app/main.py, _stack_rows). This adds what only the
+    compose files know, the gating.
+    """
+    try:
+        reply = _status_get(stack_contract.PATH_STACK)
+        rows = reply.get("containers")
+        if not isinstance(rows, list):
+            raise _StatusUnavailable(
+                "unavailable: stack-status answered without a `containers` list")
+    except _StatusUnavailable as e:
         # `unknown`, not `absent`: we could not look. Keep the gating metadata
-        # so the page can still explain the optional rows.
-        return [{"name": n, "status": "unknown", **gating(n, "unknown")} for n in names]
-    for n in names:
-        try:
-            c = cli.containers.get(n)
-        except docker.errors.NotFound:
-            # The container genuinely is not there: Docker answered 404 for
-            # the name. This is the only path that may say "absent".
-            out.append({"name": n, "status": "absent", **gating(n, "absent")})
+        # so the page can still explain the optional rows, and say why.
+        why = f"container status is {e}"
+        return [{"name": n, "status": "unknown", "error": why, **_gating(n, "unknown")}
+                for n in STACK_SERVICES]
+    by_name = {r["name"]: r for r in rows
+               if isinstance(r, dict) and isinstance(r.get("name"), str)}
+    out: list[dict[str, Any]] = []
+    for n in STACK_SERVICES:
+        r = by_name.get(n)
+        if r is None:
+            out.append({"name": n, "status": "unknown",
+                        "error": "stack-status did not report this container",
+                        **_gating(n, "unknown")})
             continue
-        except Exception as e:
-            # Anything else -- an APIError, a socket timeout, a daemon that is
-            # restarting -- means we could not look, which is not the same
-            # fact as "not there". This branch used to share the absent one
-            # (`except Exception:`), so a transient Docker error painted
-            # bb84-kme-a as missing, and qkdnetsim-kme as absent "not that
-            # anything failed" when something had.
-            log.warning("docker lookup of %s failed: %s", n, e)
-            out.append({"name": n, "status": "unknown", "error": str(e)[:ERROR_TEXT_MAX_CHARS],
-                        **gating(n, "unknown")})
-            continue
-
-        # Reading the image is a SEPARATE failure from the container being
-        # absent, and it used to be inside the same try. `c.image` raises
-        # ImageNotFound whenever the image the container runs has lost its
-        # tag -- which happens routinely: rebuilding `pqcqkd/node-alice:local`
-        # leaves every other container still running the previous, now
-        # dangling, image ID.
-        #
-        # Measured on the deployed host: after rebuilding alice, `bob` was
-        # `Up 4 days` and rotating keys normally, `containers.get("bob")`
-        # returned status=running, and `bob.image` raised
-        # `ImageNotFound: 404 ... /images/1a2e95e58251`. The Overview page
-        # showed bob as ABSENT for a container that was working.
-        #
-        # A cosmetic field must not be able to erase an observed status.
-        image = ""
-        try:
-            tags = c.image.tags
-            image = tags[0] if tags else ""
-        except Exception:
-            # Untagged is a real, reportable state -- not an empty string,
-            # which would read as "no image information available".
-            image = "<untagged>"
-
-        out.append({
-            "name": n,
-            "status": c.status,
-            "image": image,
-            "started_at": c.attrs.get("State", {}).get("StartedAt"),
-            **gating(n, c.status),
-        })
+        row = {"name": n, **{k: r[k] for k in _STACK_ROW_FIELDS if k in r}}
+        row["status"] = str(row.get("status") or "unknown")
+        out.append({**row, **_gating(n, row["status"])})
     return out
 
 
@@ -427,51 +537,18 @@ async def stats():
 
 
 # ----------------------- Log redaction and bounds -----------------------
-# `GET /api/logs/{name}` served ARNIKA_PSK to anyone who asked. The arnika pin
-# before release 0.2.0 (3a8cc13) printed its whole configuration at startup,
-# including `Arnika PSK: <value>` verbatim (its config/config.go:78), and the
-# route had no tail cap, so a large enough `?tail=` reached back past the
-# 129,319 lines alice had logged to the banner. Measured on the public demo on
-# 2026-09-25 by value LENGTH only (44 characters, a base64 32-byte key); the
-# value itself was never printed.
+# `GET /api/logs/{name}` served ARNIKA_PSK to anyone who asked, and its missing
+# tail cap let one request serialise alice-ipsec's 3.4 million log lines. The
+# redactor and the cap are the contract's (stack_contract.redact_log and
+# LOGS_MAX_TAIL, with the history): stack-status applies both to what it
+# serves, and this module applies the redactor again, to container logs and to
+# the file-backed downloads below. See tests/test_logs_endpoint_redacts_secrets.py.
 #
-# The current pin (f4cf9ba, the head of the still-open arnika PR #51 as of
-# 2026-09-24) prints the same label with redactSecret()'s `(set, N bytes)` instead of the value
-# (config/config.go:119 and :168-173 there). The banner rule below still
-# matches that line and replaces an already-redacted value, which costs only
-# the byte count. It stays because the label is all this rule can see: a node
-# rolled back to 3a8cc13 writes the same label with the key after it, and the
-# pin is not yet a merge commit.
-#
-# The same missing cap let one request make the backend serialise alice-ipsec's
-# 3.4 million log lines.
-#
-# Two rules, because they guard different things:
-#   1. the arnika banner line is redacted whatever its value looks like -- a
-#      short test PSK is still the PSK;
-#   2. elsewhere, a key-ish label followed by something shaped like key material
-#      (24+ base64/hex characters) is redacted. The length floor is what keeps
-#      "failed to configure random PSK: <error text>" readable on /console.
-# See tests/test_logs_endpoint_redacts_secrets.py.
-LOGS_MAX_TAIL = int(os.environ.get("LOGS_MAX_TAIL", "2000"))
+# LOGS_MAX_TAIL can lower this route's cap, not raise it: stack-status refuses
+# a tail above the contract's, whatever this process allows.
+LOGS_MAX_TAIL = int(os.environ.get("LOGS_MAX_TAIL", str(stack_contract.LOGS_MAX_TAIL)))
 LOGS_TTL_S = float(os.environ.get("LOGS_TTL_S", "1.5"))
-_ARNIKA_PSK_LINE = re.compile(r"(?im)^(.*?\bArnika PSK:[ \t]*)(\S.*)$")
-_KEYISH_VALUE = re.compile(
-    r"(?i)(\b(?:preshared key|private key|psk|secret)[ \t]*[:=][ \t]*)"
-    r"([A-Za-z0-9+/_-]{24,}={0,2})"
-)
-_REDACTED = "(redacted)"
-
-
-def _redact_log(text: str) -> tuple[str, int]:
-    """Remove key material from container or service logs.
-
-    Returns the redacted text and how many substitutions were made, so a caller
-    can report that something was withheld rather than silently shortening it.
-    """
-    text, n1 = _ARNIKA_PSK_LINE.subn(lambda m: m.group(1) + _REDACTED, text)
-    text, n2 = _KEYISH_VALUE.subn(lambda m: m.group(1) + _REDACTED, text)
-    return text, n1 + n2
+_redact_log = stack_contract.redact_log
 
 
 # ----------------------- Phase 12-A: file-backed log endpoints -----------------------
@@ -520,8 +597,10 @@ def download_log(service: str, lines: int = Query(1000, ge=1, le=LOGS_MAX_TAIL))
 # them for download via a stable URL. Lets users save/share simulation outputs
 # beyond a single browser session.
 #
-# The store is public: anyone who can reach the host can list, download and
-# delete what is in it. So its bounds are set HERE, whatever DEMO_MODE says.
+# The store is public: anyone who can reach the host can list and download what
+# is in it, and delete from it where ENABLE_SHARED_EXPORT_DELETE is set (see
+# SHARED_EXPORT_DELETE_ENABLED). So its bounds are set HERE, whatever DEMO_MODE
+# says.
 # They used to be tightened only by deploy/docker-compose.demo.yml, and the
 # public host does not run that overlay, so it ran on the looser defaults
 # (50 MiB x 200 files, roughly 10 GB of disk reachable by anonymous POSTs).
@@ -672,8 +751,14 @@ async def export_download(filename: str):
     return FileResponse(p, media_type=media_type, filename=safe)
 
 
-@app.delete("/api/exports/{filename}")
+@app.delete("/api/exports/{filename}", dependencies=[Depends(_require_shared_export_delete)])
 async def export_delete(filename: str):
+    """Delete one saved export. Opt-in; see SHARED_EXPORT_DELETE_ENABLED.
+
+    With the flag off the dependency answers 403 before this body runs, so
+    the sanitiser and the path below are reached only on a host that allows
+    deleting.
+    """
     import re
     from pathlib import Path
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:120]
@@ -691,28 +776,24 @@ async def export_delete(filename: str):
 
 
 # ----------------------- Logs (container stdout and stderr, allow-listed by name) -----------------------
-# The containers a public route may reach through the Docker socket, and the
-# only ones. ONE table for both routes that take a container name from the URL,
-# so they cannot drift apart.
-#
-# `/api/logs/{name}` used to call `cli.containers.get(name)` for ANY name. On
-# the public demo that served the log of every container on the host --
-# measured 2026-09-25: `/api/logs/caddy` answered 200 with the reverse proxy's
-# access log, visitor IPs and User-Agents included. `/api/wg/{node}` ran
-# `docker exec wg show wg0` in any container named in the path, including
-# webui-frontend. The download route beside them was already allow-listed.
+# The containers a public route may ask stack-status about, and the only ones:
+# the contract's tables (stack_contract.py, with the history of why), which
+# stack-status enforces as well. This module checks them first, so a name
+# outside them costs no request to stack-status. The download route below
+# reads files, not containers, and has its own check.
 #
 # WG_NODES: the two containers that own the WireGuard lane's interfaces (wg0
 # and wg1).
+# IPSEC_NODES: the two strongSwan nodes, whose `swanctl` views /api/vpn/protocols
+# parses and whose logs /api/vpn/ppk-rotations counts.
 # LOG_CONTAINERS: what /console tails (Console.tsx NAMES, same order).
-WG_NODES: tuple[str, ...] = ("alice", "bob")
-LOG_CONTAINERS: tuple[str, ...] = WG_NODES + (
-    "bb84-kme-a", "bb84-kme-b", "alice-ipsec", "bob-ipsec",
-)
+WG_NODES: tuple[str, ...] = stack_contract.WG_NODES
+IPSEC_NODES: tuple[str, ...] = stack_contract.IPSEC_NODES
+LOG_CONTAINERS: tuple[str, ...] = stack_contract.LOG_CONTAINERS
 
 
 def _require_known_container(name: str, allowed: tuple[str, ...]) -> None:
-    """404 for a name outside `allowed`, before Docker or the cache is touched.
+    """404 for a name outside `allowed`, before stack-status or the cache is touched.
 
     404 rather than 403: from outside, a container this route will not serve
     and a container that does not exist are the same answer, and saying which
@@ -743,15 +824,20 @@ def _prune_expired(prefix: str, ttl: float) -> None:
 def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str, Any]:
     """Container stdout and stderr, redacted and bounded (see _redact_log).
 
-    Both streams, because docker-py's `logs()` returns both unless told
-    otherwise, and the call below relies on that default. It matters for
-    arnika: at the current pin (f4cf9ba) it writes every record to stderr
-    through its slog handler (logging.go:42 and :63 there), so a stdout-only
-    read would show no arnika line at all.
+    Both streams: stack-status asks Docker for stdout and stderr explicitly,
+    because at the current pin (f4cf9ba) arnika writes every record to stderr
+    through its slog handler, so a stdout-only read would show no arnika line.
 
-    Only for LOG_CONTAINERS; any other name is 404 before Docker is asked.
+    Only for LOG_CONTAINERS; any other name is 404 before stack-status is
+    asked. A container stack-status could not read is 404 with Docker's
+    reason, as it was when this module asked Docker itself; stack-status not
+    answering, or not being deployed, is 503 with that reason.
 
-    Plain `def`: the Docker SDK blocks, and /console polls this every 1.5 s.
+    `redacted` counts what stack-status withheld plus anything this module's
+    second pass found, which on a correct reply is nothing.
+
+    Plain `def`: the request to stack-status blocks, and /console polls this
+    every 1.5 s.
     """
     _require_known_container(name, LOG_CONTAINERS)
     key = f"logs:{name}:{tail}"
@@ -759,36 +845,28 @@ def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str,
     if hit is not None:
         return hit
     _prune_expired("logs:", LOGS_TTL_S)
-    cli = app.state.docker
-    if cli is None:
-        raise HTTPException(503, "docker not available")
     try:
-        c = cli.containers.get(name)
-        data = c.logs(tail=tail).decode("utf-8", errors="replace")
-    except Exception as e:
-        raise HTTPException(404, str(e))
-    text, n = _redact_log(data)
-    return _store(key, {"name": name, "log": text, "redacted": n})
+        reply = _status_get(stack_contract.PATH_LOGS.format(name=name), {"tail": tail})
+    except _StatusUnavailable as e:
+        raise HTTPException(503, f"container logs are {e}")
+    if reply.get("error") is not None:
+        raise HTTPException(404, stack_contract.bounded(reply["error"]))
+    text, n = _redact_log(str(reply.get("log") or ""))
+    withheld = reply.get("redacted")
+    upstream = withheld if isinstance(withheld, int) else 0
+    return _store(key, {"name": name, "log": text, "redacted": upstream + n})
 
 
 # ----------------------- WireGuard show -----------------------
-# `wg show <if> dump` PRINTS SECRETS. From wg(8): the first line is
-# "private-key, public-key, listen-port, fwmark" tab-separated, and each peer
-# line is "public-key, preshared-key, endpoint, allowed-ips, latest-handshake,
-# rx, tx, keepalive". Fields 1 and 2 respectively are the interface private key
-# and the preshared key, both in plaintext base64.
-#
-# This route served that verbatim, unauthenticated, with no DEMO_MODE gate. A
-# 2026-08-27 GET of the public demo's /api/wg/alice returned alice's wg0 private
-# key and the live preshared key -- and on this stack the wg0 preshared key is
-# the arnika HKDF(QKD || PQC) output, i.e. the entire product of the key path
-# the project exists to demonstrate. Nothing in the frontend has ever called
-# this route, so the exposure carried no compensating benefit.
-#
-# The non-dump form is what wireguard-tools redacts for you: it prints
-# "private key: (hidden)" and "preshared key: (hidden)". Use it. Then redact
-# again on the way out, so that editing one word of the command back is not by
-# itself sufficient to leak. See tests/test_wg_endpoint_redacts_secrets.py.
+# `wg show <if> dump` PRINTS SECRETS, and this route once served it: a
+# 2026-08-27 GET of the public demo's /api/wg/alice returned alice's wg0
+# private key and the live preshared key. Nothing in the frontend has ever
+# called this route, so the exposure carried no compensating benefit. The two
+# commands, both the non-dump form, are the contract's (stack_contract.
+# WG_SHOW_CMDS, with the history); stack-status runs them and redacts their
+# output, and this module redacts it again on the way out (_redact_wg), so
+# that editing one word of a command back is not by itself sufficient to
+# leak. See tests/test_wg_endpoint_redacts_secrets.py.
 #
 # Two interfaces per node since release 0.2.0, the layering of arXiv:2604.05599:
 #   wg0  the hop tunnel. arnika writes its preshared key: HKDF-SHA3-256 over
@@ -797,10 +875,7 @@ def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str,
 #        address, so wg1 packets travel inside wg0. Rosenpass writes its
 #        preshared key through Rosenpass's own WireGuard output, and the
 #        Rosenpass exchange itself runs over wg0.
-# Both commands are the non-dump form, for the reason above; wg1's preshared
-# key is as secret as wg0's.
-WG_SHOW_CMD = "wg show wg0"
-WG_DATA_SHOW_CMD = "wg show wg1"
+_redact_wg = stack_contract.redact_wg
 
 # Which process writes each interface's preshared key. This is the deployed
 # CONFIGURATION (docker-compose.yml and nodes/alice/entrypoint.sh), stated per
@@ -816,61 +891,51 @@ WG_PSK_SOURCE: dict[str, str] = {
     "wg1": "rosenpass",
 }
 
-_WG_SECRET_LINE = re.compile(r"^(\s*(?:private key|preshared key)\s*:).*$", re.M | re.I)
+def _wg_results(reply: dict[str, Any]) -> dict[str, Any]:
+    """The per-interface results of a /v1/wg reply; {} when it has none."""
+    results = reply.get("results")
+    return results if isinstance(results, dict) else {}
 
 
-def _redact_wg(text: str) -> str:
-    """Remove key material from `wg show` output, failing closed.
-
-    Two layers, because what is being guarded is a one-word edit:
-
-      1. any `private key:` / `preshared key:` value becomes `(hidden)`, which
-         is what the non-dump form prints anyway -- so this is a no-op on
-         correct input and a rescue on incorrect input;
-      2. if the text looks like `dump` output at all, the whole body is
-         withheld rather than field-edited. The dump format is positional, and
-         a redactor that miscounts columns leaks instead of over-redacting;
-         refusing is the only safe response to a shape we did not ask for.
-    """
-    if "\t" in text and "interface:" not in text:
-        return (
-            "[withheld] this looks like `wg show ... dump`, whose first field is "
-            "the interface private key and whose second per-peer field is the "
-            "preshared key. This endpoint serves only the redacted `wg show` "
-            f"form; see WG_SHOW_CMD ({WG_SHOW_CMD!r})."
-        )
-    return _WG_SECRET_LINE.sub(r"\1 (hidden)", text)
-
-
-def _wg_show_one(container, node: str, iface: str, cmd: str) -> dict[str, Any]:
+def _wg_interface(node: str, iface: str, result: Any) -> dict[str, Any]:
     """One interface's redacted `wg show`, with the fields every caller gets.
 
     `error` is None when the command ran. A non-zero `rc` is not an error in
     this sense: `wg show wg1` on a node without wg1 exits 1 with "Unable to
     access interface", and that text is the honest answer, so it is returned.
+    When the command did not run, `rc` and `output` are None rather than
+    invented, and `error` says why.
     """
-    rc, out = container.exec_run(cmd)
+    result = result if isinstance(result, dict) else {
+        "error": f"stack-status reported nothing for {iface}"}
+    if result.get("error") is not None:
+        return {"node": node, "interface": iface, "rc": None, "output": None,
+                "psk_source": WG_PSK_SOURCE[iface],
+                "error": stack_contract.bounded(result["error"])}
     return {
         "node": node,
         "interface": iface,
-        "rc": rc,
-        "output": _redact_wg(out.decode("utf-8", errors="replace")),
+        "rc": result.get("rc"),
+        "output": _redact_wg(str(result.get("output") or "")),
         "psk_source": WG_PSK_SOURCE[iface],
         "error": None,
     }
 
 
 # Per-node cache for `GET /api/wg/{node}`. Since release 0.2.0 a sample is two
-# `docker exec`s (wg0 and wg1), on a public, unauthenticated GET that the rate
-# limiter does not cover (it meters only the mutating verbs), so without a
-# cache every anonymous request cost the host two execs. With it, a node costs
-# at most two execs per WG_SHOW_TTL_S whatever the request rate. The default
-# matches VPN_SAMPLE_TTL_S, the same kind of `wg show` snapshot. Keys are
-# `wg:<node>` for WG_NODES only (the allow-list runs first), so the cache holds
-# at most len(WG_NODES) entries and needs no pruning.
+# `docker exec`s (wg0 and wg1), run by stack-status, on a public,
+# unauthenticated GET that the rate limiter does not cover (it meters only the
+# mutating verbs), so without a cache every anonymous request cost the host two
+# execs. With it, a node costs at most two execs per WG_SHOW_TTL_S whatever
+# the request rate. The default matches VPN_SAMPLE_TTL_S, the same kind of
+# `wg show` snapshot. Keys are `wg:<node>` for WG_NODES only (the allow-list
+# runs first), so the cache holds at most len(WG_NODES) entries and needs no
+# pruning.
 #
 # A 404 is cached too, as /api/vpn/protocols caches its failure shapes: a node
 # whose exec fails must not be the case that costs an exec on every request.
+# So is a 503, for the same reason: stack-status not answering must not be the
+# case that costs a connection timeout on every request.
 WG_SHOW_TTL_S = float(os.environ.get("WG_SHOW_TTL_S", "5.0"))
 
 
@@ -884,8 +949,11 @@ def wg_show(node: str) -> dict[str, Any]:
     it is served from the cache (`cache_ttl_s`), so a cached answer can be
     told from a fresh one.
 
-    Plain `def`: two blocking `docker exec`s, which under `async def` would run
-    on the event loop and stall every other request for their duration.
+    404 when the node, or its wg0, could not be read; 503 when stack-status
+    did not answer or is not deployed here.
+
+    Plain `def`: the request to stack-status blocks, and under `async def` it
+    would run on the event loop and stall every other request for its duration.
     """
     # alice and bob only (WG_NODES): the route used to exec in whatever
     # container the path named.
@@ -895,29 +963,30 @@ def wg_show(node: str) -> dict[str, Any]:
     if hit is not None:
         if "not_found" in hit:
             raise HTTPException(404, hit["not_found"])
+        if "unavailable" in hit:
+            raise HTTPException(503, hit["unavailable"])
         return hit
-    cli = app.state.docker
-    if cli is None:
-        raise HTTPException(503, "docker not available")
     try:
-        c = cli.containers.get(node)
-        hop = _wg_show_one(c, node, "wg0", WG_SHOW_CMD)
-    except Exception as e:
+        reply = _status_get(stack_contract.PATH_WG.format(node=node))
+    except _StatusUnavailable as e:
+        detail = stack_contract.bounded(f"WireGuard status is {e}")
+        _store(key, {"unavailable": detail})
+        raise HTTPException(503, detail)
+    hop = _wg_interface(node, "wg0", _wg_results(reply).get("wg0"))
+    if reply.get("error") is not None or hop["error"] is not None:
+        # The container could not be looked up, or its wg0 could not be read.
         # Bounded like every other exception text this module puts in a
         # response, and bounded before it is cached, so the cached 404 and the
         # first one carry the same detail.
-        detail = str(e)[:ERROR_TEXT_MAX_CHARS]
+        detail = stack_contract.bounded(reply.get("error") or hop["error"])
         _store(key, {"not_found": detail})
         raise HTTPException(404, detail)
     # wg0 answered, so the container exists. A failure now is about wg1 alone
     # and must not turn a wg0 reading into a 404: it is reported in place, with
-    # no rc and no output rather than invented ones.
-    try:
-        data = _wg_show_one(c, node, "wg1", WG_DATA_SHOW_CMD)
-    except Exception as e:
-        log.warning("wg show wg1 failed in %s: %s", node, e)
-        data = {"node": node, "interface": "wg1", "rc": None, "output": None,
-                "psk_source": WG_PSK_SOURCE["wg1"], "error": str(e)[:ERROR_TEXT_MAX_CHARS]}
+    # no rc and no output rather than invented ones (_wg_interface).
+    data = _wg_interface(node, "wg1", _wg_results(reply).get("wg1"))
+    if data["error"] is not None:
+        log.warning("wg show wg1 failed in %s: %s", node, data["error"])
     return _store(key, {**hop, "data_tunnel": data,
                         "observed_at": time.time(), "cache_ttl_s": WG_SHOW_TTL_S})
 
@@ -938,24 +1007,14 @@ def wg_show(node: str) -> dict[str, Any]:
 # ----------------------- Stack control -----------------------
 @app.post("/api/stack/{action}/{name}")
 async def stack_action(action: str, name: str):
-    # Opt-in, so that forgetting a flag fails closed rather than open.
-    if not CONTAINER_CONTROL_ENABLED:
-        raise HTTPException(
-            403,
-            "container control is disabled; set ENABLE_CONTAINER_CONTROL=1 "
-            "(and do not set DEMO_MODE) on a trusted host to enable it",
-        )
-    cli = app.state.docker
-    if cli is None:
-        raise HTTPException(503, "docker not available")
-    if action not in {"start", "stop", "restart"}:
-        raise HTTPException(400, "action must be start|stop|restart")
-    try:
-        c = cli.containers.get(name)
-        getattr(c, action)()
-    except Exception as e:
-        raise HTTPException(500, str(e))
-    return {"ok": True, "action": action, "name": name}
+    """Always 403: this build cannot start, stop or restart a container.
+
+    Kept as a route rather than deleted, so that the refusal is an answer
+    with a reason -- the Overview, scripts/verify-demo-hardening.sh and
+    anyone probing from outside get the same 403 as before -- instead of a 404
+    that cannot be told from a mistyped path. See CONTAINER_CONTROL_DISABLED_DETAIL.
+    """
+    raise HTTPException(403, CONTAINER_CONTROL_DISABLED_DETAIL)
 
 
 # ----------------------- Upstream bodies -----------------------
@@ -1599,56 +1658,66 @@ def _parse_child_sas(sas: str) -> list[dict[str, Any]]:
     return children
 
 
-def _sample_ipsec(cli, container: str) -> dict[str, Any]:
-    """One node's IPsec view. Two `docker exec`s; never raises."""
-    try:
-        c = cli.containers.get(container)
-        rc_sas, sas = c.exec_run("swanctl --list-sas")
-        rc_conns, conns = c.exec_run("swanctl --list-conns")
-        # Check the exit codes. swanctl writes its error text to the same
-        # stream as its output, and that text is non-empty, so passing a
-        # failed invocation into the parser makes `sas.strip()` truthy and
-        # reports status "running" for a charon that is dead. That is the
-        # precise "healthy while doing nothing" mode this lane exists to
-        # eliminate, reproduced in the status API.
-        if rc_sas != 0 or rc_conns != 0:
-            detail = (sas if rc_sas != 0 else conns).decode("utf-8", errors="replace")
-            log.warning(
-                "swanctl failed in %s (list-sas rc=%s, list-conns rc=%s): %s",
-                container, rc_sas, rc_conns, detail.strip()[:ERROR_TEXT_MAX_CHARS],
-            )
-            # Same keys as the success path, so a consumer never has to branch
-            # on which shape it received. Seeded from the template rather than
-            # restated, so the two cannot drift apart -- which is how the
-            # WireGuard branch ended up with a two-key default while a comment
-            # claimed the invariant held for both.
-            #
-            # active_sa is None, not 0: swanctl did not answer, so "we looked
-            # and there are none" is not something we know.
-            return _ipsec_unknown("error")
-        return _parse_ipsec_sas(
-            sas.decode("utf-8", errors="replace"),
-            conns.decode("utf-8", errors="replace"),
-        )
-    except Exception as e:
-        log.warning("ipsec status unavailable for %s: %s", container, e)
+def _sample_ipsec(reply: dict[str, Any]) -> dict[str, Any]:
+    """One node's IPsec view, from stack-status's /v1/ipsec reply; never raises.
+
+    stack-status ran the contract's two `swanctl` commands
+    (stack_contract.SWANCTL_CMDS) and reported each one's exit status and
+    output, or why it could not run.
+    """
+    container = reply.get("node")
+    results = reply.get("results")
+    if reply.get("error") is not None or not isinstance(results, dict):
+        log.warning("ipsec status unavailable for %s: %s", container, reply.get("error"))
         return _ipsec_unknown("absent")
+    sas, conns = results.get("list_sas"), results.get("list_conns")
+    if not (isinstance(sas, dict) and isinstance(conns, dict)) \
+            or sas.get("error") is not None or conns.get("error") is not None:
+        log.warning("ipsec status unavailable for %s: %s", container,
+                    (sas or {}).get("error") or (conns or {}).get("error"))
+        return _ipsec_unknown("absent")
+    rc_sas, rc_conns = sas.get("rc"), conns.get("rc")
+    # Check the exit codes. swanctl writes its error text to the same stream as
+    # its output, and that text is non-empty, so passing a failed invocation
+    # into the parser makes `sas.strip()` truthy and reports status "running"
+    # for a charon that is dead. That is the precise "healthy while doing
+    # nothing" mode this lane exists to eliminate, reproduced in the status API.
+    if rc_sas != 0 or rc_conns != 0:
+        detail = str((sas if rc_sas != 0 else conns).get("output") or "")
+        log.warning(
+            "swanctl failed in %s (list-sas rc=%s, list-conns rc=%s): %s",
+            container, rc_sas, rc_conns, detail.strip()[:ERROR_TEXT_MAX_CHARS],
+        )
+        # Same keys as the success path, so a consumer never has to branch
+        # on which shape it received. Seeded from the template rather than
+        # restated, so the two cannot drift apart -- which is how the
+        # WireGuard branch ended up with a two-key default while a comment
+        # claimed the invariant held for both.
+        #
+        # active_sa is None, not 0: swanctl did not answer, so "we looked
+        # and there are none" is not something we know.
+        return _ipsec_unknown("error")
+    return _parse_ipsec_sas(str(sas.get("output") or ""), str(conns.get("output") or ""))
 
 
-def _sample_wg(container, iface: str, cmd: str) -> dict[str, Any]:
+def _sample_wg(reply: dict[str, Any], iface: str) -> dict[str, Any]:
     """One WireGuard interface's view, in `_wg_unknown`'s key set; never raises.
 
-    The same rules for wg0 and wg1, because the failure they guard against is
-    the same on both: a `wg show` that failed outright must not render as a
-    healthy lane.
+    From stack-status's /v1/wg reply. The same rules for wg0 and wg1, because
+    the failure they guard against is the same on both: a `wg show` that
+    failed outright must not render as a healthy lane.
     """
-    try:
-        rc, out = container.exec_run(cmd)
-    except Exception as e:
-        # Same outcome as the IPsec branch for an exec that could not run.
-        log.warning("wireguard status unavailable for %s: %s", iface, e)
+    result = _wg_results(reply).get(iface)
+    if reply.get("error") is not None or not isinstance(result, dict) \
+            or result.get("error") is not None:
+        # Same outcome as the IPsec branch for an exec that could not run, or
+        # a node that could not be looked up. The IPsec branch logs; this one
+        # used to swallow silently, so a WireGuard lane that was never
+        # reachable looked identical to one that was simply absent.
+        log.warning("wireguard status unavailable for %s: %s", iface,
+                    reply.get("error") or (result or {}).get("error"))
         return _wg_unknown("absent")
-    text = out.decode("utf-8", errors="replace")
+    rc, text = result.get("rc"), str(result.get("output") or "")
     if rc != 0:
         # Previously a non-zero rc degraded to status "running", which
         # VpnProtocols.tsx renders GREEN -- so a lane whose `wg show` failed
@@ -1707,55 +1776,62 @@ def _both_ends(alice: dict[str, Any], bob: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# Sampling `/api/vpn/protocols` costs six `docker exec`s (wg show for wg0 and
-# wg1, and list-sas + list-conns on each of the two IPsec nodes). The page
-# polls every 5 s per viewer (VPN_POLL_MS in VpnProtocols.tsx), matched by the
-# 5 s default below. At a 3 s poll against a 2 s TTL every poll from every
-# viewer missed the cache.
+# Sampling `/api/vpn/protocols` costs three requests to stack-status, which
+# run six `docker exec`s (wg show for wg0 and wg1 on alice, and list-sas +
+# list-conns on each of the two IPsec nodes). The page polls every 5 s per
+# viewer (VPN_POLL_MS in VpnProtocols.tsx), matched by the 5 s default below.
+# At a 3 s poll against a 2 s TTL every poll from every viewer missed the
+# cache.
 # A short TTL collapses concurrent viewers onto one sample without introducing
 # a background task -- main.py deliberately has none.
 #
 # Failure shapes are cached too. Caching only successes would make a broken
 # lane the expensive case, which is precisely when the host is least able to
-# absorb it.
+# absorb it. That includes stack-status not answering, which is cached as the
+# 503 it produces.
 VPN_SAMPLE_TTL_S = float(os.environ.get("VPN_SAMPLE_TTL_S", "5.0"))
 _vpn_sample: dict[str, Any] = {}
+
+# The node whose WireGuard interfaces stand for the lane: the flat fields of
+# `wireguard` have always been alice's wg0, and `data_tunnel` is alice's wg1.
+VPN_WG_NODE = "alice"
 
 
 @app.get("/api/vpn/protocols")
 def vpn_protocols():
     """Live status of both VPN lanes, from both ends of the IPsec one.
 
-    A plain `def`, not `async def`. Every call inside is a blocking
-    `exec_run`; under `async def` those six round trips run ON the event loop
-    and stall every other request for their duration. FastAPI dispatches a sync
-    handler to its threadpool instead.
+    503, with the reason, when stack-status did not answer or is not deployed
+    here. Every lane field would otherwise have to be `absent`, which says
+    "looked, and not there" when nobody looked. A node that stack-status could
+    not read is still `absent` in place, as it was when this module asked
+    Docker itself.
+
+    A plain `def`, not `async def`. The three requests to stack-status block;
+    under `async def` they would run ON the event loop and stall every other
+    request for their duration. FastAPI dispatches a sync handler to its
+    threadpool instead.
     """
     now = time.monotonic()
     cached = _vpn_sample.get("v")
     if cached is not None and (now - cached["at"]) < VPN_SAMPLE_TTL_S:
+        if "unavailable" in cached:
+            raise HTTPException(503, cached["unavailable"])
         return cached["value"]
 
-    cli = app.state.docker
-    wg_status: dict[str, Any] = _wg_unknown("absent")
-    wg_data_status: dict[str, Any] = _wg_unknown("absent")
-    alice_ipsec: dict[str, Any] = _ipsec_unknown("absent")
-    bob_ipsec: dict[str, Any] = _ipsec_unknown("absent")
+    try:
+        wg_reply = _status_get(stack_contract.PATH_WG.format(node=VPN_WG_NODE))
+        ipsec_replies = {n: _status_get(stack_contract.PATH_IPSEC.format(node=n))
+                         for n in IPSEC_NODES}
+    except _StatusUnavailable as e:
+        detail = stack_contract.bounded(f"VPN lane status is {e}")
+        _vpn_sample["v"] = {"at": now, "unavailable": detail}
+        raise HTTPException(503, detail)
 
-    if cli is not None:
-        try:
-            c = cli.containers.get("alice")
-        except Exception as e:
-            # The IPsec branch logs; this one used to swallow silently, so a
-            # WireGuard lane that was never reachable looked identical to one
-            # that was simply absent.
-            log.warning("wireguard status unavailable: %s", e)
-        else:
-            wg_status = _sample_wg(c, "wg0", WG_SHOW_CMD)
-            wg_data_status = _sample_wg(c, "wg1", WG_DATA_SHOW_CMD)
-
-        alice_ipsec = _sample_ipsec(cli, "alice-ipsec")
-        bob_ipsec = _sample_ipsec(cli, "bob-ipsec")
+    wg_status = _sample_wg(wg_reply, "wg0")
+    wg_data_status = _sample_wg(wg_reply, "wg1")
+    alice_ipsec = _sample_ipsec(ipsec_replies["alice-ipsec"])
+    bob_ipsec = _sample_ipsec(ipsec_replies["bob-ipsec"])
 
     value = {
         # The flat WireGuard fields keep meaning what they meant before: alice's
@@ -1795,7 +1871,7 @@ def vpn_protocols():
 # Folding it into /api/vpn/protocols would mean reading two containers' whole
 # log streams every 3 s per viewer -- server compute the public demo is
 # supposed to avoid, and orders of magnitude more expensive than the six
-# `exec_run`s above.
+# `docker exec`s above.
 #
 # The pattern anchors on the adapter's message text, never on a line prefix,
 # because the prefix changed with the arnika pin. At 3a8cc13 the adapter's
@@ -1820,16 +1896,27 @@ _ROTATION_RE = re.compile(r"PPK rotated \(id=(\S+?) ")
 #                        succeeded -- the PPK was mixed into the IKE keys.
 _AUTH_FAILED_RE = re.compile(r"N\(AUTH_FAILED\)")
 _PPK_APPLIED_RE = re.compile(r"using PPK for PPK_ID")
-ROTATION_WINDOW_MAX_S = int(os.environ.get("VPN_ROTATION_WINDOW_MAX_S", "3600"))
+# The longest window, in seconds. It can lower the contract's bound, not raise
+# it: stack-status refuses a window longer than stack_contract.LOG_WINDOW_MAX_S.
+ROTATION_WINDOW_MAX_S = int(os.environ.get("VPN_ROTATION_WINDOW_MAX_S",
+                                           str(stack_contract.LOG_WINDOW_MAX_S)))
 ROTATION_TTL_S = float(os.environ.get("VPN_ROTATION_TTL_S", "15.0"))
 _rotation_sample: dict[int, Any] = {}
 
 
-def _count_rotations(cli, container: str, window_s: int) -> dict[str, Any]:
+def _not_counted(error: str) -> dict[str, Any]:
+    """A node's counts when its log could not be read: every count None."""
+    return {"count": None, "distinct_ids": None, "auth_failed": None,
+            "ppk_applied": None, "error": stack_contract.bounded(error)}
+
+
+def _count_rotations(container: str, window_s: int) -> dict[str, Any]:
     """Count 'PPK rotated' lines in a container's recent log.
 
     Counts only. The log lines themselves are never returned: they carry
-    credential ids and peer identities, and this endpoint is public.
+    credential ids and peer identities, and this endpoint is public. They
+    come from stack-status's /v1/log-window, which serves the IPsec nodes'
+    logs alone (stack_contract.LOG_WINDOW_CONTAINERS).
 
     `count: None` plus an `error` string when we could not look. Zero rotations
     and "could not look" must never be the same value -- a stalled arnika and
@@ -1837,13 +1924,14 @@ def _count_rotations(cli, container: str, window_s: int) -> dict[str, Any]:
     2.14 exists to catch.
     """
     try:
-        c = cli.containers.get(container)
-        raw = c.logs(since=int(time.time()) - window_s, stdout=True, stderr=True)
-        text = raw.decode("utf-8", errors="replace")
-    except Exception as e:
-        log.warning("could not read %s logs: %s", container, e)
-        return {"count": None, "distinct_ids": None, "auth_failed": None,
-                "ppk_applied": None, "error": str(e)[:ERROR_TEXT_MAX_CHARS]}
+        reply = _status_get(stack_contract.PATH_LOG_WINDOW.format(name=container),
+                            {"seconds": window_s})
+    except _StatusUnavailable as e:
+        return _not_counted(f"container logs are {e}")
+    if reply.get("error") is not None or not isinstance(reply.get("log"), str):
+        log.warning("could not read %s logs: %s", container, reply.get("error"))
+        return _not_counted(str(reply.get("error") or "stack-status returned no log"))
+    text = reply["log"]
     ids = _ROTATION_RE.findall(text)
     return {
         "count": len(ids),
@@ -1874,14 +1962,7 @@ def vpn_ppk_rotations(window_s: int = 600):
         return {**cached["value"], "requested_window_s": requested,
                 "capped": requested != window_s}
 
-    cli = app.state.docker
-    if cli is None:
-        nodes = {n: {"count": None, "distinct_ids": None, "auth_failed": None,
-                     "ppk_applied": None, "error": "docker not available"}
-                 for n in ("alice-ipsec", "bob-ipsec")}
-    else:
-        nodes = {n: _count_rotations(cli, n, window_s)
-                 for n in ("alice-ipsec", "bob-ipsec")}
+    nodes = {n: _count_rotations(n, window_s) for n in IPSEC_NODES}
 
     value = {
         "window_s": window_s,

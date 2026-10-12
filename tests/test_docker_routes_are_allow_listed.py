@@ -7,10 +7,13 @@ and `/api/logs/webui-frontend` answered 200 too. `GET /api/wg/{node}` ran
 `docker exec wg show wg0` in whatever container the path named; nothing in the
 frontend calls it at all.
 
-Both now check one table in main.py (LOG_CONTAINERS, and WG_NODES inside it)
-and answer 404 for anything else BEFORE Docker is asked. The fake Docker client
-below records every lookup, so "404" cannot be satisfied by a real lookup that
-happened to fail.
+Both now check one table (LOG_CONTAINERS, and WG_NODES inside it) and answer
+404 for anything else BEFORE stack-status, the service that holds the Docker
+socket, is asked. stack-status checks the same table again, because it is the
+one that would otherwise reach Docker. The table is stack_contract.py, the one
+file both services import. The fake Docker client below records every lookup
+stack-status makes, so "404" cannot be satisfied by a real lookup that happened
+to fail.
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import load_service_app
+from conftest import load_service_app, stack_status_client
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +33,7 @@ main = importlib.import_module("webui_backend_app.main")
 
 
 class _Container:
-    def logs(self, tail):
+    def logs(self, **_):
         return b"ordinary line\n"
 
     def exec_run(self, cmd):
@@ -52,24 +55,30 @@ class _RecordingDocker:
 
 @pytest.fixture
 def get(monkeypatch):
+    # stack-status imports the Docker SDK, as its image does; the CI python job
+    # installs it from services/stack-status/requirements.txt.
+    pytest.importorskip("docker")
     monkeypatch.setattr(main, "_pure_cache", {})
     fake = _RecordingDocker()
 
     def _get(path: str):
-        prev = getattr(main.app.state, "docker", None)
+        prev = getattr(main.app.state, "stack_status", None)
         try:
             with TestClient(main.app) as client:
-                main.app.state.docker = fake
+                # The lifespan has just set the client from STACK_STATUS_URL;
+                # replace it with one that stack-status's own handler answers.
+                main.app.state.stack_status = stack_status_client(fake)
                 return client.get(path)
         finally:
-            main.app.state.docker = prev
+            main.app.state.stack_status = prev
 
     _get.docker = fake
     return _get
 
 
 @pytest.mark.parametrize("name", ["caddy", "webui-frontend", "webui-backend",
-                                  "pqc-validator", "qkdnetsim-kme", "does-not-exist"])
+                                  "pqc-validator", "qkdnetsim-kme", "stack-status",
+                                  "does-not-exist"])
 def test_logs_of_an_unlisted_container_are_404_without_asking_docker(get, name):
     r = get(f"/api/logs/{name}?tail=1")
     assert r.status_code == 404, f"/api/logs/{name} answered {r.status_code}"
@@ -102,6 +111,17 @@ def test_one_table_serves_both_routes():
     """WG_NODES is a subset of LOG_CONTAINERS, so the two cannot drift apart."""
     assert set(main.WG_NODES) <= set(main.LOG_CONTAINERS)
     assert set(main.WG_NODES) == {"alice", "bob"}
+
+
+def test_one_table_serves_both_services():
+    """The backend's tables are the contract's, not a copy of them.
+
+    stack-status reads the same module (tests/test_stack_status_serves_a_fixed_api.py
+    checks that its image copies this one file), so a name added for one
+    service is added for the other.
+    """
+    for table in ("STACK_SERVICES", "WG_NODES", "IPSEC_NODES", "LOG_CONTAINERS"):
+        assert getattr(main, table) is getattr(main.stack_contract, table), table
 
 
 def test_the_allow_list_is_what_the_console_asks_for():

@@ -172,7 +172,7 @@ pre-standardisation parameter set and is not approved under FIPS 203 or
 CNSA 2.0. What limits the damage is that Classic McEliece is a *different*
 hardness assumption — code based, not lattice based — so the composite
 survives a Kyber512 break. That is an argument for the hybrid construction,
-not an excuse for the parameter set. Since 2026-09-26 this applies to `wg1`
+not an excuse for the parameter set. Since release 0.2.0 this applies to `wg1`
 only: arnika's combiner no longer takes Rosenpass's key.
 
 **arnika's PQC-HPKE half uses no liboqs.** It is the Go standard library's
@@ -236,7 +236,7 @@ estimates as a break.
 
 **What this changes here, precisely.** The hybrid argument in the Rosenpass row
 of the table above is untouched: code-based and lattice-based remain different
-assumptions, and a composite still requires breaking both. Since 2026-09-26 its
+assumptions, and a composite still requires breaking both. Since release 0.2.0 its
 reach is also smaller: mceliece460896 protects the key of the `wg1` data tunnel
 only, because arnika's combiner, and so the `wg0` key and the IPsec PPK, no
 longer takes Rosenpass's output. What is being re-estimated is the stated
@@ -244,9 +244,23 @@ longer takes Rosenpass's output. What is being re-estimated is the stated
 McEliece is chosen because of its high security margin and its small
 ciphertexts."* The margin is the thing under scrutiny.
 
-**Two dates belong together.** BSI TR-02102-1 recommends mceliece460896
-([`references.md`](references.md)) and its current version is dated 2026-01-23 —
-seven months before this line began. It has not been revisited since.
+**BSI has since responded.** BSI TR-02102-1 recommends mceliece460896
+([`references.md`](references.md)); its current version is dated 2026-01-23,
+seven months before this line began. On 2026-09-29 BSI published
+[*Notes on recent developments concerning Classic McEliece*](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Notes_Classic_McEliece.pdf?__blob=publicationFile&v=2),
+an initial assessment of this line of work. It advises that Classic McEliece
+*"should currently no longer be used in new developments"*, names FrodoKEM,
+ML-KEM and, once standardised, HQC for key agreement instead, and records that
+TR-02102-1 recommends Classic McEliece only in hybrid use with a classical
+scheme, so that such a combination still gives at least the classical scheme's
+security. It finds no practical attack on the recommended parameter sets so
+far, and expects to revise the recommendation in the next TR-02102-1, in early
+2027. Here Rosenpass's key goes into WireGuard's preshared-key slot on `wg1`, so
+`wg1`'s key agreement still includes WireGuard's X25519 handshake, and `wg1`
+runs inside `wg0`, whose preshared key comes from arnika's QKD ‖ PQC-HPKE
+combiner: no data path here rests on Classic McEliece alone. Replacing
+Rosenpass's KEM is the Rosenpass project's decision; this repository pins
+v0.2.3 and records the advice.
 
 **The team's silence is informative because responding is their habit.**
 `classic.mceliece.org/nist.html` (page version 2026.06.23) carries dated
@@ -406,8 +420,9 @@ do: the IPsec lane's ECP-256 + ML-KEM-768 exchange, and the MLKEM1024-P384 KEM
 inside arnika's PQC-HPKE half, which pairs ML-KEM-1024 with P-384 ECDH.
 
 **How to hold these together.** No authority surveyed endorses the whole
-construction. BSI recommends the McEliece parameter set this ships and does not
-recommend QKD ([`references.md`](references.md)); OMB is wary of both hybrid
+construction. BSI recommends the McEliece parameter set this ships only in hybrid
+use and, since 2026-09-29, not for new developments, and does not recommend QKD
+([`references.md`](references.md)); OMB is wary of both hybrid
 complexity and symmetric-key protocols, and the DoW memo phases PSK-based
 quantum resistance out across its Components; ANSSI accepts a PPK only as a
 temporary measure and prefers hybridisation; the EU treats QKD as not viable;
@@ -489,6 +504,11 @@ conclusion. Stated as a direction, not as done.
   authority on what is simulated versus measured.
 - It does not claim the key combiner is NIST-approved. It is not; see
   [`vici-ppk.md`](vici-ppk.md).
+- It does not defend the host the demo runs on. The adversary here records
+  ciphertext; the deployment's own exposure is a different one -- an
+  unauthenticated WebUI, and `stack-status`, the one internal container that
+  holds the Docker socket and is root-equivalent if compromised -- and
+  `docs/LIMITATIONS.md` states it.
 
 ## Sources
 

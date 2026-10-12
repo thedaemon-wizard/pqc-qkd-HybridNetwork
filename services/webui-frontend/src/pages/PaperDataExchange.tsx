@@ -50,8 +50,8 @@ function FullRowWhenNarrow({ narrow, children }: { narrow: boolean; children: Re
  *
  * Implements the multi-hop trusted-node Data Exchange described in
  * references/PQC-Enhanced_QKD_Networks_A_Layered_Approach.pdf (4.2 Integration
- * Workflow, 4.3 Fail-Safe Mechanism, Table 1) and matches the
- * arnika-project/arnika multi-hop image:
+ * Workflow, 4.3 Fail-Safe Mechanism, Table 1) and matches the paper's Fig. 3
+ * (docs/IMAGE2_MULTIHOP.md); the arnika README has no multi-hop figure:
  *
  *   End Node Alice | Trusted Node | End Node Bob
  *
@@ -154,8 +154,8 @@ export default function PaperDataExchange() {
         title="Paper Data Exchange (Spooren et al. arXiv:2604.05599, 4.2 Integration Workflow and 4.3 Fail-Safe Mechanism)"
         subtitle={
           <>
-            Multi-hop trusted-node Data Exchange faithful to the
-            arnika multi-hop diagram and the paper's Table 1 packet budgets
+            Multi-hop trusted-node Data Exchange faithful to the paper's
+            Fig. 3 and its Table 1 packet budgets
             ({/* Derived, not typed. This read "(9 packets / 5248 bytes per
                 handshake)" as a literal while the two KPI cards thirty lines
                 below rendered the same figure from

@@ -27,16 +27,16 @@ shared gallery, and the Saved-exports list).
 | `QKD Device` box (top of every column) | `<rect>` 70..120 + glow on Phase 1 | `MultiHopTopologySvg.tsx` |
 | `KMS Keystore (ETSI014)` box | `<rect>` 140..200 + glow on Phase 2 | same |
 | `Arnika` box (orange) | `<rect>` 230..280 + glow on Phase 2 | same |
-| `VPN WireGuard` box (purple) per column | `<rect>` 320..370 + glow on Phase 3/4 | same |
-| `PQC Rosenpass` (end-node columns only) | conditional `<rect>` 410..460 + glow on Phase 3 | same |
-| `Final WG tunnel + ChaCha20-Poly1305` (end-node columns) | `<rect>` 490..540 + glow on Phase 4/5 | same |
+| `VPN WireGuard` box (purple) per column | `<rect>` 320..370 + glow on Phase 3 (the hop tunnel) | same |
+| `PQC Rosenpass` (end-node columns only) | conditional `<rect>` 410..460 + glow on Phase 4 | same |
+| `Final WG tunnel + ChaCha20-Poly1305` (end-node columns) | `<rect>` 490..540 + glow on Phase 5 | same |
 | `DATA IPv4 / IPv6` box (end-node columns) | `<rect>` 570..610 | same |
 | ① Quantum Plane (purple dashed arrows across QKD Devices) | inter-column `<line>` at y=95 | same |
 | ② QKD Key IDs (orange dashed arrows across Arnika) | inter-column `<line>` at y=255 | same |
 | ③ PQC Handshake (pink arc across end-node Rosenpass) | `<path>` from Alice Rosenpass to Bob Rosenpass | same |
 | ④ Data Exchange (red horizontal line across final WG tunnels) | `<line>` at y=515 | same |
-| Numbered phase markers ① ② ③ ④ | top-left dial pad of 4 circles, active phase glows | same |
-| Failure layer banner ("Note: Failure injected on layer: ...") | optional bottom `<rect>` driven by `failureLayer` prop | same |
+| Numbered phase markers ① to ⑤ | top-left dial pad, one circle per entry of `PHASE_NAMES` in `paperSim.ts` (five), active phase glows | same |
+| Failure layer banner (a warning sign, then "<layer> failure") | optional bottom `<rect>` driven by `failureLayer` prop | same |
 
 ## Per-phase handshake cost
 

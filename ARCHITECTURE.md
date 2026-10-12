@@ -36,7 +36,8 @@
 | `bb84-kme-b` | `docker-compose.yml` | `services/bb84-kme/` (same image) | qkd-net, mgmt-net | none |
 | `alice` | `docker-compose.yml` | `nodes/alice/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
 | `bob` | `docker-compose.yml` | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
-| `webui-backend` | `docker-compose.yml` | `services/webui-backend/` | mgmt-net, qkd-net | docker.sock read-only |
+| `webui-backend` | `docker-compose.yml` | `services/webui-backend/` | mgmt-net, qkd-net, status-net | none; no Docker socket and no Docker SDK |
+| `stack-status` | `docker-compose.yml` | `services/stack-status/Dockerfile` | status-net | the Docker socket, mounted read-only as a file (the Docker API behind it is not read-only); read-only root filesystem, every capability dropped, no published port |
 | `webui-frontend` | `docker-compose.yml` | `services/webui-frontend/` | mgmt-net | none |
 | `pqc-validator` | `docker-compose.yml` | `services/pqc-validator/Dockerfile` | mgmt-net, qkd-net | none; no published port |
 | `alice-ipsec` | `docker-compose.strongswan.yml` (`ipsec`) | `nodes/strongswan/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
@@ -45,8 +46,22 @@
 | `qkdnetsim-kme` | `docker-compose.qkdnetsim.yml` (`crossvalidate`) | `services/qkdnetsim-kme/Dockerfile` | qkd-net, mgmt-net | none; no published port |
 | `caddy` | `deploy/docker-compose.cloud.yml` | upstream `caddy:2-alpine` | mgmt-net | publishes 80 and 443 |
 
-Only the first seven start with a plain `docker compose up`. The rest come from
+Only the first eight start with a plain `docker compose up`. The rest come from
 an overlay and, where shown, its profile.
+
+`stack-status` is the one container that mounts the Docker socket. The
+backend answers the internet, so it holds neither the socket nor the Docker
+SDK: what it reports about containers -- their status, bounded log tails and
+log windows, `wg show wg0` and `wg show wg1` in the WireGuard nodes, `swanctl
+--list-sas` and `--list-conns` in the IPsec nodes -- it asks `stack-status`
+for, over `STACK_STATUS_URL`. `stack-status` serves that and nothing else: a
+fixed API, GET only, with the containers each route may read, the commands it
+may run and the bounds of its parameters taken from
+`services/webui-backend/app/stack_contract.py`, the one file both services
+import (its image copies it in). No route starts, stops, creates or removes a
+container. Without `STACK_STATUS_URL`, as in the sim-only demo overlay, which
+runs no `stack-status`, those routes say the data is not available on that
+deployment.
 
 Each KME serves two key-delivery interfaces over one key pool: ETSI GS QKD 014
 (`/api/v1/keys/...`, what arnika uses) and ETSI GS QKD 004 V2.1.1
@@ -58,6 +73,7 @@ Networks:
 - `qkd-net` — `internal: true`. KME ↔ arnika, KME-KME key sync, and the 004 stream exchange (`/internal/etsi004/...`). No host bridge.
 - `wan-net` — simulated public Internet. The `wg0` and IKEv2 endpoints. `wg1` and the Rosenpass exchange run between the two `wg0` IPs (the lower one initiates each Rosenpass exchange, the other answers), so on `wan-net` they appear only as `wg0` traffic.
 - `mgmt-net` — WebUI plane. Exposes 5173 and 8000 to host.
+- `status-net` — `internal: true`. `webui-backend` and `stack-status` only, so the one service with the Docker socket is reachable from the one service that needs it, and from nothing on `mgmt-net`. No host bridge, no published port.
 
 ## 3. Data flow (one PSK rotation on the WireGuard lane)
 
@@ -188,12 +204,12 @@ diff -- but it shifts these line numbers, so they hold at `f4cf9ba` only.
 | `kms.Repository.GetNewKey()` | `submodules/arnika/repositories/kms/kms.go:94-96` | Defines `enc_keys?number=1&size=256` URL |
 | `kms.Repository.GetKeyByID()` | `submodules/arnika/repositories/kms/kms.go:98-104` | Defines `dec_keys?key_ID=...` URL (`:102`) |
 | `type kmsKey struct` | `submodules/arnika/repositories/kms/kms.go:43-46` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract visualised in the Sankey/Manim; byte-identical to the previous pin `3a8cc13` |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract shown in the `/keyflow` Sankey (the Manim scene in `animations/` is not rendered or shipped); byte-identical to the previous pin `3a8cc13` |
 | `pqcSuite()` | `submodules/arnika/repositories/pqchpke/pqchpke.go:222-224` | The PQC half: MLKEM1024-P384, HKDF-SHA384, export-only |
 | `keyWriterRepository` | `submodules/arnika/services/keywriter.go:23-25` | The one-method port (`SetPSK(psk []byte) error`) the VICI adapter implements |
 | `RunKeyIDWorker()` | `submodules/arnika/transport/server.go:361-377` | The BACKUP installs its key before it ACKs; the PRIMARY writes after the ACK (`main.go:369-394`) |
 | `IsPrimary()` | `submodules/arnika/config/config.go:102-113` | Per-interval PRIMARY/BACKUP election; why the two `ARNIKA_ID`s must differ in parity (since #51 the parity also picks each direction's HMAC key) |
-| Operational modes | `submodules/arnika/config/config.go:42`, validated at `:280-283` | 4 modes drive WebUI ControlPanel choices; both peers must use the same one |
+| Operational modes | `submodules/arnika/config/config.go:42`, validated at `:280-283` | 4 modes; every node of this deployment runs `QkdAndPqcRequired`, and both peers must use the same one. The WebUI does not select a mode |
 
 ## 6. Why this matches the paper
 
@@ -216,7 +232,7 @@ pqc-qkd-HybridNetwork/
 ├── ARCHITECTURE.md                    # This file
 ├── VERIFICATION_CHECKLIST.md          # Manual and CI-backed verification rows
 ├── LICENSE, NOTICE
-├── docker-compose.yml                 # Default topology (7 services)
+├── docker-compose.yml                 # Default topology (8 services)
 ├── docker-compose.strongswan.yml      # IPsec lane (profile ipsec)
 ├── docker-compose.multihop.yml        # Adds the Charlie relay (profile multihop)
 ├── docker-compose.qkdnetsim.yml       # Second ETSI 014 server (profile crossvalidate)
@@ -246,7 +262,10 @@ pqc-qkd-HybridNetwork/
 │   ├── bb84-kme/                      # Python KME: pluggable QKD backends, ETSI 014 REST,
 │   │   │                              #   ETSI 004 V2.1.1 binding (off by default)
 │   │   └── app/backends/              # qutip / simqn / sequence / cvqkd / composite / qkdnetsim_proxy / tno
-│   ├── webui-backend/                 # FastAPI API behind the dashboard
+│   ├── webui-backend/                 # FastAPI API behind the dashboard; app/stack_contract.py
+│   │                                  #   is the allow-list stack-status serves by
+│   ├── stack-status/                  # The only holder of the Docker socket: a fixed GET API
+│   │                                  #   on status-net (standard-library HTTP + Docker SDK)
 │   ├── webui-frontend/                # React/Vite dashboard, 14 routes incl. /e2e,
 │   │                                  #   /paper-flow and the /protocol-lab simulation
 │   ├── pqc-validator/                 # liboqs; @noble-vs-liboqs ML-KEM interop

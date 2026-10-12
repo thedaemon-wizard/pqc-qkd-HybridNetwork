@@ -35,10 +35,14 @@ from __future__ import annotations
 
 import importlib
 
-from conftest import load_service_app
+import httpx
+import pytest
+from conftest import load_service_app, stack_status_client, stack_status_replying
 
 load_service_app("webui-backend", "webui_backend_app")
 _main = importlib.import_module("webui_backend_app.main")
+# The commands are the contract's: stack-status runs them, not this backend.
+_contract = _main.stack_contract
 
 # ---- fixtures ------------------------------------------------------------
 # Placeholder keys, real shape: 43 base64 chars + '='.
@@ -79,12 +83,15 @@ WG_SHOW_UNREDACTED = WG_SHOW.replace(
 
 def test_the_endpoint_does_not_ask_for_the_dump_format():
     """The one-word difference that caused the leak."""
-    assert "dump" not in _main.WG_SHOW_CMD, (
-        f"WG_SHOW_CMD is {_main.WG_SHOW_CMD!r}. `wg show <if> dump` emits the "
+    assert "dump" not in _contract.WG_SHOW_CMD, (
+        f"WG_SHOW_CMD is {_contract.WG_SHOW_CMD!r}. `wg show <if> dump` emits the "
         "interface private key as field 1 and the preshared key as field 2 of "
         "each peer line. This endpoint is public and unauthenticated."
     )
-    assert _main.WG_SHOW_CMD.split() == ["wg", "show", "wg0"]
+    assert _contract.WG_SHOW_CMD.split() == ["wg", "show", "wg0"]
+    # Every command stack-status runs for this route, not only the first.
+    for iface, cmd in _contract.WG_SHOW_CMDS.items():
+        assert cmd.split() == ["wg", "show", iface], cmd
 
 
 def test_redaction_is_a_no_op_on_the_readable_form():
@@ -122,20 +129,36 @@ def test_dump_shaped_output_is_withheld_whole():
     assert "private key" in out
 
 
-def test_the_route_returns_redacted_output():
-    """End to end through the handler, with a fake docker client.
+def _wg_body(status_client) -> dict:
+    from fastapi.testclient import TestClient
 
-    The unit tests above could all pass while the handler returned `text`
+    _main._pure_cache.pop("wg:alice", None)
+    prev = getattr(_main.app.state, "stack_status", None)
+    try:
+        with TestClient(_main.app) as client:
+            # The lifespan has just set the client from STACK_STATUS_URL.
+            _main.app.state.stack_status = status_client
+            return client.get("/api/wg/alice").json()
+    finally:
+        _main.app.state.stack_status = prev
+        _main._pure_cache.pop("wg:alice", None)
+
+
+def test_the_route_returns_redacted_output():
+    """End to end through both services, with a fake docker client.
+
+    The unit tests above could all pass while a handler returned `text`
     instead of `_redact_wg(text)` -- which is exactly the bug that shipped.
     """
+    pytest.importorskip("docker")
 
     class _FakeExec:
         def __init__(self, payload: bytes):
             self.payload = payload
 
         def exec_run(self, cmd):
-            # Answer with the DUMP even though the handler asked for `show`, so
-            # this fails unless the response actually goes through the redactor.
+            # Answer with the DUMP even though stack-status asked for `show`, so
+            # this fails unless the response actually goes through a redactor.
             assert "dump" not in cmd
             return 0, self.payload
 
@@ -146,17 +169,21 @@ def test_the_route_returns_redacted_output():
     class _FakeDocker:
         containers = _FakeContainers()
 
-    from fastapi.testclient import TestClient
-
-    prev = getattr(_main.app.state, "docker", None)
-    _main.app.state.docker = _FakeDocker()
-    try:
-        with TestClient(_main.app) as client:
-            # TestClient's lifespan re-runs startup, which may reset the client.
-            _main.app.state.docker = _FakeDocker()
-            body = client.get("/api/wg/alice").json()
-    finally:
-        _main.app.state.docker = prev
-
+    body = _wg_body(stack_status_client(_FakeDocker()))
     assert _PRIV not in body["output"], "the route emitted the interface private key"
     assert _PSK not in body["output"], "the route emitted the preshared key"
+
+
+def test_the_backend_redacts_what_stack_status_relays_unredacted():
+    """The backend's pass on its own: if stack-status ever relays the dump as it
+    came -- a one-word edit there -- this route must still withhold it."""
+    def reply(request: httpx.Request) -> httpx.Response:
+        result = {"rc": 0, "output": WG_DUMP, "error": None}
+        return httpx.Response(200, json={"node": "alice", "error": None,
+                                         "results": {"wg0": result, "wg1": result}})
+
+    body = _wg_body(stack_status_replying(reply))
+    for iface in (body, body["data_tunnel"]):
+        assert _PRIV not in iface["output"], "the route emitted the interface private key"
+        assert _PSK not in iface["output"], "the route emitted the preshared key"
+        assert "[withheld]" in iface["output"]

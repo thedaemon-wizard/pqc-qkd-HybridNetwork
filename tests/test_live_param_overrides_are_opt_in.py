@@ -7,9 +7,10 @@ KMEs fill the key pool arnika draws the QKD half of every PSK from, on both live
 VPN lanes. On the public demo any anonymous visitor could set them, and every
 other visitor and both lanes then ran on that visitor's choice: last write wins.
 
-The fix follows ENABLE_CONTAINER_CONTROL: opt-in, parsed the same way, so a
-missing or misspelled variable yields the safe deployment. The contract other
-parts of the repository rely on, pinned here:
+The fix followed ENABLE_CONTAINER_CONTROL, a switch since removed with the
+backend's Docker socket: opt-in, parsed by the same `_truthy` as every boolean
+switch, so a missing or misspelled variable yields the safe deployment. The
+contract other parts of the repository rely on, pinned here:
 
   * flag off -> each of the three routes is 403 with one exact detail string,
     and no request leaves the backend;
@@ -181,8 +182,8 @@ def _flag_in_a_fresh_process(env_value: str | None) -> bool:
     ("yes", True),
     ("on", True),
 ])
-def test_the_default_is_off_and_parsing_matches_container_control(value, expected):
+def test_the_default_is_off_and_parsing_matches_the_other_switches(value, expected):
     assert _flag_in_a_fresh_process(value) is expected
-    # Same parser as ENABLE_CONTAINER_CONTROL, so the two flags cannot disagree
-    # about what "true" means.
+    # Same parser as the other boolean switches (_truthy), so no two flags can
+    # disagree about what "true" means.
     assert main._truthy(value) is expected

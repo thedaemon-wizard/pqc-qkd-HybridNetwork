@@ -8,17 +8,23 @@ large enough `?tail=` reached back past the 129,319 lines alice had logged to th
 banner. Measured 2026-09-25 by the LENGTH of the value only -- 44 characters, a
 base64 32-byte key -- never by printing it.
 
-Upstream replaced the print with redactSecret() on arnika PR #51. Until the pin
-moves past it the backend is the only guard, and this file pins four separate
-things, because fixing one leaves the others free to drift back:
+Upstream replaced the print with redactSecret() on arnika PR #51, which the pin
+now includes, so the banner reaches this project already redacted -- unless a
+node is rolled back. This project's redactor is stack_contract.redact_log,
+applied twice: by stack-status, which reads the log from Docker, and by
+webui-backend on the way out. This file pins five separate things, because
+fixing one leaves the others free to drift back:
 
   1. the arnika banner line is redacted whatever its value looks like;
   2. other key-shaped values after a key-ish label are redacted, while ordinary
      error text after "PSK:" stays readable (the length floor);
   3. the route actually applies the redactor (the wg route shipped a working
-     redactor that the handler did not call);
-  4. `tail` / `lines` are bounded, and both handlers are plain `def` so the
-     blocking Docker SDK runs in the threadpool, not on the event loop.
+     redactor that the handler did not call) -- the backend's own pass too,
+     not only stack-status's;
+  4. two passes count a withheld value once, so `redacted` says what it always
+     said;
+  5. `tail` / `lines` are bounded, and both handlers are plain `def` so the
+     blocking call runs in the threadpool, not on the event loop.
 
 Placeholders have real key shapes so a length-based check cannot pass on a
 shorter stand-in.
@@ -28,8 +34,9 @@ from __future__ import annotations
 import importlib
 import inspect
 
+import httpx
 import pytest
-from conftest import load_service_app
+from conftest import load_service_app, stack_status_client, stack_status_replying
 from fastapi.testclient import TestClient
 
 load_service_app("webui-backend", "webui_backend_app")
@@ -109,13 +116,23 @@ def test_the_redactor_is_not_a_no_op_on_the_shipped_banner():
     assert _main._redact_log(BANNER)[0] != BANNER
 
 
+def test_a_second_pass_changes_nothing_and_counts_nothing():
+    """stack-status redacts, and the backend redacts again: the second pass must
+    neither alter the text nor count the banner a second time."""
+    once, n = _main._redact_log(BANNER + f"secret: {_PSK}\n")
+    assert n == 2
+    assert _main._redact_log(once) == (once, 0)
+
+
 # ---- 3. through the handler ----------------------------------------------
 class _FakeContainer:
     def __init__(self, payload: bytes, seen: list):
         self.payload = payload
         self.seen = seen
 
-    def logs(self, tail):
+    def logs(self, tail, **streams):
+        assert streams == {"stdout": True, "stderr": True}, (
+            "stack-status must ask for both streams: arnika logs to stderr")
         self.seen.append(tail)
         return self.payload
 
@@ -132,17 +149,22 @@ class _FakeDocker:
         self.containers = _C()
 
 
-def _get(path: str, payload: bytes):
-    prev = getattr(_main.app.state, "docker", None)
-    fake = _FakeDocker(payload)
+def _get_through(path: str, status_client):
+    prev = getattr(_main.app.state, "stack_status", None)
     try:
         with TestClient(_main.app) as client:
-            # TestClient's lifespan re-runs startup, which may reset the client.
-            _main.app.state.docker = fake
-            r = client.get(path)
+            # The lifespan has just set the client from STACK_STATUS_URL.
+            _main.app.state.stack_status = status_client
+            return client.get(path)
     finally:
-        _main.app.state.docker = prev
-    return r, fake
+        _main.app.state.stack_status = prev
+
+
+def _get(path: str, payload: bytes):
+    """Through both services: stack-status's handler reads the fake Docker."""
+    pytest.importorskip("docker")
+    fake = _FakeDocker(payload)
+    return _get_through(path, stack_status_client(fake)), fake
 
 
 def test_the_route_returns_redacted_output():
@@ -150,8 +172,49 @@ def test_the_route_returns_redacted_output():
     assert r.status_code == 200
     body = r.json()
     assert _PSK not in body["log"], "the route emitted ARNIKA_PSK"
-    assert body["redacted"] == 1, "the route must say that something was withheld"
+    assert body["redacted"] == 1, (
+        "the route must say that something was withheld, and say it once: "
+        "stack-status's pass and the backend's are one withheld value")
     assert "key_ID" in body["log"], "redaction must not swallow ordinary lines"
+
+
+def test_the_backend_redacts_what_stack_status_did_not():
+    """The backend's own pass, tested alone: a stack-status that relayed the
+    banner unredacted must still not get it out of this route."""
+    def reply(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"name": "alice", "log": BANNER + ROTATION_LINE,
+                                         "redacted": 0, "error": None})
+
+    r = _get_through("/api/logs/alice", stack_status_replying(reply))
+    assert r.status_code == 200
+    assert _PSK not in r.json()["log"], "only stack-status's pass stood between the key and the route"
+    assert r.json()["redacted"] == 1
+
+
+def test_a_container_stack_status_could_not_read_is_404_with_the_reason():
+    def reply(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"name": "alice", "log": None, "redacted": None,
+                                         "error": "404 Client Error: No such container: alice"})
+
+    r = _get_through("/api/logs/alice", stack_status_replying(reply))
+    assert r.status_code == 404
+    assert "No such container" in r.json()["detail"]
+
+
+def test_without_stack_status_the_route_says_it_is_not_available_here():
+    r = _get_through("/api/logs/alice", None)
+    assert r.status_code == 503
+    assert r.json()["detail"].startswith("container logs are not available on this deployment")
+    assert "STACK_STATUS_URL" in r.json()["detail"]
+
+
+def test_stack_status_not_answering_is_503_not_an_empty_log():
+    def reply(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    r = _get_through("/api/logs/alice", stack_status_replying(reply))
+    assert r.status_code == 503
+    assert "stack-status did not answer" in r.json()["detail"]
 
 
 @pytest.mark.parametrize("tail", [0, -1])

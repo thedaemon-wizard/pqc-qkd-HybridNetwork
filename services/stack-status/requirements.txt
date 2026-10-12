@@ -1,0 +1,6 @@
+# The Docker SDK, the one dependency: the HTTP server is the standard
+# library's (http.server), so the only container that holds the Docker socket
+# carries no web framework. Same pin webui-backend carried until it stopped
+# mounting the socket. Apache-2.0; it brings requests, urllib3, idna,
+# charset-normalizer and certifi with it.
+docker==7.1.0

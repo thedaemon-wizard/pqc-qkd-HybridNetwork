@@ -661,8 +661,15 @@ visible in the logs:
   the two nodes' `msg="round agreed a fresh PQC key" round=N` lines is what
   separates it from the race.
 
-**The before/after measurement is planned, not done.** Two arms of 168 hours
-each on the same host: arm A at `3a8cc13` under the configuration that
+**The before/after measurement is done** (arm A from 2026-09-25T10:55Z to
+2026-10-02T10:55Z, arm B from 2026-10-03T07:04:06Z to 2026-10-10T07:04:06Z,
+with arm B's span after an interval-number mismatch excluded and reported
+apart). The reports and the result are in
+[`measurements/2026-10-ppk-before-after/`](measurements/2026-10-ppk-before-after/README.md),
+reported upstream first on
+[arnika#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6117990327). The design
+below is what was fixed before the runs.
+Two arms of 168 hours each on the same host: arm A at `3a8cc13` under the configuration that
 preceded this change, arm B at `f4cf9ba`, each with both IPsec nodes recreated
 in one step. Held constant: strongSwan 6.1.0, `IKE_PROPOSALS` and
 `ESP_PROPOSALS`, `REAUTH_TIME`, `VICI_REAUTH_TIMEOUT`, `MODE`,
@@ -882,7 +889,7 @@ changed with #51 is the second input, not the combiner: `PQC` is now the
   HPKE key schedule, but that is inside the PQC input, not FixedInfo in the
   combiner.)
 - **The inputs are still not shown to be approved-KEM-derived; the reason
-  changed.** Until 2026-09-26 the PQC input came from Rosenpass v0.2.3, whose
+  changed.** Before release 0.2.0 the PQC input came from Rosenpass v0.2.3, whose
   Classic McEliece 460896 + Kyber512 is not an approved KEM (Kyber512 is the
   pre-standardisation parameter set, not FIPS 203). That objection no longer
   applies to this combiner. The input is now a 32-byte HPKE export: HPKE in

@@ -43,7 +43,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-BINARY = re.compile(r"\.(pdf|png|jpg|jpeg|gif|webm|mp4|ico|woff2?|zip|whl|so)$", re.I)
+# `gz` is the measurement reports' `--json` output under docs/measurements/;
+# tests/test_measurement_reports_are_clean.py decompresses and checks those.
+BINARY = re.compile(r"\.(pdf|png|jpg|jpeg|gif|webm|mp4|ico|woff2?|zip|whl|so|gz)$", re.I)
 
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 # Every endpoint as an escape, not a literal. The previous form spelled three

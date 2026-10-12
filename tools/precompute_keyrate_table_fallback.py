@@ -27,7 +27,9 @@ WCP per the formulas in:
       analysis, applied through services/bb84-kme/app/backends/_skr.py rather
       than reimplemented here. (Was arXiv:2511.21253, which does not contain
       the formula this tool used.)
-  [3] M. Curty, F. Xu, et al., Nature Communications 5, 3732 (2014).
+  (Curty et al., Nature Communications 5, 3732 (2014), listed here before,
+  is the finite-key analysis of measurement-device-independent QKD, a
+  different protocol; no formula of this tool comes from it.)
 
 The output table is committed to git so the shipped configuration has
 production-quality defaults without re-running this script; regenerate it
@@ -179,7 +181,8 @@ def precompute(distances_km, etas, y0s, eds, N_block) -> list[dict]:
     rows: list[dict] = []
     for distance, eta_d, Y0, e_d in itertools.product(distances_km, etas, y0s, eds):
         p = PhysParams(distance_km=distance, eta_d=eta_d, Y0=Y0, e_d=e_d)
-        # Greedy μ optimisation over a coarse 1-D grid (BO handled at runtime)
+        # Greedy μ optimisation over a coarse 1-D grid (no optimiser runs at run
+        # time; services/bb84-kme/app/optimizer.py is command-line only)
         best = (0.0, p.mu)
         for mu in [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]:
             q = PhysParams(distance_km=distance, eta_d=eta_d, Y0=Y0, e_d=e_d, mu=mu)

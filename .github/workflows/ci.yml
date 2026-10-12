@@ -42,12 +42,16 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # stack-status's requirements bring the Docker SDK, which webui-backend
+      # no longer installs: the stack-status tests, and the backend tests that
+      # run through stack-status's handler, import it and would skip without it.
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install ruff pytest pytest-asyncio httpx
           pip install -r services/bb84-kme/requirements.txt
           pip install -r services/webui-backend/requirements.txt
+          pip install -r services/stack-status/requirements.txt
 
       # No `|| true`: the Makefile targets used to swallow lint failures, so
       # they never gated anything.
@@ -441,6 +445,63 @@ jobs:
       # statement that the post-quantum primitives actually work in the image.
       - name: PQC validator
         run: docker build -f services/pqc-validator/Dockerfile -t pqcqkd/pqc-validator:ci .
+
+      # The one image that mounts the Docker socket. Its build imports the
+      # server, so a contract the server cannot read fails here. Then the
+      # running container is probed from inside, with no socket mounted and no
+      # port published: health must say the daemon does not answer, and
+      # anything outside the fixed API must be refused before Docker is asked.
+      - name: Stack status service
+        run: docker build -f services/stack-status/Dockerfile -t pqcqkd/stack-status:ci .
+
+      - name: Stack status refuses everything outside its fixed API
+        run: |
+          set -eu
+          docker run -d --name stack-status-ci --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true pqcqkd/stack-status:ci
+          trap 'docker logs stack-status-ci; docker rm -f stack-status-ci >/dev/null' EXIT
+          docker exec -i stack-status-ci python - <<'PROBE'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          BASE = "http://127.0.0.1:8081"
+
+          def call(method, path):
+              req = urllib.request.Request(BASE + path, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=5) as r:
+                      return r.status, json.loads(r.read() or b"null")
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read() or b"null")
+
+          for _ in range(50):
+              try:
+                  call("GET", "/health")
+                  break
+              except OSError:
+                  time.sleep(0.2)
+          expected = [
+              ("GET", "/health", 503),
+              ("POST", "/v1/stack", 405),
+              ("DELETE", "/v1/logs/alice?tail=1", 405),
+              ("GET", "/v1/exec", 404),
+              ("GET", "/v1/logs/caddy?tail=1", 404),
+              ("GET", "/v1/logs/alice?tail=2001", 422),
+              ("GET", "/v1/log-window/alice?seconds=60", 404),
+              ("GET", "/v1/wg/alice-ipsec", 404),
+          ]
+          failed = False
+          for method, path, want in expected:
+              got, body = call(method, path)
+              print(f"{method} {path} -> {got} {body}")
+              failed |= got != want
+          got, body = call("GET", "/v1/stack")
+          print(f"GET /v1/stack -> {got}, statuses {sorted({r['status'] for r in body['containers']})}")
+          failed |= got != 200 or {r["status"] for r in body["containers"]} != {"unknown"}
+          raise SystemExit(1 if failed else 0)
+          PROBE
 
       # The interop cross-check needs liboqs, which the host job does not have,
       # so those tests skip there and would give false assurance. Run them where

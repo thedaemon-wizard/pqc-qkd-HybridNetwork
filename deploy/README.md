@@ -1,7 +1,8 @@
 # Cloud deployment (`deploy/`)
 
-Artifacts to run the **full real-WireGuard stack** (all 7 services, including
-the privileged `alice`/`bob` WireGuard nodes) on a single public host with
+Artifacts to run the **full real-WireGuard stack** (all 8 services, including
+the privileged `alice`/`bob` WireGuard nodes and `stack-status`, the one
+internal service that mounts the Docker socket) on a single public host with
 automatic TLS.
 
 **Host requirement: Ubuntu 22.04 or 24.04 on a KVM virtual machine with
@@ -11,14 +12,15 @@ fail differently. `deploy.sh` runs under `set -euo pipefail`, so its bare
 `apt-get update -y` stops it at the WireGuard step; `deploy-demo.sh` writes its
 `apt-get` line as `... || true` and carries on. Both skip the firewall step
 with a one-line log when `ufw` is absent. The runtime switches the backend
-reads (`DEMO_MODE`, `ENABLE_LIVE_PARAM_OVERRIDES`, the rate limit and the
-export-store bounds), and which of them `.env` can set, are in
+reads (`DEMO_MODE`, `ENABLE_LIVE_PARAM_OVERRIDES`,
+`ENABLE_SHARED_EXPORT_DELETE`, the rate limit and the export-store bounds),
+and which of them `.env` can set, are in
 [`../docs/BUILD.md` section 7](../docs/BUILD.md#7-configuration).
 
 | File | Purpose |
 |---|---|
 | `docker-compose.cloud.yml` | Overlay: adds a Caddy reverse proxy (the only public service, 80/443), restart policies and a bound on the server-side export store. Use with the base compose. |
-| `docker-compose.demo.yml` | **Public-demo profile** (sim-only): `DEMO_MODE=1` (container control vetoed), no privileged WG nodes and no `docker.sock` mount. The E2E / Paper / Physics / BB84 pages run **client-side** (browser JS + Web Worker/WebGPU, real `@noble` crypto); live parameter overrides stay off, as on every host that does not set `ENABLE_LIVE_PARAM_OVERRIDES=true`. |
+| `docker-compose.demo.yml` | **Public-demo profile** (sim-only): `DEMO_MODE=1`, no privileged WG nodes and no `stack-status`, so no container mounts `docker.sock`; `STACK_STATUS_URL` is emptied, and the container-status, log and VPN routes say their data is not available here. The E2E / Paper / Physics / BB84 pages run **client-side** (browser JS + Web Worker/WebGPU, real `@noble` crypto); live parameter overrides and deleting saved exports stay off, as on every host that does not set `ENABLE_LIVE_PARAM_OVERRIDES=true` or `ENABLE_SHARED_EXPORT_DELETE=true`. |
 | `Caddyfile` | Caddy config: auto-HTTPS for `$PUBLIC_HOST`, proxies to `webui-frontend`. |
 | `deploy.sh` | Bootstrap for the **FULL** real-WireGuard stack (Docker, WG module, IP forwarding, UFW, **swap**, build & up). Heavy: needs **≥4 GB RAM / ~15 GB disk** + a real kernel. |
 | `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes). Recommended for a public demo. |

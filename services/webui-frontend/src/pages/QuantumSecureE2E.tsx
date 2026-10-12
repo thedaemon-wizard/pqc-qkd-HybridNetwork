@@ -174,12 +174,15 @@ export default function QuantumSecureE2E() {
     <div>
       <PageHeader
         title="Quantum-Secure E2E Simulation"
-        subtitle={<>Run and visualise the live <b>4-step Data Exchange</b> between Alice
-          and Bob. This runs <b>client-side in your browser</b>: a QKD key + key_ID are
-          generated, the orchestrator fuses QKD ‖ PQC with <b>real HKDF-SHA3-256</b>, and
+        subtitle={<>Run and visualise the <b>4-step Data Exchange</b> between Alice
+          and Bob. This runs <b>client-side in your browser</b>: random stand-ins for the
+          QKD key, its key_ID and the PQC key are drawn (no KME is read and no key is
+          exchanged), the orchestrator fuses QKD ‖ PQC with <b>real HKDF-SHA3-256</b>, and
           the final step encrypts packets with <b>real ChaCha20-Poly1305</b> (via @noble)
-          keyed by the derived PSK. Use Run / Pause / Resume / Step / Reset to drive the
-          state machine.</>}
+          keyed by the derived PSK. The diagram follows the arnika README's figure, in
+          which Rosenpass supplies the PQC key; in the deployed lanes arnika agrees that
+          key itself with PQC-HPKE, and Rosenpass keys the wg1 data tunnel (see /vpn).
+          Use Run / Pause / Resume / Step / Reset to drive the state machine.</>}
       />
 
       {/* Export toolbar — between explanation text and simulation diagram.

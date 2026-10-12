@@ -106,7 +106,7 @@ difference: arnika's hop key is not QKD-only, because the pinned arnika
 PQC-HPKE key it agrees with its peer. In the multi-hop compose the relay holds
 both legs' hop keys, as a trusted node does, and it also terminates each leg's
 `wg1`, so it holds each leg's Rosenpass key too: unlike the paper's, this
-end-to-end layer ends at the trusted node. Until 2026-09-26 the post-quantum
+end-to-end layer ends at the trusted node. Before release 0.2.0 the post-quantum
 half was Rosenpass's key mixed into each hop's PSK, and a separate end-to-end
 layer existed only in the `/paper-flow` simulation. The paper's PQC tool is **QuantShake**
 ([github.com/aparcar/quantshake](https://github.com/aparcar/quantshake), MIT, by
@@ -138,7 +138,7 @@ Read directly 2026-08-29; both quotations are verbatim from the PDF text.
 
 `mceliece460896` is the exact parameter set in the pinned Rosenpass v0.2.3, which
 `tests/test_rosenpass_kem_names_match_the_submodule.py` derives from the
-submodule's own domain-separation label. Since 2026-09-26 it keys the `wg1`
+submodule's own domain-separation label. Since release 0.2.0 it keys the `wg1`
 data tunnel only; arnika's key combiner no longer takes it.
 
 **Read that endorsement with its date attached.** The current TR-02102-1 is
@@ -163,18 +163,20 @@ they depend on.
 All six are Creative Commons Attribution. IACR ePrint has had no default licence
 since 2022, so each was checked on its own page rather than assumed.
 
-**What this changes, and what it does not.** Until 2026-09-26,
+**What this changes, and what it does not.** Before release 0.2.0,
 [`vici-ppk.md`](vici-ppk.md) recorded that arnika's PQC half, then Rosenpass's
 key, is not an approved KEM under **NIST SP 800-227**. That was a statement
-about SP 800-227, not about every authority: under BSI the same parameter set
-is recommended for long-term confidentiality. Both framings are correct about
-different standards and neither should be quoted as the other. Since
-2026-09-26 the Classic McEliece judgement applies to the `wg1` data tunnel
-only; arnika's PQC half is now an HPKE export over ML-KEM-1024 with P-384,
+about SP 800-227, not about every authority: BSI's TR-02102-1 recommends the
+same parameter set, in hybrid use only, and BSI's
+[note of 2026-09-29](https://www.bsi.bund.de/SharedDocs/Downloads/EN/BSI/Crypto/Notes_Classic_McEliece.pdf?__blob=publicationFile&v=2)
+advises against Classic McEliece in new developments pending a revision of
+TR-02102-1 expected in early 2027. Both framings are correct about different
+standards and neither should be quoted as the other. Since release 0.2.0 the
+Classic McEliece judgement applies to the `wg1` data tunnel only; arnika's PQC half is now an HPKE export over ML-KEM-1024 with P-384,
 and whether that counts as approved-KEM-derived is open, as the appendix of
 [`vici-ppk.md`](vici-ppk.md) sets out.
 
-**Do not read the McEliece endorsement as European support for QKD.** BSI is on
+**Do not read BSI's McEliece recommendation as European support for QKD.** BSI is on
 record against QKD protocols in the same document. A project that mixes QKD with
 PQC has to say which half each authority is endorsing.
 
@@ -207,12 +209,14 @@ losses and QBERs, this project's weak-coherent decoy-BB84 model gives
   section IV.A; the sentence is absent from v1). So the model's zero beside a
   measured 12.7 bit/s is not a model-versus-link gap: a campaign mean is the
   wrong input for either.
-- **Jena–Erfurt** (21 dB, 6.1 %) fails on two counts. It is past the
-  finite-key loss cut-off of about 19.7 dB that the shipped block size and
-  misalignment give, and 6.1 % is just past the model's roughly 6 % asymptotic
-  error threshold. The loss cut-off moves with block size; the error threshold
-  does not. The averaging caveat above does not apply here: this link's QBER
-  varied little (6.1 ± 0.8 %).
+- **Jena–Erfurt** (21 dB, 6.1 %) gives no key at the shipped block size: it is
+  past the finite-key loss cut-off of about 19.7 dB that the shipped block size
+  and misalignment give, and its QBER is far above what the model tolerates at
+  that block size. With a large enough block the question stays open: 6.1 %, as
+  printed, stands for 6.05 to 6.15 %, which is level with the model's
+  large-block tolerance at this loss (6.06 %), so the model does not settle it,
+  and `/physics` says so. The averaging caveat above does not apply here: this
+  link's QBER varied little (6.1 ± 0.8 %).
 
 Both are set against 12.7 and 22.2 bit/s measured by an entanglement-based
 BBM92 system the model does not describe. The two campaigns ran separately, for
@@ -325,7 +329,7 @@ network, named in an early plan, was not used: no source for one was found.
 | draft-ietf-tls-mlkem-11 | ML-KEM Post-Quantum Key Agreement for TLS 1.3 (intended Informational) | ML-KEM alone as TLS named groups, with no traditional component. In the RFC Editor queue since 2026-09-08. -11 was posted on 2026-09-17 UTC, the date the draft itself carries; the datatracker history, which shows US Pacific time, lists it on 2026-09-16. Since 2026-09-24 it is **held in the queue** (RFC Editor status "blocked: Stream Hold") while complaints and appeals about its processing are reviewed, so it has no RFC number. It bears only on the `pqc-tls-demo` images, not on either VPN lane. Checked 2026-09-26. |
 | **RFC 9370** | Multiple Key Exchanges in IKEv2 | ECP-256 + ML-KEM-768 hybrid (`ke1_mlkem768`) |
 | **RFC 9242** | Intermediate Exchange in IKEv2 | Carries the ML-KEM payloads encrypted, so they can be fragmented |
-| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.1.0 does not send it**; libreswan has implemented the mechanism since v5.2 and uses the RFC's codepoints since v5.4. See [RFC 9867 implementations](#rfc-9867-implementations) below. |
+| RFC 9867 | Mixing PSKs in `IKE_INTERMEDIATE` and `CREATE_CHILD_SA` (Nov 2025) | Would let a PPK be refreshed on rekey without a full reauthentication. **strongSwan 6.1.0 does not send it**; libreswan implements the `IKE_INTERMEDIATE` part (section 3.1) since v5.2 and uses the RFC's codepoints since v5.4, but its `CREATE_CHILD_SA` part (section 3.2), the one that refreshes a PPK on rekey, was not found in v5.4's source (checked 2026-10-03). See [RFC 9867 implementations](#rfc-9867-implementations) below. |
 | RFC 7296 | IKEv2 | §2.15 defines the AUTH payload, i.e. the only place a plain PSK is used |
 | RFC 7383 | IKEv2 Fragmentation | Required for ML-KEM-sized payloads |
 | RFC 7696 | Guidelines for Cryptographic Algorithm Agility | Crypto-agility framing |
@@ -362,7 +366,7 @@ since October 2025; the table, last changed on 2025-11-11, still lists it
 under its draft name (checked 2026-09-26). So its `x` for RFC 9867 agrees
 with the source-level observations but could not stand in for them.
 
-**libreswan implements the mechanism, and the version history matters.**
+**libreswan implements the `IKE_INTERMEDIATE` part, and the version history matters.**
 libreswan added PPK in the `IKE_INTERMEDIATE` exchange in **v5.2**
 (2025-02-26), as draft-ietf-ipsecme-ikev2-qr-alt-04, on private-use notify
 values 50208 and 50209. **v5.4** (2026-08-13) is the first tag to use the IANA
@@ -372,15 +376,20 @@ codepoints. `USE_PPK_INT` is handled in `programs/pluto/ikev2_ike_sa_init.c`;
 `ikev2_ppk.c` and `ikev2_ike_intermediate.c` carry `PPK_IDENTITY_KEY`. v5.4's
 release notes do not mention PPK or RFC 9867, and its code comments still cite
 draft -04, while the RFC was published from -10. **Conformance with the final
-RFC is not verified here**; only the codepoints are.
+RFC is not verified here**; only the codepoints are. The `CREATE_CHILD_SA` part
+(RFC 9867 section 3.2), which would mix a new PPK into a rekey, has no PPK code
+in v5.4: `programs/pluto/ikev2_create_child_sa.c`, `ikev2_child.c` and
+`ikev2_crypto.c` do not mention a PPK, which appears only in
+`ikev2_ike_sa_init.c`, `ikev2_ike_intermediate.c`, `ikev2_ike_auth.c` and
+`ikev2_ppk.c` (source search of the v5.4 tag and of `main`, 2026-10-03).
 
 An earlier version of this entry said "No open-source IKEv2 implementation
 exists", and the correction that replaced it overshot to "libreswan v5.4
 implements RFC 9867". libreswan is not vendored here, so neither statement was
 checkable against this repository, and the second credited v5.4 with work that
-landed in v5.2. What it means for the project is unchanged: consuming fresh QKD
-material on every rekey is available today by changing IKE daemon, not only by
-waiting for strongSwan.
+landed in v5.2. What it means for the project: mixing a PPK into `IKE_INTERMEDIATE` is
+available today with libreswan, but refreshing a PPK on rekey without a new IKE
+SA (section 3.2) was found in neither libreswan v5.4 nor strongSwan 6.1.0.
 
 ### IETF and IRTF — HPKE (arnika's PQC half)
 

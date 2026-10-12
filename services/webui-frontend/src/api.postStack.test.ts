@@ -41,8 +41,10 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("postStack surfaces what the server said", () => {
   it("rejects on 403 and carries the detail through", async () => {
-    const detail = "container control is disabled; set ENABLE_CONTAINER_CONTROL=1 "
-      + "(and do not set DEMO_MODE) on a trusted host to enable it";
+    // What the backend answers since it gave up the Docker socket
+    // (CONTAINER_CONTROL_DISABLED_DETAIL in services/webui-backend/app/main.py).
+    const detail = "container control is disabled: webui-backend holds no Docker "
+      + "socket, and stack-status serves a fixed, read-only API";
     vi.stubGlobal("fetch", mockFetch(403, { detail }));
 
     await expect(postStack("restart", "alice")).rejects.toThrow(/container control is disabled/);
