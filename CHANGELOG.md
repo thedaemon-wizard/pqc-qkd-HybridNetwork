@@ -9,6 +9,49 @@ interfaces. Each release is a git tag, `v` plus the number.
 This file is the summary. The build-by-build record, with how each change was
 verified at the time, is [`docs/phases.md`](docs/phases.md).
 
+## [Unreleased]
+
+### Added
+
+- `stack-status` (`services/stack-status/`), the one container that mounts
+  the Docker socket. It serves `webui-backend` a fixed, GET-only API on
+  `status-net`, an internal network that only the backend also joins, and
+  publishes no port: the status of the stack's containers, bounded log tails
+  and log windows of named containers, and the fixed `wg show` and `swanctl`
+  commands in the lane nodes. Every other method, path, container name,
+  parameter and command is refused before Docker is asked. Its tables,
+  commands and bounds are `services/webui-backend/app/stack_contract.py`,
+  which its image copies in, so the two services read one file. It runs with
+  a read-only root filesystem, every capability dropped and no privilege
+  gain. The sim-only demo overlay does not start it.
+
+### Changed
+
+- `webui-backend` no longer mounts `/var/run/docker.sock` and no longer
+  installs the Docker SDK. `/api/stack`, `/api/logs/{name}`, `/api/wg/{node}`,
+  `/api/vpn/protocols` and `/api/vpn/ppk-rotations` get their data from
+  `stack-status` (`STACK_STATUS_URL`), in the response shapes they had.
+  Without it, they say the data is not available on this deployment: rows
+  `unknown` with an `error`, a 503, or a per-node `error`. In that case
+  `/api/vpn/protocols` answers 503 instead of reporting both lanes `absent`,
+  which said "looked, and not there" when nobody had looked.
+- `/` says why a row reads `unknown`.
+
+### Removed
+
+- Container control. `POST /api/stack/{action}/{name}` answers 403 whatever
+  the environment says, and `/api/config` reports `container_control: false`.
+  `ENABLE_CONTAINER_CONTROL` has no effect; a backend started with it set logs
+  so.
+
+### Security
+
+- The process that answers the internet holds no Docker socket. A read-only
+  mount of the socket file never made the Docker API read-only, so code
+  execution in the backend or any of its dependencies was root on the host.
+  What remains is code execution in `stack-status` itself
+  ([`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)).
+
 ## [0.2.0] - 2026-10-03
 
 The arnika pin moves to `f4cf9ba`, the head of arnika PR #51 as of 2026-09-24,
@@ -175,5 +218,6 @@ hardening of 2026-09-26.
   live simulator overrides made opt-in, allow-lists on the Docker-backed
   routes, a rate limit on mutating requests and bounded exports.
 
+[Unreleased]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/thedaemon-wizard/pqc-qkd-HybridNetwork/tree/v0.1.0

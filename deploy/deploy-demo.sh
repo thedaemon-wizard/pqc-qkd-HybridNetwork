@@ -114,9 +114,10 @@ git submodule update --init --force --recursive \
 ensure_swap
 
 # ---- 4) Build & start ONLY the demo services behind Caddy ----
-# Overlay order: base + cloud (adds Caddy + restart) + demo (DEMO_MODE, drops
-# docker.sock, bounds the export store). Start the sim-only services — NOT the
-# privileged alice/bob WireGuard nodes.
+# Overlay order: base + cloud (adds Caddy + restart) + demo (DEMO_MODE, no
+# stack-status URL, bounds the export store). Start the sim-only services — NOT
+# the privileged alice/bob WireGuard nodes, and NOT stack-status, the one
+# service that mounts the Docker socket: nothing of this profile holds it.
 log "building and starting the demo profile (pqc-validator builds liboqs — be patient)"
 docker compose \
   -f docker-compose.yml \
@@ -124,7 +125,7 @@ docker compose \
   -f deploy/docker-compose.demo.yml \
   up -d --build caddy webui-frontend webui-backend bb84-kme-a bb84-kme-b pqc-validator
 
-log "done. The four simulation pages run client-side; backend is DEMO_MODE (container"
-log "control disabled, rate-limited). Watch logs with:"
+log "done. The four simulation pages run client-side; backend is DEMO_MODE (no Docker"
+log "socket on this profile, rate-limited). Watch logs with:"
 echo "    docker compose -f docker-compose.yml -f deploy/docker-compose.cloud.yml -f deploy/docker-compose.demo.yml logs -f caddy webui-backend pqc-validator"
 log "Once DNS (A record) points here, https://\$PUBLIC_HOST serves the demo."

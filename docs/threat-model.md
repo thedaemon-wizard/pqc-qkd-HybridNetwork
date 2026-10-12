@@ -504,6 +504,11 @@ conclusion. Stated as a direction, not as done.
   authority on what is simulated versus measured.
 - It does not claim the key combiner is NIST-approved. It is not; see
   [`vici-ppk.md`](vici-ppk.md).
+- It does not defend the host the demo runs on. The adversary here records
+  ciphertext; the deployment's own exposure is a different one -- an
+  unauthenticated WebUI, and `stack-status`, the one internal container that
+  holds the Docker socket and is root-equivalent if compromised -- and
+  `docs/LIMITATIONS.md` states it.
 
 ## Sources
 

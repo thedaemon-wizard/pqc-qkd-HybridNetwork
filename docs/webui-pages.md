@@ -17,7 +17,7 @@ different question -- see [`deployment-economics.md`](deployment-economics.md).
 5. **Key Flow** (`/keyflow`) — a fixed Plotly Sankey of the key path, drawn from the edge list in `keyFlowGraph.ts`, not from live data, with widths in bits. Two components that never meet: QKD raw → sifted → reconciled → QKD key, and arnika's PQC-HPKE key (HPKE with MLKEM1024-P384), both into HKDF-SHA3-256 and on to the `wg0` hop tunnel's WireGuard PSK; and Rosenpass (Classic McEliece 460896 + Kyber512) into the `wg1` data tunnel's WireGuard PSK. The first three widths are marked illustrative, not the block sizes `/bb84` runs. The text says the IPsec lane's own arnika pair derives its RFC 8784 PPK the same way, and quotes the derivation from the pinned `kdf/kdf.go`
 6. **Topology** (`/topology`) — D3-force graph of alice, bob and the two KMEs, from `GET /api/topology`. alice and bob are joined by two edges on one line: the `wg0` hop tunnel (PSK = HKDF(QKD‖PQC-HPKE)) and the `wg1` data tunnel carried inside it (PSK = Rosenpass). Charlie is **not** shown: `/api/topology` returns a fixed four-node graph with no multihop branch.
 7. **Benchmarks** (`/benchmarks`) — Round latency, QBER history, KPI cards (accepted/aborted/avg ms). Its Logs export is `alice.log`, the rotating log that `bb84-kme-a` writes (its `SAE_ID` is `ALICE`), from `GET /api/logs/download/alice?lines=1000` (Logs export only)
-8. **Console** (`/console`) — Live log tail of one of six containers: `alice`, `bob`, `bb84-kme-a`, `bb84-kme-b`, `alice-ipsec` and `bob-ipsec`. `GET /api/logs/{name}` accepts only those names and answers 404 for any other before Docker is touched; secret lines are redacted
+8. **Console** (`/console`) — Live log tail of one of six containers: `alice`, `bob`, `bb84-kme-a`, `bb84-kme-b`, `alice-ipsec` and `bob-ipsec`. `GET /api/logs/{name}` accepts only those names and answers 404 for any other before `stack-status`, the service that reads Docker for it, is asked; secret lines are redacted, by `stack-status` and again by the backend
 9. **Physics Params** (`/physics`) — Editable parameter inputs with a **client-side** key rate and **client-side** μ/ν optimiser that recompute in the browser as you edit. The rate shown is the closed-form **asymptotic** Lo-Ma two-decoy bound; the KMEs and `/protocol-lab` use the Lim et al. finite-key rate, which is lower -- see [`keyrate.md`](keyrate.md). `config/qkd_params.yaml` provides the defaults, with bundled defaults when no backend answers. Whether Apply, Reset and the backend selector (incl. `tno`) reach the KMEs depends on `ENABLE_LIVE_PARAM_OVERRIDES`; see [Server-side switches](#server-side-switches). The two backends that forward to `qkdnetsim-kme` (`qkdnetsim_proxy`, `composite_sim_to_net`) are offered only while `/api/stack` reports that container running, since it exists only in the `crossvalidate` overlay. Below the form, a read-only **field reference** panel shows the measured link values of arXiv:2608.18869v2 with the source's digits beside what this project's model gives at the same loss -- its rate under the shipped configuration, and its QBER tolerance at the shipped block size $`N = 10^9`$ and at $`N = 10^{18}`$ (`LARGE_BLOCK_N` in `lib/sim/protocolLab/rates.ts`, the model's large-block tolerance) -- and states that the paper's BBM92 system is a different protocol from the model's decoy-state BB84
 10. **PQC Validator** (`/pqc`) — client-side ML-KEM / ML-DSA / SLH-DSA via @noble. The ML-KEM half is cross-checked against liboqs when the backend answers: `POST /api/pqc/interop` has liboqs encapsulate to a key the browser generated, and the browser must derive the same shared secret (`/api/interop/mlkem` is the pqc-validator's internal route behind it); `POST /api/pqc/roundtrip` adds liboqs's own round trip. The signatures are checked in the browser only; the liboqs signature check is on `/verify`
 11. **Verification** (`/verify`) — Research-implementation evidence: a crypto-agility matrix run through liboqs by `POST /api/pqc/agility` (the pqc-validator's internal `/api/agility` behind it), spanning **two mathematical families on each side** -- KEMs ML-KEM 512/768/1024 (module lattice) and HQC-1/3/5 (code-based), signatures ML-DSA 44/65/87 (module lattice) and SLH-DSA SHA2-128s/128f/192s/256s (hash-based). Each signature row carries `verified` and `rejects_tampered`: liboqs signs, verifies the genuine message, and must reject a tampered one, and the row passes only if both hold. The same page can run the matrix in the browser and compare the two halves. Also a key-rate cross-check (our closed-form vs the independent **TNO-Quantum** engine) and the arXiv:2604.05599 packet-budget match
@@ -95,8 +95,7 @@ attempting the call it guards.
 | Variable | Default | Effect | Reported in `/api/config` as |
 |---|---|---|---|
 | `ENABLE_LIVE_PARAM_OVERRIDES` | off | When off, `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` answer **403**. `GET` routes are unaffected. | `live_param_overrides` |
-| `ENABLE_CONTAINER_CONTROL` | off | When off, `POST /api/stack/{action}/{name}` answers **403** and the Overview hides its restart buttons. `DEMO_MODE` vetoes it: both set means off. | `container_control` |
-| `DEMO_MODE` | off | Removes capability rather than adding protection: it vetoes container control, and `deploy/docker-compose.demo.yml` pairs it with a sim-only profile that runs no privileged node and mounts no Docker socket. It does not switch the rate limit. | `demo_mode` |
+| `DEMO_MODE` | off | Removes nothing any more: it vetoed container control, which no build has now (below). `deploy/docker-compose.demo.yml` sets it beside a sim-only profile that runs no privileged node and no `stack-status`, so no container of that profile holds the Docker socket. It does not switch the rate limit. | `demo_mode` |
 | `DEMO_RATE_MAX` / `DEMO_RATE_WINDOW_S` | 120 per 60 s | A token bucket on every mutating request (POST, PUT, PATCH, DELETE), **always on** whatever `DEMO_MODE` says; an empty bucket answers **429**. | `rate_limit` |
 | `EXPORT_MAX_FILES` / `EXPORT_MAX_BYTES` / `EXPORT_MAX_TOTAL_BYTES` | 100 files / 25 MiB each / 512 MiB in total | Bounds the saved-exports store, oldest file removed first; a single file over the per-file limit, or over the total if that is smaller, answers **413**. | -- |
 
@@ -112,10 +111,18 @@ rate and the μ/ν optimiser in the browser, so Apply and Reset change only the
 in-browser model, and the page says so plainly. The backend-switch buttons
 are disabled with the same explanation. Nothing on the KMEs changes.
 
+**Container control is not a switch.** `ENABLE_CONTAINER_CONTROL` used to
+enable `POST /api/stack/{action}/{name}` through the Docker socket the backend
+mounted. The backend now mounts no socket, so the route answers **403**
+whatever the environment says, `/api/config` reports `container_control:
+false`, and the Overview shows no restart buttons.
+
 Local full-stack and the `deploy/` cloud real-WireGuard stack run with
 `DEMO_MODE` unset.
 
-> Note: in the full profile `webui-backend` mounts `/var/run/docker.sock:ro` to
-> enumerate containers and read their logs. This is acceptable for a
-> single-host PoC but should not be exposed in production; removing it is on
-> the [`roadmap.md`](roadmap.md).
+> Note: `webui-backend` holds no Docker socket and no Docker SDK. The one
+> container that mounts the socket is `stack-status`, which serves the backend
+> a fixed, GET-only API on an internal network no other container joins, and
+> publishes no port; `/`, `/console` and `/vpn` read the stack through it. Its
+> own exposure, and what it serves to the public through the backend, are in
+> [`LIMITATIONS.md`](LIMITATIONS.md).

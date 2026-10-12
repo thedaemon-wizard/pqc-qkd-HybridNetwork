@@ -11,7 +11,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from conftest import load_service_app
+from conftest import load_service_app, stack_status_client
 from fastapi.testclient import TestClient
 
 load_service_app("webui-backend", "webui_backend_app")
@@ -39,16 +39,24 @@ class _Docker:
             return _C()
 
 
+def _use(docker_client) -> None:
+    """Serve the routes from stack-status's own handler, reading `docker_client`."""
+    _main.app.state.stack_status = stack_status_client(docker_client)
+
+
 @pytest.fixture
 def client(monkeypatch):
+    # The counts come from stack-status's /v1/log-window, which imports the
+    # Docker SDK; the CI python job installs it.
+    pytest.importorskip("docker")
     monkeypatch.setattr(_main, "_rotation_sample", {})
     with TestClient(_main.app) as c:
-        prev = _main.app.state.docker
-        _main.app.state.docker = _Docker()
+        prev = _main.app.state.stack_status
+        _use(_Docker())
         try:
             yield c
         finally:
-            _main.app.state.docker = prev
+            _main.app.state.stack_status = prev
 
 
 def test_counts_failures_and_applications_not_only_attempts(client):
@@ -89,7 +97,7 @@ def test_the_pinned_arnikas_slog_records_count_the_same(client, monkeypatch):
             def get(_name):
                 return Slog()
 
-    _main.app.state.docker = Docker()
+    _use(Docker())
     body = client.get("/api/vpn/ppk-rotations?window_s=600").json()
     for node in ("alice-ipsec", "bob-ipsec"):
         n = body["nodes"][node]
@@ -112,8 +120,40 @@ def test_could_not_look_is_not_zero(monkeypatch, client):
             @staticmethod
             def get(_name):
                 raise RuntimeError("no such container")
-    _main.app.state.docker = Broken()
+    _use(Broken())
     body = client.get("/api/vpn/ppk-rotations?window_s=60").json()
     n = body["nodes"]["alice-ipsec"]
     assert n["auth_failed"] is None and n["ppk_applied"] is None and n["count"] is None
     assert n["error"]
+
+
+def test_the_window_asked_of_stack_status_is_the_one_reported(client):
+    """The backend clamps, reports the clamp, and asks stack-status for exactly
+    that window -- which stack-status bounds by the same contract constant."""
+    seen: list[dict] = []
+
+    class Recording:
+        class containers:
+            @staticmethod
+            def get(_name):
+                class _Log:
+                    def logs(self, **kw):
+                        seen.append(kw)
+                        return LOG
+                return _Log()
+
+    _use(Recording())
+    body = client.get("/api/vpn/ppk-rotations?window_s=86400").json()
+    assert body["window_s"] == _main.ROTATION_WINDOW_MAX_S == _main.stack_contract.LOG_WINDOW_MAX_S
+    # One windowed read per IPsec node, both streams, no tail.
+    assert len(seen) == 2
+    assert all(set(kw) == {"since", "stdout", "stderr"} for kw in seen), seen
+
+
+def test_without_stack_status_each_node_says_it_is_not_available_here(client):
+    _main.app.state.stack_status = None
+    body = client.get("/api/vpn/ppk-rotations?window_s=120").json()
+    for node in ("alice-ipsec", "bob-ipsec"):
+        n = body["nodes"][node]
+        assert n["count"] is None
+        assert n["error"].startswith("container logs are not available on this deployment"), n

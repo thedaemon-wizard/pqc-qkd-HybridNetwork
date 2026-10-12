@@ -106,15 +106,18 @@ OOM-killed or fills the disk, leaving a broken image. The 2 GB RAM and 8 GB
 disk that apply to the sim-only demo profile are `deploy/deploy-demo.sh`'s
 figures, not these.
 
-**One consequence worth stating.** The full profile mounts the Docker socket
-read-only into `webui-backend`, which serves an unauthenticated HTTP API, so
-that `/api/stack` can enumerate containers and `/api/logs` can read them.
-Container *control* is off unless explicitly enabled
-([`webui-pages.md`](webui-pages.md#server-side-switches)); container
-*enumeration* is not. That suits a demo whose purpose is to show the lanes
-running, and is not a default to carry into a deployment where the host
-matters. Removing the socket from the internet-facing process is on the
-[`roadmap.md`](roadmap.md) list of deferred items.
+**One consequence worth stating.** The full profile runs `stack-status`, the
+one container that mounts the Docker socket, so that `/api/stack` can
+enumerate containers, `/api/logs` can read them and `/vpn` can show `wg show`
+and `swanctl`. `webui-backend`, which serves an unauthenticated HTTP API, no
+longer holds the socket: it asks `stack-status` over an internal network
+that no other container joins, for a fixed, GET-only set of reads, and no
+route starts or stops a container. Container *enumeration* is still public
+through the backend. That suits a demo whose purpose is to show the lanes
+running; on a host that matters, the residual is that code execution in
+`stack-status` itself would hold the socket
+([`LIMITATIONS.md`](LIMITATIONS.md)). The sim-only demo profile runs no
+`stack-status` at all.
 
 ---
 

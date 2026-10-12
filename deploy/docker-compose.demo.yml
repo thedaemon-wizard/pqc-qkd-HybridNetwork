@@ -6,23 +6,26 @@
 # ~no load on the backend. This overlay runs only the lightweight services the
 # client-side UI still needs:
 #     webui-frontend  — serves the client-side bundle
-#     webui-backend   — DEMO_MODE=1 vetoes container lifecycle control
-#                       (/api/stack/* answers 403). The rest is not DEMO_MODE's
-#                       doing and holds on every host: mutating requests are
-#                       per-IP rate-limited, and live parameter overrides
-#                       (backend switching, POST /api/sim/params and its reset)
-#                       are OFF unless ENABLE_LIVE_PARAM_OVERRIDES=true, which
-#                       this overlay does not set. They change process-global
-#                       state on the shared KMEs, so on a multi-user host one
-#                       visitor's edit would reach everyone; /physics computes
-#                       in the browser instead. Server-side export saves are
-#                       allowed, within the bounds below.
+#     webui-backend   — DEMO_MODE=1. None of what it allows is DEMO_MODE's
+#                       doing; it holds on every host: /api/stack/* answers
+#                       403 (no build controls containers any more), mutating
+#                       requests are per-IP rate-limited, and live parameter
+#                       overrides (backend switching, POST /api/sim/params and
+#                       its reset) are OFF unless
+#                       ENABLE_LIVE_PARAM_OVERRIDES=true, which this overlay
+#                       does not set. They change process-global state on the
+#                       shared KMEs, so on a multi-user host one visitor's edit
+#                       would reach everyone; /physics computes in the browser
+#                       instead. Server-side export saves are allowed, within
+#                       the bounds below.
 #     bb84-kme-a/b    — /verify TNO cross-check, and the parameters and
 #                       statistics /bb84, /physics and /benchmarks read
 #     pqc-validator   — /verify crypto-agility matrix
 #
-# The privileged WireGuard nodes (alice/bob) and the docker.sock mount are
-# EXCLUDED. Bring up ONLY the demo services (do not start alice/bob):
+# The privileged WireGuard nodes (alice/bob) and stack-status, the one service
+# that mounts the Docker socket, are EXCLUDED, so no container of this profile
+# holds the socket. Bring up ONLY the demo services (do not start alice/bob or
+# stack-status):
 #
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.demo.yml \
 #     up -d --build bb84-kme-a bb84-kme-b pqc-validator webui-backend webui-frontend
@@ -48,9 +51,15 @@ services:
       # the oldest files are deleted first.
       EXPORT_MAX_FILES: "100"
       EXPORT_MAX_BYTES: "26214400"
-    # Drop ONLY the docker.sock mount for the public demo (container control is
-    # 403 in DEMO_MODE; no need to expose the socket). Keep the logs + exports
-    # volumes so the server-side export gallery persists (bounded as above).
+      # No stack-status runs here, so the backend is told it has none: the
+      # container-status, log, `wg show` and VPN routes then answer that the
+      # data is not available on this deployment, rather than that a
+      # stack-status they were pointed at did not answer.
+      STACK_STATUS_URL: ""
+    # The base file mounts no Docker socket into webui-backend any more; it is
+    # stack-status's, and this profile does not start it. The two volumes are
+    # restated so the server-side export gallery persists (bounded as above)
+    # whatever the base file mounts.
     volumes: !override
       - pqcqkd-logs:/var/log/pqcqkd
       - pqcqkd-exports:/var/lib/pqcqkd-exports

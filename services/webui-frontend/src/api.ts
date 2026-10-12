@@ -13,6 +13,10 @@ export type StackItem = {
   compose_file?: string;
   /** Human-readable form of the three fields above, from the backend. */
   note?: string;
+  /** Why the row reads `unknown`: Docker failed for this container, or the
+   *  backend could not ask -- stack-status did not answer, or this deployment
+   *  runs none ("not available on this deployment"). */
+  error?: string;
 };
 export type Stats = Record<string, any>;
 export type Topo = { nodes: { id: string; label: string; type: string }[]; edges: { source: string; target: string; label: string }[] };
@@ -21,8 +25,9 @@ export type Topo = { nodes: { id: string; label: string; type: string }[]; edges
 export type RuntimeConfig = {
   demo_mode: boolean;
   /** Whether the backend will actually accept /api/stack/* container control.
-   *  Reported separately from demo_mode because control is opt-in server-side,
-   *  so "not a demo" does not imply "control is available". */
+   *  Reported separately from demo_mode, because "not a demo" never implied
+   *  "control is available". False from every current build: the backend
+   *  holds no Docker socket, so it has no control to offer. */
   container_control: boolean;
   /** Whether the backend accepts POST /api/sim/params, /api/sim/params/reset
    *  and /api/sim/backend (ENABLE_LIVE_PARAM_OVERRIDES, off by default). Those

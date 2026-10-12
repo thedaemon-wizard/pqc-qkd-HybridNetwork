@@ -5,9 +5,10 @@ before starting any of these.
 
 Status is stated and dated per entry, and reviewed against the implemented
 tree rather than carried forward untouched. Last full review: 2026-09-25; the
-entries dated 2026-09-26 came with the arnika #51 adoption and were checked
-against the tree that day. A review date older than the newest entry below is
-a defect in this file.
+entries dated 2026-09-26 came with the arnika #51 adoption, and the entry
+dated 2026-10-12 with the move of the Docker socket to `stack-status`, and
+each was checked against the tree that day. A review date older than the
+newest entry below is a defect in this file.
 
 ## Completed since this roadmap was written
 
@@ -25,6 +26,7 @@ here so the roadmap does not keep proposing work that already exists.
 | Userspace WireGuard fallback | The node image installs `wireguard-go` from Debian bookworm `main`, and `wg-quick` falls back to it with no configuration when the kernel module is absent. See [`BUILD.md`](BUILD.md) section 5.3 |
 | Protocol Lab: trusted-node key relay, re-routing, and the ETSI GS QKD 014 / 004 message sequence, over published networks | `/protocol-lab`, client-side and labelled a simulation; see the decision record below (2026-09-25) |
 | ETSI GS QKD 004 V2.1.1 application interface | `bb84-kme`, over this project's HTTP/JSON binding, off by default; [`etsi004-binding.md`](etsi004-binding.md) (2026-09-25) |
+| The Docker socket off the internet-facing backend (2026-10-12). It was the highest-priority item of the 2026-09-25 batch: the full profile mounted `/var/run/docker.sock` read-only into `webui-backend`, and read-only as a file does not make the Docker API read-only. `stack-status` is now the one container that mounts it. It serves a fixed, GET-only API on `status-net`, an internal network only the backend also joins, with no published port: container status, bounded log tails and log windows of named containers, and the fixed `wg show` and `swanctl` commands in the lane nodes. The containers each route may read, the commands and the bounds are `stack_contract.py`, the one file both services import. The backend has no socket and no Docker SDK, container control is removed rather than switched off, and where no `stack-status` runs (the demo overlay) the affected routes say the data is not available there. What remains is in [`LIMITATIONS.md`](LIMITATIONS.md): whoever compromises `stack-status` itself still holds the socket. | `services/stack-status/`, `services/webui-backend/app/stack_contract.py`; checklist rows 4.8.22 and 4.8.23 |
 
 ## Known gaps - model and protocol
 
@@ -384,7 +386,6 @@ maximum-flow capacity and concurrent demands, under that decision record's
 | Item | What is wrong or missing | What closing it involves |
 |---|---|---|
 | `/bb84` click model | The per-pulse detection probability is `etaTotal + Y0`, which omits the signal intensity $`\mu`$ (section 2 of [`keyrate.md`](keyrate.md) has $`Q_\mu = Y_0 + 1 - e^{-\eta\mu}`$), and a dark-count click carries Alice's bit instead of a uniformly random one ($`e_0 = \tfrac12`$). | The same change in all four engines -- the TypeScript Worker, the WGSL and GLSL shaders and the WASM kernel -- which must keep agreeing (`wasmAgreesWithWorker.test.ts`, `bb84Channel.test.ts`). |
-| Docker socket on `webui-backend` | The full profile mounts `/var/run/docker.sock` read-only into the internet-facing backend to enumerate containers and read logs. Container control is off by default, but the socket is still there. | A separate status service that holds the socket and exposes only the fields `/api/stack` and `/api/logs` use. Architectural; the highest-priority item in this table. |
 | `/bb84` variability mode | The field data of arXiv:2608.18869 varies with time; `/bb84` draws every round from one static channel. | A mode drawing per-round parameters from a distribution. Deferred because the distribution's parameters would be this project's derivation, not the source's. |
 | SeQUeNCe v1.2.0 | The pin is `v1.0.0` (2026-06-17); v1.2.0 was released 2026-09-12 and is 64 commits ahead ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). | A before/after on the `sequence` backend, and a check of v1.2.0's numpy range against the KME's `numpy==2.5.3` pin. |
 | oqs-provider | The pin is `5fd81fb` (2026-05-12), 37 commits past 0.10.0 on `main`. `main` has 20 commits more, among them four fixes the pin lacks -- a heap overflow (#810), a double free (#816), a use-after-free (#829) and missing length checks on hybrid KEM public keys (#814), listed in the header of `services/pqc-tls-demo/Dockerfile.oqs-provider` -- and the re-activation of HQC (#787). 0.11.0 (2025-12-24) is on a release branch that does not contain the pin, and 0.12.0 is at rc2 (2026-09-16). | Bump once 0.12.0 is final, rebuilding against the pinned liboqs; the Dockerfile's per-group negotiation check then shows whether HQC groups can join `TLS_GROUPS`. |

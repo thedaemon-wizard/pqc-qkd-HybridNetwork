@@ -6,11 +6,13 @@
 # describes, so the reference now resolves.
 #
 # Why external rather than a unit test: the risk is a DEPLOYMENT that forgot a
-# variable, not code that computes the wrong answer. `ENABLE_CONTAINER_CONTROL`
-# gates an endpoint which can start and stop containers through a mounted
-# docker.sock, so on a reachable host it is a privilege-escalation path. A test
-# inside the image cannot see whether the running instance was launched with
-# the flag; only an HTTP request from outside can.
+# variable, or runs an older build, not code that computes the wrong answer.
+# Container control, which started and stopped containers through a mounted
+# docker.sock, was a privilege-escalation path on a reachable host; this build
+# has none, and the socket is held by stack-status, which no request from
+# outside can reach. ENABLE_LIVE_PARAM_OVERRIDES opens shared state to every
+# visitor. A test inside the image cannot see how the running instance was
+# launched, or which build it runs; only an HTTP request from outside can.
 #
 # Usage:
 #   sh scripts/verify-demo-hardening.sh https://<host>
@@ -44,8 +46,9 @@ case "$cfg" in
     *'"container_control":false'*) say "container control disabled" "ok" ;;
     *'"container_control":true'*)
         echo "::error::container_control is TRUE on $BASE -- this endpoint can"
-        echo "         start/stop containers via docker.sock. Unset"
-        echo "         ENABLE_CONTAINER_CONTROL and redeploy."
+        echo "         start/stop containers via docker.sock. The current build"
+        echo "         reports false unconditionally, so the host runs an older"
+        echo "         one: redeploy."
         fail=1 ;;
     *)
         echo "::error::could not read container_control from /api/config"
@@ -83,7 +86,7 @@ case "$code" in
             *'container control is disabled'*) say "container control refused" "ok" ;;
             *) echo "::error::403 from /api/stack, but not the hardening refusal."
                echo "         Something else is rejecting the call, so this check"
-               echo "         proves nothing about ENABLE_CONTAINER_CONTROL."
+               echo "         proves nothing about container control."
                echo "         body: $body"
                fail=1 ;;
         esac ;;

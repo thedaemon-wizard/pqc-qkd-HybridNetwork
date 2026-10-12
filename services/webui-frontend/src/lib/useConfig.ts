@@ -39,8 +39,9 @@ export function useDemoMode(): boolean {
 /**
  * Whether the backend will actually accept a container-control request.
  *
- * Gate the UI on this rather than on `!demo_mode`: container control is opt-in
- * server-side, so "not a demo" no longer implies "control is available".
+ * Gate the UI on this rather than on `!demo_mode`: "not a demo" never implied
+ * "control is available", and no current backend offers control at all (it
+ * holds no Docker socket), so this is false from every one of them.
  */
 export function useContainerControl(): boolean {
   return useRuntimeConfig().container_control === true;

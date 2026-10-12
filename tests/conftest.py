@@ -73,6 +73,68 @@ def load_service_app(service: str, alias: str) -> types.ModuleType:
     return module
 
 
+# --- stack-status, assembled as its image assembles it ----------------------
+#
+# services/stack-status/Dockerfile copies webui-backend's app/stack_contract.py
+# into the stack-status package under the same name, so the two services import
+# one file. The tree holds no second copy, so the package is not importable as
+# it stands; this registers the backend's file at the place the image puts it
+# before anything imports the package's main module.
+
+STACK_CONTRACT = REPO_ROOT / "services" / "webui-backend" / "app" / "stack_contract.py"
+
+
+def load_stack_status_main() -> types.ModuleType:
+    """``services/stack-status/app/main.py``, with the contract where the image puts it.
+
+    Needs the Docker SDK, as the service does: callers importorskip("docker").
+    """
+    package = load_service_app("stack-status", "stack_status_app")
+    name = "stack_status_app.stack_contract"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, STACK_CONTRACT)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"cannot build import spec for {STACK_CONTRACT}")
+        contract = importlib.util.module_from_spec(spec)
+        sys.modules[name] = contract
+        spec.loader.exec_module(contract)
+        package.stack_contract = contract
+    return importlib.import_module("stack_status_app.main")
+
+
+def stack_status_client(docker_client: object):
+    """An httpx.Client whose requests stack-status's own handler answers.
+
+    `docker_client` stands in for the Docker SDK client the service would
+    create. Nothing leaves the process: each request goes to
+    StackStatus.handle, the function the service's HTTP server calls, so a
+    webui-backend test that sets `app.state.stack_status` to this exercises
+    both services' code, from the fake Docker to the public response.
+    """
+    import httpx
+
+    api = load_stack_status_main().StackStatus(lambda: docker_client)
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        status, body, headers = api.handle(request.method, request.url.raw_path.decode("ascii"))
+        return httpx.Response(status, json=body, headers=headers)
+
+    return httpx.Client(transport=httpx.MockTransport(answer), base_url="http://stack-status.test")
+
+
+def stack_status_replying(reply):
+    """An httpx.Client standing in for stack-status, answering with `reply(request)`.
+
+    For tests of what webui-backend does with a reply stack-status itself
+    would never send -- unredacted output, a refusal, a garbled body -- so
+    that the backend's own layer is what is tested. `reply` returns an
+    httpx.Response, or raises an httpx error to simulate no answer at all.
+    """
+    import httpx
+
+    return httpx.Client(transport=httpx.MockTransport(reply), base_url="http://stack-status.test")
+
+
 # --- Compose files, read the way `docker compose -f a -f b` reads them -------
 #
 # Shared by the tests that hold the deployment to a contract across services
