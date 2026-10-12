@@ -150,6 +150,7 @@ can be sized for one user rather than for the internet.
   button on `/` and `/benchmarks`, whose file is a server log and so comes
   from `GET /api/logs/download/<service>`.
 - **The server-side switches matter if a backend is public.** Live parameter
-  overrides and container control are both off by default, and the rate limit
-  is always on; what each switch does is in
+  overrides and deleting from the shared export gallery are both off by
+  default, container control no longer exists, and the rate limit is always
+  on; what each switch does is in
   [`webui-pages.md`](webui-pages.md#server-side-switches).

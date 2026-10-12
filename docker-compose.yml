@@ -311,7 +311,7 @@ services:
       # Reported by /api/config so the Overview states the configured rotation
       # interval instead of a literal. Same default as the arnika services.
       ARNIKA_INTERVAL: ${ARNIKA_INTERVAL:-30s}
-      # Live parameter overrides are OPT-IN, like container control.
+      # Live parameter overrides are OPT-IN.
       #
       # POST /api/sim/params, /api/sim/params/reset and /api/sim/backend change
       # process-global state on BOTH KMEs -- the simulator backend, Eve, the
