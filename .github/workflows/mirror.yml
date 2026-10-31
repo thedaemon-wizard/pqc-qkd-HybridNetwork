@@ -1,0 +1,20 @@
+name: Mirror to Codeberg
+
+on:
+  push:
+    branches: [ main ] # Specify the main branch you want to sync
+
+jobs:
+  codeberg_mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror to Codeberg
+        run: |
+          # Please replace the username and repository name with those from your own environment.
+          git remote add codeberg https://${{ secrets.CODEBERG_TOKEN }}@codeberg.org/daemons/pqc-qkd-HybridNetwork.git
+          git push --prune --force codeberg +refs/remotes/origin/*:refs/heads/* +refs/tags/*:refs/tags/*
