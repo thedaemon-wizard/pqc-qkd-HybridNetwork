@@ -1161,3 +1161,62 @@ pass `scripts/scan_published_text.py` with 0 findings (checklist row 6.15).
   past the viewport, wraps text into one- or two-character columns or has a
   control without an accessible name. Below 768 px the sidebar collapses
   into the Menu button.
+
+## 2026-11-05 — Protocol Lab: captions that can be read, and the run as it happens
+
+Reported on the deployed page and reproduced there at 1024 and 1280 px, with
+`getBBox` on each text and box: SECOQC's `25 km, 5.75 dB` lay over `22 km`
+(476 square px), MadQCI's `24.5 km, 8.72 dB` and `7.8 km †, 1.40 dB` were cut by
+node boxes, and lines ran through the captions of vertical and diagonal links on
+Tokyo, SECOQC and MadQCI. Each caption was drawn at its link's midpoint and
+nothing checked it against anything.
+
+- `placeEdgeLabels` (`lib/sim/protocolLab/view.ts`) places every caption clear
+  of the nodes, of the other captions and, where any place allows it, of the
+  other links; it is pure and deterministic, so an exported PNG is reproducible.
+  An opaque plate stops a caption's own line striking through it. Measured with
+  `getBBox` at 1280 px on the five networks: no text over text, no caption over
+  a node box, every caption inside its plate.
+- Below 768 px the captions are left out and node labels are larger (9.1 to 12.2
+  CSS px at 375 px, against 5.4 to 7.3 before); the figures stay in "Links as
+  published". No sideways scroll at 375 px.
+- The engine records what each tick did, part by part (`TickTrace`), and
+  `TICK_PIPELINE` names what a tick does in each accounting mode: neither phases nor
+  stages, which name other things here. It records and changes nothing:
+  `protocolLabTickTrace.test.ts` runs the SECOQC replay at every speed and finds the
+  same bits, routes and stores.
+- `lib/sim/protocolLab/playback.ts` and `components/LiveTopology.tsx` draw that
+  record over the tick's dwell. The key's position is set on the element every
+  frame; React re-renders only when a part or a hop changes. What moves is
+  always something that happened, and the time on screen is not a latency.
+- `nominal_dwell_ms` in the CSV is now per tick, because the speed can change
+  during a run. `NOMINAL_TICK_DWELL_MS` stays 300, the Fast pace and the engine's
+  default; the page starts at Normal, 1.2 s per tick, so one relay can be
+  followed hop by hop.
+- Pause freezes the picture, because a moving key after Pause is the defect
+  `FailureCascadeTimeline` records for `/paper-flow`. The drawing's height is limited
+  by a width on a wrapper, not on the SVG: an export serialises the SVG, and in an
+  image `vh` means the image's height. Exports carry a band with "Simulation, not the
+  running stack", the time, the states and the route.
+- Thuringia's paper relays no key, and a key moving through a node would read as that
+  system doing it, so the page says so under the drawing and inside it.
+
+### `/qkd-protocols`, route 15
+
+- The derivation is `docs/keyrate.md` section 9, and the decision is in
+  `docs/roadmap.md`: the roadmap had withdrawn an MDI-QKD backend and a protocol zoo
+  for want of a derivation and a golden vector, and these rates meet that bar without
+  becoming a backend.
+- `tools/protocol_rates.py` is the reference, and `protocolRates.ts` the browser port.
+  `tests/test_protocol_rates.py` checks the reference against exact two-photon optics
+  for $`Y_{11}`$ and $`e_{11}`$, a direct count of the detectors over the relative
+  phase for $`Q_{\mathrm{rect}}`$ and $`E_{\mathrm{rect}}`$, a term-by-term sum for
+  BBM92's gain, and the curves of Lo, Curty and Qi, Fig. 2, read from the figure. At
+  $`q = 1/4`$ the MDI curve gives $`1.44\times10^{-4}`$ at 0 km and reaches
+  $`10^{-10}`$ at 229.8 km, where the figure reads about $`1.5\times10^{-4}`$ and 222
+  km; the gap is at the end of the curve, where their two-rotation misalignment and
+  this simpler model differ.
+- The rounds keep no count of bits and have no eavesdropper control, so the page cannot
+  be read as a key generator or a security test, which `qkdProtocolsIsLabelledAModel.test.ts`
+  fixes. Each result in the families table names its fibre and key-length regime.
+

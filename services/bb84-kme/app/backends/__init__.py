@@ -1,4 +1,4 @@
-"""Pluggable simulator backends for BB84/CV-QKD/MDI key production.
+"""Pluggable simulator backends for BB84 and CV-QKD key production.
 
 Selection is config-driven (`simulator.backend` in qkd_params.yaml, or env
 `SIMULATOR_BACKEND`).  All backends implement the `KeyProducer` ABC and emit

@@ -26,6 +26,7 @@ the backend, not one.
 | `/keyflow` | none (exports aside) | **Fully works** (static diagram) |
 | `/hil` | none | **Fully works** (static) |
 | `/protocol-lab` | none during a run (exports aside) | **Fully works.** Relay, re-routing and the ETSI 014 / 004 timeline are simulated in the browser from published data |
+| `/qkd-protocols` | none (exports aside) | **Fully works.** Idealised rounds and asymptotic rate curves, computed in the browser |
 | `/bb84` | `GET /api/sim/params` once at mount | **Works**, falls back to bundled defaults |
 | `/pqc` | `GET /api/pqc/algorithms`, `POST /api/pqc/roundtrip`, `POST /api/pqc/interop` | **Works client-side**; the liboqs cross-checks are skipped and the UI says so |
 | `/physics` | `GET /api/sim/params/editable`, `GET /api/stats` and `GET /api/sim/params` (5 s poll), `GET /api/stack` (5 s poll, so the two backends that forward to `qkdnetsim-kme` are offered only while it runs), `GET /api/config`; `POST /api/sim/params`, `POST /api/sim/params/reset` and `POST /api/sim/backend` only where live overrides are enabled | **Works**: the form falls back to bundled defaults, and the key rate and optimiser run in the browser. Apply and Reset change only the in-browser model, as they do on any backend with live overrides off; the backend selector is disabled. See [`webui-pages.md`](webui-pages.md#server-side-switches) |
@@ -36,11 +37,11 @@ the backend, not one.
 | `/vpn` | `GET /api/vpn/protocols` (5 s poll, served from a 5 s server-side sample cache), `GET /api/vpn/ppk-rotations?window_s=600` (30 s poll) | Degrades: no lane status and no rotation counts |
 | `/verify` | `POST /api/pqc/agility`, `GET /api/verify/keyrate`, `GET /api/verify/paper-budgets` | Degrades: no server evidence; the browser half of the agility cross-check still runs |
 
-**Five routes need no backend call besides the optional export copy below.
+**Six routes need no backend call besides the optional export copy below.
 Three more work without one, on bundled defaults or without their server
 cross-check. Six need the backend for their content.**
 
-Thirteen of the fourteen pages carry an export toolbar (all but `/hil`). Every
+Fourteen of the fifteen pages carry an export toolbar (all but `/hil`). Every
 file except the server-log download on `/` and `/benchmarks` is built in the
 browser and delivered from memory. On those two pages the Logs button fetches
 the tail of a server-side log (`webui-backend.log`, and the `alice.log` that
@@ -86,7 +87,7 @@ Serve `dist/` from a static host and run only `webui-backend` (plus
 `bb84-kme-a/b` and `pqc-validator` if `/verify` matters) on a small VPS,
 pointing the frontend's `/api` at it via CORS or a proxy.
 
-This keeps all fourteen pages and moves the bandwidth — the part that scales
+This keeps all fifteen pages and moves the bandwidth — the part that scales
 with visitors — off the metered host. A single-region VPS cannot match a
 300-plus-location edge for static delivery, so paying a VPS to serve bundles is
 the wrong way round; paying it to serve the handful of API calls is not.

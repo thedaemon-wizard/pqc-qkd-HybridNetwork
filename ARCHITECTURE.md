@@ -266,8 +266,9 @@ pqc-qkd-HybridNetwork/
 │   │                                  #   is the allow-list stack-status serves by
 │   ├── stack-status/                  # The only holder of the Docker socket: a fixed GET API
 │   │                                  #   on status-net (standard-library HTTP + Docker SDK)
-│   ├── webui-frontend/                # React/Vite dashboard, 14 routes incl. /e2e,
-│   │                                  #   /paper-flow and the /protocol-lab simulation
+│   ├── webui-frontend/                # React/Vite dashboard, 15 routes incl. /e2e,
+│   │                                  #   /paper-flow, the /protocol-lab simulation and
+│   │                                  #   the /qkd-protocols model
 │   ├── pqc-validator/                 # liboqs; @noble-vs-liboqs ML-KEM interop
 │   ├── pqc-tls-demo/                  # Two PQC TLS image builds (not compose services)
 │   ├── arnika-vici/                   # strongSwan VICI key writer for arnika (RFC 8784 PPK)

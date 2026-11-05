@@ -49,6 +49,19 @@ import { dwellDone, dwellMs, LOOP_TICK_MS } from "./pacing";
  * is wall-clock and a hidden tab throttles it.
  */
 export const NOMINAL_TICK_DWELL_MS = dwellMs(3);
+/**
+ * The speeds the page offers, as dwells per simulated tick. A dwell is a pace
+ * for the eye and never enters a result: the engine's numbers are the same at
+ * every speed. Each is a whole number of loop ticks (pacing.ts), and none is
+ * the /e2e or /paper-flow dwell, for the reason NOMINAL_TICK_DWELL_MS gives.
+ */
+export const TICK_PACES = [
+  { id: "slow", label: "Slow (2.4 s per tick)", ms: dwellMs(24) },
+  { id: "normal", label: "Normal (1.2 s per tick)", ms: dwellMs(12) },
+  { id: "fast", label: "Fast (0.3 s per tick)", ms: NOMINAL_TICK_DWELL_MS },
+] as const;
+/** What the page starts at: slow enough to follow one relay hop by hop. */
+export const DEFAULT_PACE_MS: number = dwellMs(12);
 /** Free play's tick: a resolution, not physics. */
 export const FREE_PLAY_TICK_S = 1;
 /** Covers the 180-tick SECOQC replay with room to spare. */
@@ -94,11 +107,64 @@ export interface TimelineMessage {
   transition?: string;
 }
 
+/** One part of a tick, as it happened. The parts are TICK_PIPELINE's. */
+export type TickStepId = "generate" | "stream" | "route" | "relay" | "deliver";
+/**
+ * ok: it did its work. wait: blocked on key that will come. fail: refused or
+ * impossible now. idle: nothing was due this tick.
+ */
+export type StepOutcome = "ok" | "wait" | "fail" | "idle";
+export interface TickStep { id: TickStepId; outcome: StepOutcome; detail: string }
+
+/**
+ * What one tick did, part by part, recorded by the engine as it did it, so
+ * the page draws what happened rather than guessing it from two snapshots. It
+ * changes nothing the engine computes.
+ */
+export interface TickTrace {
+  tick: number;
+  t_s: number;
+  steps: TickStep[];
+  /** What crossed the route this tick; null when nothing did. */
+  relay: { nodes: string[]; linkIds: string[]; amount: string } | null;
+}
+
+/**
+ * What a tick does in each accounting mode, in the order advance() does it.
+ * Every TickTrace holds exactly these, in this order. Called neither phases nor
+ * stages, which name other things here (docs/roadmap.md).
+ */
+export const TICK_PIPELINE: Record<Accounting, readonly { id: TickStepId; label: string }[]> = {
+  keys: [
+    { id: "generate", label: "Generate keys" },
+    { id: "stream", label: "ETSI 004 stream" },
+    { id: "route", label: "Select route" },
+    { id: "relay", label: "Relay, one pad per hop" },
+    { id: "deliver", label: "GET_KEY on both ends" },
+  ],
+  stores: [
+    { id: "generate", label: "Generate, as cited" },
+    { id: "route", label: "Select route above threshold" },
+    { id: "relay", label: "Draw from each hop's store" },
+    { id: "deliver", label: "Deliver" },
+  ],
+  "service-buffer": [
+    { id: "deliver", label: "Serve from the key store" },
+    { id: "route", label: "Select route" },
+    { id: "relay", label: "Refill by relay" },
+  ],
+  "route-only": [
+    { id: "route", label: "Select route" },
+  ],
+};
+
 export interface TickRec {
   tick: number;
   sim_time_s: number;
   started_at: number;
   ui_dwell_ms: number | "";
+  /** The dwell asked for when this tick ran: the page's speed can change mid-run. */
+  nominal_dwell_ms: number;
   route: string;
   relays: number | "";
   delivered_bits: number;
@@ -148,6 +214,8 @@ export interface ProtocolLabState {
   messages: TimelineMessage[];
   last_relay: { hops: number; key_prefix: string; pad_prefixes: string[];
                 recovered_equals_sent: boolean } | null;
+  /** The latest tick, part by part; null before the first. */
+  last_tick: TickTrace | null;
   history: TickRec[];
   published: Scenario["published"] | null;
   limits: string[];
@@ -167,7 +235,7 @@ export function protocolLabCsvRows(state: ProtocolLabState): Record<string, unkn
     const row: Record<string, unknown> = {
       tick: h.tick, sim_time_s: h.sim_time_s,
       started_at: new Date(h.started_at).toISOString(),
-      ui_dwell_ms: h.ui_dwell_ms, nominal_dwell_ms: NOMINAL_TICK_DWELL_MS,
+      ui_dwell_ms: h.ui_dwell_ms, nominal_dwell_ms: h.nominal_dwell_ms,
       preset: state.preset_id, scenario: state.scenario_id ?? "",
       accounting: state.accounting,
       demand: `${state.demand.from}->${state.demand.to}`,
@@ -226,10 +294,15 @@ export class ProtocolLabSim {
   private lastRelay: ProtocolLabState["last_relay"] = null;
   private history: TickRec[] = [];
   private pendingEvent: string[] = [];
+  private paceMs: number = NOMINAL_TICK_DWELL_MS;
+  private lastTick: TickTrace | null = null;
+  private traceSteps: TickStep[] = [];
+  private traceRelay: TickTrace["relay"] = null;
 
   constructor(onState: (s: ProtocolLabState) => void,
-              opts: { seeds?: RunSeeds; newKsid?: () => string; presetId?: string } = {}) {
+              opts: { seeds?: RunSeeds; newKsid?: () => string; presetId?: string; paceMs?: number } = {}) {
     this.onState = onState;
+    if (opts.paceMs !== undefined) this.paceMs = opts.paceMs;
     this.seeds = opts.seeds ?? RunSeeds.fromLocation();
     this.newKsid = opts.newKsid ?? (() => crypto.randomUUID());
     this.load(opts.presetId ?? "cambridge-2019", null);
@@ -275,13 +348,14 @@ export class ProtocolLabSim {
       stream,
       messages: [...this.messages],
       last_relay: this.lastRelay ? { ...this.lastRelay, pad_prefixes: [...this.lastRelay.pad_prefixes] } : null,
+      last_tick: this.lastTick,
       history: [...this.history],
       published: this.scenario?.published ?? null,
       limits: this.scenario?.limits ?? [],
       policy: ROUTING_POLICY,
       key_bits: KEY_BITS, key_bits_source: KEY_BITS_SOURCE,
       seed: this.seeds.value, seed_pinned: this.seeds.pinned,
-      nominal_dwell_ms: NOMINAL_TICK_DWELL_MS,
+      nominal_dwell_ms: this.paceMs,
       engine: "client-side (JS)",
       spec: SPEC_VERSION,
     };
@@ -309,6 +383,13 @@ export class ProtocolLabSim {
   }
 
   dispose() { this.stopLoop(); this.clearKeyMaterial(); }
+
+  /** How long the page dwells on each tick. Takes effect from the next one. */
+  setPace(ms: number) {
+    if (!TICK_PACES.some((p) => p.ms === ms)) return;
+    this.paceMs = ms;
+    this.emit();
+  }
 
   loadPreset(presetId: string, scenarioId: string | null) {
     this.stopLoop();
@@ -399,6 +480,7 @@ export class ProtocolLabSim {
     this.route = null; this.routeNone = null; this.alternatives = []; this.rejected = [];
     this.reroutes = []; this.delivered = 0; this.unmet = 0; this.ok = 0; this.failed = 0;
     this.messages = []; this.history = []; this.pendingEvent = []; this.lastRelay = null;
+    this.lastTick = null; this.traceSteps = []; this.traceRelay = null;
     this.lastStatus = null; this.lastTickStart = null;
     this.seeds.reset();
 
@@ -459,22 +541,51 @@ export class ProtocolLabSim {
     const events = this.pendingEvent.splice(0);
     let deliveredNow = 0;
     let unmetNow = 0;
+    this.traceSteps = [];
+    this.traceRelay = null;
 
     if (this.accounting === "keys") {
-      this.generateKeys();
+      const made = this.generateKeys();
+      this.traceStep("generate", made.keys > 0 ? "ok" : "idle",
+        made.keys > 0 ? `+${made.keys} key(s) on ${made.links} link(s)` : "no whole key this tick");
       if (this.ksid === null || !this.km.isEstablished(this.ksid)) this.openStream();
+      const established = this.ksid !== null && this.km.isEstablished(this.ksid);
+      this.traceStep("stream", established ? "ok" : "fail", established ? "ESTABLISHED"
+        : this.demandFrom === this.demandTo ? "source and destination are one node" : "OPEN_CONNECT refused");
       this.chooseRoute();
-      this.refillStream();
+      this.traceRoute();
+      const refill = this.refillStream();
+      if (refill.relayed > 0 && this.route) {
+        this.traceStep("relay", "ok", `${refill.relayed} key(s) over ${this.route.hops} hop(s)`);
+        this.traceRelayOver(`${refill.relayed} key(s)`);
+      } else if (refill.waiting) {
+        this.traceStep("relay", "wait", refill.waiting);
+      } else if (!this.route || !established) {
+        this.traceStep("relay", "fail", this.route ? "no stream to relay into" : "no route");
+      } else {
+        this.traceStep("relay", "idle", "the stream holds enough keys");
+      }
       const r = this.consumeStream();
       deliveredNow = r.delivered; unmetNow = r.unmet;
+      if (r.requested === 0) this.traceStep("deliver", "idle", "no request due this tick");
+      else if (r.served === r.requested) this.traceStep("deliver", "ok", `${r.served} key(s) delivered`);
+      else if (r.served > 0) this.traceStep("deliver", "wait", `${r.served} of ${r.requested}: ${r.why}`);
+      else this.traceStep("deliver", "fail", r.why ?? "refused");
     } else if (this.accounting === "stores") {
       const sc = this.scenario as Extract<Scenario, { accounting: "stores" }>;
       const need = quantityValue(sc.demand.rate) * this.tickS;
+      const generating: string[] = [];
       for (const l of this.links) {
         const g = sc.generation[l.id];
-        if (g?.kind === "equals-demand" && t <= quantityValue(g.until) && l.storedBits !== null) l.storedBits += need;
+        if (g?.kind === "equals-demand" && t <= quantityValue(g.until) && l.storedBits !== null) {
+          l.storedBits += need;
+          generating.push(l.id);
+        }
       }
+      this.traceStep("generate", generating.length ? "ok" : "idle",
+        generating.length ? `${generating.join(", ")}, as fast as the demand` : "no store generating now");
       this.chooseRoute(need);
+      this.traceRoute();
       if (this.route) {
         for (const id of this.route.linkIds) {
           const l = this.links.find((x) => x.id === id)!;
@@ -483,9 +594,14 @@ export class ProtocolLabSim {
         deliveredNow = need;
         this.relaySample();
         this.log("014", `per hop over ${routeKey(this.route.nodes)}: enc_keys/dec_keys for ${need} bits (${ETSI014_THIS_REPO.sizeUnit})`);
+        this.traceStep("relay", "ok", `${need} bits from each of ${this.route.hops} store(s)`);
+        this.traceRelayOver(`${need} bits`);
+        this.traceStep("deliver", "ok", `${need} bits delivered`);
       } else {
         unmetNow = need;
         this.log("004", "GET_KEY: no route of stores above threshold", this.km4Status("NO_QKD_CONNECTION"));
+        this.traceStep("relay", "fail", "no route of stores above threshold");
+        this.traceStep("deliver", "fail", `${need} bits unmet`);
       }
     } else if (this.accounting === "service-buffer") {
       const sc = this.scenario as Extract<Scenario, { accounting: "service-buffer" }>;
@@ -498,28 +614,38 @@ export class ProtocolLabSim {
       svc.stored -= served;
       this.ok += served; this.failed += whole - served;
       deliveredNow = served * KEY_BITS; unmetNow = (whole - served) * KEY_BITS;
+      this.traceStep("deliver", whole === 0 ? "idle" : served === whole ? "ok" : served > 0 ? "wait" : "fail",
+        whole === 0 ? "no key due this tick" : `${served} of ${whole} key(s) served`);
       if (svc.stored <= svc.refillAt) {
         const keys = svc.refillTo - svc.stored;
         this.chooseRoute(keys * KEY_BITS);
+        this.traceRoute();
         if (this.route) {
           svc.stored = svc.refillTo; svc.refills += 1;
           this.relaySample();
           this.log("014", `refill ${keys} keys over ${routeKey(this.route.nodes)} (one-time-pad tunnels; ${keys * KEY_BITS} bits at ${KEY_BITS} bits per key from ${KEY_BITS_SOURCE})`);
+          this.traceStep("relay", "ok", `refilled ${keys} key(s)`);
+          this.traceRelayOver(`${keys} key(s)`);
         } else {
           svc.failedRefills += 1;
           this.log("014", `refill of ${keys} keys failed: ${this.routeNone ?? "no route"}`);
+          this.traceStep("relay", "fail", `refill of ${keys} key(s) failed`);
         }
       } else {
         this.chooseRoute(0);
+        this.traceRoute();
+        this.traceStep("relay", "idle", `the store is above ${svc.refillAt} keys`);
       }
     } else {
       this.chooseRoute();
+      this.traceRoute();
     }
 
     this.delivered += deliveredNow;
     this.unmet += unmetNow;
     const rec: TickRec = {
       tick: this.tickN, sim_time_s: t, started_at: now, ui_dwell_ms: dwell,
+      nominal_dwell_ms: this.paceMs,
       route: this.route ? routeKey(this.route.nodes) : "",
       relays: this.route ? this.route.relays : "",
       delivered_bits: deliveredNow, unmet_bits: unmetNow,
@@ -529,6 +655,7 @@ export class ProtocolLabSim {
     };
     this.history.push(rec);
     if (this.history.length > HISTORY_LIMIT) this.history.shift();
+    this.lastTick = { tick: this.tickN, t_s: t, steps: this.traceSteps, relay: this.traceRelay };
 
     // The cited SECOQC run ends when no route is left: halt there, the way
     // PaperSim reports a halted run.
@@ -538,7 +665,22 @@ export class ProtocolLabSim {
     }
   }
 
-  private generateKeys() {
+  private traceStep(id: TickStepId, outcome: StepOutcome, detail: string) {
+    this.traceSteps.push({ id, outcome, detail });
+  }
+
+  private traceRoute() {
+    if (this.route) this.traceStep("route", "ok", this.route.nodes.join(" > "));
+    else this.traceStep("route", "fail", this.routeNone ?? "no route");
+  }
+
+  private traceRelayOver(amount: string) {
+    if (this.route) this.traceRelay = { nodes: [...this.route.nodes], linkIds: [...this.route.linkIds], amount };
+  }
+
+  private generateKeys(): { keys: number; links: number } {
+    let keys = 0;
+    let links = 0;
     for (const l of this.links) {
       if (l.kind !== "qkd" || l.down || l.genBps === null || l.storedKeys === null) continue;
       // KeyPool's producer gate: production runs only below the low watermark
@@ -548,7 +690,9 @@ export class ProtocolLabSim {
       const made = Math.min(Math.floor(c), LOW_WM - l.storedKeys, MAX_KEYS - l.storedKeys);
       l.storedKeys += made;
       this.credit.set(l.id, l.storedKeys >= LOW_WM ? 0 : c - made);
+      if (made > 0) { keys += made; links += 1; }
     }
+    return { keys, links };
   }
 
   private openStream() {
@@ -563,8 +707,8 @@ export class ProtocolLabSim {
   }
 
   /** Relay keys into the 004 stream until it holds pool_low_watermark undelivered chunks. */
-  private refillStream() {
-    if (this.ksid === null || !this.km.isEstablished(this.ksid) || !this.route) return;
+  private refillStream(): { relayed: number; waiting: string | null } {
+    if (this.ksid === null || !this.km.isEstablished(this.ksid) || !this.route) return { relayed: 0, waiting: null };
     let relayed = 0;
     let waiting: string | null = null;
     while (this.km.undelivered(this.ksid, "A") < LOW_WM) {
@@ -591,18 +735,19 @@ export class ProtocolLabSim {
     } else if (this.route === null && this.routeNone) {
       this.log("014", `no relay: ${this.routeNone} (a KME with an empty pool answers enc_keys with HTTP ${ETSI014_THIS_REPO.http.poolEmpty})`);
     }
+    return { relayed, waiting };
   }
 
-  private consumeStream(): { delivered: number; unmet: number } {
+  private consumeStream(): { delivered: number; unmet: number; requested: number; served: number; why: string | null } {
     this.demandCredit += (this.keysPerS ?? 0) * this.tickS;
     const n = Math.floor(this.demandCredit);
     this.demandCredit -= n;
-    if (n === 0) return { delivered: 0, unmet: 0 };
+    if (n === 0) return { delivered: 0, unmet: 0, requested: 0, served: 0, why: null };
     if (this.ksid === null) {
       this.failed += n;
       this.lastStatus = this.km4Status("NO_QKD_CONNECTION");
       this.log("004", `GET_KEY x${n}: no stream (OPEN_CONNECT has not succeeded)`, this.lastStatus);
-      return { delivered: 0, unmet: n * KEY_BITS };
+      return { delivered: 0, unmet: n * KEY_BITS, requested: n, served: 0, why: "no stream" };
     }
     let okN = 0, lastFail: CallResult | null = null, first = -1, last = -1;
     for (let i = 0; i < n; i++) {
@@ -623,7 +768,8 @@ export class ProtocolLabSim {
       this.lastStatus = lastFail.status;
       this.log("004", `GET_KEY x${n - okN} failed: ${lastFail.detail ?? statusById(lastFail.status ?? 0).paraphrase}`, lastFail.status, lastFail.transition);
     }
-    return { delivered: okN * bits, unmet: (n - okN) * bits };
+    return { delivered: okN * bits, unmet: (n - okN) * bits, requested: n, served: okN,
+             why: lastFail ? lastFail.detail ?? statusById(lastFail.status ?? 0).paraphrase : null };
   }
 
   // ---- routing ----------------------------------------------------------------
@@ -779,7 +925,7 @@ export class ProtocolLabSim {
 
   private onTimer() {
     if (this.status !== "running") return;
-    if (!dwellDone(performance.now() - this.lastAdvance, NOMINAL_TICK_DWELL_MS)) return;
+    if (!dwellDone(performance.now() - this.lastAdvance, this.paceMs)) return;
     this.lastAdvance = performance.now();
     this.advance();
     this.emit();

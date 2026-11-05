@@ -5,9 +5,10 @@ before starting any of these.
 
 Status is stated and dated per entry, and reviewed against the implemented
 tree rather than carried forward untouched. Last full review: 2026-09-25; the
-entries dated 2026-09-26 came with the arnika #51 adoption, and the entry
-dated 2026-10-12 with the move of the Docker socket to `stack-status`, and
-each was checked against the tree that day. A review date older than the
+entries dated 2026-09-26 came with the arnika #51 adoption, the entry dated
+2026-10-12 with the move of the Docker socket to `stack-status`, and the entry
+dated 2026-11-05 with `/qkd-protocols`, and each was checked against the tree
+that day. A review date older than the
 newest entry below is a defect in this file.
 
 ## Completed since this roadmap was written
@@ -186,6 +187,10 @@ in that layout and quotes its caption verbatim, `/paper-flow` draws it, and
 `tests/test_paper_budgets.py` pins the totals to the three rows the paper
 prints.
 
+`/protocol-lab` has a fourth list, what one simulated tick does (`TICK_PIPELINE`, added
+2026-11-05), and calls its items neither phases nor stages, so it adds no meaning to
+either word; the page numbers them and calls them the parts of a tick.
+
 It keeps the word "phase" anyway, because the obvious alternative collides:
 "stage" is the paper's word for a four-way count, and calling this five-way
 split stages as well would make "stage 4" mean two different things.
@@ -307,6 +312,9 @@ and labelled a simulation before anything runs:
 - this project's key-rate model beside each reported rate in the link table,
   never in the simulation.
 
+On 2026-11-05 the page gained a playback of what the engine records for each tick,
+and readable captions; no number in the engine changed.
+
 **What was withdrawn, and why.**
 
 - *NS-3 / qkdnetsim backend.* No qkdnetsim binary is run anywhere in this
@@ -363,8 +371,8 @@ or comes back as new work.
 | Item | Status | Reason |
 |---|---|---|
 | CV-QKD Lab page (homodyne histogram, PLOB bound curve) | Deferred | The `cvqkd` backend (GG02) is a full KME backend: whenever it is selected (`SIMULATOR_BACKEND=cvqkd`, which `deploy/.env.example` sets, or the `/physics` selector where live overrides are enabled), both KMEs produce keys with it and both VPN lanes draw from them. It is not the repository default (`simqn`). What is missing is the page: a teaching view would need its own key-rate model derived and tested first. |
-| Protocol Zoo (B92, E91, SARG04) | Withdrawn | Only decoy-state BB84 is modelled end to end. Each further protocol needs its own derivation in [`keyrate.md`](keyrate.md) and a golden vector, which is the bar BB84 had to meet. |
-| MDI-QKD backend and its detector-side-channel immunity test | Withdrawn | Needs a two-sender channel model and a separate finite-key analysis, and nothing in the stack would consume its keys. |
+| Protocol Zoo (B92, E91, SARG04) | Withdrawn | Only decoy-state BB84 is modelled end to end. Each further protocol needs its own derivation in [`keyrate.md`](keyrate.md) and a golden vector, which is the bar BB84 had to meet. BBM92 and MDI-QKD met that bar as rate curves on 2026-11-05: see the record below. |
+| MDI-QKD backend and its detector-side-channel immunity test | Withdrawn | Needs a two-sender channel model and a separate finite-key analysis, and nothing in the stack would consume its keys. Still true: the curve on `/qkd-protocols` is not a backend and has no finite-key analysis. |
 | Hardware-in-the-loop compose profile, dry-run test and a fake HIL device | Deferred | No hardware has been tested against this PoC, and a fake device would test the fake. Blocked on the ETSI 014 TLS gap listed under "Implementation gaps still open" below; `/hil` documents the manual path. |
 | QOSST (CV-QKD software stack) as a backend | Withdrawn | Not vendored; `cvqkd` already covers GG02 in simulation, and the CV-QKD Lab above is deferred. |
 | Cross-validating the Rust ETSI 014 KME | Deferred | `submodules/qkd_kme_server` is vendored and in no compose profile ([`phases.md`](phases.md), Phase 14). Running `tests/test_etsi014_contract.py` against it needs a build stage and a service definition first. |
@@ -373,6 +381,38 @@ or comes back as new work.
 | Generated SBOM (CycloneDX or SPDX) for the images | Deferred | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) is the hand-maintained inventory, checked against the pins by `tests/test_notices_match_the_pins.py`. |
 | A running `wgephemeralpeer` container | Withdrawn | Reasons in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`IMAGE1_VPN_SCOPE.md`](IMAGE1_VPN_SCOPE.md). |
 | QuNetSim and NetSquid | Withdrawn | Reasons in [`keyrate.md`](keyrate.md) section 8. |
+
+## Decision record: QKD protocol rates in the browser (2026-11-05)
+
+**Why this reopens a line above.** The early plans' MDI-QKD and protocol-zoo items
+were withdrawn on 2026-09-25 because each needs its own derivation and golden vector,
+and because nothing in the stack would consume the keys. On 2026-11-05 the project's
+owner chose to show MDI-QKD and other discrete-variable families on the public page,
+including key-rate curves. The bar stands, and this meets it; the reasons against a
+backend stand too, so there is none.
+
+**What shipped** is route 15, `/qkd-protocols`, computed entirely in the browser and
+labelled a model before anything runs:
+
+- one idealised round of BB84, BBM92 or MDI-QKD at a time, with no loss, noise or
+  eavesdropper and no running count of bits, so it cannot be read as a key generator;
+- asymptotic key-rate curves for decoy-state BB84, BBM92 from a thermal source and
+  MDI-QKD, with a two-arm channel and the repeaterless bound, derived in
+  [`keyrate.md`](keyrate.md) section 9 and pinned by golden vectors that
+  `tests/test_protocol_rates.py` checks against exact optics, a direct detector count
+  and the published curves of Lo, Curty and Qi, Fig. 2;
+- the families compared with the conditions of each result, read at the source, with
+  no ranking.
+
+**What it is not.** No KME backend, no key, no finite-key bound, no attack model and
+no detector-side-channel test: the withdrawn immunity test stays withdrawn, because
+a page with no attack model cannot show what MDI-QKD removes. B92, SARG04, E91's
+rate, twin-field and CV-QKD are not modelled, and the CV-QKD Lab stays deferred.
+
+**Wording it keeps.** MDI-QKD targets attacks on the measurement unit, and its sources
+must still be trusted and characterised; it is not called immune. Its rate does not
+beat the repeaterless bound. Distances carry their fibre, their key-length regime and
+whether the fibre is deployed.
 
 ## Deferred from the 2026-09-25 batch
 

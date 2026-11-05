@@ -82,13 +82,17 @@ export function subscribeNarrowLayout(list: NarrowLayoutList, onChange: () => vo
  * where there is no window (the node test environment, a server render) does
  * not touch `window`.
  */
-export function createNarrowLayoutStore(source: () => MediaQuerySource) {
+function createMediaQueryStore(query: string, source: () => MediaQuerySource) {
   let list: NarrowLayoutList | null = null;
-  const shared = (): NarrowLayoutList => (list ??= source().matchMedia(NARROW_LAYOUT_QUERY));
+  const shared = (): NarrowLayoutList => (list ??= source().matchMedia(query));
   return {
     getSnapshot: (): boolean => readNarrowLayout(shared()),
     subscribe: (onChange: () => void): (() => void) => subscribeNarrowLayout(shared(), onChange),
   };
+}
+
+export function createNarrowLayoutStore(source: () => MediaQuerySource) {
+  return createMediaQueryStore(NARROW_LAYOUT_QUERY, source);
 }
 
 const store = createNarrowLayoutStore(() => window);
@@ -107,4 +111,18 @@ const getServerSnapshot = () => false;
  */
 export function useNarrowLayout(): boolean {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, getServerSnapshot);
+}
+
+/**
+ * Whether the reader has asked for less motion. It is here because every media
+ * query in the app is (layout.test.ts), not because it has anything to do with
+ * width. The Protocol Lab's moving key and sweeping stages stop when it is on:
+ * every state change still shows at once, because nothing about the state
+ * depends on the motion.
+ */
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const motionStore = createMediaQueryStore(REDUCED_MOTION_QUERY, () => window);
+
+export function usePrefersReducedMotion(): boolean {
+  return useSyncExternalStore(motionStore.subscribe, motionStore.getSnapshot, getServerSnapshot);
 }
