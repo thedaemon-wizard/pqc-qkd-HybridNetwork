@@ -13,13 +13,25 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
-- `/protocol-lab` plays each tick back from what the engine recorded for it:
-  the stages light in order with their outcomes, the key crosses the route hop
-  by hop and shows where it is in the clear, a re-route leaves the old route
-  drawn for a moment, and one bar holds every tick so far. A speed select
-  (Slow, Normal, Fast) changes how fast it is drawn and nothing that is
-  computed. With the browser's reduced-motion setting on, nothing moves and
-  each outcome shows at once.
+- `/qkd-protocols`, route 15: one idealised round of BB84, BBM92 or MDI-QKD at a
+  time; asymptotic key-rate curves for the same three with a two-arm channel and
+  the repeaterless bound, derived in `docs/keyrate.md` section 9 and checked against
+  exact optics, a direct detector count and the published curves; and the families
+  compared with the conditions of each result. A model, labelled as one, computed in
+  the browser. No backend and no key come with it, and the decision is recorded in
+  `docs/roadmap.md`.
+- `/protocol-lab` plays each tick back from what the engine recorded for it: its
+  parts light in order with their outcomes, the key crosses the route hop by hop
+  and shows where it is in the clear, a re-route leaves the old route drawn for a
+  moment, and one bar holds the latest ticks. A speed select (Slow, Normal, Fast)
+  changes how fast it is drawn and nothing that is computed. Pause freezes the
+  picture. With the browser's reduced-motion setting on, nothing moves and each
+  outcome shows at once.
+- An exported `/protocol-lab` frame now says inside itself that it is a simulation,
+  and what the run is doing. Thuringia, whose paper relays no key, says so under
+  the drawing and in the export.
+- The README has the architecture and one rotation as diagrams, and a screenshot of
+  every route.
 - `stack-status` (`services/stack-status/`), the one container that mounts
   the Docker socket. It serves `webui-backend` a fixed, GET-only API on
   `status-net`, an internal network that only the backend also joins, and
@@ -38,8 +50,9 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 - `/protocol-lab`'s link captions no longer overlap: each is placed clear of
   the nodes, the other captions and the other links, on a plate that stops its
-  own line striking through it (it was at a bare midpoint). Below 768 px the
-  captions make way for a larger drawing; the figures stay in the links table.
+  own line striking through it (it was at a bare midpoint). Links now end on the
+  border of a node's box. Below 768 px the captions make way for a larger drawing;
+  the figures stay in the links table.
 - `/protocol-lab`'s default pace is 1.2 s per tick instead of 0.3 s, and the
   CSV's `nominal_dwell_ms` is now per tick, because the speed can change during
   a run.

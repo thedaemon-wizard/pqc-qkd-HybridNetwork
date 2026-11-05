@@ -30,10 +30,10 @@ Reference papers:
 | Document | What it answers |
 |---|---|
 | [`docs/threat-model.md`](docs/threat-model.md) | What this defends against and why hybrid: harvest-now-decrypt-later, Mosca's inequality, the CRQC estimates, and the CNSA 2.0 gap this repository does not close |
-| [`docs/keyrate.md`](docs/keyrate.md) | The decoy-state BB84 key-rate model, derived, with the golden vector CI asserts against |
+| [`docs/keyrate.md`](docs/keyrate.md) | The decoy-state BB84 key-rate model, derived, with the golden vector CI asserts against; and the MDI-QKD and BBM92 rates behind `/qkd-protocols` |
 | [`docs/vici-ppk.md`](docs/vici-ppk.md) | How the QKD key reaches strongSwan (RFC 8784 PPK + RFC 9370 hybrid key exchange), and why a plain IKEv2 PSK would not work |
 | [`docs/etsi004-binding.md`](docs/etsi004-binding.md) | The ETSI GS QKD 004 V2.1.1 endpoint and this project's HTTP binding for it |
-| [`docs/webui-pages.md`](docs/webui-pages.md) | The fourteen WebUI routes: what each computes in the browser and what it needs the backend for |
+| [`docs/webui-pages.md`](docs/webui-pages.md) | The fifteen WebUI routes: what each computes in the browser and what it needs the backend for |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The detailed design and the annotated repository layout |
 | [`docs/BUILD.md`](docs/BUILD.md) | Toolchains, per-service builds, configuration variables, the dev environment |
 | [`deploy/README.md`](deploy/README.md), [`docs/deployment-economics.md`](docs/deployment-economics.md) | Deploying, redeploying, and what each hosting option costs |
@@ -83,30 +83,69 @@ reach a KME or arnika, so it does not exercise arnika's fall-back path.
 
 ## 2. Architecture
 
+The whole path of a key, from the simulated QKD link to the two VPN lanes. There is
+no quantum hardware anywhere in it.
+
+```mermaid
+flowchart TB
+  subgraph browser["Browser"]
+    ui["WebUI: React, Plotly, D3<br/>15 routes, several computed entirely here"]
+  end
+  subgraph status["Read-only status"]
+    api["webui-backend (FastAPI)<br/>/api/stack /api/stats /api/verify/*"]
+    ss["stack-status<br/>the only holder of the Docker socket,<br/>a fixed GET-only API"]
+  end
+  subgraph kmes["Simulated QKD link"]
+    ka["bb84-kme-a<br/>BB84 simulator + ETSI GS QKD 014"]
+    kb["bb84-kme-b<br/>BB84 simulator + ETSI GS QKD 014"]
+    ka <-- "/internal/sync" --> kb
+  end
+  subgraph wg["WireGuard lane"]
+    a1["alice<br/>arnika (Go) + Rosenpass<br/>wg0 10.0.0.1/24, wg1 10.0.1.1/24"]
+    b1["bob<br/>arnika (Go) + Rosenpass<br/>wg0 10.0.0.2/24, wg1 10.0.1.2/24"]
+    a1 <-- "wg0 hop tunnel: PSK = HKDF-SHA3-256(QKD || PQC-HPKE)<br/>wg1 inside wg0: PSK from Rosenpass" --> b1
+  end
+  subgraph ipsec["IPsec lane (ipsec compose profile)"]
+    a2["alice-ipsec<br/>arnika + strongSwan 6.1.0"]
+    b2["bob-ipsec<br/>arnika + strongSwan 6.1.0"]
+    a2 <-- "IKEv2: ECP-256 + ML-KEM-768 (RFC 9370)<br/>PPK (RFC 8784) = HKDF-SHA3-256(QKD || PQC-HPKE), over VICI" --> b2
+  end
+  ui -- "REST" --> api
+  api --> ka
+  api --> kb
+  api --> ss
+  ss -. "status and bounded logs" .-> wg
+  ss -. "status and bounded logs" .-> ipsec
+  ka -- "ETSI 014 over HTTP (mTLS not implemented)" --> a1
+  ka --> a2
+  kb -- "ETSI 014 over HTTP" --> b1
+  kb --> b2
 ```
-                     ┌────────────────────────────────────┐
-                     │   WebUI (React + Plotly + D3)      │
-                     │   localhost:5173                   │
-                     └──────────────┬─────────────────────┘
-                                    │ REST
-                     ┌──────────────▼─────────────────────┐
-                     │  webui-backend (FastAPI)           │
-                     │ /api/stack /api/stats /api/verify/*│
-                     └──┬───────────────────────┬─────────┘
-                        │                       │
-        ┌───────────────▼───┐               ┌───▼──────────────┐
-        │  bb84-kme-a       │ /internal/sync│  bb84-kme-b      │
-        │  BB84 sim + ETSI  │◄─────────────►│  BB84 sim + ETSI │
-        └────────▲──────────┘               └──────────▲───────┘
-                 │ HTTP (mTLS NOT implemented)         │
-        ┌────────┴───────────┐               ┌─────────┴────────┐
-        │  alice (node)      │ wg0 hop tunnel│  bob (node)      │
-        │  - arnika (Go)     │◄─────────────►│  - arnika (Go)   │
-        │  - rosenpass       │ PSK = HKDF(QKD│  - rosenpass     │
-        │  - wg0 10.0.0.1/24 │ || PQC-HPKE)  │  - wg0 10.0.0.2  │
-        │  - wg1 10.0.1.1/24 │ wg1 inside wg0│  - wg1 10.0.1.2  │
-        │                    │ PSK: Rosenpass│                  │
-        └────────────────────┘               └──────────────────┘
+
+One rotation on either lane. The PRIMARY alternates by interval. In the
+`QkdAndPqcRequired` mode this stack runs, a missing ACK, `key_ID` or PQC key
+installs a random key, so a failed rotation invalidates the tunnel rather than
+extending the previous key.
+
+```mermaid
+sequenceDiagram
+  participant KA as KME, PRIMARY's side
+  participant P as arnika, PRIMARY this interval
+  participant B as arnika, BACKUP this interval
+  participant KB as KME, BACKUP's side
+  participant T as Tunnel, both ends
+  Note over P,B: Role = HMAC of the interval number, XOR ARNIKA_ID
+  P->>KA: enc_keys (ETSI GS QKD 014)
+  KA-->>P: key and key_ID
+  Note over P: HKDF-SHA3-256(QKD key || latest PQC-HPKE key)
+  P->>B: key_ID, on the authenticated UDP channel
+  B->>KB: dec_keys(key_ID)
+  KB-->>B: the same key
+  Note over B: HKDF-SHA3-256(QKD key || latest PQC-HPKE key)
+  B->>T: install: WireGuard PSK, or PPK over VICI
+  B-->>P: ACK
+  P->>T: install, only after the ACK
+  Note over T: IPsec lane: alice re-authenticates with the new PPK
 ```
 
 Each WireGuard node runs two interfaces. `wg0` is the hop tunnel between the
@@ -127,6 +166,37 @@ HKDF-SHA3-256(QKD ‖ PQC-HPKE) output, produced by a second pair of arnika
 instances that use the same KMEs and agree their own PQC-HPKE keys; Rosenpass
 plays no part in that lane. See
 [`ARCHITECTURE.md` section 4](ARCHITECTURE.md#4-the-ipsec-lane).
+
+### The WebUI
+
+Each route says on the page what is live, what is simulated and what is a model.
+Captured on 2026-11-06 at 1280 x 800, from this tree with a running stack behind it.
+
+| `/protocol-lab`: relay and re-routing, simulated over five published networks | `/qkd-protocols`: one idealised round of BB84, BBM92 or MDI-QKD at a time |
+|---|---|
+| ![Protocol Lab, with a key crossing the SECOQC network](docs/images/webui/protocol-lab.png) | ![QKD Protocols, with one MDI-QKD round](docs/images/webui/qkd-protocols.png) |
+
+<details>
+<summary>The other routes</summary>
+
+| | |
+|---|---|
+| `/`: architecture and live container status | `/qkd-protocols`: asymptotic key-rate curves ([`docs/keyrate.md`](docs/keyrate.md) section 9) |
+| ![Overview](docs/images/webui/overview.png) | ![Key rate against fibre length](docs/images/webui/qkd-protocols-rates.png) |
+| `/e2e`: the four-step exchange, simulated in the browser with real primitives | `/paper-flow`: the reference paper's multi-hop exchange and its packet budgets |
+| ![Quantum-Secure E2E](docs/images/webui/e2e.png) | ![Paper Data Exchange](docs/images/webui/paper-flow.png) |
+| `/bb84`: photon-level Monte Carlo in the browser | `/keyflow`: where each key's bits go |
+| ![BB84 Live](docs/images/webui/bb84.png) | ![Key Flow](docs/images/webui/keyflow.png) |
+| `/topology`: the running nodes | `/benchmarks`: the KMEs' counters (simulated BB84) |
+| ![Topology](docs/images/webui/topology.png) | ![Benchmarks](docs/images/webui/benchmarks.png) |
+| `/console`: bounded container logs | `/physics`: the parameters and a client-side key rate |
+| ![Console](docs/images/webui/console.png) | ![Physics Params](docs/images/webui/physics.png) |
+| `/pqc`: FIPS 203, 204 and 205 round trips in the browser | `/verify`: the crypto-agility matrix and the cross-checks |
+| ![PQC Validator](docs/images/webui/pqc.png) | ![Verification](docs/images/webui/verify.png) |
+| `/vpn`: both VPN lanes, live | `/hil`: what attaching a real device would take |
+| ![VPN Protocols](docs/images/webui/vpn.png) | ![Hardware-In-Loop](docs/images/webui/hil.png) |
+
+</details>
 
 ## 3. Quickstart
 
@@ -149,6 +219,13 @@ parameters live in `config/qkd_params.yaml`, not in the environment.
 smoke` the live end-to-end subset. The release gates -- CI-checked and manual,
 including the browser pass over every page -- are in
 [`VERIFICATION_CHECKLIST.md`](VERIFICATION_CHECKLIST.md).
+
+The order a change goes through:
+
+```mermaid
+flowchart LR
+  a["Local build<br/>tests and type check"] --> b["Local browser<br/>the changed routes"] --> c["PR and CI<br/>python, keyrate, frontend, go,<br/>env-example, secrets, images,<br/>live-stack, ipsec"] --> d["Demo redeploy<br/>the changed services only"] --> e["Demo browser<br/>checklist rows, every route"]
+```
 
 ## 5. Paper mapping
 
