@@ -1,6 +1,6 @@
 # WebUI pages
 
-The fourteen routes the dashboard serves, what each one computes in the
+The fifteen routes the dashboard serves, what each one computes in the
 browser, and what it needs the backend for.
 
 Which routes survive without a backend, and what each one costs to host, is a
@@ -24,8 +24,9 @@ different question -- see [`deployment-economics.md`](deployment-economics.md).
 12. **Hardware-In-Loop** (`/hil`) — Checklist for wiring real ETSI 014 KMS hardware (mTLS not yet implemented; see [`LIMITATIONS.md`](LIMITATIONS.md))
 13. **VPN Protocols** (`/vpn`) — WireGuard status of alice's `wg0` and `wg1`, one set of rows each (status, peers with a recent handshake, peers that ever handshaked, last handshake, preshared-key count and the configured writer: arnika for `wg0`, Rosenpass for `wg1`). A recent handshake is the evidence that both ends held the same key when it completed; "recent" means younger than WireGuard's 180 s REJECT_AFTER_TIME, which the API reports beside the count. The count of peers that ever handshaked is not that evidence, since it stays full after the two ends diverge. The preshared-key count shows only that some key is installed, which from version 0.2.0 on is always true, because every peer starts with a random placeholder. Then strongSwan IPsec/IKEv2 status, parsed live from both IPsec nodes: the negotiated proposal (RFC 9370 ML-KEM-768), per-SA RFC 8784 PPK use (`/PPK`), whether a PPK is required and used on both ends, whether the ESP SPIs pair across the ends, and ESP byte/packet counters per CHILD_SA (alice's view on the page; both nodes in the JSON export and `GET /api/vpn/protocols`), plus each IPsec node's PPK rotation count over the last 10 minutes from `GET /api/vpn/ppk-rotations`
 14. **Protocol Lab** (`/protocol-lab`) — **client-side simulation**, labelled as such before anything runs: trusted-node key relay and re-routing over five published QKD networks (Cambridge 2019, SECOQC Vienna 2008, Tokyo 2010, MadQCI 2024, and the Thuringia medical-data chain of arXiv:2608.18869, whose paper itself relays no key: the preset's relay models the KMS key-forwarding approach the paper contrasts itself with), with this stack's ETSI GS QKD 014 message shapes per hop and a simulated ETSI GS QKD 004 V2.1.1 stream end to end. Three cited scenarios replay the sources' own re-routing runs and state where the replay differs. Every reported number keeps the source's digits and reference; this project's key-rate model appears in the link table only The drawing plays each tick back from what the engine recorded for it: the stages light in order with their outcomes, the key crosses the route hop by hop, in the clear only at a trusted node, and the speed (Slow, Normal, Fast) changes how fast it is drawn and nothing that is computed. The time a key takes to cross a link on screen is not a latency. Below 768 px the link captions make way for a larger drawing, and their figures stay in the "Links as published" table.
+15. **QKD Protocols** (`/qkd-protocols`) — a **model, labelled as such before anything runs**. One idealised round of BB84, BBM92 or MDI-QKD at a time, with no loss, noise or eavesdropper and no running count of bits; the asymptotic key-rate curves of the same three with a two-arm channel and the repeaterless bound, derived in [`keyrate.md`](keyrate.md) section 9; and the families compared, each result with its fibre and key-length regime. Computed in the browser, with no request of its own. It is not a backend, and no key comes from it.
 
-Thirteen of the fourteen pages carry an export toolbar (all but `/hil`) -- **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation where the page animates, and logs. Every file except the server-log download on `/` and `/benchmarks` is built in the browser and downloaded from memory; on those two pages the Logs button fetches a server log through `GET /api/logs/download/<service>` instead. A copy goes to the backend only when the visitor ticks "copy to shared gallery" (off by default), which is what lets the "Saved exports" picker list it again.
+Fourteen of the fifteen pages carry an export toolbar (all but `/hil`) -- **high-DPI PNG (2×)**, JSON, CSV, **WebM (HQ)** + **full-resolution GIF** animation where the page animates, and logs. Every file except the server-log download on `/` and `/benchmarks` is built in the browser and downloaded from memory; on those two pages the Logs button fetches a server log through `GET /api/logs/download/<service>` instead. A copy goes to the backend only when the visitor ticks "copy to shared gallery" (off by default), which is what lets the "Saved exports" picker list it again.
 
 ---
 
@@ -38,7 +39,7 @@ beside `<main>`, as before. At 767 px and below:
 
 - The sidebar collapses into a top bar with a button named **Menu**, which
   carries `aria-expanded` and `aria-controls="site-nav"`. The panel it opens
-  holds the same fourteen links and the same algorithm attribution as the
+  holds the same fifteen links and the same algorithm attribution as the
   sidebar. Opening it moves focus to the first link. Escape closes it and
   returns focus to the button, and a press outside it closes it. Following a
   link closes it and leaves focus on `<main>`, so the next Tab starts in the

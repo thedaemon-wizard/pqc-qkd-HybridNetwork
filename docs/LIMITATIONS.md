@@ -9,6 +9,7 @@ to it rather than repeating it. Planned work and closed gaps are tracked in
 When citing or releasing the PoC, **please always disclose the limitations below.**
 
 ### 1. QKD physical simulation
+- **`/qkd-protocols` is a teaching model, not a simulation of this stack.** Its MDI-QKD and BBM92 rates are asymptotic formulas in the browser ([`keyrate.md`](keyrate.md) section 9), with no finite-key analysis and no attack model. No backend computes them, and no key comes from them.
 - **Reinforced from seven complementary backends**:
   - `qutip` — lightweight, educational, photon-level
   - `simqn` — SimQN quantum channel, fibre attenuation and sifting (`submodules/SimQN`, 2026-05-25 active). SimQN's own BB84 post-processing (Cascade and Toeplitz over its simulated classical channel) is bypassed; the reason is in the docstring of `_run_one_round_sync` in `services/bb84-kme/app/backends/simqn_backend.py`. Post-processing is this project's `reconciliation.py` instead: a heuristic entropy margin and a Toeplitz hash, with **no Cascade** error correction ([`keyrate.md`](keyrate.md) section 7).

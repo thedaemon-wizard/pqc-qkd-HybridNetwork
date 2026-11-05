@@ -58,8 +58,8 @@ export interface ExportToolbarProps {
    * animation capture shows anything.
    *
    * The WebM and GIF tooltips ended with "Press Run first." unconditionally.
-   * Thirteen pages mount this toolbar and only three -- `/e2e`, `/paper-flow`
-   * and `/protocol-lab` -- have a Run button, so on the other ten the hint
+   * Fourteen pages mount this toolbar and only four -- `/e2e`, `/paper-flow`,
+   * `/protocol-lab` and `/qkd-protocols` -- have a Run button, so on the other ten the hint
    * would tell the reader to press a control that does not exist. Pages such as
    * `/bb84` animate continuously and need no start.
    *

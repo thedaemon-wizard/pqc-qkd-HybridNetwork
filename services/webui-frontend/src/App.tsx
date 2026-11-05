@@ -20,6 +20,7 @@ import QuantumSecureE2E from "./pages/QuantumSecureE2E";
 import PaperDataExchange from "./pages/PaperDataExchange";
 import Verification from "./pages/Verification";
 import ProtocolLab from "./pages/ProtocolLab";
+import QkdProtocols from "./pages/QkdProtocols";
 
 const nav = [
   { to: "/",            label: "Overview" },
@@ -38,6 +39,7 @@ const nav = [
   // Appended last so no existing checklist row that counts sidebar entries
   // is renumbered.
   { to: "/protocol-lab", label: "Protocol Lab" },
+  { to: "/qkd-protocols", label: "QKD Protocols" },
 ];
 
 /** The site name, suffixed to each route's title. */
@@ -121,7 +123,7 @@ const NAV_PANEL: CSSProperties = {
 export default function App() {
   const location = useLocation();
   // One title per route. index.html carried "PQC-QKD Hybrid PoC — Console" on
-  // every page, naming one route's page for all fourteen.
+  // every page, naming one route's page for all of them.
   useEffect(() => {
     const page = nav.find((n) => n.to === location.pathname)?.label;
     document.title = page ? `${page} — ${SITE_TITLE}` : SITE_TITLE;
@@ -362,6 +364,7 @@ export default function App() {
           <Route path="/e2e" element={<QuantumSecureE2E />} />
           <Route path="/paper-flow" element={<PaperDataExchange />} />
           <Route path="/protocol-lab" element={<ProtocolLab />} />
+          <Route path="/qkd-protocols" element={<QkdProtocols />} />
         </Routes>
         </ErrorBoundary>
       </main>

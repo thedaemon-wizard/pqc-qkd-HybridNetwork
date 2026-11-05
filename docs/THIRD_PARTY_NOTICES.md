@@ -275,6 +275,9 @@ profile.
 
 ## Published data restated in the WebUI (facts only)
 
+`/qkd-protocols` restates results from the papers it cites, each beside its reference,
+and copies no figure or passage; its formulas are derived in `docs/keyrate.md` section 9.
+
 `/protocol-lab` restates numbers from five papers and names from one
 specification. Nothing below is vendored or redistributed: no figure, map,
 table image or passage of text is copied, the topology drawings are this

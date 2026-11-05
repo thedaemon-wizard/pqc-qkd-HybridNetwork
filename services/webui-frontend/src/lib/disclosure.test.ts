@@ -194,7 +194,7 @@ describe("the menu button in App.tsx", () => {
   it("the panel holds the same links and attribution as the sidebar", () => {
     // One `navContents`, rendered by the sidebar and by the panel.
     expect(APP_CODE.match(/\{navContents\}/g)).toHaveLength(2);
-    expect(APP_CODE.match(/\{ to: "\//g)).toHaveLength(14);
+    expect(APP_CODE.match(/\{ to: "\//g)).toHaveLength(15);
   });
 
   it("moves focus to the first link when it opens", () => {

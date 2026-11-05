@@ -347,7 +347,193 @@ means all rights reserved rather than permissive.
 
 ---
 
-## 9. References
+## 9. Other protocol families: the curves on `/qkd-protocols`
+
+`/qkd-protocols` draws the key rate of three protocols against fibre length, in
+the browser. It is a teaching model. No backend computes these rates, no key comes
+from them, and nothing in the running stack reads them; the rate that does stand
+behind this stack's keys is the decoy-state BB84 model above. The decision record
+is in [`roadmap.md`](roadmap.md).
+
+| Where | File |
+|---|---|
+| Reference, standard library only | [`tools/protocol_rates.py`](../tools/protocol_rates.py) |
+| Browser port | [`services/webui-frontend/src/lib/sim/protocolRates.ts`](../services/webui-frontend/src/lib/sim/protocolRates.ts) |
+| Golden vectors, written by the reference | [`services/webui-frontend/src/lib/sim/protocolRatesGolden.json`](../services/webui-frontend/src/lib/sim/protocolRatesGolden.json) |
+
+`tests/test_protocol_rates.py` holds the reference to the sources, and
+`protocolRates.test.ts` holds the browser port to the golden vectors. Both run in CI.
+
+### 9.1 What the three share
+
+Every rate here is **asymptotic**, with infinitely many decoy states where there
+are decoys. The basis factor is $`q = 1`$, the limit of very biased bases, so the
+numbers are bits per pulse (per pair of pulses for MDI-QKD) sent in the key basis.
+With balanced bases, BB84 and BBM92 halve, and MDI-QKD quarters if only the Z basis
+gives key.
+
+All detectors are threshold detectors with one efficiency $`\eta_d`$ and one
+background probability $`p_d`$, per detector and per pulse. Two detectors at one end
+give the $`Y_0`$ of sections 2 and 4:
+
+```math
+Y_0 = 1 - (1 - p_d)^2 \approx 2 p_d
+```
+
+Fibre of length $`L`$ and loss $`\alpha`$ dB/km, with a relay or source at a share
+$`s`$ of the way from Alice, gives the two arms:
+
+```math
+\eta_A = \eta_d\, 10^{-\alpha s L / 10}, \qquad
+\eta_B = \eta_d\, 10^{-\alpha (1 - s) L / 10}
+```
+
+The parameters on the page start at those behind Lo, Curty and Qi (2012), Fig. 2:
+$`\alpha = 0.2`$ dB/km, $`\eta_d = 14.5\%`$, $`e_d = 1.5\%`$, $`f = 1.16`$, with
+$`p_d = 3.0 \times 10^{-6}`$ per detector (Ma and Razavi, Table I, half the
+two-detector $`6.02 \times 10^{-6}`$ of the experiment they come from).
+
+### 9.2 MDI-QKD
+
+Alice and Bob each send phase-randomised weak coherent pulses to an untrusted relay,
+which announces a partial Bell-state measurement. The formulas are Ma and Razavi
+(2012), Appendixes A and B, for the original polarisation scheme of Lo, Curty and Qi.
+The rate, their Eq. (B27):
+
+```math
+R \;\geq\; Q_{11}\left[1 - h_2(e_{11})\right] - Q_{\mathrm{rect}}\, f\, h_2(E_{\mathrm{rect}})
+```
+
+The single-photon terms, Eqs. (B1), (A9) and (A11), with $`e_0 = 1/2`$:
+
+```math
+Q_{11} = \mu_a \mu_b e^{-\mu_a - \mu_b} Y_{11}
+```
+
+```math
+Y_{11} = (1 - p_d)^2 \left[\frac{\eta_A \eta_B}{2} + (2\eta_A + 2\eta_B - 3\eta_A\eta_B)\, p_d + 4(1 - \eta_A)(1 - \eta_B)\, p_d^2\right]
+```
+
+```math
+e_{11} Y_{11} = e_0 Y_{11} - (e_0 - e_d)(1 - p_d)^2 \frac{\eta_A \eta_B}{2}
+```
+
+The overall gain and error in the key basis, Eqs. (B28)-(B31), where $`I_0`$ is the
+modified Bessel function, $`\mu' = \eta_A\mu_a + \eta_B\mu_b`$ and
+$`x = \sqrt{\eta_A\mu_a\,\eta_B\mu_b}/2`$:
+
+```math
+Q_C = 2(1 - p_d)^2 e^{-\mu'/2} \left[1 - (1 - p_d) e^{-\eta_A\mu_a/2}\right]\left[1 - (1 - p_d) e^{-\eta_B\mu_b/2}\right]
+```
+
+```math
+Q_E = 2 p_d (1 - p_d)^2 e^{-\mu'/2} \left[I_0(2x) - (1 - p_d) e^{-\mu'/2}\right]
+```
+
+```math
+Q_{\mathrm{rect}} = Q_C + Q_E, \qquad E_{\mathrm{rect}} Q_{\mathrm{rect}} = e_d Q_C + (1 - e_d) Q_E
+```
+
+$`Q_C`$ is the case of different modes, which gives correct anticorrelated bits, and
+$`Q_E`$ the case of one mode, which can only produce the event with a background
+count. The intensity is chosen at each length; with the arms unequal, $`\mu_b`$ is
+set so that $`\eta_A\mu_a = \eta_B\mu_b`$, which minimises the intrinsic error (Ma and
+Razavi, after Eq. (B14)) and is not a joint optimum of the two intensities.
+
+### 9.3 BBM92 from a thermal source
+
+A parametric down-conversion source with half the expected pair number $`\lambda`$,
+at the same position. Ma, Fung and Lo (2007), Eqs. (9)-(12), with no decoys:
+
+```math
+Q_\lambda = 1 - \frac{1 - Y_0}{(1 + \eta_A\lambda)^2} - \frac{1 - Y_0}{(1 + \eta_B\lambda)^2} + \frac{(1 - Y_0)^2}{(1 + \eta_A\lambda + \eta_B\lambda - \eta_A\eta_B\lambda)^2}
+```
+
+```math
+E_\lambda Q_\lambda = e_0 Q_\lambda - \frac{2(e_0 - e_d)\,\eta_A\eta_B\,\lambda(1 + \lambda)}{(1 + \eta_A\lambda)(1 + \eta_B\lambda)(1 + \eta_A\lambda + \eta_B\lambda - \eta_A\eta_B\lambda)}
+```
+
+```math
+R \;\geq\; Q_\lambda\left[1 - f\, h_2(E_\lambda) - h_2(E_\lambda)\right]
+```
+
+The curve assumes the best $`\lambda`$ at each length, and a real source's brightness
+is limited by technology, as Lo, Curty and Qi say of their own such curve.
+
+### 9.4 Decoy-state BB84, and the bound
+
+BB84 is sections 2 and 3 with infinitely many decoys, $`\eta = \eta_d 10^{-\alpha L/10}`$
+and the same $`Y_0`$:
+
+```math
+R \;\geq\; Q_1\left[1 - h_2(e_1)\right] - f\, Q_\mu h_2(E_\mu),
+\qquad Y_1 = Y_0 + \eta - Y_0\eta, \quad e_1 = \frac{Y_0/2 + e_d\eta}{Y_1}
+```
+
+The dashed curve is the repeaterless bound of Pirandola *et al.* (2017), Eq. (19),
+bits per channel use over a pure-loss channel of the fibre's transmittance
+$`\eta_f = 10^{-\alpha L/10}`$, without the detectors:
+
+```math
+K(\eta_f) = -\log_2(1 - \eta_f)
+```
+
+### 9.5 Golden vectors and checks
+
+At the parameters of section 9.1, with the intensity chosen at each length:
+
+| $`L`$ (km) | BB84 | BBM92 | MDI-QKD |
+|---|---|---|---|
+| 0 | $`3.216\times10^{-2}`$ | $`8.783\times10^{-4}`$ | $`5.752\times10^{-4}`$ |
+| 50 | $`3.132\times10^{-3}`$ | $`8.009\times10^{-5}`$ | $`5.298\times10^{-5}`$ |
+| 100 | $`2.903\times10^{-4}`$ | $`7.741\times10^{-6}`$ | $`4.935\times10^{-6}`$ |
+| 150 | $`9.916\times10^{-6}`$ | $`7.531\times10^{-7}`$ | $`4.150\times10^{-7}`$ |
+| 200 | no key | $`7.066\times10^{-8}`$ | $`2.151\times10^{-8}`$ |
+| Longest fibre with key | 159.6 km | 310.8 km | 232.1 km |
+
+`tests/test_protocol_rates.py` checks the reference without using its closed forms:
+
+- **The single-photon terms against exact optics.** Two photons in the Fock basis of
+  the four output modes, with lossy arms and threshold detectors, reproduce $`Y_{11}`$
+  and $`e_{11}`$ at $`e_d = 0`$, and the outcome table of the walk-through: equal Z
+  inputs bunch, opposite Z inputs give a result every time, X inputs half the time,
+  and mismatched bases give $`\psi^+`$ and $`\psi^-`$ a quarter each. A pair in a
+  given basis succeeds with probability $`\tfrac{1}{2}\eta_A\eta_B`$ only as an
+  average over the bits.
+- **The overall gain against a direct count.** The same detectors, counted over a
+  numerically integrated relative phase, reproduce $`Q_{\mathrm{rect}}`$ and
+  $`E_{\mathrm{rect}}`$ to a part in $`10^{6}`$.
+- **The thermal gain against its sum.** $`Q_\lambda`$ against the sum over $`n`$ of
+  Ma, Fung and Lo's Eqs. (5) and (7).
+- **The published curves, read from the figure.** With $`q = 1/4`$ for balanced bases
+  and a Z-only key, the MDI curve of Lo, Curty and Qi's Fig. 2 reads about
+  $`1.5\times10^{-4}`$ at 0 km and $`1.2\times10^{-6}`$ at 100 km, and this model gives
+  $`1.44\times10^{-4}`$ and $`1.23\times10^{-6}`$. That curve reaches $`10^{-10}`$ at
+  about 222 km, and this model at 229.8 km with $`p_d = 3.0\times10^{-6}`$ and at 201 km
+  with $`6.02\times10^{-6}`$ per detector: they model misalignment with two rotations,
+  this is Ma and Razavi's simpler model, and the end of the curve is where the two part.
+  Their entanglement curve reads about $`8\times10^{-4}`$ at 0 km and reaches
+  $`10^{-10}`$ at about 300 km, and this model gives $`8.78\times10^{-4}`$ and 303.0 km,
+  with $`q = 1`$. These are readings from a logarithmic plot, not digits.
+- **Section 6 again.** The BB84 line at $`q = 1/2`$ reproduces $`2.555\times10^{-3}`$.
+
+### 9.6 What these models do not include
+
+- **Finite-key effects.** MDI-QKD's finite-size analysis is a separate piece of work
+  (Xu *et al.* 2013 and later), and two-photon components make it harder than BB84's.
+  Nothing here is a statement about a block of data.
+- **Finite decoy states.** The single-photon terms are computed, not estimated.
+- **Mode mismatch, detector imbalance and source flaws.** All sources are taken as
+  perfectly characterised, and all detectors as identical. A model cannot show the
+  point of MDI-QKD, which is removing attacks on the measurement unit: there is no
+  attack model here, and the page draws no comparison of security.
+- **A comparison of systems.** A curve's reach is a statement about these formulas at
+  these parameters. Fig. 2's own authors warn about the optimal-brightness assumption
+  of the entanglement curve, and real records depend on hardware none of this models.
+
+---
+
+## 10. References
 
 Full citations in [`references.md`](references.md).
 
@@ -360,3 +546,11 @@ Full citations in [`references.md`](references.md).
   the GLLP rate.
 - C. C. W. Lim *et al.*, Phys. Rev. A **89**, 022307 (2014) — the finite-key
   treatment this project approximates.
+- H.-K. Lo, M. Curty, B. Qi, Phys. Rev. Lett. **108**, 130503 (2012) — MDI-QKD, its
+  rate and Fig. 2.
+- X. Ma, M. Razavi, Phys. Rev. A **86**, 062319 (2012) — the closed forms of section 9.2.
+- F. Xu, H. Xu, H.-K. Lo, New J. Phys. **15**, 113007 (2013) — a system model and the
+  finite-decoy analysis of MDI-QKD.
+- X. Ma, C.-H. F. Fung, H.-K. Lo, Phys. Rev. A **76**, 012307 (2007) — section 9.3.
+- S. Pirandola, R. Laurenza, C. Ottaviani, L. Banchi, Nat. Commun. **8**, 15043 (2017) —
+  the repeaterless bound.
