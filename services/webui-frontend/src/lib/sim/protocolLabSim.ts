@@ -107,7 +107,7 @@ export interface TimelineMessage {
   transition?: string;
 }
 
-/** One stage of a tick, as it happened. The stages are TICK_PIPELINE's. */
+/** One part of a tick, as it happened. The parts are TICK_PIPELINE's. */
 export type TickStepId = "generate" | "stream" | "route" | "relay" | "deliver";
 /**
  * ok: it did its work. wait: blocked on key that will come. fail: refused or
@@ -117,7 +117,7 @@ export type StepOutcome = "ok" | "wait" | "fail" | "idle";
 export interface TickStep { id: TickStepId; outcome: StepOutcome; detail: string }
 
 /**
- * What one tick did, stage by stage, recorded by the engine as it did it, so
+ * What one tick did, part by part, recorded by the engine as it did it, so
  * the page draws what happened rather than guessing it from two snapshots. It
  * changes nothing the engine computes.
  */
@@ -130,8 +130,9 @@ export interface TickTrace {
 }
 
 /**
- * The stages a tick goes through in each accounting mode, in the order
- * advance() runs them. Every TickTrace holds exactly these, in this order.
+ * What a tick does in each accounting mode, in the order advance() does it.
+ * Every TickTrace holds exactly these, in this order. Called neither phases nor
+ * stages, which name other things here (docs/roadmap.md).
  */
 export const TICK_PIPELINE: Record<Accounting, readonly { id: TickStepId; label: string }[]> = {
   keys: [
@@ -213,7 +214,7 @@ export interface ProtocolLabState {
   messages: TimelineMessage[];
   last_relay: { hops: number; key_prefix: string; pad_prefixes: string[];
                 recovered_equals_sent: boolean } | null;
-  /** The latest tick, stage by stage; null before the first. */
+  /** The latest tick, part by part; null before the first. */
   last_tick: TickTrace | null;
   history: TickRec[];
   published: Scenario["published"] | null;

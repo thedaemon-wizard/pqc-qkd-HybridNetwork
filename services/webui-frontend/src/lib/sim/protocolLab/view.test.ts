@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { PRESETS } from "./publishedNetworks";
 import {
-  COMPACT_LABEL_FONT_PX, boxesFit, nodeBox, placeEdgeLabels, segmentHitsBox, type Box,
+  COMPACT_LABEL_FONT_PX, LABEL_FONT_PX, boxesFit, linkEnds, nodeBox, placeEdgeLabels, segmentHitsBox, type Box,
 } from "./view";
 
 const touch = (a: Box, b: Box) =>
@@ -82,6 +82,19 @@ describe.each(PRESETS.map((p) => [p.meta.id, p] as const))("%s", (_id, preset) =
 
   it("draws the same way every time, so an exported PNG is reproducible", () => {
     expect([...placeEdgeLabels(preset).entries()]).toEqual([...placed.entries()]);
+  });
+
+  it.each([LABEL_FONT_PX, COMPACT_LABEL_FONT_PX])("ends every line on the border of a node's box, at font %i (row 4.2.6)", (font) => {
+    const onBorder = (x: number, y: number, b: Box) => {
+      const inside = x >= b.x - 2.5 && x <= b.x + b.w + 2.5 && y >= b.y - 2.5 && y <= b.y + b.h + 2.5;
+      const nearEdge = Math.min(Math.abs(x - b.x), Math.abs(x - b.x - b.w), Math.abs(y - b.y), Math.abs(y - b.y - b.h)) <= 2.5;
+      return inside && nearEdge;
+    };
+    for (const l of preset.links) {
+      const e = linkEnds(preset, l, font);
+      expect(onBorder(e.x1, e.y1, nodeBox(nodes.get(l.a)!, font)), `${l.id} at ${l.a}`).toBe(true);
+      expect(onBorder(e.x2, e.y2, nodeBox(nodes.get(l.b)!, font)), `${l.id} at ${l.b}`).toBe(true);
+    }
   });
 
   it("fits its node boxes at the phone's larger font, and they stay apart", () => {

@@ -5,9 +5,9 @@ import {
 } from "../lib/sim/protocolLabSim";
 
 /**
- * The run's state as it changes: the run itself, what the latest tick did stage
- * by stage, the route, and every tick so far as one bar. Words and marks carry
- * the meaning as well as the colours, so nothing rests on telling them apart.
+ * The run's state as it changes: the run itself, what the latest tick did part
+ * by part, the route, and the latest ticks as one bar. Words and marks carry the
+ * meaning as well as the colours, so nothing rests on telling them apart.
  */
 const MARK: Record<StepOutcome, string> = { ok: "✓", wait: "…", fail: "✕", idle: "–" };
 const WORD: Record<StepOutcome, string> = { ok: "done", wait: "waiting", fail: "failed", idle: "nothing due" };
@@ -16,6 +16,14 @@ const TONE: Record<StepOutcome, string> = {
 };
 
 const RUN_STATES = ["idle", "running", "paused", "stepped"] as const;
+
+/**
+ * Three edges by name, not `border` beside `borderLeft`: React warns when the
+ * shorthand changes under a longhand, because the browser would reset the left edge.
+ */
+export const PART_EDGES = (colour: string): CSSProperties => ({
+  borderTop: `1px solid ${colour}`, borderRight: `1px solid ${colour}`, borderBottom: `1px solid ${colour}`,
+});
 
 /** One line on where the service stands after the latest tick. */
 export function serviceState(s: ProtocolLabState): { label: string; outcome: StepOutcome } {
@@ -50,19 +58,20 @@ const chip = (on: boolean, tone: string): CSSProperties => ({
 
 function StatusHistory({ history }: { history: TickRec[] }) {
   // Room for a minute of ticks at first, so the first ticks are not one solid
-  // block; after that the bar compresses to hold every tick.
+  // block; after that the bar compresses to hold what the history holds, which
+  // is a rolling window, so the caption says "latest", not "every".
   const n = Math.max(60, history.length);
   const changes = history.flatMap((h, i) => (i > 0 && h.route !== history[i - 1].route ? [i] : []));
   return (
     <div style={{ marginTop: 8 }}>
       <svg viewBox={`0 0 ${n} 10`} preserveAspectRatio="none" role="img"
-           aria-label={`${history.length} tick(s) so far, ${changes.length} route change(s)`}
+           aria-label={`The latest ${history.length} tick(s), with ${changes.length} route change(s)`}
            style={{ display: "block", width: "100%", height: 14, background: colors.panelDark, borderRadius: 3 }}>
         {history.map((h, i) => <rect key={h.tick} x={i} y={0} width={1} height={10} fill={tickTone(h)} />)}
         {changes.map((i) => <rect key={i} x={i} y={0} width={Math.max(0.3, n / 400)} height={10} fill={colors.textPri} />)}
       </svg>
       <div style={{ fontSize: 11, color: colors.textMute, marginTop: 2 }}>
-        Every tick so far: green delivered, amber partly served, red refused or no route, grey nothing due; a white mark is a route change.
+        The latest {history.length} tick(s): green delivered, amber partly served, red refused or no route, grey nothing due; a white mark is a route change.
       </div>
     </div>
   );
@@ -70,7 +79,7 @@ function StatusHistory({ history }: { history: TickRec[] }) {
 
 export default function RunStatusStrip({ state, stepIndex, routeJustChanged }: {
   state: ProtocolLabState;
-  /** The stage being played back now; null when it has played, or when nothing moves. */
+  /** The part being played back now; null when it has played, or when nothing moves. */
   stepIndex: number | null;
   routeJustChanged: boolean;
 }) {
@@ -88,19 +97,19 @@ export default function RunStatusStrip({ state, stepIndex, routeJustChanged }: {
       </div>
 
       <div style={{ fontSize: 11, color: colors.textSec, marginTop: 8 }}>
-        {trace ? `Tick ${trace.tick} (simulated t = ${trace.t_s} s), stage by stage:` : "Stages of a tick. Press Run or Step to play them:"}
+        {trace ? `Tick ${trace.tick} (simulated t = ${trace.t_s} s), in order:` : "What a tick does. Press Run or Step to play it:"}
       </div>
       <ol style={{ listStyle: "none", margin: "4px 0 0 0", padding: 0, display: "grid", gap: 6,
                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
         {pipeline.map((p, i) => {
           const step = trace?.steps[i];
-          // While a tick plays, a stage shows its outcome once the play reaches it.
+          // While a tick plays, a part shows its outcome once the play reaches it.
           const reached = step !== undefined && (stepIndex === null || i <= stepIndex);
           const lit = stepIndex === i;
           const tone = reached ? TONE[step.outcome] : colors.border;
           return (
             <li key={p.id} aria-current={lit ? "step" : undefined}
-                style={{ border: `1px solid ${lit ? colors.accent : colors.border}`,
+                style={{ ...PART_EDGES(lit ? colors.accent : colors.border),
                          borderLeft: `4px solid ${tone}`, borderRadius: 4, padding: "4px 6px", minWidth: 0,
                          background: lit ? colors.active : "transparent",
                          transition: "background 0.12s, border-color 0.12s" }}>
@@ -119,11 +128,13 @@ export default function RunStatusStrip({ state, stepIndex, routeJustChanged }: {
         })}
       </ol>
 
+      {/* One status line, and no tick number in it, so it speaks when the state
+          changes and not on every tick. */}
       <div role="status" style={{ fontSize: 12, marginTop: 8, padding: "2px 6px", borderRadius: 4, overflowWrap: "anywhere",
                                   color: state.route ? colors.textPri : colors.danger,
                                   background: routeJustChanged ? colors.active : "transparent",
                                   transition: "background 0.2s" }}>
-        Route: {state.route ? state.route.nodes.join(" > ") : `none (${state.route_none ?? "not chosen yet"})`}
+        Run {state.status}, service {service.label}. Route: {state.route ? state.route.nodes.join(" > ") : `none (${state.route_none ?? "not chosen yet"})`}
         {lastChange && lastChange.reason !== "start" && (
           <span style={{ color: colors.textSec }}>
             {" "}; last change at t = {lastChange.t_s} s ({lastChange.reason})

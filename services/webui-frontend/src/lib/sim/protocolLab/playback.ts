@@ -1,6 +1,6 @@
 /**
- * How /protocol-lab plays one tick back: which stage is lit and where the key
- * is on its route, at each moment of the tick's dwell. Pure, so it can be
+ * How /protocol-lab plays one tick back: which of its parts is lit and where the
+ * key is on its route, at each moment of the tick's dwell. Pure, so it can be
  * tested without a DOM or a clock.
  *
  * This is a drawing of a record, not a model. The engine runs a tick in one
@@ -11,8 +11,9 @@ import type { TopologyPreset } from "./publishedNetworks";
 import type { TickTrace } from "../protocolLabSim";
 
 /**
- * Below this dwell a stage would be lit too briefly to read, and the strip only
- * flickers, so a fast run lights no stage and gives the whole dwell to the key.
+ * Below this dwell a part of the tick would be lit too briefly to read, and the
+ * strip only flickers, so a fast run lights none and gives the whole dwell to
+ * the key.
  */
 export const SWEEP_MIN_DWELL_MS = 600;
 /**
@@ -25,9 +26,19 @@ export const TRAVEL_SHARE = 0.76;
 /** Of the dwell, the part played, so a tick has ended before the next begins. */
 export const PLAY_SHARE = 0.92;
 
+/**
+ * How to play a tick, or null when it should not move at all: with reduced
+ * motion asked for, no frame loop runs and the outcome shows at once.
+ */
+export function playbackPlan(dwellMs: number, running: boolean, reducedMotion: boolean): { playMs: number; sweep: boolean } | null {
+  if (reducedMotion) return null;
+  const playMs = Math.max(dwellMs * PLAY_SHARE, running ? 0 : STEP_MIN_PLAY_MS);
+  return { playMs, sweep: playMs >= SWEEP_MIN_DWELL_MS };
+}
+
 export interface StepWindow { index: number; start: number; end: number }
 
-/** Each stage's share of a tick: equal, except that relaying takes one share per hop. */
+/** Each part's share of a tick: equal, except that relaying takes one share per hop. */
 export function tickWindows(trace: TickTrace): StepWindow[] {
   const hops = trace.relay ? Math.max(1, trace.relay.nodes.length - 1) : 1;
   const weights = trace.steps.map((s) => (s.id === "relay" && trace.relay ? hops + 1 : 1));
@@ -40,7 +51,7 @@ export function tickWindows(trace: TickTrace): StepWindow[] {
   });
 }
 
-/** The stage lit at progress `p` of the tick (0..1), or null once it has played. */
+/** The part lit at progress `p` of the tick (0..1), or null once it has played. */
 export function stepAt(windows: readonly StepWindow[], p: number): number | null {
   if (p >= 1) return null;
   return windows.find((w) => p < w.end)?.index ?? null;

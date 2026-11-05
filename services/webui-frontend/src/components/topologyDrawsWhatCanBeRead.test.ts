@@ -5,10 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { presetById } from "../lib/sim/protocolLab/publishedNetworks";
+import { PRESETS, presetById } from "../lib/sim/protocolLab/publishedNetworks";
 import { ProtocolLabSim, type ProtocolLabState } from "../lib/sim/protocolLabSim";
 import { RunSeeds } from "../lib/sim/runSeed";
 import { edgeLabel, DOWN_MARK } from "../lib/sim/protocolLab/view";
@@ -66,6 +69,43 @@ describe("the drawing's order", () => {
   });
 });
 
+describe("what an export carries", () => {
+  // An export is the SVG serialised, so these must be in it, not around it.
+  const band = ["Simulation, not the running stack.", "t = 3 s; running; delivering", "Route: A > B"];
+
+  it("says it is a simulation and what the run is doing, inside the SVG", () => {
+    const html = draw("tokyo-2010", { band });
+    const svgEnd = html.indexOf("</svg>");
+    for (const line of band) {
+      const at = html.indexOf(line.replace(/>/g, "&gt;"));
+      expect(at, line).toBeGreaterThan(-1);
+      expect(at, line).toBeLessThan(svgEnd);
+    }
+  });
+
+  it("makes room for the band below the network instead of drawing over it", () => {
+    const [W, H] = presetById("tokyo-2010").viewBox;
+    expect(draw("tokyo-2010")).toContain(`viewBox="0 0 ${W} ${H}"`);
+    const m = /viewBox="0 0 (\d+) (\d+)"/.exec(draw("tokyo-2010", { band }))!;
+    expect(Number(m[1])).toBe(W);
+    expect(Number(m[2])).toBeGreaterThan(H);
+  });
+
+  it("puts no size in the SVG's own style that means something else as an image", () => {
+    // Serialised and drawn as an image, vh is the image's height: a max-height
+    // here would shrink the drawing inside every exported frame.
+    expect(draw("tokyo-2010")).not.toMatch(/<svg[^>]*style="[^"]*(max-height|vh)/);
+  });
+});
+
+describe("the note under a network whose source did not relay", () => {
+  it("is on Thuringia, whose paper relays no key, and on no other network", () => {
+    const withNote = PRESETS.filter((p) => p.drawingNote).map((p) => p.meta.id);
+    expect(withNote).toEqual(["thuringia-2026"]);
+    expect(presetById("thuringia-2026").drawingNote).toMatch(/paper relays no key/);
+  });
+});
+
 describe("the compact form for a phone", () => {
   it("leaves the captions out and says nothing it cannot fit", () => {
     const html = draw("tokyo-2010", { compact: true });
@@ -84,21 +124,21 @@ describe("the status strip", () => {
   const strip = (s: ProtocolLabState, stepIndex: number | null = null) =>
     renderToStaticMarkup(createElement(RunStatusStrip, { state: s, stepIndex, routeJustChanged: false }));
 
-  it("names the stages before anything has run, and no outcome", () => {
+  it("names the parts of a tick before anything has run, and no outcome", () => {
     const html = strip(stateFor("cambridge-2019"));
     expect(html).toContain("Generate keys");
     expect(html).toContain("Press Run or Step");
     expect(html).not.toMatch(/✓ done/);
   });
 
-  it("says the outcome of every stage once the tick has played", () => {
+  it("says the outcome of every part once the tick has played", () => {
     const html = strip(stateFor("cambridge-2019", (sim) => sim.step()));
     expect(html).toContain("Tick 1");
     expect(html).toMatch(/✓ done/);
     expect(html).not.toContain('aria-current="step"');
   });
 
-  it("shows only the stages the play has reached", () => {
+  it("shows only the parts the play has reached", () => {
     const s = stateFor("cambridge-2019", (sim) => sim.step());
     const html = strip(s, 1);
     expect(html).toContain('aria-current="step"');
@@ -107,7 +147,7 @@ describe("the status strip", () => {
 
   it("announces the route as a status, in words", () => {
     const html = strip(stateFor("cambridge-2019"));
-    expect(html).toMatch(/role="status"[^>]*>Route: /);
+    expect(html).toMatch(/role="status"[^>]*>Run idle, service not started\. Route: /);
   });
 
   it("does not call a run with no route anything but that", () => {
@@ -117,6 +157,19 @@ describe("the status strip", () => {
     });
     expect(serviceState(s)).toEqual({ label: "no route", outcome: "fail" });
     expect(strip(s)).toContain("Route: none");
+  });
+
+  it("puts no tick number in the status line, so it does not speak on every tick", () => {
+    const s = stateFor("cambridge-2019", (sim) => { sim.step(); sim.step(); });
+    const line = /role="status"[^>]*>(.*?)<\/div>/.exec(strip(s))![1];
+    expect(line).not.toMatch(/tick/i);
+    expect(line).not.toContain(`${s.sim_time_s} s`);
+  });
+
+  it("says the latest ticks, because the history is a rolling window", () => {
+    const html = strip(stateFor("cambridge-2019", (sim) => sim.step()));
+    expect(html).toContain("The latest ");
+    expect(html).not.toMatch(/every tick so far/i);
   });
 
   it("has not started before the first tick", () => {
@@ -131,5 +184,26 @@ describe("the status strip", () => {
     const [ok, part, bad, none, due] = [tone("A>B", 8, 0), tone("A>B", 8, 8), tone("A>B", 0, 8), tone("", 0, 0), tone("A>B", 0, 0)];
     expect(new Set([ok, part, bad, due]).size).toBe(4);
     expect(none).toBe(bad);
+  });
+});
+
+describe("the drawing's motion", () => {
+  const SRC = readFileSync(join(new URL(".", import.meta.url).pathname, "LiveTopology.tsx"), "utf8");
+
+  it("stops when the run is paused", () => {
+    expect(SRC).toMatch(/if \(state\.status === "paused"\) stop\(\);/);
+    expect(SRC).toMatch(/const stop = \(\) => \{\s*cancelAnimationFrame\(frameId\.current\);/);
+  });
+
+  it("asks playbackPlan before starting a frame loop, so reduced motion starts none", () => {
+    const planAt = SRC.indexOf("playbackPlan(latest.current");
+    const loopAt = SRC.indexOf("requestAnimationFrame(frame)");
+    expect(planAt).toBeGreaterThan(-1);
+    expect(planAt).toBeLessThan(loopAt);
+    expect(SRC).toMatch(/if \(!trace \|\| !plan\) return undefined;/);
+  });
+
+  it("says on screen that the time on screen is not a latency", () => {
+    expect(SRC).toContain("is not a latency.");
   });
 });

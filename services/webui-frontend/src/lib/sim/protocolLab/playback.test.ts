@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 import type { TickTrace } from "../protocolLabSim";
 import { presetById } from "./publishedNetworks";
 import {
-  TRAVEL_SHARE, packetPose, relayProgress, stepAt, tickWindows,
+  PLAY_SHARE, STEP_MIN_PLAY_MS, SWEEP_MIN_DWELL_MS, TRAVEL_SHARE,
+  packetPose, playbackPlan, relayProgress, stepAt, tickWindows,
 } from "./playback";
 
 const preset = presetById("tokyo-2010");
@@ -106,5 +107,28 @@ describe("relayProgress", () => {
     expect(relayProgress(threeHops, w, 0.25, false)).toBe(0.25);
     expect(relayProgress(threeHops, w, 1, false)).toBeNull();
     expect(relayProgress(trace(null), tickWindows(trace(null)), 0.5, false)).toBeNull();
+  });
+});
+
+describe("playbackPlan", () => {
+  it("does not run at all with reduced motion asked for, at any pace", () => {
+    for (const running of [true, false]) {
+      for (const dwell of [300, 1200, 2400]) expect(playbackPlan(dwell, running, true)).toBeNull();
+    }
+  });
+
+  it("lights no part of the tick at the fast pace, where it would only flicker", () => {
+    expect(playbackPlan(300, true, false)).toEqual({ playMs: 300 * PLAY_SHARE, sweep: false });
+    expect(playbackPlan(1200, true, false)!.sweep).toBe(true);
+    expect(300 * PLAY_SHARE).toBeLessThan(SWEEP_MIN_DWELL_MS);
+    expect(1200 * PLAY_SHARE).toBeGreaterThanOrEqual(SWEEP_MIN_DWELL_MS);
+  });
+
+  it("ends a running tick before the next begins", () => {
+    for (const dwell of [300, 1200, 2400]) expect(playbackPlan(dwell, true, false)!.playMs).toBeLessThan(dwell);
+  });
+
+  it("plays a Step long enough to read, at any pace", () => {
+    expect(playbackPlan(300, false, false)).toEqual({ playMs: STEP_MIN_PLAY_MS, sweep: true });
   });
 });

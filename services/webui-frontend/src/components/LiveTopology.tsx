@@ -2,19 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { colors } from "../lib/commonStyles";
 import { usePrefersReducedMotion } from "../lib/layout";
 import {
-  PLAY_SHARE, STEP_MIN_PLAY_MS, SWEEP_MIN_DWELL_MS,
-  packetPose, relayProgress, stepAt, tickWindows,
+  PLAY_SHARE, packetPose, playbackPlan, relayProgress, stepAt, tickWindows,
 } from "../lib/sim/protocolLab/playback";
 import type { TopologyPreset } from "../lib/sim/protocolLab/publishedNetworks";
-import { linksAlong } from "../lib/sim/protocolLab/view";
-import type { ProtocolLabState } from "../lib/sim/protocolLabSim";
-import RunStatusStrip from "./RunStatusStrip";
+import { bandHeight, linksAlong } from "../lib/sim/protocolLab/view";
+import { TICK_PIPELINE, type ProtocolLabState } from "../lib/sim/protocolLabSim";
+import RunStatusStrip, { serviceState } from "./RunStatusStrip";
 import TopologyPresetSvg from "./TopologyPresetSvg";
 
 /** How long the route just left stays drawn after a re-route. */
 const PREVIOUS_ROUTE_MS = 2500;
 /** Below this time per hop a moving caption cannot be read, so it is left out. */
 const CAPTION_MIN_HOP_MS = 300;
+/**
+ * Keeps the drawing and the buttons above it on one screen, as a width so that
+ * the drawing keeps its proportions. A height on the SVG itself would go out with
+ * every export: serialised and drawn as an image, "vh" means the image's height.
+ */
+const DRAWING_MAX_VH = 58;
 
 interface View { stepIndex: number | null; hop: number | null; atNode: string | null; arrived: boolean }
 const AT_REST: View = { stepIndex: null, hop: null, atNode: null, arrived: false };
@@ -25,9 +30,11 @@ const AT_REST: View = { stepIndex: null, hop: null, atNode: null, arrived: false
  * The engine runs a tick in one step and records what it did; this draws that
  * record over the tick's dwell, so what moves on screen is always something
  * that happened. The key's position changes every frame and is set on the
- * element directly, so React re-renders only when a stage or a hop changes.
+ * element directly, so React re-renders only when a part or a hop changes.
  * With "reduce motion" asked for, nothing moves and each tick's outcome shows
- * at once. The drawing's time is not a latency.
+ * at once. Pause stops the drawing where the tick stands: the engine has already
+ * finished that tick, so the outcome shows at once there too. The drawing's time
+ * is not a latency, and the legend says so.
  */
 export default function LiveTopology({ preset, state, compact, scaleBits }: {
   preset: TopologyPreset;
@@ -45,21 +52,23 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
 
   const trace = state.last_tick;
   const tickKey = trace ? `${state.preset_id}:${state.scenario_id ?? ""}:${trace.tick}` : null;
-  useEffect(() => {
-    const g = packet.current;
-    const hide = () => g?.setAttribute("visibility", "hidden");
+  const frameId = useRef(0);
+  const stop = () => {
+    cancelAnimationFrame(frameId.current);
+    packet.current?.setAttribute("visibility", "hidden");
     setView(AT_REST);
-    hide();
-    if (!trace || reduced) return undefined;
-    const now = latest.current;
-    const play = Math.max(now.nominal_dwell_ms * PLAY_SHARE, now.status === "running" ? 0 : STEP_MIN_PLAY_MS);
-    const sweep = play >= SWEEP_MIN_DWELL_MS;
+  };
+  useEffect(() => {
+    stop();
+    const plan = trace ? playbackPlan(latest.current.nominal_dwell_ms, latest.current.status === "running", reduced) : null;
+    if (!trace || !plan) return undefined;
+    const g = packet.current;
+    const { playMs, sweep } = plan;
     const windows = tickWindows(trace);
     const started = performance.now();
-    let raf = 0;
     let shown = AT_REST;
     const frame = (t: number) => {
-      const p = Math.max(0, Math.min(1, (t - started) / play));
+      const p = Math.max(0, Math.min(1, (t - started) / playMs));
       // A failure injected while the key is crossing stops the drawing of it:
       // the engine has already moved on from that route.
       const broken = latest.current.links.some((l) => l.down && trace.relay?.linkIds.includes(l.id));
@@ -70,7 +79,7 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
           g.setAttribute("transform", `translate(${pose.x.toFixed(1)} ${pose.y.toFixed(1)})`);
           g.setAttribute("visibility", "visible");
         } else {
-          hide();
+          g.setAttribute("visibility", "hidden");
         }
       }
       const next: View = {
@@ -82,12 +91,18 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
         shown = next;
         setView(next);
       }
-      if (p < 1) raf = requestAnimationFrame(frame);
+      if (p < 1) frameId.current = requestAnimationFrame(frame);
     };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    frameId.current = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(frameId.current);
     // `trace` changes with tickKey; `preset` with the id inside it.
   }, [tickKey, reduced]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pause freezes the picture. A Step from paused plays its tick, because the
+  // status stays "paused" across it and so this does not run.
+  useEffect(() => {
+    if (state.status === "paused") stop();
+  }, [state.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The route just left, for a moment after a re-route.
   const [leftBehind, setLeftBehind] = useState<string[]>([]);
@@ -109,14 +124,29 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
     : view.arrived ? "key recovered"
     : hopMs >= CAPTION_MIN_HOP_MS || state.status !== "running" ? `key ⊕ pad ${view.hop + 1}` : null;
 
+  const pipeline = TICK_PIPELINE[state.accounting];
+  const now = view.stepIndex === null ? "" : `; now ${view.stepIndex + 1} of ${pipeline.length}, ${pipeline[view.stepIndex].label}`;
+  const band = [
+    `Simulation, not the running stack.${preset.drawingNote && !compact ? ` ${preset.drawingNote}` : ""}`,
+    `t = ${state.sim_time_s} s; ${state.status}; ${serviceState(state).label}${compact ? "" : now}`,
+    ...(compact ? [] : [`Route: ${state.route ? state.route.nodes.join(" > ") : "none"}`]),
+  ];
+  const [W, H] = preset.viewBox;
+  const aspect = W / (H + bandHeight(band.length, compact));
+
   return (
     <>
-      <TopologyPresetSvg preset={preset} links={state.links} route={state.route} downNodes={state.down_nodes}
-                         accounting={state.accounting} scaleBits={scaleBits} compact={compact}
-                         demand={{ from: state.demand.from, to: state.demand.to }}
-                         previousLinks={leftBehind} atNode={view.atNode} arrived={view.arrived}
-                         noRoute={state.route === null && state.last_tick !== null}
-                         packetRef={packet} packetLabel={packetLabel} />
+      <div style={{ maxWidth: `${DRAWING_MAX_VH * aspect}vh`, margin: "0 auto" }}>
+        <TopologyPresetSvg preset={preset} links={state.links} route={state.route} downNodes={state.down_nodes}
+                           accounting={state.accounting} scaleBits={scaleBits} compact={compact}
+                           demand={{ from: state.demand.from, to: state.demand.to }}
+                           previousLinks={leftBehind} atNode={view.atNode} arrived={view.arrived}
+                           noRoute={state.route === null && state.last_tick !== null}
+                           packetRef={packet} packetLabel={packetLabel} band={band} />
+      </div>
+      {preset.drawingNote && (
+        <div style={{ fontSize: 12, color: colors.warn, marginTop: 4 }}>{preset.drawingNote}</div>
+      )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: colors.textMute, marginTop: 4 }}>
         <span><Dot color={colors.accent} /> key crossing a link under that hop's pad</span>
         <span><Dot color={colors.warn} /> key in the clear at a trusted node</span>
@@ -125,6 +155,7 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
         <span style={{ color: colors.danger }}>red dashes: down</span>
         {!compact && <span style={{ color: colors.qkd }}>bar under a caption: that link's key store</span>}
         <span>green box: demand endpoints</span>
+        <span>The time a key takes on screen is not a latency.</span>
       </div>
       {compact && (
         <div style={{ fontSize: 11, color: colors.textMute, marginTop: 4 }}>

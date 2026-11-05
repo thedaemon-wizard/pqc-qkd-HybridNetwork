@@ -1,5 +1,5 @@
 /**
- * The engine says what each tick did, stage by stage, so the page can draw it
+ * The engine says what each tick did, part by part, so the page can draw it
  * rather than guess it from two snapshots; and the speed the page runs at
  * changes how fast it is drawn, and nothing it computes.
  */
@@ -46,7 +46,7 @@ describe.each(SCENARIOS)("%s, scenario %s", (presetId, scenarioId) => {
     expect(driven(presetId, scenarioId).last().last_tick).toBeNull();
   });
 
-  it("runs exactly its mode's stages, in order, every tick", () => {
+  it("runs exactly its mode's parts, in order, every tick", () => {
     const { sim, last } = driven(presetId, scenarioId);
     for (let i = 1; i <= 12; i++) {
       sim.step();
@@ -58,7 +58,7 @@ describe.each(SCENARIOS)("%s, scenario %s", (presetId, scenarioId) => {
     }
   });
 
-  it("says a key crossed only when the relay stage says so, and along the route", () => {
+  it("says a key crossed only when the relay part says so, and along the route", () => {
     const { sim, last } = driven(presetId, scenarioId);
     for (let i = 0; i < 12; i++) {
       sim.step();
@@ -81,7 +81,7 @@ describe.each(SCENARIOS)("%s, scenario %s", (presetId, scenarioId) => {
   });
 });
 
-describe("what the stages report", () => {
+describe("what the parts report", () => {
   it("free play: a link with no way through reads as no route, and the delivery as refused", () => {
     const { sim, last } = driven("cambridge-2019");
     sim.setDemand("CAPE", "TREL", 1);

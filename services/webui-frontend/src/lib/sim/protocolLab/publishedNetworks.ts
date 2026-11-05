@@ -106,6 +106,12 @@ export interface TopologyPreset {
   links: PresetLink[];
   notes: string[];
   /**
+   * Said under the drawing and inside it, when the relay drawn there is not
+   * what the source did: a key moving through a node would otherwise read as
+   * that source's system doing it.
+   */
+  drawingNote?: string;
+  /**
    * How free play accounts for key on this preset.
    *   keys       -- each link generates at its reported rate into a buffer that
    *                 follows this repository's KeyPool rules;
@@ -588,6 +594,7 @@ const thuringia: TopologyPreset = {
     "Table I's ± values are temporal standard deviations over each campaign, not measurement uncertainties (section IV.A).",
     "The paper runs arnika with QKD keys only on each hop and carries post-quantum protection in a separate end-to-end tunnel (QuantShake, SND to UKJ) that the trusted nodes forward without holding its key (sections III and V). This repository's two-node WireGuard lane follows that layering (a wg0 hop tunnel, with Rosenpass keying a wg1 data tunnel inside it), but arnika mixes a PQC-HPKE key agreed hop by hop into each hop's WireGuard PSK, where the paper uses QKD keys alone (also per leg in docker-compose.multihop.yml, where the relay node holds both legs' keys). An end-to-end layer across a relay exists here only in the /paper-flow simulation. The paper relays no key and uses no ETSI GS QKD 004: each hop uses its own QKD key and the end-to-end protection is the PQC tunnel. The trusted-node relay and the 004 stream this preset simulates for SND to IOF model the conventional KMS key-forwarding approach the paper contrasts itself with (section I).",
   ],
+  drawingNote: "The paper relays no key: this relay is this project's model, not its system.",
   freePlay: { accounting: "keys", why: "Both QKD links have a reported rate; the keystore hop is never routed." },
   defaultDemand: { from: "SND", to: "IOF" },
 };

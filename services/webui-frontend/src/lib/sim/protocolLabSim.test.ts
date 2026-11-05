@@ -208,7 +208,7 @@ const labFiles = (): string[] => [
     .map((f) => join(HERE, "protocolLab", f)),
   join(SRC_ROOT, "pages", "ProtocolLab.tsx"),
   ...["TopologyPresetSvg", "QBufferGauge", "SBufferQueue", "SDNControlPanel",
-      "LoadPresetDropdown", "MessageTimeline"].map((c) => join(SRC_ROOT, "components", `${c}.tsx`)),
+      "LoadPresetDropdown", "MessageTimeline", "LiveTopology", "RunStatusStrip"].map((c) => join(SRC_ROOT, "components", `${c}.tsx`)),
 ];
 
 describe("source", () => {

@@ -11,7 +11,7 @@ export const LABEL_FONT_PX = 12;
  * The node labels' font on a phone, in viewBox units. A 640-unit canvas in a
  * 263-318 px panel is scaled by about 0.4-0.5, so 12 units rendered at 5-6 CSS
  * px. 20 units render at 7.5-10 CSS px, and every preset's boxes still fit and
- * stay apart (protocolLabView.test.ts). Link lengths and losses, which cannot
+ * stay apart (view.test.ts). Link lengths and losses, which cannot
  * fit at that size, are in the "Links as published" table under the drawing.
  */
 export const COMPACT_LABEL_FONT_PX = 20;
@@ -101,8 +101,9 @@ const ALONG = [0.5, 0.42, 0.58, 0.34, 0.66, 0.28, 0.72, 0.22, 0.78];
 /**
  * Beside the link, in multiples of half the plate's height: on the line first,
  * because a caption on its own line cannot be read as another link's. The last
- * pair clears the node boxes for a caption wider than the gap between them:
- * Tokyo's "keystore (not live QKD)" against a 75-unit gap between K3 and K2.
+ * pair clears the node boxes for a plate wider than the gap between them:
+ * Thuringia's "keystore (not live QKD)" has 118 units between IOF and UKJ, and
+ * Tokyo's K3-K2 has 75.
  */
 const BESIDE = [0, 1.15, -1.15, 2.1, -2.1, 3.4, -3.4];
 /** Costs. A caption over a foreign line is worse than any move along its own. */
@@ -188,4 +189,31 @@ export function storeFill(l: LinkState, accounting: Accounting, scaleBits: numbe
     return Math.max(0, Math.min(1, l.storedBits / scaleBits));
   }
   return null;
+}
+
+/**
+ * Where a link's line starts and ends: on the border of each node's box, along
+ * the line between the two centres (checklist row 4.2.6). Under an opaque box a
+ * line to the centre looks the same on the page, but it is not what an export
+ * or a reader of the markup should find, and a box can be drawn see-through.
+ */
+export function linkEnds(p: TopologyPreset, l: PresetLink, fontPx: number = LABEL_FONT_PX): { x1: number; y1: number; x2: number; y2: number } {
+  const a = p.nodes.find((n) => n.id === l.a)!;
+  const b = p.nodes.find((n) => n.id === l.b)!;
+  const onBorder = (from: PresetNode, to: PresetNode) => {
+    const box = nodeBox(from, fontPx);
+    const [dx, dy] = [to.x - from.x, to.y - from.y];
+    const t = Math.min(dx === 0 ? Infinity : box.w / 2 / Math.abs(dx), dy === 0 ? Infinity : box.h / 2 / Math.abs(dy));
+    return { x: from.x + dx * t, y: from.y + dy * t };
+  };
+  const u = onBorder(a, b);
+  const v = onBorder(b, a);
+  return { x1: u.x, y1: u.y, x2: v.x, y2: v.y };
+}
+
+/** The band under the network, in the SVG so that an export carries it. */
+export const BAND_LINE_PX = 13;
+export const COMPACT_BAND_LINE_PX = 22;
+export function bandHeight(lines: number, compact: boolean): number {
+  return lines * (compact ? COMPACT_BAND_LINE_PX : BAND_LINE_PX) + 8;
 }
