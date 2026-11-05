@@ -125,7 +125,8 @@ describe("one MediaQueryList, shared by the snapshot and the subscriptions", () 
     expect(src).toMatch(/useSyncExternalStore\(store\.subscribe, store\.getSnapshot, getServerSnapshot\)/);
     // One call site, inside the store's lazy getter.
     expect(src.match(/\.matchMedia\(/g)).toHaveLength(1);
-    expect(src).toMatch(/list \?\?= source\(\)\.matchMedia\(NARROW_LAYOUT_QUERY\)/);
+    expect(src).toMatch(/list \?\?= source\(\)\.matchMedia\(query\)/);
+    expect(src).toMatch(/createMediaQueryStore\(NARROW_LAYOUT_QUERY, source\)/);
   });
 });
 

@@ -4,7 +4,7 @@ import ExportToolbar from "../components/ExportToolbar";
 import KPI from "../components/KPI";
 import Panel from "../components/Panel";
 import Button from "../components/Button";
-import TopologyPresetSvg from "../components/TopologyPresetSvg";
+import LiveTopology from "../components/LiveTopology";
 import QBufferGauge from "../components/QBufferGauge";
 import SBufferQueue from "../components/SBufferQueue";
 import SDNControlPanel from "../components/SDNControlPanel";
@@ -20,7 +20,7 @@ import {
 } from "../lib/sim/protocolLab/publishedNetworks";
 import { MODEL_LABEL, modelRateFor } from "../lib/sim/protocolLab/rates";
 import {
-  ProtocolLabSim, protocolLabCsvRows, type ProtocolLabState,
+  DEFAULT_PACE_MS, ProtocolLabSim, TICK_PACES, protocolLabCsvRows, type ProtocolLabState,
 } from "../lib/sim/protocolLabSim";
 
 /**
@@ -66,7 +66,7 @@ export default function ProtocolLab() {
   const simRef = useRef<ProtocolLabSim | null>(null);
 
   useEffect(() => {
-    const sim = new ProtocolLabSim(setState, { presetId: DEFAULT_PRESET_ID });
+    const sim = new ProtocolLabSim(setState, { presetId: DEFAULT_PRESET_ID, paceMs: DEFAULT_PACE_MS });
     simRef.current = sim;
     return () => sim.dispose();
   }, []);
@@ -194,15 +194,21 @@ export default function ProtocolLab() {
       </div>
 
       <Panel title={`Topology: ${preset.meta.title} (this project's layout, not the source's figure)`} style={{ marginBottom: 12 }}>
-        {state && <TopologyPresetSvg preset={preset} links={state.links} route={state.route} downNodes={state.down_nodes} />}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
           <Button onClick={() => ctl("start")} disabled={status === "running"}>▶ Run</Button>
           <Button variant="secondary" onClick={() => ctl("pause")} disabled={status !== "running"}>⏸ Pause</Button>
           <Button variant="secondary" onClick={() => ctl("resume")} disabled={status !== "paused"}>▶ Resume</Button>
           <Button variant="secondary" onClick={() => ctl("step")} disabled={status === "running"}>⏭ Step</Button>
           <Button variant="ghost" onClick={() => ctl("reset")}>⏹ Reset</Button>
+          <label style={{ fontSize: 12, color: colors.textSec }}>Speed{" "}
+            <select aria-label="Simulation speed" value={state?.nominal_dwell_ms ?? DEFAULT_PACE_MS}
+                    onChange={(e) => simRef.current?.setPace(Number(e.target.value))}>
+              {TICK_PACES.map((p) => <option key={p.id} value={p.ms}>{p.label}</option>)}
+            </select>
+          </label>
           <span style={{ fontSize: 12, color: colors.textSec }}>status: <b>{status}</b>; tick {state?.tick ?? 0} = {state?.tick_s ?? 0} s each</span>
         </div>
+        {state && <LiveTopology preset={preset} state={state} compact={narrow} scaleBits={scaleBits} />}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
           <select aria-label="Failure target" value={target} onChange={(e) => setTarget(e.target.value)}>
             <option value="">choose a link or node</option>

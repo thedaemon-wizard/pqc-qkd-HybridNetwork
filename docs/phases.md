@@ -1161,3 +1161,34 @@ pass `scripts/scan_published_text.py` with 0 findings (checklist row 6.15).
   past the viewport, wraps text into one- or two-character columns or has a
   control without an accessible name. Below 768 px the sidebar collapses
   into the Menu button.
+
+## 2026-11-05 — Protocol Lab: captions that can be read, and the run as it happens
+
+Reported on the deployed page and reproduced there at 1024 and 1280 px, with
+`getBBox` on each text and box: SECOQC's `25 km, 5.75 dB` lay over `22 km`
+(476 square px), MadQCI's `24.5 km, 8.72 dB` and `7.8 km †, 1.40 dB` were cut by
+node boxes, and lines ran through the captions of vertical and diagonal links on
+Tokyo, SECOQC and MadQCI. Each caption was drawn at its link's midpoint and
+nothing checked it against anything.
+
+- `placeEdgeLabels` (`lib/sim/protocolLab/view.ts`) places every caption clear
+  of the nodes, of the other captions and, where any place allows it, of the
+  other links; it is pure and deterministic, so an exported PNG is reproducible.
+  An opaque plate stops a caption's own line striking through it. Measured with
+  `getBBox` at 1280 px on the five networks: no text over text, no caption over
+  a node box, every caption inside its plate.
+- Below 768 px the captions are left out and node labels are larger (9.1 to 12.2
+  CSS px at 375 px, against 5.4 to 7.3 before); the figures stay in "Links as
+  published". No sideways scroll at 375 px.
+- The engine records what each tick did, stage by stage (`TickTrace`), and
+  `TICK_PIPELINE` names the stages of each accounting mode. It records and
+  changes nothing: `protocolLabTickTrace.test.ts` runs the SECOQC replay at every
+  speed and finds the same bits, routes and stores.
+- `lib/sim/protocolLab/playback.ts` and `components/LiveTopology.tsx` draw that
+  record over the tick's dwell. The key's position is set on the element every
+  frame; React re-renders only when a stage or a hop changes. What moves is
+  always something that happened, and the time on screen is not a latency.
+- `nominal_dwell_ms` in the CSV is now per tick, because the speed can change
+  during a run. `NOMINAL_TICK_DWELL_MS` stays 300, the Fast pace and the engine's
+  default; the page starts at Normal, 1.2 s per tick, so one relay can be
+  followed hop by hop.

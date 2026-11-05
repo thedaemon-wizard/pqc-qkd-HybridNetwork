@@ -13,6 +13,13 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `/protocol-lab` plays each tick back from what the engine recorded for it:
+  the stages light in order with their outcomes, the key crosses the route hop
+  by hop and shows where it is in the clear, a re-route leaves the old route
+  drawn for a moment, and one bar holds every tick so far. A speed select
+  (Slow, Normal, Fast) changes how fast it is drawn and nothing that is
+  computed. With the browser's reduced-motion setting on, nothing moves and
+  each outcome shows at once.
 - `stack-status` (`services/stack-status/`), the one container that mounts
   the Docker socket. It serves `webui-backend` a fixed, GET-only API on
   `status-net`, an internal network that only the backend also joins, and
@@ -29,6 +36,13 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Changed
 
+- `/protocol-lab`'s link captions no longer overlap: each is placed clear of
+  the nodes, the other captions and the other links, on a plate that stops its
+  own line striking through it (it was at a bare midpoint). Below 768 px the
+  captions make way for a larger drawing; the figures stay in the links table.
+- `/protocol-lab`'s default pace is 1.2 s per tick instead of 0.3 s, and the
+  CSV's `nominal_dwell_ms` is now per tick, because the speed can change during
+  a run.
 - `webui-backend` no longer mounts `/var/run/docker.sock` and no longer
   installs the Docker SDK. `/api/stack`, `/api/logs/{name}`, `/api/wg/{node}`,
   `/api/vpn/protocols` and `/api/vpn/ppk-rotations` get their data from
