@@ -1220,3 +1220,17 @@ nothing checked it against anything.
   be read as a key generator or a security test, which `qkdProtocolsIsLabelledAModel.test.ts`
   fixes. Each result in the families table names its fibre and key-length regime.
 
+### Measured on the deployed build (2026-11-06)
+
+- Deployed frontend only, with `--no-deps`: the node pairs and KMEs were not touched.
+  The bundle `index-lYr_fJIL.js` is the one a local `npm run build` of this tree
+  produces.
+- `scripts/webui_layout_sweep.mjs` is new, and replaces an ad hoc harness that was
+  never committed: 15 routes at 320, 375, 768 and 1280 px, with `/protocol-lab` walked
+  through its five networks. 60 layouts, 0 findings: no sideways scroll, no unnamed
+  control, no Japanese text, no page error, no text over text. Its first form used
+  `getBBox`, which ignores a parent's transform and reported every force-laid node on
+  `/topology` as overlapping; it now measures each text where it lies on the screen.
+- Exports read back from their blobs in headless Chrome, on both pages. The numbers are
+  in checklist rows 4.4c.11 and 4.4e.5.
+
