@@ -88,38 +88,30 @@ no quantum hardware anywhere in it.
 
 ```mermaid
 flowchart TB
-  subgraph browser["Browser"]
-    ui["WebUI: React, Plotly, D3<br/>15 routes, several computed entirely here"]
-  end
+  ui["<b>WebUI</b>, 15 routes<br/>several computed in the browser"]
   subgraph status["Read-only status"]
-    api["webui-backend (FastAPI)<br/>/api/stack /api/stats /api/verify/*"]
-    ss["stack-status<br/>the only holder of the Docker socket,<br/>a fixed GET-only API"]
+    direction LR
+    api["<b>webui-backend</b><br/>FastAPI: /api/stack, /api/stats, /api/verify/*"] --> ss["<b>stack-status</b><br/>only holder of the Docker socket, GET only"]
   end
-  subgraph kmes["Simulated QKD link"]
-    ka["bb84-kme-a<br/>BB84 simulator + ETSI GS QKD 014"]
-    kb["bb84-kme-b<br/>BB84 simulator + ETSI GS QKD 014"]
-    ka <-- "/internal/sync" --> kb
+  subgraph kmes["Simulated QKD link: no fibre, photons or detectors"]
+    direction LR
+    ka["<b>bb84-kme-a</b><br/>BB84 simulator + ETSI GS QKD 014"] <-- "/internal/sync" --> kb["<b>bb84-kme-b</b><br/>BB84 simulator + ETSI GS QKD 014"]
   end
   subgraph wg["WireGuard lane"]
-    a1["alice<br/>arnika (Go) + Rosenpass<br/>wg0 10.0.0.1/24, wg1 10.0.1.1/24"]
-    b1["bob<br/>arnika (Go) + Rosenpass<br/>wg0 10.0.0.2/24, wg1 10.0.1.2/24"]
-    a1 <-- "wg0 hop tunnel: PSK = HKDF-SHA3-256(QKD || PQC-HPKE)<br/>wg1 inside wg0: PSK from Rosenpass" --> b1
+    direction LR
+    a1["<b>alice</b><br/>arnika + Rosenpass"] <-- "wg0 hop tunnel: PSK = HKDF-SHA3-256(QKD || PQC-HPKE)<br/>wg1 inside wg0: PSK from Rosenpass" --> b1["<b>bob</b><br/>arnika + Rosenpass"]
   end
   subgraph ipsec["IPsec lane (ipsec compose profile)"]
-    a2["alice-ipsec<br/>arnika + strongSwan 6.1.0"]
-    b2["bob-ipsec<br/>arnika + strongSwan 6.1.0"]
-    a2 <-- "IKEv2: ECP-256 + ML-KEM-768 (RFC 9370)<br/>PPK (RFC 8784) = HKDF-SHA3-256(QKD || PQC-HPKE), over VICI" --> b2
+    direction LR
+    a2["<b>alice-ipsec</b><br/>arnika + strongSwan 6.1.0"] <-- "IKEv2: ECP-256 + ML-KEM-768 (RFC 9370)<br/>PPK (RFC 8784) = HKDF-SHA3-256(QKD || PQC-HPKE), over VICI" --> b2["<b>bob-ipsec</b><br/>arnika + strongSwan 6.1.0"]
   end
-  ui -- "REST" --> api
-  api --> ka
-  api --> kb
-  api --> ss
-  ss -. "status and bounded logs" .-> wg
-  ss -. "status and bounded logs" .-> ipsec
-  ka -- "ETSI 014 over HTTP (mTLS not implemented)" --> a1
-  ka --> a2
-  kb -- "ETSI 014 over HTTP" --> b1
-  kb --> b2
+  ui -- "REST" --> status
+  status --> kmes
+  kmes -- "ETSI GS QKD 014 over HTTP, each node to its own KME (mTLS not implemented)" --> wg
+  wg ~~~ ipsec
+  kmes --> ipsec
+  status -. "status and bounded logs" .-> wg
+  status -. "status and bounded logs" .-> ipsec
 ```
 
 One rotation on either lane. The PRIMARY alternates by interval. In the
