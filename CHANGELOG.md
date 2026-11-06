@@ -87,6 +87,14 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   What remains is code execution in `stack-status` itself
   ([`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)).
 
+### Fixed
+
+- The IPsec nodes came back up after a host reboot only once they were recreated: a
+  container restarted in place kept the previous charon's VICI socket, the entrypoint
+  took it for the new one, the first `swanctl` call was refused, and both nodes exited
+  111 in a loop. The entrypoint now removes the socket and pid file before it starts
+  charon, and the IPsec CI job restarts both nodes in place and waits for the SA again.
+
 ## [0.2.0] - 2026-10-03
 
 The arnika pin moves to `f4cf9ba`, the head of arnika PR #51 as of 2026-09-24,

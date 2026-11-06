@@ -984,6 +984,21 @@ jobs:
           echo "$out" | grep -qE '[1-9][0-9]* bytes' \
             || { echo "::error::no bytes counted on the outbound ESP SA"; exit 1; }
 
+      # A host reboot restarts the containers without recreating them, so
+      # /var/run survives. The lane must come back on its own from that state:
+      # on 2026-11-06 a stale VICI socket made both nodes exit 111 in a loop.
+      - name: Restart both nodes without recreating them, and wait for the SA again
+        run: |
+          docker restart alice-ipsec bob-ipsec
+          for i in $(seq 1 60); do
+            a=$(docker exec alice-ipsec swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            b=$(docker exec bob-ipsec   swanctl --list-sas 2>/dev/null | grep -c ESTABLISHED || true)
+            if [ "$a" -ge 1 ] && [ "$b" -ge 1 ]; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::no IKE_SA established within 300s of a restart"
+          exit 1
+
       - name: Diagnostics on failure
         if: failure()
         run: |
