@@ -215,6 +215,14 @@ sed -e "s|__LOCAL_IP__|${LOCAL_IP}|g" \
     > /etc/swanctl/conf.d/pqcqkd.conf
 
 # ---- 2) Start charon --------------------------------------------------
+# A container that is restarted rather than recreated (a host reboot, or
+# `docker restart`) keeps its /var/run. The previous charon's VICI socket then
+# satisfies the wait below at once, the first swanctl call gets ECONNREFUSED,
+# and the container exits 111 and restarts into the same state: the public demo
+# hit this on 2026-11-06 after a host reboot. A leftover pid file can likewise
+# make the new charon think it is already running. Nothing else in this
+# container starts charon, so both files are stale whenever this line runs.
+rm -f "${VICI_SOCKET}" /var/run/charon.pid
 echo "[entrypoint] starting charon (${CHARON_BIN})"
 "${CHARON_BIN}" &
 CHARON_PID=$!
