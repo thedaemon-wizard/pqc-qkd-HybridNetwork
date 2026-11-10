@@ -112,6 +112,13 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   none of those containers needs them; the nodes and `webui-backend` reach the
   KMEs on the internal `qkd-net`. A test keeps the overlay that way. The backend's
   own reach to the key API is recorded as open in the roadmap.
+- oqs-provider moves to the 0.12.0 release (`7e9d095`), from a `main` commit that
+  lacked four memory-safety fixes: a heap overflow in RSA-hybrid public-key
+  reconstruction (#810, GHSA-2g5g-3c4v-v8pw), a double free (#816), a use-after-free
+  in hybrid KEM decapsulation (#829, GHSA-g63q-c378-wphj) and missing length checks
+  on hybrid KEM public keys (#814). It reaches only the `make pqc-tls-demo-both`
+  lane, which no compose file runs. HQC groups are back, and `hqc1` joins
+  `TLS_GROUPS`.
 - The process that answers the internet holds no Docker socket. A read-only
   mount of the socket file never made the Docker API read-only, so code
   execution in the backend or any of its dependencies was root on the host.

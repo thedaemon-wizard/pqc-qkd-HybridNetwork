@@ -10,7 +10,7 @@ are kept short; the longer history of a pin is under
 |---|---|---|---|---|
 | `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `f4cf9ba` (2026-09-24), the head of the **open, unmerged** PR #51 (`pqc-hpke`) as of that date, not a `main` commit: post-v1.x work, not the `v1.x` branch. It contains all of `main` except its two newest commits, which touch only the README (`164ee4e`, and `3a8cc13`, the previous pin). The PR's later head, `da00e6d` (2026-09-30), is one commit on top of it that removes comments, refactors some non-test code, updates documentation and tests and adds Makefile `lint`/`fmt` targets; behaviour-identical by our reading of its diff (head re-read 2026-10-01). To be re-pinned to the merge commit once #51 merges, but not before the after-arm of the before/after measurement has been reported. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-09-26. See [arnika](#arnika). |
 | `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | pinned to `5a1a854b`, the tag **0.16.0** (2026-07-09), built into the `pqc-validator` and `pqc-tls-demo` images. It is not the liboqs in the Rosenpass exchange (see `oqs-sys` below), and arnika uses none. Inside the affected range of GHSA-wh5q-mpc8-67wf, whose code is not compiled here. See [liboqs](#liboqs). |
-| `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `5fd81fb4`, a `main` commit 37 past the 0.10.0 tag, not a release. 22 commits behind 0.12.0-rc2 and missing four memory-safety fixes made there; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
+| `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `7e9d095a`, the tag **0.12.0** (2026-10-08), the latest release. It carries the four memory-safety fixes the previous pin `5fd81fb` lacked; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange that keys the `wg1` data tunnel (since release 0.2.0; it no longer feeds arnika). Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
 | `SimQN` | GPL-3.0 (upstream: "GPLv3") | QNLab, USTC (Cui et al.) | 8 | pinned to `29a94689`, the tag **v0.2.3**, the latest release. `main` is 42 commits ahead, with changes to modules this project does not import. The installed distribution reports version 0.2.1, from upstream's own `setup.py`. Imported in-process by `bb84-kme`; see the licence notes below. |
 | `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | pinned to `ffd7c837`, the tag **v1.0.0** (2026-06-17). v1.3.1 is out (2026-10-17, 84 commits past the pin; v1.2.0 was 2026-09-12 and v1.3.0 2026-10-10), and a bump is deferred to its own change (checked 2026-11-10). Brings the LGPL `gmpy2` into the `bb84-kme` process. See [SeQUeNCe](#sequence). |
@@ -144,17 +144,17 @@ library.
 ### oqs-provider
 
 The licence is MIT, verified against `submodules/oqs-provider/LICENSE.txt`;
-this table said Apache-2.0 until 2026-08. **The pin is not a release.**
-`git describe --tags` resolves it to `0.10.0-37-g5fd81fb`. Tag `0.11.0` is **not
-an ancestor**: `git rev-list --left-right --count 0.11.0...HEAD` gives `2 23`,
-so the pin lacks two commits the 0.11.0 release carries while holding 23 it
-does not, and the upstream compatibility note cited below is published against
-0.11.0, so it has to be read with that offset in mind.
+this table said Apache-2.0 until 2026-08. **The pin is the 0.12.0 release**
+(`7e9d095`, 2026-10-08; `git describe --tags` gives `0.12.0`). Until 2026-11-10
+it was `5fd81fb`, a `main` commit 37 past 0.10.0 that held 23 commits the
+0.11.0 release branch did not and lacked 2 it did; 0.12.0 is 37 commits past
+that commit, in a straight line.
 
 **Version pairing to watch.** `pqc-tls-demo` builds liboqs and oqs-provider from
-the vendored submodules (`pqc-validator` builds liboqs only), and upstream
-documents oqs-provider 0.11.0 against **liboqs 0.15.0** while this repository
-pins liboqs **0.16.0**. That span includes the removal of SPHINCS+ and a rename
+the vendored submodules (`pqc-validator` builds liboqs only). Upstream
+documented oqs-provider 0.11.0 against **liboqs 0.15.0**, while this repository
+pins liboqs **0.16.0**; 0.12.0 names HQC as liboqs 0.16.0 does (`hqc1`, `hqc3`,
+`hqc5`; its release notes, #787). That span includes the removal of SPHINCS+ and a rename
 in which `KEM_frodokem_*` came to mean the salted variant -- the same identifier
 for a different algorithm. `sphincs` appears nowhere outside the submodules,
 but `frodo` does: `services/pqc-tls-demo/Dockerfile.oqs-provider` puts
@@ -166,11 +166,12 @@ but `frodo` does: `services/pqc-tls-demo/Dockerfile.oqs-provider` puts
 0.10.0). A handshake on this group with a pre-#749 peer fails rather than
 silently substituting.
 
-**The pin is 22 commits behind 0.12.0-rc2** (`26eee364`, 2026-09-16; no 0.12.0
-final yet) and lacks four fixes made there -- #810 (heap overflow), #816
-(double free), #814 and #829 (use-after-free). Bump to 0.12.0 when it is tagged;
-the exposure meanwhile is the make-only `pqc-tls-demo` lane, which no compose
-service builds.
+**Bumped to 0.12.0 on 2026-11-10**, which carries the four fixes the previous
+pin lacked -- #810 (heap overflow), #816 (double free), #814 (length checks on
+hybrid KEM public keys) and #829 (use-after-free). Built locally on OpenSSL
+3.5.7: the provider lists 75 TLS groups (19 without it), 8 of them HQC, and the
+image's build-time check negotiated all six groups in `TLS_GROUPS`, `hqc1`
+included. No CI job builds this image and no compose service runs it.
 
 ### rosenpass
 
@@ -305,13 +306,14 @@ reason.
 ## Submodule currency, and how it was checked
 
 Verified 2026-09-25 by querying each upstream directly with
-`git ls-remote --tags`, not from memory or from a package index. The five pins
-and `strongswan` in the next paragraph were re-checked the same way on
-2026-11-10 and are still on their upstream's latest tag.
+`git ls-remote --tags`, not from memory or from a package index. The pins in the
+next paragraph and `strongswan` were checked the same way on 2026-11-10: the
+five re-checked are still on their upstream's latest tag, and `oqs-provider`
+moved to its latest tag that day.
 
-**Five pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
+**Six pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
 `liboqs` 0.16.0, `openQKDsecurity` v2.2.0, `rosenpass` v0.2.3,
-`tno-qkd-key-rate` v2.0.4. `strongswan` is on the annotated `6.1.0`.
+`tno-qkd-key-rate` v2.0.4, and since 2026-11-10 `oqs-provider` 0.12.0. `strongswan` is on the annotated `6.1.0`.
 
 **Two upstreams publish no semver tags at all**, by the release-tag filter of
 trap 1 below, so "behind" has no meaning for them: `qkd-pqc-paper-supplementary`, `qkd_kme_server`.
@@ -358,12 +360,6 @@ Deliberately not on a tag, one paragraph each. (Written as prose rather than a
 table: `tests/test_notices_match_the_pins.py` keys off any row whose first cell
 is a submodule name, and a second table of the same shape silently overrode the
 canonical one above -- it caught that on the first run of this section.)
-
-- **oqs-provider**, pin `5fd81fb`. Tag `0.11.0` is a **downgrade in
-  substance**: `git rev-list --left-right --count` measures **23 / 2**, so
-  moving to it loses 23 commits and gains 2. The pin also carries the
-  `Using with LibOQS 0.16.0` section that 0.11.0 predates, and `Makefile`
-  builds it against exactly that liboqs pin.
 
 - **wgephemeralpeer**, pin `0080bf8`. Tag `v1.0.6` is fifteen months older --
   see the dates above.

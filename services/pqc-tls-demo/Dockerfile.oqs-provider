@@ -5,24 +5,25 @@
 # provider mechanism: TLS groups that OpenSSL does not ship, loaded as a plugin
 # without rebuilding OpenSSL. On OpenSSL 3.5 the default provider already
 # offers MLKEM768, X25519MLKEM768 and SecP256r1MLKEM768; the provider adds the
-# rest of the list below, such as p384_mlkem768 and FrodoKEM (measured with
-# `openssl list -tls-groups` with and without it). It exposes no HQC group and
-# no Classic McEliece group, although the architecture notes once listed both
-# for this lane.
+# rest of the list below, such as p384_mlkem768, FrodoKEM and HQC (measured with
+# `openssl list -tls-groups` with and without it: 19 groups without, 75 with at
+# 0.12.0, of which 8 are HQC). It exposes no Classic McEliece group, although the
+# architecture notes once listed one for this lane.
 #
 # The server certificate is RSA-2048, so no post-quantum signature takes part
 # in the handshake; only key exchange is post-quantum here.
 #
 # Standards reference: RFC 7696 (Cryptographic Algorithm Agility).
 #
-# The oqs-provider pin (5fd81fb, 2026-05-12) predates four upstream fixes
-# merged since: a heap overflow in RSA-hybrid public-key reconstruction (#810,
+# The oqs-provider pin is the 0.12.0 release (7e9d095, 2026-10-08), 37 commits
+# past the previous pin 5fd81fb. It carries the four fixes that pin lacked: a
+# heap overflow in RSA-hybrid public-key reconstruction (#810,
 # GHSA-2g5g-3c4v-v8pw), a double free in oqsx_key_new (#816), a use-after-free
 # in hybrid KEM decapsulation (#829, GHSA-g63q-c378-wphj), and missing length
-# checks on hybrid KEM public keys (#814). No final release carries them yet
-# (0.12.0 is at release candidate), so this demo lane is for a local handshake,
-# not for peers you do not control. The pin is left where it is on purpose;
-# moving it is a separate, tested change.
+# checks on hybrid KEM public keys (#814). It names HQC as liboqs 0.16.0 does
+# (hqc1, hqc3, hqc5), the liboqs pinned here. This demo lane is still for a
+# local handshake with a self-signed certificate, not for peers you do not
+# control.
 #
 # This lane was built on bookworm (OpenSSL 3.0.x) under a header that said
 # "OpenSSL 3.4". 3.0 reached upstream end of life on 2026-09-07, and the sibling
@@ -93,11 +94,12 @@ EXPOSE 4433
 
 # Groups, by where they come from on OpenSSL 3.5:
 #   X25519MLKEM768, mlkem768, SecP256r1MLKEM768   the default provider
-#   p384_mlkem768, frodo640aes                    oqs-provider
+#   p384_mlkem768, frodo640aes, hqc1              oqs-provider
 # OpenSSL rejects the whole -groups string on an unknown name, so every entry
 # must resolve. p384_kyber768 was once listed and never existed in the pinned
-# provider; hqc128 was dropped because the provider exposes no HQC group.
-ENV TLS_GROUPS="X25519MLKEM768:p384_mlkem768:mlkem768:SecP256r1MLKEM768:frodo640aes"
+# provider. hqc128 was dropped while the provider exposed no HQC group; 0.12.0
+# exposes it again as hqc1 (HQC-128), and the check below negotiates it.
+ENV TLS_GROUPS="X25519MLKEM768:p384_mlkem768:mlkem768:SecP256r1MLKEM768:frodo640aes:hqc1"
 
 # The build must prove every group negotiates with both providers loaded. This
 # lane is in no compose file, so a runtime failure would otherwise surface only
