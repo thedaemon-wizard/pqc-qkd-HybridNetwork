@@ -106,6 +106,12 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Security
 
+- On the public host the KMEs and `pqc-validator` are no longer on `mgmt-net`, the
+  network Caddy and the frontend sit on, and that other sites served by the same
+  Caddy join. The KMEs' key API and `/internal/sync` have no authentication, and
+  none of those containers needs them; the nodes and `webui-backend` reach the
+  KMEs on the internal `qkd-net`. A test keeps the overlay that way. The backend's
+  own reach to the key API is recorded as open in the roadmap.
 - The process that answers the internet holds no Docker socket. A read-only
   mount of the socket file never made the Docker API read-only, so code
   execution in the backend or any of its dependencies was root on the host.

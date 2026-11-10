@@ -594,6 +594,17 @@ Re-verified 2026-09-25 against the code.
   match. Closing it means per-node keys and certificates (`auth = pubkey`)
   under a CA of this deployment's own, so the IKE identity stops depending on
   the arnika secret.
+- **The KMEs' key API is reachable from webui-backend** (added 2026-11-10).
+  The KMEs serve the ETSI GS QKD 014 key API and `/internal/sync` without
+  authentication. Until 2026-11-10 they also sat on `mgmt-net` on the public
+  host, with Caddy, the frontend and the other sites a `caddy.d/` drop-in
+  proxies to; the cloud overlay now keeps them, and `pqc-validator`, on
+  `qkd-net` only (`tests/test_the_004_binding_is_not_public.py`).
+  `webui-backend` still shares `qkd-net` with them, because it reads their
+  status and parameters, so a compromised backend could still ask a KME for
+  keys. Closing it means letting the backend reach only the KMEs' status
+  routes, for example by serving the key API only on the interface the
+  nodes use, and then TLS between SAE and KME as ETSI GS QKD 014 specifies.
 - **The VICI writer does not confirm the new IKE SA** (added 2026-11-10, since
   `services/arnika-vici/repositories/swanvici/vici.go` says this file tracks
   it). `SetPSK` queues the reauthentication and returns; nothing waits for the

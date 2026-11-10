@@ -203,7 +203,8 @@ the spec file's transition table:
 
 - **No authentication.** Like ETSI 014 on this stack and `/internal/sync`, the
   binding is reachable from any container on `qkd-net` or `mgmt-net` (the KMEs
-  sit on both) and from the Docker host, but not from outside it: no KME port
+  sit on both; on the public host `qkd-net` only, since the cloud overlay takes
+  them off `mgmt-net`) and from the Docker host, but not from outside it: no KME port
   is published, the frontend proxies only `/api/`, and webui-backend has no
   route that reaches it (`tests/test_the_004_binding_is_not_public.py`). mTLS
   is not implemented.
