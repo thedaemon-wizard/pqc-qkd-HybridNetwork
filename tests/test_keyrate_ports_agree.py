@@ -156,6 +156,45 @@ def test_the_finite_comparison_is_not_vacuous():
         f"{len(CASES)} cases x 3 block sizes")
 
 
+# Inputs `skr_finite` refuses with 0.0. Every case above passes the same valid
+# qx, eps_cor and intensity probabilities, so the parity check never reached the
+# reference's input checks -- and the browser port did not have three of them.
+# For each row it returned a rate the reference does not: a basis bias above 1
+# (a percentage typed as a number on /physics) scales the detection counts by
+# qx^2, and probabilities that do not sum to 1, or a zero one, divide by p_k.
+_GOOD_INPUTS = {"qx": 0.5, "p_mu": 0.70, "p_nu1": 0.15, "p_nu2": 0.15, "eps_cor": 1e-15}
+_REFUSED_INPUTS = [
+    {"qx": 0.0}, {"qx": 1.0}, {"qx": 2.0}, {"qx": 50.0},
+    {"eps_cor": 0.0}, {"eps_cor": 1.0}, {"eps_cor": 1.5},
+    {"p_nu2": 0.20},                       # sums to 1.05
+    {"p_nu1": 0.30, "p_nu2": 0.0},         # sums to 1, with a zero p_k
+    {"p_mu": 0.80},                        # sums to 1.10
+]
+
+
+def test_both_ports_refuse_the_same_inputs():
+    eta, Y0, e_d, mu, nu1, nu2, f_EC = CASES[1]          # repo defaults
+    rows = [_GOOD_INPUTS] + [{**_GOOD_INPUTS, **bad} for bad in _REFUSED_INPUTS]
+    ts = _run_driver(f"""
+        import {{ skrFinite }} from "./keyrate.js";
+        const rows = {json.dumps(rows)};
+        console.log(JSON.stringify(rows.map((r) => skrFinite({{
+          Y0: {Y0!r}, etaTotal: {eta!r}, eD: {e_d!r}, mu: {mu!r}, nu1: {nu1!r},
+          nu2: {nu2!r}, fEC: {f_EC!r}, N: 1e9, eps: 1e-10, qx: r.qx,
+          pMu: r.p_mu, pNu1: r.p_nu1, pNu2: r.p_nu2, epsCor: r.eps_cor,
+        }}))));
+    """)
+    py = [_skr.skr_finite(Y0=Y0, eta_total=eta, e_d=e_d, mu=mu, nu1=nu1, nu2=nu2,
+                          f_EC=f_EC, N=1e9, eps=1e-10, **row) for row in rows]
+
+    # The control row is what makes the zeros below mean something.
+    assert py[0] > 0.0 and ts[0] == pytest.approx(py[0], rel=1e-9)
+    disagree = [(bad, t) for bad, t, p in zip(_REFUSED_INPUTS, ts[1:], py[1:], strict=True)
+                if not (p == 0.0 and t == 0.0)]
+    assert all(p == 0.0 for p in py[1:]), "the reference stopped refusing one of these"
+    assert not disagree, f"the browser port returns a rate the reference refuses: {disagree}"
+
+
 # ---- the per-link helper /protocol-lab uses ---------------------------------
 # Lengths straddling the finite-key zero, which the shipped configuration puts
 # between 98.5 and 99 km (19.69-19.70 dB at 0.2 dB/km).
