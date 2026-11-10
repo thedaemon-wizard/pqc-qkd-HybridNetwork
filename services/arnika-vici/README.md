@@ -174,10 +174,12 @@ change belongs in an adapter PR, not on its own.
 
 ## Configuration
 
-All variables are mandatory **in the adapter**: `getKeyWriterService` returns an
-error for an unset `VICI_REAUTH_TIMEOUT` or `VICI_IKE_ROLE`, and `swanvici.Config`
-documents every field as required. The reasoning is that every plausible default
-silently masks a misconfiguration that still looks like a working tunnel.
+All variables but one are mandatory **in the adapter**: `getKeyWriterService`
+returns an error for an unset `VICI_REAUTH_TIMEOUT` or `VICI_IKE_ROLE`, and
+`swanvici.Config` documents every field as required. The reasoning is that every
+plausible default silently masks a misconfiguration that still looks like a
+working tunnel. The exception is `VICI_REAUTH_RETRY_AFTER`, which is off when
+unset, because off is what every deployment before it ran.
 
 Note what that does and does not guarantee. The layers above the adapter supply
 values anyway, so in the shipped configuration the adapter never sees three of
@@ -206,6 +208,7 @@ for the separate reason recorded under Known gaps below.
 | `VICI_BOOTSTRAP_ID` | the pre-QKD credential, unloaded after the first rotation |
 | `VICI_REAUTH_TIMEOUT` | bounds one rotation; must be shorter than `INTERVAL` |
 | `VICI_IKE_ROLE` | `initiator` or `responder`; the two peers must differ |
+| `VICI_REAUTH_RETRY_AFTER` | optional, off when unset: on the initiator, confirm each reauthentication within this long and retry once if it did not establish; under half of `INTERVAL` |
 
 ### arnika settings the node entrypoint enforces
 
@@ -254,15 +257,56 @@ replacement SA, and the SA count climbs by roughly one per rotation while the
 tunnel keeps passing traffic. A two-node run reached 140 concurrent IKE_SAs in
 nine minutes before this was found.
 
+### `VICI_REAUTH_RETRY_AFTER`
+
+A rotation's reauthentication can fail on ordering alone. When the initiator is
+arnika's BACKUP for the interval, it installs the key and reauthenticates before
+it ACKs the key_id, and the PRIMARY installs only on that ACK; an IKE_AUTH that
+reaches the responder first is answered with AUTH_FAILED. Make-before-break
+keeps the old IKE_SA, so the tunnel stays up, but the rotation's key goes
+unused until the next interval.
+
+With this set (for example `2s`), the initiator checks after each rotation that
+a newer IKE_SA reached ESTABLISHED within that time, polling `list-sas`, and if
+none did, reauthenticates once more. The check runs after `SetPSK` has
+returned, not inside it: arnika sends the ACK only once `SetPSK` returns, so a
+check that held `SetPSK` would delay the very install the retry waits for.
+It retries once and only once, it leaves a newer SA that is still connecting
+alone, and it stands down when a newer rotation has completed meanwhile. A peer
+that really holds a different key therefore costs two attempts per rotation,
+not a loop. The responder ignores the setting.
+
+With the setting, a first initiation that fails (below) is retried once as
+well.
+
+### The first IKE_SA
+
+When no IKE_SA exists yet, the initiator initiates after `SetPSK` has returned,
+not inside it. `initiate` waits for the IKE_AUTH outcome, so inside `SetPSK` in
+a BACKUP interval it was certain to fail: the ACK the responder's install waits
+for is sent only after `SetPSK` returns. A lane that started with alice as
+BACKUP failed every initiation until her first PRIMARY interval; three CI runs
+of 2026-11-10 showed three BACKUP intervals each, three AUTH_FAILED, and the SA
+in the fourth, which is over the IPsec job's 20 % ceiling. Started after
+`SetPSK` has returned, the initiation runs while the ACK is on its way.
+
+Off by default, and not set by any compose file in this repository: it is
+measured on a development host before anything else turns it on. The adapter
+logs a `retrying once` line for each retry and a `retry with ... established`
+or `did not establish either` line for its outcome.
+
 ## Rotation sequence
 
 1. `load-shared` the new generation (`type=ppk`, both generations now loaded)
 2. `get-shared` to confirm it landed — `unload-shared` reports success for ids
    that never existed, so this is the only reliable existence check
 3. `list-sas`, then `rekey` **that one SA by unique id** with `reauth=yes`
-   (or `initiate`, if no SA exists yet)
+   (or, if no SA exists yet, `initiate` once `SetPSK` has returned)
 4. `unload-shared` the previous generation
 5. `unload-shared` the bootstrap credential, once
+6. only with `VICI_REAUTH_RETRY_AFTER` set, and after `SetPSK` has returned:
+   confirm a newer ESTABLISHED IKE_SA, and reauthenticate once more if none
+   appeared; or, if step 3 initiated, initiate once more if that failed
 
 Step 3 selects by `ike-id`, not by connection name. Selecting by connection name
 makes charon reauthenticate *every* SA on the connection, and since
@@ -299,8 +343,11 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
 
 - The rotation does not block until the reauthenticated IKE_SA reaches
   ESTABLISHED. `rekey` returns once charon has queued the reauthentication.
-  This is tolerable because both generations stay loaded across the gap, but
-  closing it properly means subscribing to the `ike-updown` event stream.
+  This is tolerable because both generations stay loaded across the gap.
+  `VICI_REAUTH_RETRY_AFTER` adds a check after the rotation, by polling
+  `list-sas`, and it is off by default; it does not make `SetPSK` wait, and
+  cannot without delaying arnika's ACK (above). Subscribing to the `ike-updown`
+  event stream instead of polling is still open.
 - **arnika's KDF is not shown to meet the SP 800-227 combiner requirement.**
   SP 800-227 §4.6.1 requires ("shall") an approved key combiner of the kinds
   described in §4.6.2 (SP 800-56C or SP 800-133). The gaps are analysed in one
@@ -318,10 +365,11 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   the PRIMARY writes its key only after the BACKUP acknowledges the key_id.
   Reading the code suggests that moves the exposed intervals from those where
   alice (the IKE initiator) is PRIMARY to those where she is BACKUP, rather than
-  removing them. That is an inference from the code, not a measurement; a
-  168-hour before/after measurement is planned. The adapter cannot see the
-  arnika role or the key_id through `SetPSK([]byte)`, so any mitigation on this
-  side would need a different port.
+  removing them. The 168-hour before/after measurement, reported on arnika#51
+  on 2026-10-12, found that: the race moved from intervals where alice is
+  PRIMARY to those where she is BACKUP. The adapter cannot see the arnika role
+  or the key_id through `SetPSK([]byte)`; `VICI_REAUTH_RETRY_AFTER` (above)
+  needs neither, because it checks the outcome rather than predicting it.
 - **Observation (2026-09-26): fail-closed writes at role changes.** This comes
   from one unaligned local two-node run of the IPsec lane, about 6 minutes
   long, and is not a measurement. alice's arnika started about 0.25 s before

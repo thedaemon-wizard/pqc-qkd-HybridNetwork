@@ -41,6 +41,7 @@ const (
 	envViciRole       = "VICI_IKE_ROLE"
 	envViciChild      = "VICI_CHILD"
 	envViciBootstrap  = "VICI_BOOTSTRAP_ID"
+	envViciRetryAfter = "VICI_REAUTH_RETRY_AFTER"
 )
 
 func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error) {
@@ -87,6 +88,32 @@ func getKeyWriterService(cfg *config.Config) (*services.KeyWriterService, error)
 		return nil, fmt.Errorf(
 			"%s (%s) must be shorter than INTERVAL (%s), otherwise key rotations overlap",
 			envViciTimeout, timeout, cfg.Interval)
+	}
+
+	// Optional, and off when unset: the one switch here with a default, because
+	// off is what every deployment before it ran. When set, the driving peer
+	// confirms each reauthentication within this long and retries once if no
+	// newer IKE_SA came up (swanvici.Config.RetryReauthAfter). The responder
+	// drives nothing, so it ignores the setting.
+	if raw := os.Getenv(envViciRetryAfter); raw != "" {
+		after, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not a valid duration: %w", envViciRetryAfter, err)
+		}
+		if after <= 0 {
+			return nil, fmt.Errorf("%s must be positive, or unset to turn the retry off",
+				envViciRetryAfter)
+		}
+		// The confirmation, the one retry and its confirmation must all end
+		// inside one interval, before the next rotation starts its own.
+		if 2*after >= cfg.Interval {
+			return nil, fmt.Errorf(
+				"%s (%s) must be under half of INTERVAL (%s): the check and one retry "+
+					"have to finish before the next rotation", envViciRetryAfter, after, cfg.Interval)
+		}
+		if viciCfg.DriveReauth {
+			viciCfg.RetryReauthAfter = after
+		}
 	}
 
 	viciRepo, err := swanvici.NewRepository(viciCfg)

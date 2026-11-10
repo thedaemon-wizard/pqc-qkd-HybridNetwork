@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,6 +92,23 @@ type fakeVici struct {
 	saIDs []string
 	// registered tracks which streamed events the client subscribed to.
 	registered map[string]bool
+
+	// saStates gives an SA in saIDs a state other than ESTABLISHED.
+	saStates map[string]string
+	// reauthOutcomes scripts what each successive `rekey` does to saIDs, the
+	// way charon's make-before-break reauthentication would: "up" replaces the
+	// targeted SA with a newer ESTABLISHED one, "pending" adds a newer one
+	// still CONNECTING, "fail" (an AUTH_FAILED) leaves saIDs as they were.
+	// Empty, the default, leaves saIDs alone, as every older test expects.
+	reauthOutcomes []string
+	// initiateOutcomes scripts successive `initiate` calls: "ok" brings up a
+	// new SA, "fail" answers success=no as charon does when IKE_AUTH fails.
+	// Empty, the default, answers success and leaves saIDs alone.
+	initiateOutcomes []string
+
+	// mu guards everything above that a handler touches. confirmReauth talks
+	// to the fake on connections of its own while a test goroutine reads it.
+	mu sync.Mutex
 }
 
 func newFakeVici(t *testing.T) *fakeVici {
@@ -143,13 +162,17 @@ func (f *fakeVici) handle(conn net.Conn) {
 
 		switch payload[0] {
 		case pktEventRegister:
+			f.mu.Lock()
 			f.registered[name] = true
+			f.mu.Unlock()
 			if err := writeSegment(conn, []byte{pktEventConfirm}); err != nil {
 				return
 			}
 			continue
 		case pktEventUnregister:
+			f.mu.Lock()
 			delete(f.registered, name)
+			f.mu.Unlock()
 			if err := writeSegment(conn, []byte{pktEventConfirm}); err != nil {
 				return
 			}
@@ -161,27 +184,75 @@ func (f *fakeVici) handle(conn net.Conn) {
 
 		req := parseElements(payload[2+nameLen:])
 		req.name = name
-		f.requests = append(f.requests, req)
 
+		f.mu.Lock()
+		f.requests = append(f.requests, req)
 		// Streamed commands emit their payload as events before the response.
+		var events [][]byte
 		if name == "list-sas" && f.registered["list-sa"] {
 			for _, id := range f.saIDs {
-				if err := writeSegment(conn, f.listSAEvent(req.fields["ike"], id)); err != nil {
-					return
+				state := f.saStates[id]
+				if state == "" {
+					state = "ESTABLISHED"
 				}
+				events = append(events, f.listSAEvent(req.fields["ike"], id, state))
 			}
 		}
+		resp := f.reply(req)
+		f.mu.Unlock()
 
-		if err := writeSegment(conn, f.reply(req)); err != nil {
+		for _, ev := range events {
+			if err := writeSegment(conn, ev); err != nil {
+				return
+			}
+		}
+		if err := writeSegment(conn, resp); err != nil {
 			return
 		}
 	}
 }
 
+// applyReauth plays the next scripted outcome of a reauthentication of the SA
+// with unique id target. Called with f.mu held.
+func (f *fakeVici) applyReauth(target string) {
+	if len(f.reauthOutcomes) == 0 {
+		return
+	}
+	outcome := f.reauthOutcomes[0]
+	f.reauthOutcomes = f.reauthOutcomes[1:]
+
+	newest := 0
+	for _, id := range f.saIDs {
+		if n, err := strconv.Atoi(id); err == nil && n > newest {
+			newest = n
+		}
+	}
+	next := strconv.Itoa(newest + 1)
+	switch outcome {
+	case "up":
+		kept := []string{next}
+		for _, id := range f.saIDs {
+			if id != target {
+				kept = append(kept, id)
+			}
+		}
+		f.saIDs = kept
+	case "pending":
+		f.saIDs = append(f.saIDs, next)
+		if f.saStates == nil {
+			f.saStates = map[string]string{}
+		}
+		f.saStates[next] = "CONNECTING"
+	case "fail":
+	default:
+		f.t.Errorf("unknown reauth outcome %q", outcome)
+	}
+}
+
 // listSAEvent builds one `list-sa` event: a section named for the connection,
-// containing the SA's uniqueid. That nesting is what the adapter reads, so a
-// flat message here would let a broken parser pass.
-func (f *fakeVici) listSAEvent(conn, uniqueID string) []byte {
+// containing the SA's uniqueid and state. That nesting is what the adapter
+// reads, so a flat message here would let a broken parser pass.
+func (f *fakeVici) listSAEvent(conn, uniqueID, state string) []byte {
 	out := []byte{pktEvent, byte(len("list-sa"))}
 	out = append(out, "list-sa"...)
 
@@ -192,6 +263,11 @@ func (f *fakeVici) listSAEvent(conn, uniqueID string) []byte {
 	out = append(out, "uniqueid"...)
 	out = append(out, byte(len(uniqueID)>>8), byte(len(uniqueID)))
 	out = append(out, uniqueID...)
+
+	out = append(out, elKeyValue, byte(len("state")))
+	out = append(out, "state"...)
+	out = append(out, byte(len(state)>>8), byte(len(state)))
+	out = append(out, state...)
 
 	out = append(out, elSectionEnd)
 	return out
@@ -229,6 +305,28 @@ func (f *fakeVici) reply(req request) []byte {
 		}
 		lists = map[string][]string{"keys": ids}
 
+	case "initiate":
+		fields = map[string]string{"success": "yes"}
+		if len(f.initiateOutcomes) > 0 {
+			outcome := f.initiateOutcomes[0]
+			f.initiateOutcomes = f.initiateOutcomes[1:]
+			switch outcome {
+			case "ok":
+				newest := 0
+				for _, id := range f.saIDs {
+					if n, err := strconv.Atoi(id); err == nil && n > newest {
+						newest = n
+					}
+				}
+				f.saIDs = append(f.saIDs, strconv.Itoa(newest+1))
+			case "fail":
+				fields = map[string]string{"success": "no",
+					"errmsg": "establishing CHILD_SA 'tunnel' failed"}
+			default:
+				f.t.Errorf("unknown initiate outcome %q", outcome)
+			}
+		}
+
 	case "rekey":
 		if msg, bad := f.failOn["rekey"]; bad {
 			fields = map[string]string{"success": "no", "errmsg": msg}
@@ -236,6 +334,7 @@ func (f *fakeVici) reply(req request) []byte {
 			fields = override
 		} else {
 			fields = map[string]string{"success": "yes", "matches": "1"}
+			f.applyReauth(req.fields["ike-id"])
 		}
 
 	default:
@@ -246,6 +345,8 @@ func (f *fakeVici) reply(req request) []byte {
 }
 
 func (f *fakeVici) callsTo(name string) []request {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var out []request
 	for _, r := range f.requests {
 		if r.name == name {
@@ -389,6 +490,7 @@ func TestValidateRejectsIncompleteConfig(t *testing.T) {
 		"no prefix":     func(c *Config) { c.CredentialPrefix = "" },
 		"no bootstrap":  func(c *Config) { c.BootstrapCredentialID = "" },
 		"no timeout":    func(c *Config) { c.ReauthTimeout = 0 },
+		"negative retry": func(c *Config) { c.RetryReauthAfter = -time.Second },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := testConfig("/tmp/x")
@@ -595,6 +697,8 @@ func TestSetPSKInitiatesWhenNoSAExists(t *testing.T) {
 	if err := repo.SetPSK(psk32(0x07)); err != nil {
 		t.Fatalf("rotate with no SA must succeed, got: %v", err)
 	}
+	// The initiation runs after SetPSK returns (initiateAfterRotation).
+	repo.bg.Wait()
 
 	if n := len(f.callsTo("rekey")); n != 0 {
 		t.Errorf("got %d rekey calls, want 0 -- there is no SA to reauthenticate", n)
@@ -871,5 +975,205 @@ func TestRetireBootstrapLatchesOnceConfirmed(t *testing.T) {
 	}
 	if _, still := f.loaded[repo.cfg.BootstrapCredentialID]; still {
 		t.Fatal("fake still holds the bootstrap credential")
+	}
+}
+
+// --- confirming the reauthentication (RetryReauthAfter) ---------------------
+
+// The checks poll list-sas; a short poll keeps these tests fast. Set before any
+// test starts a goroutine that reads it.
+func init() { confirmPoll = 10 * time.Millisecond }
+
+func retryConfig(path string) Config {
+	cfg := testConfig(path)
+	cfg.RetryReauthAfter = 300 * time.Millisecond
+	return cfg
+}
+
+// rekeyTargets lists the unique id each `rekey` call targeted, in order.
+func rekeyTargets(f *fakeVici) []string {
+	var out []string
+	for _, r := range f.callsTo("rekey") {
+		out = append(out, r.fields["ike-id"])
+	}
+	return out
+}
+
+func rotateOnce(t *testing.T, f *fakeVici, cfg Config) *Repository {
+	t.Helper()
+	repo, err := NewRepository(cfg)
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	if err := repo.SetPSK(psk32(0x01)); err != nil {
+		t.Fatalf("rotation: %v", err)
+	}
+	repo.bg.Wait()
+	return repo
+}
+
+func TestRetryIsOffByDefault(t *testing.T) {
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"fail"}
+	rotateOnce(t, f, testConfig(f.path))
+	if got := rekeyTargets(f); !reflect.DeepEqual(got, []string{"1"}) {
+		t.Fatalf("rekeys %v, want one, on SA 1", got)
+	}
+}
+
+func TestRetryLeavesAnEstablishedReplacementAlone(t *testing.T) {
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"up"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if got := rekeyTargets(f); !reflect.DeepEqual(got, []string{"1"}) {
+		t.Fatalf("rekeys %v, want one: SA 2 came up, nothing to retry", got)
+	}
+}
+
+func TestRetryReauthenticatesOnceAfterAFailedReauth(t *testing.T) {
+	// The race the retry exists for: the responder answered AUTH_FAILED, so
+	// make-before-break kept SA 1 and no newer SA appeared. The retry targets
+	// that same SA, which is still the newest.
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"fail", "up"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if got := rekeyTargets(f); !reflect.DeepEqual(got, []string{"1", "1"}) {
+		t.Fatalf("rekeys %v, want two, both on SA 1", got)
+	}
+}
+
+func TestRetryGivesUpAfterOneAttempt(t *testing.T) {
+	// A peer that really holds a different key fails every attempt. One retry,
+	// then the log, not a loop.
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"fail", "fail", "fail"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if got := rekeyTargets(f); !reflect.DeepEqual(got, []string{"1", "1"}) {
+		t.Fatalf("rekeys %v, want exactly two", got)
+	}
+}
+
+func TestRetryLeavesAnExchangeInProgressAlone(t *testing.T) {
+	// A newer SA still CONNECTING after the window is a slow exchange, not a
+	// failed one; a second reauthentication would race it.
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"pending"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if got := rekeyTargets(f); !reflect.DeepEqual(got, []string{"1"}) {
+		t.Fatalf("rekeys %v, want one", got)
+	}
+}
+
+func TestRetryStandsDownForANewerRotation(t *testing.T) {
+	// No newer SA appears, but a newer rotation has completed: it
+	// reauthenticates for itself, so this check must not add one on top.
+	f := newFakeVici(t)
+	repo, err := NewRepository(retryConfig(f.path))
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	repo.latest.Store(2)
+	repo.bg.Add(1)
+	repo.confirmReauth("qkd-bob-1", "1", 1)
+	if got := rekeyTargets(f); len(got) != 0 {
+		t.Fatalf("rekeys %v, want none", got)
+	}
+}
+
+func TestRetryIsOnlyForThePeerThatDrives(t *testing.T) {
+	f := newFakeVici(t)
+	f.reauthOutcomes = []string{"fail"}
+	cfg := retryConfig(f.path)
+	cfg.DriveReauth = false
+	rotateOnce(t, f, cfg)
+	if got := rekeyTargets(f); len(got) != 0 {
+		t.Fatalf("rekeys %v, want none from the responder", got)
+	}
+}
+
+// --- the deferred initiation (RetryReauthAfter, no IKE_SA yet) --------------
+
+// order returns the command names the fake received, in order, with the id of
+// each unload-shared appended, e.g. "unload-shared:ppk-qkd-bootstrap".
+func order(f *fakeVici) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, r := range f.requests {
+		name := r.name
+		if name == "unload-shared" {
+			name += ":" + r.fields["id"]
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func indexOf(xs []string, x string) int {
+	for i, v := range xs {
+		if v == x {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestTheInitiationRunsAfterSetPSKByDefault(t *testing.T) {
+	// Inside SetPSK, an initiation in a BACKUP interval always failed: the
+	// peer installs its key only on the ACK that SetPSK's return releases.
+	// So it runs after SetPSK's last step, with or without the retry.
+	f := newFakeVici(t)
+	f.saIDs = nil
+	rotateOnce(t, f, testConfig(f.path))
+	seq := order(f)
+	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < 0 || j < 0 || i < j {
+		t.Fatalf("want initiate after the bootstrap unload, got %v", seq)
+	}
+}
+
+func TestWithoutTheRetryAFailedInitiationWaitsForTheNextRotation(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "ok"}
+	rotateOnce(t, f, testConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 1 {
+		t.Fatalf("%d initiate calls, want 1 without RetryReauthAfter", n)
+	}
+}
+
+func TestDeferredInitiationRunsAfterTheRotation(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"ok"}
+	rotateOnce(t, f, retryConfig(f.path))
+	seq := order(f)
+	if n := len(f.callsTo("initiate")); n != 1 {
+		t.Fatalf("%d initiate calls, want 1: %v", n, seq)
+	}
+	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < j {
+		t.Fatalf("initiate ran inside SetPSK, before its last step: %v", seq)
+	}
+	if n := len(f.callsTo("rekey")); n != 0 {
+		t.Fatalf("%d rekey calls, want none without an SA", n)
+	}
+}
+
+func TestDeferredInitiationRetriesOnce(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "ok"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 2 {
+		t.Fatalf("%d initiate calls, want 2", n)
+	}
+}
+
+func TestDeferredInitiationStopsAfterOneRetry(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "fail", "fail"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 2 {
+		t.Fatalf("%d initiate calls, want exactly 2", n)
 	}
 }
