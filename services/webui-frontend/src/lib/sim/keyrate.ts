@@ -247,7 +247,15 @@ export function skrFinite(p: {
   const qx = p.qx;
   const ps = [p.pMu, p.pNu1, p.pNu2];
   const epsCor = p.epsCor;
-  if (p.N <= 0 || !(p.eps > 0 && p.eps < 1)) return 0.0;
+  // The input checks of skr_finite in _skr.py, in its order. This port had only
+  // the first two, so it returned rates the reference refuses: a basis bias of
+  // 50 (a percentage typed as a number) gave 7.2 bits per pulse, because qx^2
+  // scales the detection counts, and a zero p_k gave NaN. The parity test in
+  // tests/test_keyrate_ports_agree.py drives every one of these.
+  if (p.N <= 0 || !(p.eps > 0 && p.eps < 1) || !(qx > 0 && qx < 1)) return 0.0;
+  if (!(epsCor > 0 && epsCor < 1)) return 0.0;
+  const psSum = p.pMu + p.pNu1 + p.pNu2;
+  if (!ps.every((x) => x > 0) || Math.abs(psSum - 1.0) > 1e-9) return 0.0;
   const mus = [p.mu, p.nu1, p.nu2];
   if (!(p.mu > p.nu1 + p.nu2 && p.nu1 > p.nu2 && p.nu2 >= 0)) return 0.0;
   const c = limCountsFromChannel({

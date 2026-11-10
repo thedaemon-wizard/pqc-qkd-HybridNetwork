@@ -106,6 +106,20 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   alice's first PRIMARY one, and a CI run that started with three of them went over
   the IPsec job's 20 % auth-failure ceiling. The writer now initiates after `SetPSK`
   returns.
+- The browser's finite-key rate (`skrFinite` in `keyrate.ts`) now refuses what the
+  reference `skr_finite` refuses: a basis bias or a correctness epsilon outside
+  (0, 1), and intensity probabilities that are not all positive or do not sum to 1.
+  It returned a rate for them -- 7.2 bits per pulse at a basis bias of 50, NaN for a
+  zero probability -- and the parity test now drives each case through both ports.
+- Two `live-stack` CI steps could pass without checking anything. The physics step
+  piped pytest into `tee`, so its status was tee's and a failing assertion passed it
+  whenever nothing skipped; the contract step had no skip check, so KMEs that never
+  answered would have passed it with all sixteen tests skipped. Both now keep
+  pytest's status and fail on a skip, and a test keeps a piped pytest out of the
+  workflows.
+- The screenshot check looked only in `docs/images/screenshots/` and asked for one
+  cited capture, so the sixteen README captures in `docs/images/webui/` went
+  unchecked. It now covers both folders and requires every capture to be cited.
 - The IPsec nodes came back up after a host reboot only once they were recreated: a
   container restarted in place kept the previous charon's VICI socket, the entrypoint
   took it for the new one, the first `swanctl` call was refused, and both nodes exited
