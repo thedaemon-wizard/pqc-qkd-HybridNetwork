@@ -1,14 +1,15 @@
 """Publication constraints, as executable checks rather than recurring manual sweeps.
 
-Four properties of this repository have to hold before it is published, and all
-four had been verified by hand more than once. A property checked by hand is a
-property that gets re-checked by hand forever, and the answer is only as good as
-the last person's grep. These are the same checks, written down.
+Five properties of this repository have to hold before it is published, and the
+first four had been verified by hand more than once. A property checked by hand
+is a property that gets re-checked by hand forever, and the answer is only as
+good as the last person's grep. These are the same checks, written down.
 
   1. No Japanese text in a tracked file -- with two deliberate exceptions.
   2. No emoji in documentation files (research and industry material).
   3. No AI-tooling attribution anywhere in tracked content.
   4. No host names, addresses or credentials for the public demo.
+  5. No internal round labels ("Round <n>") in tracked content.
 
 The Japanese exception is the interesting one, and it is why this is a test
 rather than a `grep | wc -l` in a checklist row. `VERIFICATION_CHECKLIST.md`
@@ -196,6 +197,32 @@ def test_documentation_carries_no_emoji(doc):
     """Research and industry material. The UI is exempt; these are documents."""
     found = {m.group() for _, line in _lines(doc) for m in EMOJI.finditer(line)}
     assert not found, f"{doc} contains emoji: {sorted(found)}"
+
+
+# Internal round labels. Comments used to date changes by an internal round
+# number ("removed in Round 5", "Layout v3 (Round 3)"), which tells a reader of
+# this repository nothing; what changed, or when, says the same thing.
+# Case-sensitive on purpose: a lower-case "round 11" of a benchmark history is
+# data, not a label.
+PLAN_LABEL = re.compile(r"\bRound [0-9]+[a-z]?\b")
+
+
+def test_no_internal_plan_labels_in_tracked_content():
+    offenders = [(f, n, line.strip()[:80]) for f in TRACKED if f != SELF
+                 for n, line in _lines(f) if PLAN_LABEL.search(line)]
+    assert not offenders, f"internal plan labels in tracked content: {offenders}"
+
+
+@pytest.mark.parametrize("text, hit", [
+    ("were removed in Round 5 -- the BB84 page", True),
+    ("BB84 Monte-Carlo on WebGL2 (Round 5b), a GPU-compute tier", True),
+    ("Layout v3 (Round 3): geometry-driven", True),
+    ("Here round 11 has no latency.", False),
+    ("Status Report on the Fourth Round of the NIST process", False),
+    ("Round-trip time", False),
+])
+def test_the_plan_label_pattern_matches_what_it_promises(text, hit):
+    assert bool(PLAN_LABEL.search(text)) is hit
 
 
 def test_no_ai_tooling_attribution_in_tracked_content():

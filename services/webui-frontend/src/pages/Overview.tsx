@@ -367,10 +367,11 @@ function ArchPanel() {
       <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
         Note: PQC-HPKE comes from arnika pull request #51, which is still open. The arnika
         pin is <code>f4cf9ba</code>, that pull request&apos;s head commit on 2026-09-24, not
-        a merge commit; the later head <code>da00e6d</code> (2026-09-30) removes comments
-        and refactors some code, behaviour-identical by our reading of its diff. The pin
-        stays until the before/after measurement of this change is reported, and will be
-        re-pinned to the merge commit once #51 merges.
+        a merge commit. The pull request has moved on since, to the head <code>e37d043</code>,
+        2026-11-05: later commits add a PqcOnly mode and align the QKD intervals to the
+        system clock, which the pin does not do. The before/after measurement of the pin
+        was reported on 2026-10-12, and the pin will be re-pinned to the merge commit once
+        #51 merges.
       </p>
     </div>
   );

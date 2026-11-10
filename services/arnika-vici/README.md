@@ -17,12 +17,14 @@ key file is mounted.
 ## The pinned arnika is an open PR
 
 `submodules/arnika` is pinned to `f4cf9ba`, the head of upstream PR #51 as of
-2026-09-24; the PR is **open and not merged**. Its later head, `da00e6d`
-(2026-09-30), removes comments, refactors some non-test code and updates
-documentation and tests; behaviour-identical by our reading of its diff. The pin
-is re-pinned to the merge commit once #51 merges, but not during the 168 h
-after-arm of the before/after measurement (checklist row 2.17). Until then,
-"upstream" in this file means `f4cf9ba`, not arnika's `main`.
+2026-09-24; the PR is **open and not merged**. It has moved on since, to
+`e37d043` (2026-11-05): `a2d1734` adds a `PqcOnly` mode and `000a72d` aligns
+the QKD intervals to the system clock instead of per-node tickers, which the
+pin does not do; the other later commits change comments, documentation, tests
+and CI. The pin is re-pinned to the merge commit once #51 merges; the 168 h
+after-arm of the before/after measurement (checklist row 2.17) that it waited
+for was reported on #51 on 2026-10-12. Until the re-pin, "upstream" in this
+file means `f4cf9ba`, not arnika's `main`.
 
 ## The port: one method
 
@@ -234,9 +236,11 @@ match. Two consequences:
   `PPK rotated`, while the tunnel kept rotating.
 - The adapter's `[WARN]` and `[ERROR]` lines are emitted at slog level INFO;
   only the text prefix says otherwise. Moving the adapter to an injected
-  `*slog.Logger` is deferred until the before/after measurement of the
-  intermittent PPK mismatch is done, so that measurement compares like with
-  like.
+  `*slog.Logger` was deferred until the before/after measurement of the
+  intermittent PPK mismatch was done, so that it compared like with like; it
+  was reported on 2026-10-12. The move is still open, and
+  `scripts/ppk_race_report.py` reads the adapter's `PPK rotated` and
+  `PPK <id> loaded` lines, so the two change together.
 
 ### `VICI_IKE_ROLE`
 

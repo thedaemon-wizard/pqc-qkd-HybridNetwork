@@ -1,5 +1,5 @@
 /**
- * BB84 Monte-Carlo on WebGL2 (Round 5b) — a GPU-compute tier for browsers that
+ * BB84 Monte-Carlo on WebGL2 — a GPU-compute tier for browsers that
  * have WebGL2 but NOT WebGPU (e.g. Safari, older Chrome/Firefox). Uses the
  * standard WebGL2 GPGPU pattern: draw N GL_POINTS whose vertex shader simulates
  * one pulse each (PRNG seeded by gl_VertexID), scatter them across a float

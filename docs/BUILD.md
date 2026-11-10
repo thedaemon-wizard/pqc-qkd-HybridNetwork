@@ -7,7 +7,7 @@ See also [`../deploy/README.md`](../deploy/README.md) for deploying to a host,
 and [`deployment-economics.md`](deployment-economics.md) for what each option
 costs and which pages survive it.
 
-### 5.1 Host prerequisites (AlmaLinux 9.7)
+### 5.1 Host prerequisites (AlmaLinux 9.8)
 
 `docker-ce` and `docker-compose-plugin` come from Docker's own repository, not
 from EPEL, so it is added first:
@@ -16,7 +16,7 @@ from EPEL, so it is added first:
 sudo dnf install -y epel-release dnf-plugins-core
 sudo dnf config-manager --set-enabled crb
 sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-# WireGuard ships in AlmaLinux 9.7's mainline kernel — only the userspace
+# WireGuard ships in AlmaLinux 9.8's mainline kernel — only the userspace
 # tools are needed; ELRepo's kmod-wireguard is NOT required.
 sudo dnf install -y wireguard-tools gcc cmake ninja-build git \
                     python3.12 python3.12-devel openssl-devel libsodium-devel \
@@ -139,15 +139,15 @@ in [`deployment-economics.md`](deployment-economics.md).
 ## 6. Dev Environment
 
 Tested on:
-- **OS**: AlmaLinux 9.7
+- **OS**: AlmaLinux 9.8 (kernel 5.14.0-687.66.1.el9_8, checked 2026-11-10)
 - **CPU**: Intel i5-13600K (14C/20T)
 - **RAM**: 128 GB DDR5 5200
-- **GPU**: NVIDIA RTX 6000 PRO Blackwell 96GB (CUDA 13.0)
+- **GPU**: NVIDIA RTX 6000 PRO Blackwell 96GB (CUDA 13.5, driver 620.70.06)
   — *GPU is optional*; the BB84 simulator is CPU-bound by design for portability.
   Future Shor-attack-simulator (roadmap A) will leverage CUDA-Q + cuQuantum.
 - **Python**: 3.12 in a `.venv` for host-side scripts (tests, benchmarks, manim)
 - **Docker**: 24+ with Compose v2
-- **WireGuard**: in-tree kernel module (AlmaLinux 9.7 mainline); only
+- **WireGuard**: in-tree kernel module (AlmaLinux 9.8 mainline); only
   `wireguard-tools` userspace is installed. Without the module, see 5.3.
 
 Host-side Python venv. The first install line is what CI's `python` job

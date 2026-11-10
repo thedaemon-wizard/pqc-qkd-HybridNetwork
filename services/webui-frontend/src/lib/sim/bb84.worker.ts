@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 /**
- * BB84 Monte-Carlo Web Worker (Round 5) — runs the heavy per-pulse simulation
- * OFF the main thread so the UI never blocks (parallel processing per user).
+ * BB84 Monte-Carlo Web Worker — runs the heavy per-pulse simulation
+ * OFF the main thread so the UI never blocks.
  *
  * Model per pulse: Alice random bit+basis → channel transmittance η_total →
  * optional Eve intercept-resend (prob p, random basis) → Bob random basis +

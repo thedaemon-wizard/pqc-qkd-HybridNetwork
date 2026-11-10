@@ -66,11 +66,14 @@ the UDP socket the two arnika peers already share, one round per interval. The
 KEM is itself a hybrid of ML-KEM-1024 and P-384 ECDH, and its codepoint
 (0x0051) comes from draft-ietf-hpke-pq, which is **not yet an RFC**. The arnika
 pin (`f4cf9ba`) is the head of arnika's **unmerged** PR #51 as of 2026-09-24,
-which adds PQC-HPKE, not a commit on upstream `main`; the PR's later head,
-`da00e6d` (2026-09-30), removes comments, refactors some non-test code and
-updates documentation and tests, behaviour-identical by our reading of its
-diff. The pin stays until the before/after measurement of this change has
-been reported, and is then re-pinned to the merge commit once #51 merges. See
+which adds PQC-HPKE, not a commit on upstream `main`. The PR has moved on
+since, to `e37d043` (2026-11-05): `da00e6d` and `ce0ad48` change comments,
+documentation and tests and refactor some non-test code, behaviour-identical
+by our reading of their diffs, while `a2d1734` adds a `PqcOnly` mode and
+`000a72d` aligns the QKD intervals to the system clock instead of per-node
+tickers, which the pin does not do. The before/after measurement of the pin
+was reported on #51 on 2026-10-12; the pin is re-pinned to the merge commit
+once #51 merges. See
 [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md#arnika).
 
 The QKD layer is supplied by a **pluggable BB84 physical simulator** wrapped

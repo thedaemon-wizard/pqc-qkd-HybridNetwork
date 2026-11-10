@@ -9,7 +9,7 @@ import { seedFromLocation } from "../lib/sim/runSeed";
 import ExportToolbar from "../components/ExportToolbar";
 
 /**
- * BB84 Live — Round 5: the photon-level Monte-Carlo runs CLIENT-SIDE in a Web
+ * BB84 Live — the photon-level Monte-Carlo runs CLIENT-SIDE in a Web
  * Worker (or WebGPU compute shader when available), so a public demo puts NO
  * load on the backend. Channel params (η_total, e_d, Y0) come from the editable
  * config defaults; Eve controls reconfigure the engine live.

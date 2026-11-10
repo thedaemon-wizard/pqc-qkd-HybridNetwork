@@ -572,9 +572,14 @@ the requested window.
 ### 2026-09-26: arnika #51 head, what changes for the rotation race
 
 The arnika pin moved from `3a8cc13` to `f4cf9ba`, the head of the open PR #51
-as of 2026-09-24. (Its later head, `da00e6d` of 2026-09-30, removes comments,
-refactors some non-test code and updates documentation and tests;
-behaviour-identical by our reading of its diff.)
+as of 2026-09-24. (The PR has moved on since, to `e37d043` of 2026-11-05.
+Its `da00e6d` of 2026-09-30 removes comments and refactors some non-test code,
+behaviour-identical by our reading of its diff; its `000a72d` of 2026-11-05
+aligns the QKD intervals to the system clock instead of per-node tickers, which
+`f4cf9ba` does not do. A 48.3 h run of `e37d043` on one development
+host, with this repository's VICI writer unchanged, saw no interval-number
+mismatch and two races of the install order described here; the counts are on
+[#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6759071117).)
 Its commit `3e02741` (2026-09-24) makes the BACKUP install before it ACKs and
 the PRIMARY install only after the ACK (section 5). Read against this lane,
 that **moves** the exposed intervals; it does not remove them. This is from
