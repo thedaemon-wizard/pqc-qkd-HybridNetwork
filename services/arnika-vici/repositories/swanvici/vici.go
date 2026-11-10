@@ -41,6 +41,8 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/strongswan/govici/vici"
@@ -138,6 +140,12 @@ type Config struct {
 	// alternates per interval and decides who *generates* the key, not who owns
 	// the SA.
 	DriveReauth bool
+	// RetryReauthAfter, when positive on the peer that drives, makes it confirm
+	// that each reauthentication it starts produces a newer ESTABLISHED IKE_SA
+	// within this long, and start one more if none appears. Zero, the default,
+	// turns it off. See confirmReauth for why the check runs after SetPSK has
+	// returned, and why it retries once.
+	RetryReauthAfter time.Duration
 }
 
 func (c Config) validate() error {
@@ -156,6 +164,8 @@ func (c Config) validate() error {
 		return errors.New("vici: BootstrapCredentialID must be set")
 	case c.ReauthTimeout <= 0:
 		return errors.New("vici: ReauthTimeout must be positive")
+	case c.RetryReauthAfter < 0:
+		return errors.New("vici: RetryReauthAfter must not be negative")
 	}
 	return nil
 }
@@ -186,6 +196,14 @@ type Repository struct {
 	// bootstrapRetired records that the pre-QKD credential is gone, so the
 	// unload is not retried on every rotation forever.
 	bootstrapRetired bool
+
+	// latest is the generation of the newest completed SetPSK, readable by
+	// confirmReauth, which runs outside KeyWriterService's mutex: a check
+	// started for an older generation must not reauthenticate on top of a
+	// newer rotation.
+	latest atomic.Uint64
+	// bg counts running confirmReauth checks, so tests can wait for them.
+	bg sync.WaitGroup
 }
 
 // NewRepository creates a VICI-backed key writer. It performs a version() round
@@ -355,13 +373,16 @@ func (r *Repository) SetPSK(psk []byte) error {
 	if err := r.assertLoaded(ctx, sess, next); err != nil {
 		return err
 	}
+	var reauthTarget string
 	if r.cfg.DriveReauth {
-		if err := r.reauthenticate(ctx, sess); err != nil {
+		target, err := r.reauthenticate(ctx, sess)
+		if err != nil {
 			// The new credential is loaded but unused. Leave it: the next
 			// rotation replaces it by id, and leaving it costs one entry rather
 			// than stranding the connection with no PPK at all.
 			return err
 		}
+		reauthTarget = target
 	} else {
 		// Loaded, not driven. The peer that owns the SA will reauthenticate and
 		// this node answers that IKE_AUTH with the credential just installed.
@@ -371,6 +392,7 @@ func (r *Repository) SetPSK(psk []byte) error {
 
 	r.generation++
 	r.loadedID = next
+	r.latest.Store(r.generation)
 
 	if previous != "" {
 		if err := r.unloadPPK(ctx, sess, previous); err != nil {
@@ -385,6 +407,14 @@ func (r *Repository) SetPSK(psk []byte) error {
 
 	log.Printf("[INFO] [VICI] PPK rotated (id=%s ppk_id=%s bytes=%d)",
 		next, r.cfg.PPKID, len(psk))
+
+	// Only after the rotation is complete: see confirmReauth. An empty target
+	// means this rotation initiated rather than reauthenticated, and there is
+	// no older SA to compare against.
+	if r.cfg.RetryReauthAfter > 0 && reauthTarget != "" {
+		r.bg.Add(1)
+		go r.confirmReauth(next, reauthTarget, r.generation)
+	}
 	return nil
 }
 
@@ -566,10 +596,13 @@ func (r *Repository) sharedIDs(ctx context.Context, sess *vici.Session) ([]strin
 // multiplier, not a leak: a two-node run reached 140 concurrent IKE_SAs in nine
 // minutes and was still climbing. `ike-id` makes one rotation cost exactly one
 // reauthentication regardless of how many SAs happen to exist.
-func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) error {
+//
+// It returns the unique id of the SA it asked charon to reauthenticate, or ""
+// when there was none and it initiated instead.
+func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) (string, error) {
 	ids, err := r.saIDs(ctx, sess)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(ids) == 0 {
 		// No SA to reauthenticate. Bring one up instead: this node owns the
@@ -583,7 +616,7 @@ func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) err
 		// what happens when both containers boot together -- destroys the SA
 		// with no further attempt. Observed directly: one initiation, then
 		// nothing for the following ten minutes.
-		return r.initiate(ctx, sess)
+		return "", r.initiate(ctx, sess)
 	}
 	if len(ids) > 1 {
 		// `unique = replace` in swanctl.conf should collapse these. Surfacing it
@@ -596,18 +629,18 @@ func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) err
 
 	msg := vici.NewMessage()
 	if err := msg.Set("ike-id", target); err != nil {
-		return fmt.Errorf("vici: encoding ike-id: %w", err)
+		return "", fmt.Errorf("vici: encoding ike-id: %w", err)
 	}
 	if err := msg.Set("reauth", "yes"); err != nil {
-		return fmt.Errorf("vici: encoding reauth: %w", err)
+		return "", fmt.Errorf("vici: encoding reauth: %w", err)
 	}
 
 	resp, err := sess.Call(ctx, "rekey", msg)
 	if err != nil {
-		return fmt.Errorf("vici: rekey ike-id=%s: %w", target, err)
+		return "", fmt.Errorf("vici: rekey ike-id=%s: %w", target, err)
 	}
 	if err := checkSuccess(resp, "rekey"); err != nil {
-		return err
+		return "", err
 	}
 	// success=yes with matches=0 is charon's normal answer when the selector
 	// matched nothing, so success alone proves nothing happened. Here it means
@@ -615,12 +648,12 @@ func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) err
 	// failure: the PPK is loaded but nothing consumed it.
 	matches, _ := resp.Get("matches").(string)
 	if matches == "" || matches == "0" {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"vici: rekey matched no IKE_SA for unique id %s on %q (matches=%q); "+
 				"the PPK was loaded but is not in use",
 			target, r.cfg.ConnectionName, matches)
 	}
-	return nil
+	return target, nil
 }
 
 // initiate brings the tunnel up when no IKE_SA exists.
@@ -696,6 +729,27 @@ func newestSAID(ids []string) string {
 // InvalidateTunnel, which installs a deliberately unmatched random PPK, turning
 // a benign startup race into a tunnel that cannot come up at all.
 func (r *Repository) saIDs(ctx context.Context, sess *vici.Session) ([]string, error) {
+	sas, err := r.listSAs(ctx, sess)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(sas))
+	for _, sa := range sas {
+		ids = append(ids, sa.id)
+	}
+	return ids, nil
+}
+
+// saState is one IKE_SA as list-sas reports it: its unique id and its state
+// (ESTABLISHED, CONNECTING, ...).
+type saState struct {
+	id    string
+	state string
+}
+
+// listSAs is saIDs with each SA's state, which confirmReauth needs to tell an
+// established replacement from one still in IKE_AUTH.
+func (r *Repository) listSAs(ctx context.Context, sess *vici.Session) ([]saState, error) {
 	msg := vici.NewMessage()
 	if err := msg.Set("ike", r.cfg.ConnectionName); err != nil {
 		return nil, fmt.Errorf("vici: encoding ike: %w", err)
@@ -703,7 +757,7 @@ func (r *Repository) saIDs(ctx context.Context, sess *vici.Session) ([]string, e
 	// list-sas is a streamed command: charon emits one `list-sa` event per SA
 	// and the command response itself carries no SA data, so a plain Call would
 	// always look like zero SAs.
-	var ids []string
+	var sas []saState
 	for m, err := range sess.CallStreaming(ctx, "list-sas", "list-sa", msg) {
 		if err != nil {
 			return nil, fmt.Errorf("vici: list-sas: %w", err)
@@ -723,9 +777,128 @@ func (r *Repository) saIDs(ctx context.Context, sess *vici.Session) ([]string, e
 			return nil, fmt.Errorf("vici: list-sas returned an SA on %q with no uniqueid",
 				r.cfg.ConnectionName)
 		}
-		ids = append(ids, id)
+		state, _ := sa.Get("state").(string)
+		sas = append(sas, saState{id: id, state: state})
 	}
-	return ids, nil
+	return sas, nil
+}
+
+// confirmPoll is how often confirmReauth reads list-sas while it waits.
+var confirmPoll = 100 * time.Millisecond
+
+// confirmReauth checks that the reauthentication SetPSK started produced a
+// newer ESTABLISHED IKE_SA within RetryReauthAfter, and starts one more if
+// none appeared.
+//
+// It runs after SetPSK has returned, on purpose. arnika's BACKUP sends its ACK
+// only once SetPSK returns, and the PRIMARY installs its key only on that ACK.
+// When the driver is the BACKUP, its IKE_AUTH can reach the responder before
+// the responder's key is installed, and the responder answers AUTH_FAILED;
+// make-before-break keeps the old SA, so the rotation's key goes unused for an
+// interval. A check inside SetPSK would hold back the very ACK the peer is
+// waiting for, so a retry from there would race the same way. From here, a
+// retry a moment later finds the peer's key installed.
+//
+// It retries once, and only when no newer SA is still in progress: a slow
+// exchange is left to finish, and a second failure is logged rather than
+// retried, so a peer that really holds a different key costs two attempts per
+// rotation and not a loop. It also stands down if a newer rotation has
+// completed meanwhile, since that rotation reauthenticates for itself.
+func (r *Repository) confirmReauth(credID, target string, gen uint64) {
+	defer r.bg.Done()
+	window := r.cfg.RetryReauthAfter
+
+	up, pending, err := r.awaitNewerSA(target, window)
+	switch {
+	case err != nil:
+		log.Printf("[WARN] [VICI] could not confirm the reauthentication with %s: %v", credID, err)
+		return
+	case up != "":
+		return
+	case pending:
+		log.Printf("[WARN] [VICI] reauthentication with %s still in progress after %s; "+
+			"not retrying", credID, window)
+		return
+	case r.latest.Load() != gen:
+		return
+	}
+
+	log.Printf("[WARN] [VICI] reauthentication with %s did not establish within %s; "+
+		"retrying once", credID, window)
+	retryTarget, err := r.retryReauth()
+	if err != nil {
+		log.Printf("[WARN] [VICI] retry with %s did not start: %v", credID, err)
+		return
+	}
+	if retryTarget == "" {
+		log.Printf("[WARN] [VICI] retry with %s found no IKE_SA and initiated one", credID)
+		return
+	}
+
+	up, pending, err = r.awaitNewerSA(retryTarget, window)
+	switch {
+	case err != nil:
+		log.Printf("[WARN] [VICI] could not confirm the retry with %s: %v", credID, err)
+	case up != "":
+		log.Printf("[INFO] [VICI] retry with %s established IKE_SA %s", credID, up)
+	case pending:
+		log.Printf("[WARN] [VICI] retry with %s still in progress after %s", credID, window)
+	default:
+		log.Printf("[WARN] [VICI] retry with %s did not establish either", credID)
+	}
+}
+
+// retryReauth is reauthenticate on a session of its own, for confirmReauth.
+func (r *Repository) retryReauth() (string, error) {
+	sess, err := r.dial()
+	if err != nil {
+		return "", fmt.Errorf("vici: cannot connect to %s: %w", r.cfg.SocketPath, err)
+	}
+	defer sess.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.ReauthTimeout)
+	defer cancel()
+	return r.reauthenticate(ctx, sess)
+}
+
+// awaitNewerSA polls list-sas for up to window. It returns the unique id of an
+// ESTABLISHED IKE_SA newer than target as soon as one appears; otherwise "",
+// with pending set when a newer SA exists but has not reached ESTABLISHED.
+// Unique ids are compared as numbers, as newestSAID does.
+func (r *Repository) awaitNewerSA(target string, window time.Duration) (string, bool, error) {
+	base, err := strconv.Atoi(target)
+	if err != nil {
+		return "", false, fmt.Errorf("vici: unique id %q is not a number", target)
+	}
+	sess, err := r.dial()
+	if err != nil {
+		return "", false, fmt.Errorf("vici: cannot connect to %s: %w", r.cfg.SocketPath, err)
+	}
+	defer sess.Close()
+
+	deadline := time.Now().Add(window)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), r.cfg.ReauthTimeout)
+		sas, err := r.listSAs(ctx, sess)
+		cancel()
+		if err != nil {
+			return "", false, err
+		}
+		pending := false
+		for _, sa := range sas {
+			n, err := strconv.Atoi(sa.id)
+			if err != nil || n <= base {
+				continue
+			}
+			if sa.state == "ESTABLISHED" {
+				return sa.id, false, nil
+			}
+			pending = true
+		}
+		if !time.Now().Before(deadline) {
+			return "", pending, nil
+		}
+		time.Sleep(confirmPoll)
+	}
 }
 
 // checkSuccess treats an absent success field as failure. govici's Message.Err

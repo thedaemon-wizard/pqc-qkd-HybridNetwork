@@ -13,6 +13,15 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `VICI_REAUTH_RETRY_AFTER`, off unless set: the IPsec initiator's VICI writer
+  confirms after each rotation that a newer IKE_SA reached ESTABLISHED within that
+  time, and reauthenticates once more if none did. It targets the remaining
+  rotation race, where the initiator is arnika's BACKUP and its IKE_AUTH reaches the
+  responder before the responder's key is installed. The check runs after `SetPSK`
+  returns, because arnika's ACK, which that install waits for, is sent only then. It
+  retries once, leaves an exchange still in progress alone, and stands down for a
+  newer rotation. No compose file sets it.
+
 - `/qkd-protocols`, route 15: one idealised round of BB84, BBM92 or MDI-QKD at a
   time; asymptotic key-rate curves for the same three with a two-arm channel and
   the repeaterless bound, derived in `docs/keyrate.md` section 9 and checked against
