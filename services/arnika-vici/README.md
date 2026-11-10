@@ -276,6 +276,15 @@ alone, and it stands down when a newer rotation has completed meanwhile. A peer
 that really holds a different key therefore costs two attempts per rotation,
 not a loop. The responder ignores the setting.
 
+The same setting moves the first initiation, when no IKE_SA exists yet, out of
+`SetPSK` as well. `initiate` waits for the IKE_AUTH outcome, so inside `SetPSK`
+in a BACKUP interval it is certain to fail: the ACK the responder's install
+waits for is sent only after `SetPSK` returns. Without the setting, a lane that
+starts with alice as BACKUP fails every initiation until her first PRIMARY
+interval -- a CI run on 2026-11-10 showed three BACKUP intervals, three
+AUTH_FAILED, and the SA in the fourth. With it, the initiation starts after
+`SetPSK` has returned and is retried once if it fails.
+
 Off by default, and not set by any compose file in this repository: it is
 measured on a development host before anything else turns it on. The adapter
 logs a `retrying once` line for each retry and a `retry with ... established`
@@ -292,7 +301,8 @@ or `did not establish either` line for its outcome.
 5. `unload-shared` the bootstrap credential, once
 6. only with `VICI_REAUTH_RETRY_AFTER` set, and after `SetPSK` has returned:
    confirm a newer ESTABLISHED IKE_SA, and reauthenticate once more if none
-   appeared
+   appeared; or, if step 3 found no SA, initiate here instead of in step 3,
+   and once more if that fails
 
 Step 3 selects by `ike-id`, not by connection name. Selecting by connection name
 makes charon reauthenticate *every* SA on the connection, and since

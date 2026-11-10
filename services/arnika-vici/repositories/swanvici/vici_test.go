@@ -101,6 +101,10 @@ type fakeVici struct {
 	// still CONNECTING, "fail" (an AUTH_FAILED) leaves saIDs as they were.
 	// Empty, the default, leaves saIDs alone, as every older test expects.
 	reauthOutcomes []string
+	// initiateOutcomes scripts successive `initiate` calls: "ok" brings up a
+	// new SA, "fail" answers success=no as charon does when IKE_AUTH fails.
+	// Empty, the default, answers success and leaves saIDs alone.
+	initiateOutcomes []string
 
 	// mu guards everything above that a handler touches. confirmReauth talks
 	// to the fake on connections of its own while a test goroutine reads it.
@@ -300,6 +304,28 @@ func (f *fakeVici) reply(req request) []byte {
 			ids = append(ids, id)
 		}
 		lists = map[string][]string{"keys": ids}
+
+	case "initiate":
+		fields = map[string]string{"success": "yes"}
+		if len(f.initiateOutcomes) > 0 {
+			outcome := f.initiateOutcomes[0]
+			f.initiateOutcomes = f.initiateOutcomes[1:]
+			switch outcome {
+			case "ok":
+				newest := 0
+				for _, id := range f.saIDs {
+					if n, err := strconv.Atoi(id); err == nil && n > newest {
+						newest = n
+					}
+				}
+				f.saIDs = append(f.saIDs, strconv.Itoa(newest+1))
+			case "fail":
+				fields = map[string]string{"success": "no",
+					"errmsg": "establishing CHILD_SA 'tunnel' failed"}
+			default:
+				f.t.Errorf("unknown initiate outcome %q", outcome)
+			}
+		}
 
 	case "rekey":
 		if msg, bad := f.failOn["rekey"]; bad {
@@ -1060,5 +1086,81 @@ func TestRetryIsOnlyForThePeerThatDrives(t *testing.T) {
 	rotateOnce(t, f, cfg)
 	if got := rekeyTargets(f); len(got) != 0 {
 		t.Fatalf("rekeys %v, want none from the responder", got)
+	}
+}
+
+// --- the deferred initiation (RetryReauthAfter, no IKE_SA yet) --------------
+
+// order returns the command names the fake received, in order, with the id of
+// each unload-shared appended, e.g. "unload-shared:ppk-qkd-bootstrap".
+func order(f *fakeVici) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, r := range f.requests {
+		name := r.name
+		if name == "unload-shared" {
+			name += ":" + r.fields["id"]
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func indexOf(xs []string, x string) int {
+	for i, v := range xs {
+		if v == x {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestWithoutTheRetryTheInitiationIsInsideSetPSK(t *testing.T) {
+	// The default path, unchanged: initiate runs before SetPSK's last step.
+	// That is what fails in a BACKUP interval, and why the retry defers it.
+	f := newFakeVici(t)
+	f.saIDs = nil
+	rotateOnce(t, f, testConfig(f.path))
+	seq := order(f)
+	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < 0 || j < 0 || i > j {
+		t.Fatalf("want initiate before the bootstrap unload, got %v", seq)
+	}
+}
+
+func TestDeferredInitiationRunsAfterTheRotation(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"ok"}
+	rotateOnce(t, f, retryConfig(f.path))
+	seq := order(f)
+	if n := len(f.callsTo("initiate")); n != 1 {
+		t.Fatalf("%d initiate calls, want 1: %v", n, seq)
+	}
+	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < j {
+		t.Fatalf("initiate ran inside SetPSK, before its last step: %v", seq)
+	}
+	if n := len(f.callsTo("rekey")); n != 0 {
+		t.Fatalf("%d rekey calls, want none without an SA", n)
+	}
+}
+
+func TestDeferredInitiationRetriesOnce(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "ok"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 2 {
+		t.Fatalf("%d initiate calls, want 2", n)
+	}
+}
+
+func TestDeferredInitiationStopsAfterOneRetry(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "fail", "fail"}
+	rotateOnce(t, f, retryConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 2 {
+		t.Fatalf("%d initiate calls, want exactly 2", n)
 	}
 }

@@ -20,7 +20,10 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   responder before the responder's key is installed. The check runs after `SetPSK`
   returns, because arnika's ACK, which that install waits for, is sent only then. It
   retries once, leaves an exchange still in progress alone, and stands down for a
-  newer rotation. No compose file sets it.
+  newer rotation. When no IKE_SA exists yet, the same setting starts the initiation
+  after `SetPSK` returns too: inside it, an initiation in a BACKUP interval always
+  fails, because the responder installs its key only on the ACK that follows
+  `SetPSK`. No compose file sets it.
 
 - `/qkd-protocols`, route 15: one idealised round of BB84, BBM92 or MDI-QKD at a
   time; asymptotic key-rate curves for the same three with a two-arm channel and

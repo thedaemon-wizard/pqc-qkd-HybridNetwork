@@ -374,7 +374,17 @@ func (r *Repository) SetPSK(psk []byte) error {
 		return err
 	}
 	var reauthTarget string
-	if r.cfg.DriveReauth {
+	deferInitiate := false
+	if r.cfg.DriveReauth && r.cfg.RetryReauthAfter > 0 {
+		// With the retry on, an initiation is not run in here: see
+		// initiateAfterRotation for why it would fail in a BACKUP interval.
+		ids, err := r.saIDs(ctx, sess)
+		if err != nil {
+			return err
+		}
+		deferInitiate = len(ids) == 0
+	}
+	if r.cfg.DriveReauth && !deferInitiate {
 		target, err := r.reauthenticate(ctx, sess)
 		if err != nil {
 			// The new credential is loaded but unused. Leave it: the next
@@ -383,7 +393,7 @@ func (r *Repository) SetPSK(psk []byte) error {
 			return err
 		}
 		reauthTarget = target
-	} else {
+	} else if !r.cfg.DriveReauth {
 		// Loaded, not driven. The peer that owns the SA will reauthenticate and
 		// this node answers that IKE_AUTH with the credential just installed.
 		log.Printf("[INFO] [VICI] PPK %s loaded; not reauthenticating (the peer "+
@@ -408,10 +418,15 @@ func (r *Repository) SetPSK(psk []byte) error {
 	log.Printf("[INFO] [VICI] PPK rotated (id=%s ppk_id=%s bytes=%d)",
 		next, r.cfg.PPKID, len(psk))
 
-	// Only after the rotation is complete: see confirmReauth. An empty target
-	// means this rotation initiated rather than reauthenticated, and there is
-	// no older SA to compare against.
-	if r.cfg.RetryReauthAfter > 0 && reauthTarget != "" {
+	// Only after the rotation is complete: see confirmReauth and
+	// initiateAfterRotation. An empty target without a deferred initiation
+	// means this rotation initiated in place, and there is no older SA to
+	// compare against.
+	switch {
+	case deferInitiate:
+		r.bg.Add(1)
+		go r.initiateAfterRotation(next, r.generation)
+	case r.cfg.RetryReauthAfter > 0 && reauthTarget != "":
 		r.bg.Add(1)
 		go r.confirmReauth(next, reauthTarget, r.generation)
 	}
@@ -668,6 +683,22 @@ func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) (st
 // The loud WARN is the point: a lane that never comes up must be visible in the
 // log rather than inferred from an empty `swanctl --list-sas`.
 func (r *Repository) initiate(ctx context.Context, sess *vici.Session) error {
+	log.Printf("[INFO] [VICI] no IKE_SA for %q; initiating %s",
+		r.cfg.ConnectionName, r.cfg.ChildName)
+
+	if err := r.sendInitiate(ctx, sess); err != nil {
+		log.Printf("[WARN] [VICI] initiate %s failed: %v; PPK is loaded, retrying "+
+			"on the next rotation", r.cfg.ChildName, err)
+		return nil
+	}
+	log.Printf("[INFO] [VICI] initiated %s for %q", r.cfg.ChildName, r.cfg.ConnectionName)
+	return nil
+}
+
+// sendInitiate asks charon to bring up the child and waits for the outcome:
+// `initiate` returns only once the IKE_SA and CHILD_SA are up or have failed,
+// within its timeout. A nil error means they came up.
+func (r *Repository) sendInitiate(ctx context.Context, sess *vici.Session) error {
 	msg := vici.NewMessage()
 	if err := msg.Set("child", r.cfg.ChildName); err != nil {
 		return fmt.Errorf("vici: encoding child: %w", err)
@@ -679,23 +710,58 @@ func (r *Repository) initiate(ctx context.Context, sess *vici.Session) error {
 	if err := msg.Set("timeout", strconv.FormatInt(r.cfg.ReauthTimeout.Milliseconds(), 10)); err != nil {
 		return fmt.Errorf("vici: encoding timeout: %w", err)
 	}
-
-	log.Printf("[INFO] [VICI] no IKE_SA for %q; initiating %s",
-		r.cfg.ConnectionName, r.cfg.ChildName)
-
 	resp, err := sess.Call(ctx, "initiate", msg)
 	if err != nil {
-		log.Printf("[WARN] [VICI] initiate %s failed: %v; PPK is loaded, retrying "+
-			"on the next rotation", r.cfg.ChildName, err)
-		return nil
+		return err
 	}
-	if err := checkSuccess(resp, "initiate"); err != nil {
-		log.Printf("[WARN] [VICI] initiate %s did not succeed: %v; PPK is loaded, "+
-			"retrying on the next rotation", r.cfg.ChildName, err)
-		return nil
+	return checkSuccess(resp, "initiate")
+}
+
+// initiateAfterRotation is the deferred form of initiate, used when
+// RetryReauthAfter is set and no IKE_SA existed at the rotation.
+//
+// initiate waits inside SetPSK for the IKE_AUTH outcome. When this node is
+// arnika's BACKUP that is certain to fail: the BACKUP ACKs only once SetPSK
+// returns, and the PRIMARY installs its key only on that ACK, so the
+// responder answers the IKE_AUTH with the key it had before -- AUTH_FAILED,
+// in every BACKUP interval until one where this node is PRIMARY. Started
+// after SetPSK has returned, the initiation runs while the ACK is already on
+// its way. It is retried once, a poll interval later, if it still fails.
+func (r *Repository) initiateAfterRotation(credID string, gen uint64) {
+	defer r.bg.Done()
+	for attempt := 1; attempt <= 2; attempt++ {
+		if r.latest.Load() != gen {
+			return
+		}
+		err := r.initiateOnNewSession()
+		switch {
+		case err == nil && attempt == 1:
+			log.Printf("[INFO] [VICI] no IKE_SA for %q; initiated %s after the rotation to %s",
+				r.cfg.ConnectionName, r.cfg.ChildName, credID)
+			return
+		case err == nil:
+			log.Printf("[INFO] [VICI] retry with %s established %s", credID, r.cfg.ChildName)
+			return
+		case attempt == 1:
+			log.Printf("[WARN] [VICI] initiation with %s did not establish (%v); retrying once",
+				credID, err)
+			time.Sleep(confirmPoll)
+		default:
+			log.Printf("[WARN] [VICI] retry with %s did not establish either (%v)", credID, err)
+		}
 	}
-	log.Printf("[INFO] [VICI] initiated %s for %q", r.cfg.ChildName, r.cfg.ConnectionName)
-	return nil
+}
+
+// initiateOnNewSession is sendInitiate on a session of its own.
+func (r *Repository) initiateOnNewSession() error {
+	sess, err := r.dial()
+	if err != nil {
+		return fmt.Errorf("vici: cannot connect to %s: %w", r.cfg.SocketPath, err)
+	}
+	defer sess.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), r.cfg.ReauthTimeout)
+	defer cancel()
+	return r.sendInitiate(ctx, sess)
 }
 
 // newestSAID picks the highest unique id. charon assigns them monotonically, so
