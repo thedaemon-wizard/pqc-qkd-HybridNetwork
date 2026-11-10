@@ -106,6 +106,12 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Security
 
+- On the public host the KMEs and `pqc-validator` are no longer on `mgmt-net`, the
+  network Caddy and the frontend sit on, and that other sites served by the same
+  Caddy join. The KMEs' key API and `/internal/sync` have no authentication, and
+  none of those containers needs them; the nodes and `webui-backend` reach the
+  KMEs on the internal `qkd-net`. A test keeps the overlay that way. The backend's
+  own reach to the key API is recorded as open in the roadmap.
 - oqs-provider moves to the 0.12.0 release (`7e9d095`), from a `main` commit that
   lacked four memory-safety fixes: a heap overflow in RSA-hybrid public-key
   reconstruction (#810, GHSA-2g5g-3c4v-v8pw), a double free (#816), a use-after-free

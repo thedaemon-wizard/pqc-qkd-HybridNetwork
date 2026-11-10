@@ -16,6 +16,12 @@
 #   - Adds restart policies for unattended operation, stack-status's
 #     included. stack-status, the one container with the Docker socket,
 #     publishes no port in any file; webui-backend reaches it on status-net.
+#   - Takes the KMEs and pqc-validator off mgmt-net. The KMEs' ETSI GS QKD
+#     014 key API and /internal/sync carry no authentication, and mgmt-net is
+#     where the internet-facing containers sit: Caddy, the frontend, and any
+#     site a caddy.d/ drop-in proxies to on this host. None of those needs a
+#     KME. The nodes, webui-backend and pqc-validator reach the KMEs on
+#     qkd-net, which is internal.
 #
 # The privileged WireGuard nodes (cap NET_ADMIN/SYS_MODULE, /dev/net/tun)
 # require a real kernel — fine on a KVM VPS, impossible on managed PaaS.
@@ -69,12 +75,19 @@ services:
 
   bb84-kme-a:
     restart: unless-stopped
+    networks: !override
+      qkd-net:
+        aliases: [bb84-kme-a]
 
   bb84-kme-b:
     restart: unless-stopped
+    networks: !override
+      qkd-net: {}
 
   pqc-validator:
     restart: unless-stopped
+    networks: !override
+      qkd-net: {}
 
   alice:
     restart: unless-stopped
