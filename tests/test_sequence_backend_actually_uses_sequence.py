@@ -28,12 +28,18 @@ attribute was missing in both.
 Errors are now sampled per sifted bit through `Noise.apply_measurement_noise`,
 which is SeQUeNCe's actual API. Measured after: mean 0.014583 over 60 rounds
 against an analytical 0.015001, five distinct values.
+
+Until 2026-11-10 the mean was held to a fixed 25 % of the analytical value
+over 60 rounds. That is about 1.9 standard errors at 3,840 sifted bits, so a
+correct backend failed it about one run in 19, and it did fail a CI run of an
+unrelated change. The bound is now four standard errors of the pooled QBER over
+240 rounds; see test_the_mean_agrees_with_the_analytical_qber.
 """
 from __future__ import annotations
 
 import asyncio
+import math
 import os
-import statistics
 import sys
 from pathlib import Path
 
@@ -43,7 +49,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "services" / "bb84-kme"))
 os.environ.setdefault("QKD_PARAMS_FILE", str(ROOT / "config" / "qkd_params.yaml"))
 
-ROUNDS = 60
+ROUNDS = 240
 
 
 def _backend():
@@ -76,7 +82,7 @@ def rounds():
         reason="SeQUeNCe is installed in the bb84-kme image, not on the host",
     )
     backend, cfg = _backend()
-    return [asyncio.run(backend.run_round()).qber for _ in range(ROUNDS)], cfg
+    return [asyncio.run(backend.run_round()) for _ in range(ROUNDS)], cfg
 
 
 def test_the_noise_is_sampled_not_fixed(rounds):
@@ -85,7 +91,8 @@ def test_the_noise_is_sampled_not_fixed(rounds):
     Before the fix every round returned exactly 0.046875. Requiring more than
     one distinct value is what separates sampling from a hardcoded outcome.
     """
-    qbers, _ = rounds
+    outcomes, _ = rounds
+    qbers = [o.qber for o in outcomes]
     assert len(set(qbers)) > 1, (
         f"all {len(qbers)} rounds returned the same QBER ({qbers[0]}). The "
         "backend is not sampling -- check that the generator is not seeded to a "
@@ -96,18 +103,37 @@ def test_the_noise_is_sampled_not_fixed(rounds):
 def test_the_mean_agrees_with_the_analytical_qber(rounds):
     """Convergence to Lo-Ma, which the doubled e_d broke by a factor of ~3.
 
-    Tolerance is 25 %: with ~64 sifted bits per round the QBER is quantised at
-    1/64 = 0.0156, which is itself the same order as the value being measured,
-    so a tighter bound would fail on sampling noise rather than on a defect.
+    Each sifted bit is flipped with probability E_mu by SeQUeNCe's
+    measurement-noise model, so the errors pooled over every round are
+    Binomial(N, E_mu), N being the sifted bits, and the pooled QBER has standard
+    error sqrt(E_mu (1 - E_mu) / N). The band is four of those. At 240 rounds of
+    64 sifted bits (N = 15,360) a correct backend falls outside it with
+    probability 7.7e-5, and a doubled e_d (ratio 2.0) falls inside it with
+    probability 3e-18 (exact binomial). The fixed 25 % over 60 rounds this
+    replaced was about 1.9 standard errors: 5.4 % false failures.
+
+    The first assertion keeps the band narrow enough to tell a doubled e_d from
+    sampling noise: if a configuration change ever leaves too few sifted bits,
+    it fails here instead of passing on a band too wide to mean anything.
     """
-    qbers, cfg = rounds
+    outcomes, cfg = rounds
     analytic = _analytic(cfg)
-    mean = statistics.mean(qbers)
-    assert abs(mean - analytic) <= 0.25 * analytic, (
-        f"mean QBER {mean:.6f} over {len(qbers)} rounds against an analytical "
-        f"{analytic:.6f} (ratio {mean / analytic:.2f}). A ratio near 2 means "
-        "e_d is being added to itself again; near 3 means that plus the old "
-        "fixed seed."
+    n = sum(o.n_sifted for o in outcomes)
+    assert n > 0, "no round sifted a single bit"
+    errors = sum(round(o.qber * o.n_sifted) for o in outcomes)
+    pooled = errors / n
+    se = math.sqrt(analytic * (1 - analytic) / n)
+    assert 4 * se < 0.5 * analytic, (
+        f"{n} sifted bits give a standard error of {se:.6f} against an "
+        f"analytical {analytic:.6f}: too few to tell a doubled e_d from noise. "
+        "Raise ROUNDS."
+    )
+    assert abs(pooled - analytic) <= 4 * se, (
+        f"pooled QBER {pooled:.6f} ({errors}/{n} sifted bits over "
+        f"{len(outcomes)} rounds) against an analytical {analytic:.6f}: "
+        f"{(pooled - analytic) / se:+.1f} standard errors, ratio "
+        f"{pooled / analytic:.2f}. A ratio near 2 means e_d is being added to "
+        "itself again; near 3 means that plus the old fixed seed."
     )
 
 
