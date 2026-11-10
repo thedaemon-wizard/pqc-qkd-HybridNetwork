@@ -87,8 +87,9 @@ failure is that **`bb84-kme-a` itself did not come up**. Two distinct causes, in
      SIMULATOR_BACKEND=qutip docker compose -f docker-compose.yml \
        -f deploy/docker-compose.cloud.yml up -d --force-recreate bb84-kme-a bb84-kme-b
      ```
-     The Physics page's backend selector reaches the live KMEs only where
-     `ENABLE_LIVE_PARAM_OVERRIDES=true`, which `deploy/.env.example` keeps false.
+     The Physics page's backend selector cannot change the KMEs on a host with this overlay:
+     `deploy/.env.example` keeps `ENABLE_LIVE_PARAM_OVERRIDES=false`, and `kme-relay` answers
+     any write to a KME with 403 even where it is set. Recreate the KMEs as above instead.
    - **(c) Runtime fallback.** With no override, `KeyPool.__init__` degrades a backend whose
      constructor raises to `qutip` and logs an error naming it, so the KME does not die on boot.
      (a)/(b) are preferred because they make the choice explicit rather than silent.

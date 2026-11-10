@@ -1,0 +1,48 @@
+# Read-only relay between webui-backend and the KMEs, public host only
+# (deploy/docker-compose.cloud.yml, service kme-relay).
+#
+# The KMEs serve the ETSI GS QKD 014 key API, the ETSI GS QKD 004 binding,
+# /internal/sync and the simulator's control routes without authentication.
+# On the public host webui-backend answers the internet through Caddy, so it
+# does not share a network with the KMEs. It reaches them only through this
+# relay, which passes the reads the backend makes and refuses everything else:
+# no key route, no KME-to-KME route and no write. The nodes still reach the key
+# API on qkd-net; the backend is not on qkd-net, and this relay is its only way
+# to a KME.
+#
+# Port 8081 is bb84-kme-a and 8082 is bb84-kme-b. The path list is the set of
+# GET requests webui-backend sends to a KME, plus /health for the container's
+# own health check; tests/test_the_004_binding_is_not_public.py fails if the
+# backend starts reading a path that is not listed here. Paths match exactly,
+# so /sim/params does not let /sim/params/reset through.
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:8081 {
+	@read {
+		method GET HEAD
+		path /health /sim/stats /sim/params /sim/params/editable /sim/keyrate/crosscheck
+	}
+	handle @read {
+		reverse_proxy bb84-kme-a:8080
+	}
+	handle {
+		respond 403
+	}
+}
+
+:8082 {
+	@read {
+		method GET HEAD
+		path /health /sim/stats /sim/params /sim/params/editable /sim/keyrate/crosscheck
+	}
+	handle @read {
+		reverse_proxy bb84-kme-b:8080
+	}
+	handle {
+		respond 403
+	}
+}

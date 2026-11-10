@@ -36,15 +36,16 @@
 | `bb84-kme-b` | `docker-compose.yml` | `services/bb84-kme/` (same image) | qkd-net, mgmt-net (qkd-net only on the public host) | none |
 | `alice` | `docker-compose.yml` | `nodes/alice/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
 | `bob` | `docker-compose.yml` | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
-| `webui-backend` | `docker-compose.yml` | `services/webui-backend/` | mgmt-net, qkd-net, status-net | none; no Docker socket and no Docker SDK |
+| `webui-backend` | `docker-compose.yml` | `services/webui-backend/` | mgmt-net, qkd-net, status-net (on the public host mgmt-net, status-net, backend-net: it reads the KMEs through `kme-relay`) | none; no Docker socket and no Docker SDK |
 | `stack-status` | `docker-compose.yml` | `services/stack-status/Dockerfile` | status-net | the Docker socket, mounted read-only as a file (the Docker API behind it is not read-only); read-only root filesystem, every capability dropped, no published port |
 | `webui-frontend` | `docker-compose.yml` | `services/webui-frontend/` | mgmt-net | none |
-| `pqc-validator` | `docker-compose.yml` | `services/pqc-validator/Dockerfile` | mgmt-net, qkd-net (qkd-net only on the public host) | none; no published port |
+| `pqc-validator` | `docker-compose.yml` | `services/pqc-validator/Dockerfile` | mgmt-net, qkd-net (backend-net only on the public host) | none; no published port |
 | `alice-ipsec` | `docker-compose.strongswan.yml` (`ipsec`) | `nodes/strongswan/Dockerfile` | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
 | `bob-ipsec` | `docker-compose.strongswan.yml` (`ipsec`) | `nodes/strongswan/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE |
 | `charlie` | `docker-compose.multihop.yml` (`multihop`) | `nodes/alice/Dockerfile` (same image) | qkd-net, wan-net | NET_ADMIN, SYS_MODULE, `/dev/net/tun` |
 | `qkdnetsim-kme` | `docker-compose.qkdnetsim.yml` (`crossvalidate`) | `services/qkdnetsim-kme/Dockerfile` | qkd-net, mgmt-net | none; no published port |
 | `caddy` | `deploy/docker-compose.cloud.yml` | upstream `caddy:2-alpine` | mgmt-net | publishes 80 and 443 |
+| `kme-relay` | `deploy/docker-compose.cloud.yml` | upstream `caddy:2-alpine` with `deploy/kme-relay.Caddyfile` | qkd-net, backend-net | none; no published port; passes only the KME GET routes `webui-backend` reads, 403 for anything else |
 
 Only the first eight start with a plain `docker compose up`. The rest come from
 an overlay and, where shown, its profile.
@@ -72,8 +73,9 @@ the host.
 Networks:
 - `qkd-net` — `internal: true`. KME ↔ arnika, KME-KME key sync, and the 004 stream exchange (`/internal/etsi004/...`). No host bridge.
 - `wan-net` — simulated public Internet. The `wg0` and IKEv2 endpoints. `wg1` and the Rosenpass exchange run between the two `wg0` IPs (the lower one initiates each Rosenpass exchange, the other answers), so on `wan-net` they appear only as `wg0` traffic.
-- `mgmt-net` — WebUI plane. Exposes 5173 and 8000 to host. On the public host it is also where Caddy and any site a `caddy.d/` drop-in proxies to sit, so `deploy/docker-compose.cloud.yml` takes the KMEs and `pqc-validator` off it: their only network there is `qkd-net`, where `webui-backend` still reaches them.
+- `mgmt-net` — WebUI plane. Exposes 5173 and 8000 to host. On the public host it is also where Caddy and any site a `caddy.d/` drop-in proxies to sit, so `deploy/docker-compose.cloud.yml` takes the KMEs and `pqc-validator` off it, and takes `webui-backend` off `qkd-net`: on the public host nothing on `mgmt-net` shares a network with a KME.
 - `status-net` — `internal: true`. `webui-backend` and `stack-status` only, so the one service with the Docker socket is reachable from the one service that needs it, and from nothing on `mgmt-net`. No host bridge, no published port.
+- `backend-net` — public host only (`deploy/docker-compose.cloud.yml`), `internal: true`. `webui-backend`, `kme-relay` and `pqc-validator`. The backend reaches the KMEs only through the relay, which passes the GET routes it reads (`deploy/kme-relay.Caddyfile`); the key API, `/internal/sync`, the 004 binding and the simulator's write routes answer 403 there.
 
 ## 3. Data flow (one PSK rotation on the WireGuard lane)
 
