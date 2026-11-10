@@ -21,10 +21,10 @@
 	# merged, so the pin is not on `main` even though `branch = main` stays for
 	# the day it is. Do not run `git submodule update --remote` on this entry:
 	# it would move the pin to main's head and silently drop the PQC-HPKE reader
-	# the IPsec and WireGuard lanes depend on. Do not re-pin during the 168 h
-	# after-arm of the before/after measurement (VERIFICATION_CHECKLIST.md row
-	# 2.17), even if #51 merges in that week; re-pin to the merge commit only
-	# after the after-arm has been reported (docs/roadmap.md lists the steps).
+	# the IPsec and WireGuard lanes depend on. The 168 h after-arm of the
+	# before/after measurement (VERIFICATION_CHECKLIST.md row 2.17), which the
+	# pin had to wait for, was reported on #51 on 2026-10-12; re-pin to the
+	# merge commit once #51 merges (docs/roadmap.md lists the steps).
 [submodule "submodules/liboqs"]
 	path = submodules/liboqs
 	url = https://github.com/open-quantum-safe/liboqs.git

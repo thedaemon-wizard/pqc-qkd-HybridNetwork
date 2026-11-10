@@ -233,9 +233,11 @@ match. Two consequences:
   `PPK rotated`, while the tunnel kept rotating.
 - The adapter's `[WARN]` and `[ERROR]` lines are emitted at slog level INFO;
   only the text prefix says otherwise. Moving the adapter to an injected
-  `*slog.Logger` is deferred until the before/after measurement of the
-  intermittent PPK mismatch is done, so that measurement compares like with
-  like.
+  `*slog.Logger` was deferred until the before/after measurement of the
+  intermittent PPK mismatch was done, so that it compared like with like; it
+  was reported on 2026-10-12. The move is still open, and
+  `scripts/ppk_race_report.py` reads the adapter's `PPK rotated` and
+  `PPK <id> loaded` lines, so the two change together.
 
 ### `VICI_IKE_ROLE`
 
