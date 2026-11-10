@@ -546,8 +546,9 @@ Re-verified 2026-09-25 against the code.
   with each observation and what it rules out, is kept in one place:
   [`vici-ppk.md`](vici-ppk.md#2026-08-27-the-ci-failures-are-a-different-fault-from-the-race-above).
   It is a different fault from the rotation race in
-  [`vici-ppk.md`](vici-ppk.md#known-limitation-the-rotation-race), and has not
-  been seen outside CI. State on 2026-09-25:
+  [`vici-ppk.md`](vici-ppk.md#known-limitation-the-rotation-race), and was not
+  seen outside CI until 2026-11-10 (the last point below). State on
+  2026-09-25:
   * The two causes found on 2026-08-28 are both fixed. Ours: `KeyPool.run`
     gated production on buffered peer replicas it could never dispense, so a
     KME could read FULL while answering `enc_keys` with 503; it now gates on
@@ -568,6 +569,15 @@ Re-verified 2026-09-25 against the code.
   * How often runs fail has not been measured on either of the last two pins,
     so no rate is stated here; the per-run figures of 2026-08-29 predate both.
     The 20 % ceiling in `.github/workflows/ci.yml` is unchanged.
+  * 2026-11-10: one start-up cause, found and fixed. With no IKE_SA yet, the
+    VICI writer initiated inside `SetPSK` and waited for IKE_AUTH. In a BACKUP
+    interval bob installs his key only on the ACK that `SetPSK`'s return
+    releases, so every such initiation failed until alice's first PRIMARY
+    interval. Three CI runs of #140 that day began with alice as BACKUP for
+    three intervals and failed the ceiling with 3 failures in 12 writes, and a
+    development host showed the same, so this cause was not CI-only. Since #142
+    the writer initiates after `SetPSK` returns. Failures after the first SA
+    are not explained by it.
 
   Withdrawn readings, kept so they are not re-derived: that the failure count
   was "bimodal, 4 or 0, never 1 to 3" (the series once the dump was made
@@ -590,7 +600,9 @@ Re-verified 2026-09-25 against the code.
   new IKE SA before the next rotation, and a reauthentication that fails is
   seen only in the logs. Closing it means subscribing to the `ike-updown`
   event stream and treating a missing `up` within a bound as a failed
-  rotation.
+  rotation. Since #142, `VICI_REAUTH_RETRY_AFTER` (off by default) polls
+  `list-sas` after each rotation and reauthenticates once if no newer SA came
+  up; the event stream is still open.
 
 ## Implementation gaps closed
 
