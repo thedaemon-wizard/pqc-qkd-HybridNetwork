@@ -25,6 +25,8 @@ from pathlib import Path
 import pytest
 
 CHECKLIST = Path(__file__).resolve().parents[1] / "VERIFICATION_CHECKLIST.md"
+# Where committed screenshots live, under docs/images/.
+SHOT_DIRS = ("screenshots", "webui")
 CI_WORKFLOW = CHECKLIST.parent / ".github" / "workflows" / "ci.yml"
 
 # "CI job `ipsec`" and "CI `python`": the two ways a row names the job that
@@ -158,15 +160,19 @@ def test_every_screenshot_a_document_names_actually_exists():
     import subprocess
 
     root = CHECKLIST.parent
-    shots = root / "docs" / "images" / "screenshots"
-    present = {p.name for p in shots.iterdir()} if shots.is_dir() else set()
+    # Both folders. This looked only in screenshots/, and the sixteen captures
+    # the README gained on 2026-11-05 went to webui/, so for them the test
+    # checked nothing -- the same blind spot as the uncited PNGs below.
+    images = root / "docs" / "images"
+    present = {f"{d}/{p.name}" for d in SHOT_DIRS if (images / d).is_dir()
+               for p in (images / d).iterdir() if p.suffix == ".png"}
 
     tracked = subprocess.run(
         ["git", "ls-files", "*.md"], cwd=root, capture_output=True, text=True, check=True,
     ).stdout.split()
 
     missing = []
-    cited = 0
+    cited = set()
     for rel in tracked:
         if rel.startswith("submodules/"):
             continue
@@ -174,10 +180,10 @@ def test_every_screenshot_a_document_names_actually_exists():
         # Both spellings. Requiring the `docs/` prefix made this blind to the
         # relative form a document INSIDE docs/ naturally writes -- which is
         # most of them.
-        for name in re.findall(r"images/screenshots/([A-Za-z0-9_.-]+\.png)", text):
-            cited += 1
-            if name not in present:
-                missing.append(f"{rel} names images/screenshots/{name}")
+        for d, name in re.findall(r"images/(" + "|".join(SHOT_DIRS) + r")/([A-Za-z0-9_.-]+\.png)", text):
+            cited.add(f"{d}/{name}")
+            if f"{d}/{name}" not in present:
+                missing.append(f"{rel} names images/{d}/{name}")
 
     assert not missing, "documents cite screenshots that do not exist:\n  " + "\n  ".join(missing)
 
@@ -191,12 +197,15 @@ def test_every_screenshot_a_document_names_actually_exists():
     # and rendered claims this repository had formally retracted. So the floor
     # is the invariant that made deleting them correct -- a committed
     # screenshot that nothing cites cannot be checked by anything.
-    if present:
-        assert cited, (
-            f"{len(present)} screenshot(s) are committed and no tracked "
-            f"document cites any of them. Either they are orphans and should "
-            f"go, or something should point at them: nothing can tell whether "
-            f"an uncited capture is current.")
+    #
+    # Every capture, not "at least one": a single cited PNG satisfied the old
+    # floor while any number of others went unexamined.
+    orphans = sorted(present - cited)
+    assert not orphans, (
+        f"{len(orphans)} committed screenshot(s) are cited by no tracked "
+        f"document: {orphans}. Either they are orphans and should go, or "
+        f"something should point at them: nothing can tell whether an uncited "
+        f"capture is current.")
 
 
 def test_no_markdown_table_anywhere_drops_cells():

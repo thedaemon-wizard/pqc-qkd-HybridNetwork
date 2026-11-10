@@ -13,6 +13,16 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `VICI_REAUTH_RETRY_AFTER`, off unless set: the IPsec initiator's VICI writer
+  confirms after each rotation that a newer IKE_SA reached ESTABLISHED within that
+  time, and reauthenticates once more if none did. It targets the remaining
+  rotation race, where the initiator is arnika's BACKUP and its IKE_AUTH reaches the
+  responder before the responder's key is installed. The check runs after `SetPSK`
+  returns, because arnika's ACK, which that install waits for, is sent only then. It
+  retries once, leaves an exchange still in progress alone, and stands down for a
+  newer rotation; a failed first initiation is retried once too. No compose file
+  sets it.
+
 - `/qkd-protocols`, route 15: one idealised round of BB84, BBM92 or MDI-QKD at a
   time; asymptotic key-rate curves for the same three with a two-arm channel and
   the repeaterless bound, derived in `docs/keyrate.md` section 9 and checked against
@@ -104,6 +114,27 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Fixed
 
+- The IPsec lane no longer loses its first intervals when alice starts as arnika's
+  BACKUP. With no IKE_SA yet, the VICI writer initiated inside `SetPSK` and waited
+  for IKE_AUTH, which in a BACKUP interval always failed: bob installs his key only
+  on the ACK that `SetPSK`'s return releases. Every BACKUP interval failed until
+  alice's first PRIMARY one, and a CI run that started with three of them went over
+  the IPsec job's 20 % auth-failure ceiling. The writer now initiates after `SetPSK`
+  returns.
+- The browser's finite-key rate (`skrFinite` in `keyrate.ts`) now refuses what the
+  reference `skr_finite` refuses: a basis bias or a correctness epsilon outside
+  (0, 1), and intensity probabilities that are not all positive or do not sum to 1.
+  It returned a rate for them -- 7.2 bits per pulse at a basis bias of 50, NaN for a
+  zero probability -- and the parity test now drives each case through both ports.
+- Two `live-stack` CI steps could pass without checking anything. The physics step
+  piped pytest into `tee`, so its status was tee's and a failing assertion passed it
+  whenever nothing skipped; the contract step had no skip check, so KMEs that never
+  answered would have passed it with all sixteen tests skipped. Both now keep
+  pytest's status and fail on a skip, and a test keeps a piped pytest out of the
+  workflows.
+- The screenshot check looked only in `docs/images/screenshots/` and asked for one
+  cited capture, so the sixteen README captures in `docs/images/webui/` went
+  unchecked. It now covers both folders and requires every capture to be cited.
 - The IPsec nodes came back up after a host reboot only once they were recreated: a
   container restarted in place kept the previous charon's VICI socket, the entrypoint
   took it for the new one, the first `swanctl` call was refused, and both nodes exited
