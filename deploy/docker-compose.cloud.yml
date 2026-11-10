@@ -16,12 +16,15 @@
 #   - Adds restart policies for unattended operation, stack-status's
 #     included. stack-status, the one container with the Docker socket,
 #     publishes no port in any file; webui-backend reaches it on status-net.
-#   - Takes the KMEs and pqc-validator off mgmt-net. The KMEs' ETSI GS QKD
-#     014 key API and /internal/sync carry no authentication, and mgmt-net is
-#     where the internet-facing containers sit: Caddy, the frontend, and any
-#     site a caddy.d/ drop-in proxies to on this host. None of those needs a
-#     KME. The nodes, webui-backend and pqc-validator reach the KMEs on
-#     qkd-net, which is internal.
+#   - Keeps every internet-facing container off the KMEs' network. The KMEs'
+#     ETSI GS QKD 014 key API, /internal/sync and simulator controls carry no
+#     authentication. mgmt-net is where Caddy, the frontend, webui-backend and
+#     any site a caddy.d/ drop-in proxies to on this host sit, so the KMEs and
+#     pqc-validator leave it, and webui-backend leaves qkd-net: the nodes alone
+#     reach the KMEs there. The backend reads KME status through kme-relay,
+#     which passes only the GET routes it uses (deploy/kme-relay.Caddyfile),
+#     and reaches pqc-validator on backend-net. Both qkd-net and backend-net are
+#     internal.
 #
 # The privileged WireGuard nodes (cap NET_ADMIN/SYS_MODULE, /dev/net/tun)
 # require a real kernel — fine on a KVM VPS, impossible on managed PaaS.
@@ -60,7 +63,16 @@ services:
 
   webui-backend:
     restart: unless-stopped
+    depends_on:
+      - kme-relay
+    # Not on qkd-net here: the KME reads go through kme-relay (see the header).
+    networks: !override
+      mgmt-net: {}
+      status-net: {}
+      backend-net: {}
     environment:
+      KME_A_URL: http://kme-relay:8081
+      KME_B_URL: http://kme-relay:8082
       # This overlay IS the public host. The two values equal the backend's
       # own defaults; they are stated here so that a change of default cannot
       # loosen the public host unnoticed. Exports reach the visitor's browser
@@ -87,7 +99,28 @@ services:
   pqc-validator:
     restart: unless-stopped
     networks: !override
+      backend-net: {}
+
+  # Read-only relay from webui-backend to the KMEs (deploy/kme-relay.Caddyfile):
+  # the GET routes the backend reads pass, anything else gets 403. No published
+  # port; it sits on qkd-net with the KMEs and on backend-net with the backend.
+  kme-relay:
+    image: caddy:2-alpine
+    container_name: kme-relay
+    restart: unless-stopped
+    depends_on:
+      - bb84-kme-a
+      - bb84-kme-b
+    volumes:
+      - ./deploy/kme-relay.Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
       qkd-net: {}
+      backend-net: {}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   alice:
     restart: unless-stopped
@@ -98,3 +131,12 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+
+networks:
+  # webui-backend, kme-relay and pqc-validator. Internal: no route off the host.
+  backend-net:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.60.0.0/24

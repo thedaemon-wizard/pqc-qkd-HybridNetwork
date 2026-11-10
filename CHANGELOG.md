@@ -106,12 +106,17 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Security
 
-- On the public host the KMEs and `pqc-validator` are no longer on `mgmt-net`, the
-  network Caddy and the frontend sit on, and that other sites served by the same
-  Caddy join. The KMEs' key API and `/internal/sync` have no authentication, and
-  none of those containers needs them; the nodes and `webui-backend` reach the
-  KMEs on the internal `qkd-net`. A test keeps the overlay that way. The backend's
-  own reach to the key API is recorded as open in the roadmap.
+- On the public host nothing that answers the internet shares a network with the
+  KMEs, whose key API, `/internal/sync` and simulator controls have no
+  authentication. The KMEs and `pqc-validator` are off `mgmt-net`, the network
+  Caddy, the frontend and `webui-backend` sit on, and that other sites served by
+  the same Caddy join; `webui-backend` is off `qkd-net`, where the nodes reach the
+  KMEs. The backend reads KME status through `kme-relay`
+  (`deploy/kme-relay.Caddyfile`), which passes only the GET routes it reads and
+  answers anything else with 403, and reaches `pqc-validator` on the internal
+  `backend-net`. Tests keep the overlay and the relay's route list that way.
+  Mutually authenticated TLS between the nodes and the KMEs, which ETSI GS QKD 014
+  specifies, is still open (roadmap).
 - oqs-provider moves to the 0.12.0 release (`7e9d095`), from a `main` commit that
   lacked four memory-safety fixes: a heap overflow in RSA-hybrid public-key
   reconstruction (#810, GHSA-2g5g-3c4v-v8pw), a double free (#816), a use-after-free
