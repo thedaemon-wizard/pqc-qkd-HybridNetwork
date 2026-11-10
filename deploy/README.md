@@ -23,7 +23,7 @@ and which of them `.env` can set, are in
 | `docker-compose.demo.yml` | **Public-demo profile** (sim-only): `DEMO_MODE=1`, no privileged WG nodes and no `stack-status`, so no container mounts `docker.sock`; `STACK_STATUS_URL` is emptied, and the container-status, log and VPN routes say their data is not available here. The E2E / Paper / Physics / BB84 pages run **client-side** (browser JS + Web Worker/WebGPU, real `@noble` crypto); live parameter overrides and deleting saved exports stay off, as on every host that does not set `ENABLE_LIVE_PARAM_OVERRIDES=true` or `ENABLE_SHARED_EXPORT_DELETE=true`. |
 | `Caddyfile` | Caddy config: auto-HTTPS for `$PUBLIC_HOST`, proxies to `webui-frontend`. |
 | `deploy.sh` | Bootstrap for the **FULL** real-WireGuard stack (Docker, WG module, IP forwarding, UFW, **swap**, build & up). Heavy: needs **≥4 GB RAM / ~15 GB disk** + a real kernel. |
-| `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes). Recommended for a public demo. |
+| `deploy-demo.sh` | Bootstrap for the **lighter public-demo** profile (sim-only, no privileged WG nodes), for a host that should show the in-browser simulations without running the VPN lanes. The hosted demo of this repository runs the full stack instead, with the cloud overlay and the `ipsec` profile, so its pages show live lanes. |
 | `lib.sh` | Routines both scripts share: the `--pull` update and the UFW rules. |
 | `caddy.d/` | Host-owned Caddy site drop-ins (`*.caddy`, gitignored), imported by the `Caddyfile`. Extra sites on the same host go here, never into the tracked `Caddyfile`. |
 | `.env.example` | Copy to repo-root `.env`; set `PUBLIC_HOST`, `ACME_EMAIL`, backend profile, ports. |
@@ -152,7 +152,7 @@ Deliberate properties, because this runs as root on a live host:
 - **Prints the range.** The commits between the old and new `HEAD` are logged,
   so what actually shipped is in the deploy output.
 
-Override the branch with `DEPLOY_BRANCH=dev sudo -E bash deploy/deploy-demo.sh --pull`.
+Override the branch with `DEPLOY_BRANCH=<branch> sudo -E bash deploy/deploy-demo.sh --pull`.
 
 To confirm the update landed, check that the served bundle hash changed:
 

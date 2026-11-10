@@ -264,11 +264,13 @@ describe("the pin is an unmerged PR head, and no fix is claimed", () => {
       const t = norm(code(text));
       expect(t).toMatch(/pull request #51, which is still open/);
       expect(t).toMatch(/f4cf9ba<\/code>, that pull request&apos;s head commit on 2026-09-24/);
-      // The PR's head moved on 2026-09-30; a bare "the pin is the head" went
-      // stale that day, so the later head is named beside the date.
-      expect(t).toMatch(/later head(\{" "\})? <code>da00e6d<\/code>/);
-      expect(t).toMatch(/pin stays until the before\/after measurement of this change is reported/);
-      expect(t).toMatch(/re-pinned to the merge commit once #51 merges/);
+      // The PR's head moved on 2026-09-30 and again on 2026-11-05, the second
+      // time with behaviour the pin lacks; a bare "the pin is the head" went
+      // stale the first day, so the current head is named with its date.
+      expect(t).toMatch(/to the head(\{" "\})? <code>e37d043<\/code>, 2026-11-05/);
+      expect(t).toMatch(/align the QKD intervals to the system clock, which the pin\s+does not do/);
+      expect(t).toMatch(/before\/after measurement of the pin\s+was reported on 2026-10-12/);
+      expect(t).toMatch(/re-pinned to the merge commit\s+once #51 merges/);
     });
   }
 

@@ -48,6 +48,21 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Changed
 
+- Upstream facts brought up to date (read 2026-11-10). NIST IR 8547 is final
+  (October 2026), with its 2030 deprecation and 2035 disallowance of
+  quantum-vulnerable public-key schemes; the documents no longer call it a draft.
+  arnika PR #51 has moved on past the pin to `e37d043`, and two of its later
+  commits change behaviour (a `PqcOnly` mode, QKD intervals aligned to the system
+  clock); `/` and `/vpn` say so, and that the before/after measurement the pin
+  waited for was reported on 2026-10-12. SeQUeNCe v1.3.1 and ns-3.49 are noted
+  as available, the transitive certifi and fqdn versions are the ones the images
+  carry, and the development host is AlmaLinux 9.8 with CUDA 13.5.
+- `docs/roadmap.md` no longer gives constant time as a reason for using `@noble`:
+  `@noble/post-quantum` does not claim it. It records two more open items, the
+  IKE_AUTH PSK derived from `ARNIKA_PSK` and the VICI writer not confirming the
+  new IKE SA, and the frontend and backend framework versions against the latest.
+- Comments no longer date changes by internal round numbers, and a test keeps
+  them out.
 - `/protocol-lab`'s link captions no longer overlap: each is placed clear of
   the nodes, the other captions and the other links, on a plate that stops its
   own line striking through it (it was at a bare midpoint). Links now end on the

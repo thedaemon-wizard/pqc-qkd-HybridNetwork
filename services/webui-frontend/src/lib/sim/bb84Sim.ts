@@ -1,5 +1,5 @@
 /**
- * BB84 engine controller (Round 5/5b). Streams {qber, pool_size, frames} to the
+ * BB84 engine controller. Streams {qber, pool_size, frames} to the
  * page (same shape the old /ws/frames delivered) plus the active engine name and
  * throughput. Engine selection is ADAPTIVE and measured:
  *

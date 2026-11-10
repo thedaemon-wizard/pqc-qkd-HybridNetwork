@@ -1,5 +1,5 @@
 /**
- * Real in-browser crypto for the client-side simulation (Round 5).
+ * Real in-browser crypto for the client-side simulation.
  *
  * Uses @noble/hashes + @noble/ciphers (MIT, audited) so the public demo keeps
  * the project's "real crypto" fidelity with NO backend:

@@ -89,7 +89,7 @@ describe("what the average means", () => {
 
 describe("the CSV pairs each round's readings with each other", () => {
   it("keeps latency and QBER of one round on one row, even when a reading is missing", () => {
-    // Round 11 has no latency. Zipping two separate arrays by position put
+    // Here round 11 has no latency. Zipping two separate arrays by position put
     // round 12's latency beside round 11's QBER from here on.
     let h: RoundRec[] = [];
     h = appendRound(h, { round: 10, ms: 220, qber: 0.01 });

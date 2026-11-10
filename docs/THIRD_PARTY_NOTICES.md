@@ -13,7 +13,7 @@ are kept short; the longer history of a pin is under
 | `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `5fd81fb4`, a `main` commit 37 past the 0.10.0 tag, not a release. 22 commits behind 0.12.0-rc2 and missing four memory-safety fixes made there; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange that keys the `wg1` data tunnel (since release 0.2.0; it no longer feeds arnika). Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
 | `SimQN` | GPL-3.0 (upstream: "GPLv3") | QNLab, USTC (Cui et al.) | 8 | pinned to `29a94689`, the tag **v0.2.3**, the latest release. `main` is 42 commits ahead, with changes to modules this project does not import. The installed distribution reports version 0.2.1, from upstream's own `setup.py`. Imported in-process by `bb84-kme`; see the licence notes below. |
-| `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | pinned to `ffd7c837`, the tag **v1.0.0** (2026-06-17). v1.2.0 is out (`344c3997`, 2026-09-12, 64 commits past the pin) and deferred to its own change. Brings the LGPL `gmpy2` into the `bb84-kme` process. See [SeQUeNCe](#sequence). |
+| `SeQUeNCe` | custom Argonne "OPEN SOURCE LICENSE" (BSD-3-Clause-equivalent terms; GitHub shows NOASSERTION) — commercial use permitted with attribution | Argonne National Laboratory | 8 | pinned to `ffd7c837`, the tag **v1.0.0** (2026-06-17). v1.3.1 is out (2026-10-17, 84 commits past the pin; v1.2.0 was 2026-09-12 and v1.3.0 2026-10-10), and a bump is deferred to its own change (checked 2026-11-10). Brings the LGPL `gmpy2` into the `bb84-kme` process. See [SeQUeNCe](#sequence). |
 | `qkdnetsim` | GPL-2.0-only (SPDX headers; `LICENSE` is the GPL v2 text) | QKDNetSim project (Mehic et al.) | 8 | pinned to `1cda34cb` (2026-05-03), 4 commits behind `v3.1.4` (`e6330fe6`, 2026-09-21). Not bumped: no qkdnetsim binary is executed here. Compiled together with ns-3 (below) by `services/qkdnetsim-kme/Dockerfile`. See [qkdnetsim](#qkdnetsim). |
 | `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | pinned to `f952c355`, the tag **v2.2.0** (2026-06-17). Vendored for the roadmap; nothing shipped is produced from it. |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | pinned to `162125d8`, the final `master` commit, 8 commits past the last tag `v0.23.0-post1`. **Archived on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
@@ -23,11 +23,11 @@ are kept short; the longer history of a pin is under
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | pinned to `0080bf8d` (2026-05-08), 45 commits past the latest release v1.0.6 (2025-02-03), which is an ancestor of the pin rather than a newer release. Vendored as a benchmark reference; not built or integrated. |
 | `qkd_kme_server` | MIT (`LICENSE`: "MIT License, Copyright (c) 2025 Thomas Prévost") | Thomas Prévost (`thomasarmel`) | 14 | pinned to `4d53a3dc` (2026-04-01), upstream HEAD, 80 commits past its only tag, the pre-release `v0.0.1-alpha`. No upstream commits since, so current rather than actively developed. Rust ETSI GS QKD 014 v1.1.1 KME, **vendored for reference and not built**: no Dockerfile, compose file or Makefile target compiles or runs it (checked 2026-09-25). |
 | `oqs-sys` (crate) | MIT OR Apache-2.0; the liboqs 0.8.0 it bundles is MIT with per-component terms (see [rosenpass](#rosenpass)) | Open Quantum Safe project | 0–7 | 0.8.0, from Rosenpass's `Cargo.lock`. Vendors liboqs **0.8.0** (2023) and compiles it statically into `rosenpass` in the `node-alice` image; that image redistributes it. |
-| `govici` (Go module) | MIT | strongSwan project | 9 | v0.8.2 (the latest, 2026-02-27), the official VICI client; compiled into the `arnika` binary of the strongSwan node image by `services/arnika-vici/build.sh`. |
+| `govici` (Go module) | MIT | strongSwan project | 9 | v0.8.2 (2026-02-27, still the latest tag on 2026-11-10), the official VICI client; compiled into the `arnika` binary of the strongSwan node image by `services/arnika-vici/build.sh`. |
 | arnika's Go dependencies | BSD-3-Clause, MIT or Apache-2.0, per module | various | 0–7, 9 | every `arnika` binary statically links the modules it imports from `submodules/arnika/go.mod`: `golang.org/x/*`, `wgctrl` and `wireguard`, `google/uuid`, `mdlayher/*`, `containernetworking/plugins`, and `josharian/native` (MIT), which `mdlayher/netlink` imports and so comes with it. Most of these are `// indirect` in that `go.mod`, reached through its five direct requirements (`containernetworking/plugins`, `google/uuid`, `golang.org/x/crypto`, `golang.org/x/sys` and `wgctrl`); `golang.org/x/sys` became direct with #51, at the same v0.45.0, for its process hardening. The PQC-HPKE key agreement adds no module: it is the Go standard library's `crypto/hpke` and `crypto/mlkem` (BSD-3-Clause, like the rest of the standard library every Go binary links). |
-| `ns-3` (ns-3-dev, tag `ns-3.46`) | GPL-2.0-only | nsnam | 8 | not vendored: cloned at build time by `services/qkdnetsim-kme/Dockerfile` and compiled with qkdnetsim; the build output ships in the image that carries it and is never executed here. See [qkdnetsim](#qkdnetsim). |
+| `ns-3` (ns-3-dev, tag `ns-3.46`) | GPL-2.0-only | nsnam | 8 | not vendored: cloned at build time by `services/qkdnetsim-kme/Dockerfile` and compiled with qkdnetsim (the latest release is ns-3.49, 2026-10-07, checked 2026-11-10); the build output ships in the image that carries it and is never executed here. See [qkdnetsim](#qkdnetsim). |
 | `gmpy2` (PyPI) | **LGPL-3.0-or-later** | gmpy2 developers; GMP, MPFR and MPC projects | 8 | 2.3.1 in the `bb84-kme` image, required by SeQUeNCe and imported into the service process. Its wheel bundles GMP (LGPL-3.0-or-later or GPL-2.0-or-later), MPFR and MPC (both LGPL-3.0-or-later) as shared objects. |
-| `certifi`, `tqdm`, `fqdn` (PyPI) | MPL-2.0 (`tqdm`: MPL-2.0 AND MIT) | respective authors | 0–12 | certifi 2026.7.22 in `bb84-kme`, `webui-backend` and `stack-status` (in the last through the Docker SDK's `requests`); tqdm 4.70.1 and fqdn 1.5.1 in `bb84-kme`. Transitive and unmodified. |
+| `certifi`, `tqdm`, `fqdn` (PyPI) | MPL-2.0 (`tqdm`: MPL-2.0 AND MIT) | respective authors | 0–12 | none pinned, so each image build resolves the current release: certifi in `bb84-kme`, `webui-backend` and `stack-status` (in the last through the Docker SDK's `requests`), tqdm and fqdn in `bb84-kme`. The images rebuilt on 2026-11-09 carry certifi 2026.10.23, tqdm 4.70.1 and fqdn 1.6.0 (read from the running containers on 2026-11-10). Transitive and unmodified. |
 | `caddy` (container image) | Apache-2.0 | Caddy project | deploy | `caddy:2-alpine`, pulled at deploy time by `deploy/docker-compose.cloud.yml` as the public TLS front end; not built or redistributed by this repository. A check on 2026-09-25 found it negotiating the hybrid TLS group X25519MLKEM768. |
 | `fastapi` (PyPI) | MIT | Sebastián Ramírez and contributors | 0–12 | v0.141.1 in `bb84-kme`, `pqc-validator` and `webui-backend`. Moved from 0.115.6 on 2026-09-25 because that release capped Starlette below 0.42 (next row). |
 | `starlette` (PyPI) | BSD-3-Clause | Encode OSS and contributors | 0–12 | v1.7.0, pinned next to fastapi in all three services. 0.41.3 carried seven published advisories on 2026-09-25, three HIGH, one of them an O(n^2) Range-header DoS in `FileResponse` that the public demo exposed through `/api/exports/download`. |
@@ -89,14 +89,19 @@ also stops if upstream ever ships a `wire_strongswan_vici.go` or a
 **#51 is adopted, ahead of its merge.** The pin moved on 2026-09-26 from
 `3a8cc13` to `f4cf9ba`, the head of the open PR #51 as of 2026-09-24
 (`pqc-hpke`; 55 commits past the merge base, +10,721/-1,264 across 68 files).
-The PR's later head, `da00e6d` (2026-09-30, *simplify comments update
-documentation*), is one commit on top of it. It removes comments; refactors
+The PR's next commit, `da00e6d` (2026-09-30, *simplify comments update
+documentation*), removes comments; refactors
 some non-test code (an `errAuth` sentinel, `43` written as `1+8+2+32`, variable
 renames, a `pqcInWindow` helper, a log-message constant with the same string);
 updates documentation (`KEYCONTROL.md`, `CONTRIBUTING.md`) and tests; and adds
 `lint` and `fmt` targets to the Makefile. It is behaviour-identical by our
 reading of its diff, compared as syntax trees with the comments stripped. The
-PR removes the file-based PQC source, `PQC_PSK_FILE`, which is how Rosenpass's
+PR has moved on since, to `e37d043` (2026-11-05), five commits past the pin:
+`ce0ad48` changes documentation only and `e37d043` the CI runner, but
+`a2d1734` (2026-10-02) adds a runtime `PqcOnly` mode and `000a72d`
+(2026-11-05) aligns the QKD intervals to the system clock instead of per-node
+tickers, which the pin does not do (file lists read with `gh api` on
+2026-11-10). The PR removes the file-based PQC source, `PQC_PSK_FILE`, which is how Rosenpass's
 output used to reach arnika: arnika now agrees its PQC key with its peer over
 HPKE, and Rosenpass keys the separate `wg1` data tunnel instead. It also
 replaced the two-method key-writer port with
@@ -104,8 +109,9 @@ replaced the two-method key-writer port with
 package. The pin is an unreviewed pull request head, so three things follow:
 the "on `main`" statements this row used to make no longer hold, a change to
 the branch before merge may alter what is pinned here, and the pin is re-pinned
-to the merge commit once #51 merges, but not during the 168 h after-arm of the
-before/after measurement. See [`roadmap.md`](roadmap.md).
+to the merge commit once #51 merges. The 168 h after-arm of the before/after
+measurement, which the pin had to wait for, was reported on #51 on 2026-10-12.
+See [`roadmap.md`](roadmap.md).
 
 **NOT post-v1.0.1.** `v1.0.1` (`ef5a5c6`) lives only on the `v1.x` branch and
 the two have **diverged**, so the pin does not contain what GitHub labels the
@@ -299,7 +305,9 @@ reason.
 ## Submodule currency, and how it was checked
 
 Verified 2026-09-25 by querying each upstream directly with
-`git ls-remote --tags`, not from memory or from a package index.
+`git ls-remote --tags`, not from memory or from a package index. The five pins
+and `strongswan` in the next paragraph were re-checked the same way on
+2026-11-10 and are still on their upstream's latest tag.
 
 **Five pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
 `liboqs` 0.16.0, `openQKDsecurity` v2.2.0, `rosenpass` v0.2.3,

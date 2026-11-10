@@ -79,7 +79,7 @@ export default function QuantumSecureE2E() {
   const simRef = useRef<E2ESim | null>(null);
   const narrow = useNarrowLayout();
 
-  // Round 5: the orchestration runs CLIENT-SIDE (no /ws/e2e, no backend load).
+  // The orchestration runs CLIENT-SIDE (no /ws/e2e, no backend load).
   // Real HKDF-SHA3-256 + ChaCha20-Poly1305 are computed in the browser via @noble.
   useEffect(() => {
     const sim = new E2ESim(setState);
@@ -554,7 +554,7 @@ function ArchSvg({ mode, step, aborted, failedLayer, fatal }:
   // steps 3 of modes A and B derive the PSK the page then displays. This SVG
   // is the PNG/GIF export target, so the figure has to say what the run did.
   //
-  // Layout v3 (Round 3): geometry-driven 1240×600 viewBox. Site B mirrors
+  // Layout v3: geometry-driven 1240×600 viewBox. Site B mirrors
   // Site A about the divider so KMS↔ARNIKA gaps are symmetric; every arrow
   // starts/ends on a computed box edge; the A/B/C/E mode legend moved OUT of
   // the SVG to an HTML strip (ArchLegend) — it used to duplicate the top key

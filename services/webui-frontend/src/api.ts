@@ -116,5 +116,5 @@ export async function deleteExport(name: string) {
   return body;
 }
 
-// Note: BB84 Eve/rotate and the /ws/frames stream were removed in Round 5 — the
-// BB84 page now runs its Monte-Carlo client-side (src/lib/sim/bb84Sim.ts).
+// Note: BB84 Eve/rotate and the /ws/frames stream were removed when the BB84
+// page moved its Monte-Carlo client-side (src/lib/sim/bb84Sim.ts).

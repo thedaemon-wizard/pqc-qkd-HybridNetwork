@@ -62,7 +62,7 @@ function FullRowWhenNarrow({ narrow, children }: { narrow: boolean; children: Re
  *
  * The page is intentionally distinct from /e2e (single-tunnel concept) — it
  * shows the daisy chain, paper-quoted packet budgets, and the 240-720s
- * failure cascade. Round 5: Run/Pause/Reset drive a CLIENT-SIDE orchestrator
+ * failure cascade. Run/Pause/Reset drive a CLIENT-SIDE orchestrator
  * (src/lib/sim/paperSim.ts); no backend / no /ws/paper-flow.
  */
 
@@ -76,7 +76,7 @@ export default function PaperDataExchange() {
   const simRef = useRef<PaperSim | null>(null);
   const narrow = useNarrowLayout();
 
-  // Round 5: the multi-hop orchestration runs CLIENT-SIDE (no /ws/paper-flow).
+  // The multi-hop orchestration runs CLIENT-SIDE (no /ws/paper-flow).
   useEffect(() => {
     const sim = new PaperSim(setState);
     simRef.current = sim;

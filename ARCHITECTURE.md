@@ -193,10 +193,11 @@ The mechanism, the rotation sequence and the open issues are in
 
 These are the points we depend on; changing them in upstream arnika would require
 contract updates here. Line numbers are at the pinned submodule commit,
-`f4cf9ba`, the head of the open PR #51 as of 2026-09-24. The PR's later head,
-`da00e6d` (2026-09-30), removes comments, refactors some non-test code and
-updates documentation and tests -- behaviour-identical by our reading of its
-diff -- but it shifts these line numbers, so they hold at `f4cf9ba` only.
+`f4cf9ba`, the head of the open PR #51 as of 2026-09-24. The PR's later
+commits, up to its head `e37d043` (2026-11-05), shift these line numbers, so
+they hold at `f4cf9ba` only; two of those commits also change `main.go`'s
+behaviour (`a2d1734` adds a `PqcOnly` mode, `000a72d` aligns the QKD intervals
+to the system clock).
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|

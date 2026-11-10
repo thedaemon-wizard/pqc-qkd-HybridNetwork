@@ -81,8 +81,8 @@ open" below.
    is deliberately unspecified, as in [`threat-model.md`](threat-model.md)
 
 **References:**
-- NIST IR 8547, *Transition to Post-Quantum Cryptography Standards* (initial
-  public draft, 2024-11-12; not final)
+- NIST IR 8547, *Transition to Post-Quantum Cryptography Standards* (final,
+  October 2026; the initial public draft was 2024-11-12)
 - CISA, NSA and NIST, *Quantum-Readiness: Migration to Post-Quantum
   Cryptography* (factsheet, 2023-08-21)
 
@@ -260,10 +260,14 @@ the public demo that currently keeps the Worker, and the console records why --
 > replay shows the pulses the shader actually computed rather than an unrelated
 > sample. That is the only place identical output is claimed, or needed.
 
-**WebAssembly.** Rejected for the cryptography. `@noble` is already constant
-time by construction and small enough that the bundle cost of a WASM build
-outweighs the throughput gain at the sizes used here (a few ML-KEM operations
-per page view, not a stream). It remains the right answer if the PQC sweep in
+**WebAssembly.** Rejected for the cryptography, on size: `@noble` is small
+enough that the bundle cost of a WASM build outweighs the throughput gain at
+the sizes used here (a few ML-KEM operations per page view, not a stream).
+Constant time is not part of the reason. `@noble/post-quantum` states that it
+does not claim constant-time execution (its README, *Constant-timeness*, read
+at 0.7.1), and `@noble/ciphers` aims at algorithmic constant time only; the
+pages use them on keys they generate in the visitor's browser for one run, not
+on anyone's long-term secrets. It remains the right answer if the PQC sweep in
 section D grows to thousands of keygen operations per run, at which point the
 tradeoff reverses; the interface is deliberately narrow enough to swap.
 
@@ -427,11 +431,12 @@ maximum-flow capacity and concurrent demands, under that decision record's
 |---|---|---|
 | `/bb84` click model | The per-pulse detection probability is `etaTotal + Y0`, which omits the signal intensity $`\mu`$ (section 2 of [`keyrate.md`](keyrate.md) has $`Q_\mu = Y_0 + 1 - e^{-\eta\mu}`$), and a dark-count click carries Alice's bit instead of a uniformly random one ($`e_0 = \tfrac12`$). | The same change in all four engines -- the TypeScript Worker, the WGSL and GLSL shaders and the WASM kernel -- which must keep agreeing (`wasmAgreesWithWorker.test.ts`, `bb84Channel.test.ts`). |
 | `/bb84` variability mode | The field data of arXiv:2608.18869 varies with time; `/bb84` draws every round from one static channel. | A mode drawing per-round parameters from a distribution. Deferred because the distribution's parameters would be this project's derivation, not the source's. |
-| SeQUeNCe v1.2.0 | The pin is `v1.0.0` (2026-06-17); v1.2.0 was released 2026-09-12 and is 64 commits ahead ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). | A before/after on the `sequence` backend, and a check of v1.2.0's numpy range against the KME's `numpy==2.5.3` pin. |
+| SeQUeNCe v1.3.1 | The pin is `v1.0.0` (2026-06-17); v1.3.1 was released 2026-10-17 and is 84 commits ahead, after v1.2.0 (2026-09-12) and v1.3.0 (2026-10-10) ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md); checked 2026-11-10). | A before/after on the `sequence` backend, and a check of v1.3.1's numpy range against the KME's `numpy==2.5.3` pin. |
 | oqs-provider | The pin is `5fd81fb` (2026-05-12), 37 commits past 0.10.0 on `main`. `main` has 20 commits more, among them four fixes the pin lacks -- a heap overflow (#810), a double free (#816), a use-after-free (#829) and missing length checks on hybrid KEM public keys (#814), listed in the header of `services/pqc-tls-demo/Dockerfile.oqs-provider` -- and the re-activation of HQC (#787). 0.11.0 (2025-12-24) is on a release branch that does not contain the pin, and 0.12.0 is at rc2 (2026-09-16). | Bump once 0.12.0 is final, rebuilding against the pinned liboqs; the Dockerfile's per-group negotiation check then shows whether HQC groups can join `TLS_GROUPS`. |
-| qkdnetsim v3.1.4 | The pin `1cda34c` (2026-05-03) is three commits before v3.1.3 and four before v3.1.4 (2026-09-21). Those four add QKD+PQC key mixing to the key-management layer (`7a99fc17`) and move qkdnetsim to NS-3 v3.48, while `services/qkdnetsim-kme/Dockerfile` builds NS-3 v3.46. | Low priority: nothing runs qkdnetsim. Bump the pin and `NS3_REF` together, and build the image by hand, since CI does not build it. |
+| qkdnetsim v3.1.4 | The pin `1cda34c` (2026-05-03) is three commits before v3.1.3 and four before v3.1.4 (2026-09-21). Those four add QKD+PQC key mixing to the key-management layer (`7a99fc17`) and move qkdnetsim to NS-3 v3.48, while `services/qkdnetsim-kme/Dockerfile` builds NS-3 v3.46; NS-3's own latest release is ns-3.49 (2026-10-07, checked 2026-11-10). | Low priority: nothing runs qkdnetsim. Bump the pin and `NS3_REF` together, and build the image by hand, since CI does not build it. |
 | Strawberry Fields | Archived upstream on 2026-01-16, and still installed in the `bb84-kme` image (editable, from `submodules/strawberryfields`) because the `cvqkd` backend runs its Gaussian simulator. It imports `pkg_resources`, which holds `setuptools<81` in `services/bb84-kme/requirements.txt` and `constraints.txt`. | Replace the dependency in `cvqkd_backend.py`, then drop the submodule and the `setuptools` hold. `tests/test_cvqkd_is_a_cv_protocol.py` must keep passing. |
 | Base images | The WireGuard node image (`nodes/alice/Dockerfile`) is still on bookworm: its runtime (`debian:bookworm-slim`), its Rust stage (`rust:1.90-bookworm`) and its arnika stage (`golang:1.26-bookworm`). The strongSwan node's runtime is on trixie, but its arnika stage is `golang:1.26-bookworm` too (`nodes/strongswan/Dockerfile`). `services/qkdnetsim-kme/Dockerfile` is on `ubuntu:22.04`. | Move the bookworm stages to trixie and the Rust stage to a current image, each verified by the `images` CI job. The Go stages must stay on Go 1.26 or later (arnika uses `runtime/secret`). |
+| Frontend and backend frameworks | The frontend is on React 18, Vite 6, TypeScript 5.7 and `@vitejs/plugin-react` 4, while npm's latest are React 19.3.1, Vite 8.3.7, TypeScript 7.0.2 and plugin-react 6.3.0. The Python services pin FastAPI 0.141.1, Starlette 1.7.0, uvicorn 0.32.1 and pydantic 2.10.4, against 0.162.2, 1.10.0, 0.54.0 and 2.14.3 on PyPI (both checked 2026-11-10). A security fix that lands only in a newer major would need the bump first. | One framework at a time, each its own change with the full frontend suite, the layout sweep over all routes and the backend tests, starting with whichever a security advisory reaches first. |
 
 ## Follow-ups from adopting arnika #51 (2026-09-26)
 
@@ -441,7 +446,7 @@ gaps above and [`phases.md`](phases.md)). What that left open:
 
 | Item | What is open | What closing it involves |
 |---|---|---|
-| Re-pin on merge | `submodules/arnika` points at `f4cf9ba`, the head as of 2026-09-24 of a pull request that is open and has no upstream review (checked 2026-10-01), not at a commit on upstream `main`. The head has since moved to `da00e6d` (2026-09-30), one commit on top of `f4cf9ba` that removes comments, refactors some non-test code, updates documentation and tests and adds Makefile `lint`/`fmt` targets; it is behaviour-identical by our reading of its diff, and nothing here was run at it. A change to the branch before it merges would change what the pin means, while the notices, the build guards and these documents describe `f4cf9ba`. | Do not re-pin during the 168 h after-arm of the before/after measurement (checklist row 2.17, and the next row here), even if #51 merges in that week: the after-arm is defined at `f4cf9ba`. Re-pin to the merge commit on `main` only after the after-arm has been reported: diff it against `f4cf9ba`, re-run the build guards and CI, update the line citations into arnika -- `da00e6d` alone shifts `main.go`'s line numbers, and `git grep -nE 'main\.go(:\| line )[0-9]'` lists the citations in `ARCHITECTURE.md` section 5, `scripts/ppk_race_report.py`, its tests, the entrypoints and these documents -- and update the `arnika` row of [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
+| Re-pin on merge | `submodules/arnika` points at `f4cf9ba`, the head as of 2026-09-24 of a pull request that is open and has no review (checked 2026-11-10), not at a commit on upstream `main`. The head has since moved to `e37d043` (2026-11-05), five commits past `f4cf9ba`: `da00e6d` (2026-09-30) removes comments, refactors some non-test code, updates documentation and tests and adds Makefile `lint`/`fmt` targets, behaviour-identical by our reading of its diff; `ce0ad48` changes documentation only; `a2d1734` (2026-10-02) adds a `PqcOnly` mode; `000a72d` (2026-11-05) aligns the QKD intervals to the system clock instead of per-node tickers; `e37d043` pins the CI runner. Nothing in this repository's CI or on the public host ran any of them; `e37d043` ran for 48.3 h on a separate development host, with the counts on [#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6759071117). A change to the branch before it merges would change what the pin means, while the notices, the build guards and these documents describe `f4cf9ba` (checked 2026-11-10). | The 168 h after-arm of the before/after measurement (checklist row 2.17, and the next row here) is defined at `f4cf9ba` and was reported on #51 on 2026-10-12, so the remaining condition is the merge. Re-pin to the merge commit on `main`: diff it against `f4cf9ba`, re-run the build guards and CI, update the line citations into arnika -- `da00e6d` alone shifts `main.go`'s line numbers, and `git grep -nE 'main\.go(:\| line )[0-9]'` lists the citations in `ARCHITECTURE.md` section 5, `scripts/ppk_race_report.py`, its tests, the entrypoints and these documents -- and update the `arnika` row of [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
 | Before/after measurement of the IPsec lane's authentication failures | Done. Arm A ran from 2026-09-25T10:55Z to 2026-10-02T10:55Z at `3a8cc13`, arm B from 2026-10-03T07:04:06Z to 2026-10-10T07:04:06Z at `f4cf9ba`, on the same host and configuration with the counting rules fixed before either run; arm B's span after an interval-number mismatch (from 2026-10-08T08:42:21Z) is excluded and reported apart, as those rules require. The reports are in [`measurements/2026-10-ppk-before-after/README.md`](measurements/2026-10-ppk-before-after/README.md), and the numbers were reported upstream first, on [arnika#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6117990327) (2026-10-12). | Nothing further for this comparison. A re-run belongs after a change to arnika's interval loop (the row on fail-closed paths below), on the same host and configuration. |
 | What `3e02741` does to the rotation race | Measured: the window moved and shrank, as the code reading expected. C3 went from 31 in 10,035 rotations to 0 in 7,241 where alice is PRIMARY, and from 0 in 10,120 to 4 in 7,354 where alice is BACKUP (arm A against arm B's in-step part; [`measurements/2026-10-ppk-before-after/README.md`](measurements/2026-10-ppk-before-after/README.md)). Reading the code, the BACKUP now installs before it ACKs and the PRIMARY after, so the race is left where alice, always the IKE initiator, is BACKUP. | The measurement above has decided it. If failures appear in alice-BACKUP intervals, the candidate mitigations are a generation-scoped `PPK_ID` ([`vici-ppk.md`](vici-ppk.md), "The actual fix") or delaying the initiator's reauthentication; neither is started before the numbers exist. |
 | New fail-closed paths and start offsets | Under `QkdAndPqcRequired` the pinned arnika installs a random key when a BACKUP interval ends without a `key_id`, when the PRIMARY gets no ACK, and when no PQC-HPKE key exists yet. Its interval counter is per process, so two processes started at different moments disagree about which interval a `key_id` belongs to: local runs without alignment showed `no key_id from the peer` invalidations on the later-started node, at the end of 13 of its 21 BACKUP intervals over three WireGuard runs and twice in one IPsec run of about 6 minutes (observations, not a measurement). The WireGuard entrypoint now starts arnika on a wall-clock interval boundary, which restores the start synchronisation that lane had before; the IPsec entrypoint deliberately does not, so that both arms of the measurement run the same entrypoint start behaviour, with the start offset measured in each arm ([`BUILD.md` 7.3](BUILD.md#73-starting-arnika-on-the-interval-boundary)). Neither is a mitigation of the rotation race. The alignment also holds only at the start: each ticker re-bases after its own processing, so the offset between the two ends wanders by milliseconds per interval (in that IPsec run, from about 255 ms to about 217 ms over 12 intervals). From reading the code, a BACKUP that lags its PRIMARY by more than the PRIMARY's KMS fetch time can receive the `key_id` before its own boundary and count it in its previous interval, and it then fails closed at the end of the current interval if the next `key_id` is not early too, in practice at its BACKUP-to-PRIMARY transitions; in the IPsec run bob received early `key_id`s in intervals 2 to 8, 10 and 11 and invalidated only at 8 and 11. Measured since, in arm B: 1,844 such failures in the 7,354 alice-BACKUP intervals of the in-step part, every one on a tick whose `key_id` reached alice before her own boundary, while the offset between the IPsec nodes' boundaries grew from 30 ms to 15 s in five days without a restart; in the same window the WireGuard lane, aligned at its start, logged 1,414 `no key_id from the peer` invalidations on alice ([`measurements/2026-10-ppk-before-after/README.md`](measurements/2026-10-ppk-before-after/README.md)). Why the offset grows is an inference from the code: the fail-closed write runs between the tick and the next ticker reset, so each invalidation lengthens that node's interval. Raised on [arnika#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6117990327) with the measurement. | Upstream's to fix: for example interval boundaries that do not re-base on processing, or a `key_id` that carries its sender's interval. Here, recreating both nodes of each pair together resets the offset, which the deployment does; that is a reset, not a fix, and the drift starts again. `scripts/ppk_race_report.py` records the quantities for the IPsec pair; no tool records them for the WireGuard pair yet, whose lines are counted by hand. |
@@ -569,6 +574,23 @@ Re-verified 2026-09-25 against the code.
   unconditional was 0, 0, 1, 4, 8, 4 -- checklist row 2.13), and that the
   condition was "specific to the CI environment, not to the code path" (the
   2026-08-28 trigger was in this project's own `KeyPool`).
+- **IKE_AUTH rests on a secret derived from `ARNIKA_PSK`** (added 2026-11-10).
+  Both IPsec nodes authenticate with `auth = psk`
+  (`nodes/strongswan/swanctl.conf.tmpl`), and the entrypoint derives that PSK
+  from `ARNIKA_PSK` by HKDF-SHA256 (`derive_bootstrap_secret`), the secret
+  both arnika peers of a pair already share. So the classical half of the IKE
+  authentication is one shared secret per pair, and anyone holding
+  `ARNIKA_PSK` can derive it; the PPK, required on both ends, still has to
+  match. Closing it means per-node keys and certificates (`auth = pubkey`)
+  under a CA of this deployment's own, so the IKE identity stops depending on
+  the arnika secret.
+- **The VICI writer does not confirm the new IKE SA** (added 2026-11-10, since
+  `services/arnika-vici/repositories/swanvici/vici.go` says this file tracks
+  it). `SetPSK` queues the reauthentication and returns; nothing waits for the
+  new IKE SA before the next rotation, and a reauthentication that fails is
+  seen only in the logs. Closing it means subscribing to the `ike-updown`
+  event stream and treating a missing `up` within a bound as a failed
+  rotation.
 
 ## Implementation gaps closed
 
@@ -632,8 +654,9 @@ Kept with their dates so the roadmap does not argue for work that exists.
   implementations ran a real round-trip) and which is weak (byte lengths,
   where both are reading the same FIPS table).
 
-- ~~**Export toolbars are on 5 of 13 pages.**~~ **Done.** Thirteen of
-  fourteen pages carry one (since 2026-09-25 including `/vpn`, which exports
+- ~~**Export toolbars are on 5 of 13 pages.**~~ **Done.** Fourteen of
+  fifteen pages carry one (`/qkd-protocols` since 2026-11-05; since 2026-09-25
+  including `/vpn`, which exports
   the per-node PPK, ESP-counter and SPI-pairing evidence for checklist rows 2.3
   and 2.11, `/topology`, and `/keyflow`, which exports its Sankey as PNG and
   its edge list as JSON); the one without, `/hil`, is display-only. `/bb84`

@@ -81,7 +81,7 @@ KNOWN_UNREAD: dict[str, str] = {
     ),
     "webui.ws_frame_buffer": (
         "Sized a WebSocket frame buffer for the /ws fan-out that was removed "
-        "in Round 5. Nothing has opened a WebSocket since; main.py's own "
+        "when the pages moved client-side. Nothing has opened a WebSocket since; main.py's own "
         "comment records the removal."
     ),
 }

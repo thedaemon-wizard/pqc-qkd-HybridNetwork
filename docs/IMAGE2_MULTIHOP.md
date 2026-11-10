@@ -110,7 +110,7 @@ docker compose up -d webui-frontend
 
 A dated record of what was checked when the page was introduced, while
 `/paper-flow` still ran on a backend orchestrator that has since been deleted.
-It is not re-run as written: the app now has fourteen routes, and the
+It is not re-run as written: the app now has fifteen routes, and the
 orchestrator row describes code that no longer exists. Current checks are in
 `VERIFICATION_CHECKLIST.md`.
 

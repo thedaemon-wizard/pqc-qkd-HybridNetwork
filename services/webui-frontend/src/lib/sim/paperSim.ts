@@ -1,9 +1,9 @@
 /**
- * Client-side Paper Data Exchange orchestrator (Round 5) — TS port of
+ * Client-side Paper Data Exchange orchestrator — TS port of
  * the former services/webui-backend/app/paper_flow.py (deleted; this is now the
  * only implementation). Reproduces the 5-phase multi-hop
  * flow, arXiv:2604.05599 Table 1 packet budgets, the layer-aware failure
- * cascade (Round 4 fix), and the per-cycle ChaCha20-Poly1305 data payload — all in the
+ * cascade, and the per-cycle ChaCha20-Poly1305 data payload — all in the
  * browser. Emits the same PaperFlowState shape the page already renders.
  */
 import { chachaSeal, deriveHkdfSha3, encodeUtf8, randomBytes, toHex } from "./crypto";

@@ -1,5 +1,5 @@
 /**
- * BB84 Monte-Carlo on WebGPU (Round 5) — optional GPU accelerator for the
+ * BB84 Monte-Carlo on WebGPU — optional GPU accelerator for the
  * per-pulse simulation. A WGSL compute shader runs millions of pulses in
  * parallel, accumulating sifted/error counts with atomicAdd. Falls back to the
  * CPU Web Worker (bb84.worker.ts) when WebGPU is unavailable. Per the
