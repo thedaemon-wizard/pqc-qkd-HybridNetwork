@@ -322,7 +322,8 @@ func (r *Repository) reconcile(ctx context.Context, sess *vici.Session) error {
 //  1. load-shared the new generation   (both generations now loaded)
 //  2. get-shared to confirm it landed
 //  3. list-sas, then rekey that one SA by unique id with reauth=yes
-//     (or initiate, if no SA exists yet)
+//     (or, if no SA exists yet, initiate once SetPSK has returned: see
+//     initiateAfterRotation)
 //  4. unload-shared the previous generation
 //  5. unload-shared the bootstrap credential, once
 //
@@ -375,25 +376,26 @@ func (r *Repository) SetPSK(psk []byte) error {
 	}
 	var reauthTarget string
 	deferInitiate := false
-	if r.cfg.DriveReauth && r.cfg.RetryReauthAfter > 0 {
-		// With the retry on, an initiation is not run in here: see
-		// initiateAfterRotation for why it would fail in a BACKUP interval.
+	if r.cfg.DriveReauth {
 		ids, err := r.saIDs(ctx, sess)
 		if err != nil {
 			return err
 		}
-		deferInitiate = len(ids) == 0
-	}
-	if r.cfg.DriveReauth && !deferInitiate {
-		target, err := r.reauthenticate(ctx, sess)
-		if err != nil {
-			// The new credential is loaded but unused. Leave it: the next
-			// rotation replaces it by id, and leaving it costs one entry rather
-			// than stranding the connection with no PPK at all.
-			return err
+		if len(ids) == 0 {
+			// No SA yet: initiate, but not in here. See initiateAfterRotation
+			// for why an initiation inside SetPSK fails in a BACKUP interval.
+			deferInitiate = true
+		} else {
+			target, err := r.reauthenticateAmong(ctx, sess, ids)
+			if err != nil {
+				// The new credential is loaded but unused. Leave it: the next
+				// rotation replaces it by id, and leaving it costs one entry
+				// rather than stranding the connection with no PPK at all.
+				return err
+			}
+			reauthTarget = target
 		}
-		reauthTarget = target
-	} else if !r.cfg.DriveReauth {
+	} else {
 		// Loaded, not driven. The peer that owns the SA will reauthenticate and
 		// this node answers that IKE_AUTH with the credential just installed.
 		log.Printf("[INFO] [VICI] PPK %s loaded; not reauthenticating (the peer "+
@@ -418,10 +420,8 @@ func (r *Repository) SetPSK(psk []byte) error {
 	log.Printf("[INFO] [VICI] PPK rotated (id=%s ppk_id=%s bytes=%d)",
 		next, r.cfg.PPKID, len(psk))
 
-	// Only after the rotation is complete: see confirmReauth and
-	// initiateAfterRotation. An empty target without a deferred initiation
-	// means this rotation initiated in place, and there is no older SA to
-	// compare against.
+	// Only after the rotation is complete: see initiateAfterRotation and
+	// confirmReauth.
 	switch {
 	case deferInitiate:
 		r.bg.Add(1)
@@ -619,6 +619,11 @@ func (r *Repository) reauthenticate(ctx context.Context, sess *vici.Session) (st
 	if err != nil {
 		return "", err
 	}
+	return r.reauthenticateAmong(ctx, sess, ids)
+}
+
+// reauthenticateAmong is reauthenticate on a list-sas result already read.
+func (r *Repository) reauthenticateAmong(ctx context.Context, sess *vici.Session, ids []string) (string, error) {
 	if len(ids) == 0 {
 		// No SA to reauthenticate. Bring one up instead: this node owns the
 		// lane, and the rotation loop is the only thing that runs periodically,
@@ -717,19 +722,27 @@ func (r *Repository) sendInitiate(ctx context.Context, sess *vici.Session) error
 	return checkSuccess(resp, "initiate")
 }
 
-// initiateAfterRotation is the deferred form of initiate, used when
-// RetryReauthAfter is set and no IKE_SA existed at the rotation.
+// initiateAfterRotation brings the tunnel up when no IKE_SA existed at the
+// rotation, after SetPSK has returned.
 //
-// initiate waits inside SetPSK for the IKE_AUTH outcome. When this node is
-// arnika's BACKUP that is certain to fail: the BACKUP ACKs only once SetPSK
-// returns, and the PRIMARY installs its key only on that ACK, so the
-// responder answers the IKE_AUTH with the key it had before -- AUTH_FAILED,
-// in every BACKUP interval until one where this node is PRIMARY. Started
-// after SetPSK has returned, the initiation runs while the ACK is already on
-// its way. It is retried once, a poll interval later, if it still fails.
+// initiate waits for the IKE_AUTH outcome, and run inside SetPSK it is
+// certain to fail whenever this node is arnika's BACKUP: the BACKUP ACKs only
+// once SetPSK returns, and the PRIMARY installs its key only on that ACK, so
+// the responder answers the IKE_AUTH with the key it had before --
+// AUTH_FAILED, in every BACKUP interval until one where this node is PRIMARY.
+// That is how a lane starting with alice as BACKUP lost its first intervals,
+// and why CI runs that started that way failed their auth-failure ceiling.
+// Started after SetPSK has returned, the initiation runs while the ACK is
+// already on its way. With RetryReauthAfter set it is retried once, a poll
+// interval later, if it still fails; otherwise the next rotation tries again,
+// as before.
 func (r *Repository) initiateAfterRotation(credID string, gen uint64) {
 	defer r.bg.Done()
-	for attempt := 1; attempt <= 2; attempt++ {
+	attempts := 1
+	if r.cfg.RetryReauthAfter > 0 {
+		attempts = 2
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
 		if r.latest.Load() != gen {
 			return
 		}
@@ -742,6 +755,9 @@ func (r *Repository) initiateAfterRotation(credID string, gen uint64) {
 		case err == nil:
 			log.Printf("[INFO] [VICI] retry with %s established %s", credID, r.cfg.ChildName)
 			return
+		case attempts == 1:
+			log.Printf("[WARN] [VICI] initiate %s after the rotation to %s failed: %v; PPK is "+
+				"loaded, retrying on the next rotation", r.cfg.ChildName, credID, err)
 		case attempt == 1:
 			log.Printf("[WARN] [VICI] initiation with %s did not establish (%v); retrying once",
 				credID, err)

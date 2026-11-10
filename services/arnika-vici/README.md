@@ -276,14 +276,19 @@ alone, and it stands down when a newer rotation has completed meanwhile. A peer
 that really holds a different key therefore costs two attempts per rotation,
 not a loop. The responder ignores the setting.
 
-The same setting moves the first initiation, when no IKE_SA exists yet, out of
-`SetPSK` as well. `initiate` waits for the IKE_AUTH outcome, so inside `SetPSK`
-in a BACKUP interval it is certain to fail: the ACK the responder's install
-waits for is sent only after `SetPSK` returns. Without the setting, a lane that
-starts with alice as BACKUP fails every initiation until her first PRIMARY
-interval -- a CI run on 2026-11-10 showed three BACKUP intervals, three
-AUTH_FAILED, and the SA in the fourth. With it, the initiation starts after
-`SetPSK` has returned and is retried once if it fails.
+With the setting, a first initiation that fails (below) is retried once as
+well.
+
+### The first IKE_SA
+
+When no IKE_SA exists yet, the initiator initiates after `SetPSK` has returned,
+not inside it. `initiate` waits for the IKE_AUTH outcome, so inside `SetPSK` in
+a BACKUP interval it was certain to fail: the ACK the responder's install waits
+for is sent only after `SetPSK` returns. A lane that started with alice as
+BACKUP failed every initiation until her first PRIMARY interval; three CI runs
+of 2026-11-10 showed three BACKUP intervals each, three AUTH_FAILED, and the SA
+in the fourth, which is over the IPsec job's 20 % ceiling. Started after
+`SetPSK` has returned, the initiation runs while the ACK is on its way.
 
 Off by default, and not set by any compose file in this repository: it is
 measured on a development host before anything else turns it on. The adapter
@@ -296,13 +301,12 @@ or `did not establish either` line for its outcome.
 2. `get-shared` to confirm it landed — `unload-shared` reports success for ids
    that never existed, so this is the only reliable existence check
 3. `list-sas`, then `rekey` **that one SA by unique id** with `reauth=yes`
-   (or `initiate`, if no SA exists yet)
+   (or, if no SA exists yet, `initiate` once `SetPSK` has returned)
 4. `unload-shared` the previous generation
 5. `unload-shared` the bootstrap credential, once
 6. only with `VICI_REAUTH_RETRY_AFTER` set, and after `SetPSK` has returned:
    confirm a newer ESTABLISHED IKE_SA, and reauthenticate once more if none
-   appeared; or, if step 3 found no SA, initiate here instead of in step 3,
-   and once more if that fails
+   appeared; or, if step 3 initiated, initiate once more if that failed
 
 Step 3 selects by `ike-id`, not by connection name. Selecting by connection name
 makes charon reauthenticate *every* SA on the connection, and since

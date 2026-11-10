@@ -697,6 +697,8 @@ func TestSetPSKInitiatesWhenNoSAExists(t *testing.T) {
 	if err := repo.SetPSK(psk32(0x07)); err != nil {
 		t.Fatalf("rotate with no SA must succeed, got: %v", err)
 	}
+	// The initiation runs after SetPSK returns (initiateAfterRotation).
+	repo.bg.Wait()
 
 	if n := len(f.callsTo("rekey")); n != 0 {
 		t.Errorf("got %d rekey calls, want 0 -- there is no SA to reauthenticate", n)
@@ -1116,15 +1118,26 @@ func indexOf(xs []string, x string) int {
 	return -1
 }
 
-func TestWithoutTheRetryTheInitiationIsInsideSetPSK(t *testing.T) {
-	// The default path, unchanged: initiate runs before SetPSK's last step.
-	// That is what fails in a BACKUP interval, and why the retry defers it.
+func TestTheInitiationRunsAfterSetPSKByDefault(t *testing.T) {
+	// Inside SetPSK, an initiation in a BACKUP interval always failed: the
+	// peer installs its key only on the ACK that SetPSK's return releases.
+	// So it runs after SetPSK's last step, with or without the retry.
 	f := newFakeVici(t)
 	f.saIDs = nil
 	rotateOnce(t, f, testConfig(f.path))
 	seq := order(f)
-	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < 0 || j < 0 || i > j {
-		t.Fatalf("want initiate before the bootstrap unload, got %v", seq)
+	if i, j := indexOf(seq, "initiate"), indexOf(seq, "unload-shared:ppk-qkd-bootstrap"); i < 0 || j < 0 || i < j {
+		t.Fatalf("want initiate after the bootstrap unload, got %v", seq)
+	}
+}
+
+func TestWithoutTheRetryAFailedInitiationWaitsForTheNextRotation(t *testing.T) {
+	f := newFakeVici(t)
+	f.saIDs = nil
+	f.initiateOutcomes = []string{"fail", "ok"}
+	rotateOnce(t, f, testConfig(f.path))
+	if n := len(f.callsTo("initiate")); n != 1 {
+		t.Fatalf("%d initiate calls, want 1 without RetryReauthAfter", n)
 	}
 }
 
