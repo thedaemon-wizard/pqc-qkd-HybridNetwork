@@ -20,6 +20,8 @@ const ROOT = join(SRC, "..", "..", "..");
 const PAGE = readFileSync(join(HERE, "ProtocolLab.tsx"), "utf8");
 const APP = readFileSync(join(SRC, "App.tsx"), "utf8");
 const SVG = readFileSync(join(SRC, "components", "TopologyPresetSvg.tsx"), "utf8");
+/** The pages that read the running stack; none may import the simulation. */
+const LIVE_STATE_PAGES = ["Topology", "Benchmarks", "VpnProtocols", "Console"];
 
 describe("the banner", () => {
   const banner = PAGE.slice(PAGE.indexOf('<div role="note"'), PAGE.indexOf("</div>", PAGE.indexOf('<div role="note"')));
@@ -64,8 +66,24 @@ describe("registration", () => {
   });
 
   it("keeps simulated values off the live-state pages", () => {
-    for (const f of ["Topology.tsx", "Benchmarks.tsx", "VpnProtocols.tsx", "Console.tsx"]) {
-      expect(readFileSync(join(HERE, f), "utf8"), f).not.toMatch(/protocolLab/);
+    for (const f of LIVE_STATE_PAGES) {
+      expect(readFileSync(join(HERE, `${f}.tsx`), "utf8"), f).not.toMatch(/protocolLab/);
     }
+  });
+});
+
+describe("the subtitle", () => {
+  // /e2e also runs in the browser, on stand-in keys, so sending the reader
+  // there for "the running stack" contradicted that page and this one.
+  it("names only live-state pages as the running stack", () => {
+    const start = PAGE.indexOf("subtitle={<>");
+    const subtitle = PAGE.slice(start, PAGE.indexOf("</>}", start)).replace(/\s+/g, " ");
+    const named = subtitle.match(/running stack on ([^,.]*)/);
+    expect(named, subtitle).not.toBeNull();
+    const routes = [...named![1].matchAll(/<code>(\/[\w-]*)<\/code>/g)].map((m) => m[1]);
+    const live = LIVE_STATE_PAGES.map((f) => APP.match(new RegExp(`<Route path="(/[\\w-]*)" element=\\{<${f} />\\}`))?.[1]);
+    expect(live).not.toContain(undefined);
+    expect(routes.length).toBeGreaterThan(0);
+    for (const r of routes) expect(live, r).toContain(r);
   });
 });
