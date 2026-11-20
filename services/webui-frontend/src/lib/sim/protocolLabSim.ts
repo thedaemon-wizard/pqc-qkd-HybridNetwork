@@ -93,6 +93,12 @@ export interface LinkState {
   storedKeys: number | null;
   fillToKeys: number | null;
   maxKeys: number | null;
+  /**
+   * keys accounting: how much of its next whole key the link has generated, 0
+   * up to 1, at its reported rate. null while it makes none: no rate, down, or
+   * paused with its store at pool_low_watermark.
+   */
+  nextKeyFraction: number | null;
   /** stores accounting */
   storedBits: number | null;
   thresholdBits: number | null;
@@ -127,6 +133,8 @@ export interface TickTrace {
   steps: TickStep[];
   /** What crossed the route this tick; null when nothing did. */
   relay: { nodes: string[]; linkIds: string[]; amount: string } | null;
+  /** The hop whose empty store held the relay up this tick, so that it relayed nothing; else null. */
+  waitingOn: string | null;
 }
 
 /**
@@ -298,6 +306,7 @@ export class ProtocolLabSim {
   private lastTick: TickTrace | null = null;
   private traceSteps: TickStep[] = [];
   private traceRelay: TickTrace["relay"] = null;
+  private traceWaitingOn: string | null = null;
 
   constructor(onState: (s: ProtocolLabState) => void,
               opts: { seeds?: RunSeeds; newKsid?: () => string; presetId?: string; paceMs?: number } = {}) {
@@ -480,7 +489,7 @@ export class ProtocolLabSim {
     this.route = null; this.routeNone = null; this.alternatives = []; this.rejected = [];
     this.reroutes = []; this.delivered = 0; this.unmet = 0; this.ok = 0; this.failed = 0;
     this.messages = []; this.history = []; this.pendingEvent = []; this.lastRelay = null;
-    this.lastTick = null; this.traceSteps = []; this.traceRelay = null;
+    this.lastTick = null; this.traceSteps = []; this.traceRelay = null; this.traceWaitingOn = null;
     this.lastStatus = null; this.lastTickStart = null;
     this.seeds.reset();
 
@@ -493,10 +502,12 @@ export class ProtocolLabSim {
         genBps,
         genNote: l.kind !== "qkd" ? "keystore hop (pre-shared keys, not live QKD): never routed"
           : genBps === null ? "no single reported rate: generates nothing here" : null,
-        storedKeys: null, fillToKeys: null, maxKeys: null, storedBits: null, thresholdBits: null,
+        storedKeys: null, fillToKeys: null, maxKeys: null, nextKeyFraction: null,
+        storedBits: null, thresholdBits: null,
       };
       if (this.accounting === "keys" && l.kind === "qkd") {
         st.storedKeys = 0; st.fillToKeys = LOW_WM; st.maxKeys = MAX_KEYS;
+        st.nextKeyFraction = genBps === null ? null : 0;
       }
       if (sc?.accounting === "stores") {
         const init = sc.stores[l.id];
@@ -543,6 +554,7 @@ export class ProtocolLabSim {
     let unmetNow = 0;
     this.traceSteps = [];
     this.traceRelay = null;
+    this.traceWaitingOn = null;
 
     if (this.accounting === "keys") {
       const made = this.generateKeys();
@@ -560,6 +572,9 @@ export class ProtocolLabSim {
         this.traceRelayOver(`${refill.relayed} key(s)`);
       } else if (refill.waiting) {
         this.traceStep("relay", "wait", refill.waiting);
+        // Only a relay that waited and moved nothing names its hop: a tick that
+        // relayed and then ran short is not waiting, and says "delivering".
+        this.traceWaitingOn = refill.waitingOn;
       } else if (!this.route || !established) {
         this.traceStep("relay", "fail", this.route ? "no stream to relay into" : "no route");
       } else {
@@ -655,7 +670,7 @@ export class ProtocolLabSim {
     };
     this.history.push(rec);
     if (this.history.length > HISTORY_LIMIT) this.history.shift();
-    this.lastTick = { tick: this.tickN, t_s: t, steps: this.traceSteps, relay: this.traceRelay };
+    this.lastTick = { tick: this.tickN, t_s: t, steps: this.traceSteps, relay: this.traceRelay, waitingOn: this.traceWaitingOn };
 
     // The cited SECOQC run ends when no route is left: halt there, the way
     // PaperSim reports a halted run.
@@ -682,14 +697,18 @@ export class ProtocolLabSim {
     let keys = 0;
     let links = 0;
     for (const l of this.links) {
-      if (l.kind !== "qkd" || l.down || l.genBps === null || l.storedKeys === null) continue;
+      if (l.kind !== "qkd" || l.down || l.genBps === null || l.storedKeys === null) {
+        if (l.storedKeys !== null) l.nextKeyFraction = null;
+        continue;
+      }
       // KeyPool's producer gate: production runs only below the low watermark
       // (services/bb84-kme/app/keypool.py), so credit does not bank while full.
-      if (l.storedKeys >= LOW_WM) { this.credit.set(l.id, 0); continue; }
+      if (l.storedKeys >= LOW_WM) { this.credit.set(l.id, 0); l.nextKeyFraction = null; continue; }
       const c = (this.credit.get(l.id) ?? 0) + (l.genBps * this.tickS) / KEY_BITS;
       const made = Math.min(Math.floor(c), LOW_WM - l.storedKeys, MAX_KEYS - l.storedKeys);
       l.storedKeys += made;
       this.credit.set(l.id, l.storedKeys >= LOW_WM ? 0 : c - made);
+      l.nextKeyFraction = l.storedKeys >= LOW_WM ? null : c - made;
       if (made > 0) { keys += made; links += 1; }
     }
     return { keys, links };
@@ -707,16 +726,18 @@ export class ProtocolLabSim {
   }
 
   /** Relay keys into the 004 stream until it holds pool_low_watermark undelivered chunks. */
-  private refillStream(): { relayed: number; waiting: string | null } {
-    if (this.ksid === null || !this.km.isEstablished(this.ksid) || !this.route) return { relayed: 0, waiting: null };
+  private refillStream(): { relayed: number; waiting: string | null; waitingOn: string | null } {
+    if (this.ksid === null || !this.km.isEstablished(this.ksid) || !this.route) return { relayed: 0, waiting: null, waitingOn: null };
     let relayed = 0;
     let waiting: string | null = null;
+    let waitingOn: string | null = null;
     while (this.km.undelivered(this.ksid, "A") < LOW_WM) {
       this.chooseRoute();
       if (!this.route) break;
       if ((this.route.bottleneckBits ?? 0) < KEY_BITS) {
         const empty = this.route.linkIds.find((id) => (this.links.find((x) => x.id === id)!.storedKeys ?? 0) < 1);
         waiting = `waiting for key on ${empty}`;
+        waitingOn = empty ?? null;
         break;
       }
       for (const id of this.route.linkIds) {
@@ -735,7 +756,7 @@ export class ProtocolLabSim {
     } else if (this.route === null && this.routeNone) {
       this.log("014", `no relay: ${this.routeNone} (a KME with an empty pool answers enc_keys with HTTP ${ETSI014_THIS_REPO.http.poolEmpty})`);
     }
-    return { relayed, waiting };
+    return { relayed, waiting, waitingOn };
   }
 
   private consumeStream(): { delivered: number; unmet: number; requested: number; served: number; why: string | null } {

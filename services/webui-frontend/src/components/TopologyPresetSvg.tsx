@@ -5,7 +5,7 @@ import type { RouteChoice } from "../lib/sim/protocolLab/routing";
 import type { Accounting, LinkState } from "../lib/sim/protocolLabSim";
 import {
   BAND_LINE_PX, COMPACT_BAND_LINE_PX, COMPACT_LABEL_FONT_PX, DOWN_MARK, EDGE_FONT_PX, EDGE_GAUGE_H,
-  LABEL_FONT_PX, bandHeight, linkEnds, nodeBox, placeEdgeLabels, storeFill,
+  LABEL_FONT_PX, bandHeight, linkEnds, nodeBox, placeEdgeLabels, storeFill, waitingKeyFill,
 } from "../lib/sim/protocolLab/view";
 
 /**
@@ -28,7 +28,7 @@ import {
 export default function TopologyPresetSvg({
   preset, links, route, downNodes, accounting, scaleBits = null, compact = false,
   demand, previousLinks = [], atNode = null, arrived = false, noRoute = false,
-  packetRef, packetLabel = null, band = [],
+  packetRef, packetLabel = null, band = [], waitingOn = null,
 }: {
   preset: TopologyPreset;
   links: LinkState[];
@@ -51,6 +51,8 @@ export default function TopologyPresetSvg({
   packetLabel?: string | null;
   /** The lines of the band under the network. */
   band?: string[];
+  /** The hop the relay waited on in the tick drawn: its plate is outlined amber and its bar is its next key. */
+  waitingOn?: string | null;
 }) {
   const [W, H] = preset.viewBox;
   const places = useMemo(() => placeEdgeLabels(preset), [preset]);
@@ -89,13 +91,16 @@ export default function TopologyPresetSvg({
       {!compact && preset.links.map((l) => {
         const p = places.get(l.id)!;
         const s = state(l.id);
-        const fill = s && accounting ? storeFill(s, accounting, scaleBits) : null;
+        const waits = waitingOn === l.id && !s?.down;
+        const waitFill = waits && s && accounting ? waitingKeyFill(s, accounting) : null;
+        const fill = waitFill ?? (s && accounting ? storeFill(s, accounting, scaleBits) : null);
         const textY = p.cy + EDGE_FONT_PX / 3 - (fill === null ? 0 : EDGE_GAUGE_H / 2);
         const gaugeW = p.w - 8;
         return (
           <g key={l.id}>
             <rect x={p.x} y={p.y} width={p.w} height={p.h} rx={3} fill={colors.panelDark}
-                  stroke={s?.down ? colors.danger : colors.border} strokeWidth={0.75} />
+                  stroke={s?.down ? colors.danger : waits ? colors.warn : colors.border}
+                  strokeWidth={waits ? 1.75 : 0.75} />
             <text x={p.cx} y={textY} textAnchor="middle" fontSize={EDGE_FONT_PX}
                   fill={s?.down ? colors.danger : colors.textSec}>
               {s?.down ? DOWN_MARK : ""}{p.text}
@@ -105,7 +110,8 @@ export default function TopologyPresetSvg({
                 <rect x={p.x + 4} y={p.y + p.h - EDGE_GAUGE_H - 1} width={gaugeW} height={EDGE_GAUGE_H}
                       fill={colors.border} />
                 <rect x={p.x + 4} y={p.y + p.h - EDGE_GAUGE_H - 1} width={gaugeW * fill} height={EDGE_GAUGE_H}
-                      fill={s?.down ? colors.danger : colors.qkd} />
+                      fill={s?.down ? colors.danger : waitFill !== null ? colors.warn : colors.qkd}
+                      data-next-key={waitFill !== null ? l.id : undefined} />
               </g>
             )}
           </g>

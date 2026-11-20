@@ -16,9 +16,10 @@ import { formatRate, formatReported } from "../lib/formatRate";
 import { narrowColumns, useNarrowLayout } from "../lib/layout";
 import {
   DEFAULT_PRESET_ID, presetById, quantityValue, scenarioById,
-  type FailureTarget, type Quantity,
+  type FailureTarget, type Quantity, type TopologyPreset as TopologyPresetT,
 } from "../lib/sim/protocolLab/publishedNetworks";
 import { MODEL_LABEL, modelRateFor } from "../lib/sim/protocolLab/rates";
+import { routeSupply } from "../lib/sim/protocolLab/view";
 import {
   DEFAULT_PACE_MS, ProtocolLabSim, TICK_PACES, protocolLabCsvRows, type ProtocolLabState,
 } from "../lib/sim/protocolLabSim";
@@ -57,6 +58,18 @@ const NARROW_LINKS_TABLE_MIN_PX = 800;
  * gauges are as before.
  */
 const NARROW_GAUGE_TEXT: CSSProperties = { overflowWrap: "anywhere" };
+
+/** The route's supply, beside the request rate set on this page (view.ts, routeSupply). */
+function RouteSupply({ state, preset }: { state: ProtocolLabState; preset: TopologyPresetT }) {
+  const r = routeSupply(preset, state);
+  if (!r) return null;
+  return (
+    <div style={{ fontSize: 12, color: colors.textSec, marginTop: 6 }}>
+      <b>Supply:</b> this route's slowest hop, {r.hop}, reports {r.reported}; at that rate it makes {r.supply} (derived,
+      at {state.key_bits} bits per key from this project's config).
+    </div>
+  );
+}
 
 export default function ProtocolLab() {
   const narrow = useNarrowLayout();
@@ -179,6 +192,7 @@ export default function ProtocolLab() {
             <span style={{ color: colors.textMute }}>set on this page; not from the source</span>
           </div>
         )}
+        {state && !scenario && state.accounting === "keys" && <RouteSupply state={state} preset={preset} />}
         <div style={{ fontSize: 12, color: colors.textSec, marginTop: 8 }}>
           <b>Counting:</b> {state?.accounting ?? "..."} -- {state?.accounting_why}
         </div>

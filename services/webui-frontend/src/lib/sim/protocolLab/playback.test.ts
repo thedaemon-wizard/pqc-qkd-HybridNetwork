@@ -13,7 +13,7 @@ import {
 
 const preset = presetById("tokyo-2010");
 const trace = (relay: TickTrace["relay"]): TickTrace => ({
-  tick: 1, t_s: 1, relay,
+  tick: 1, t_s: 1, relay, waitingOn: null,
   steps: [
     { id: "generate", outcome: "ok", detail: "" },
     { id: "route", outcome: "ok", detail: "" },

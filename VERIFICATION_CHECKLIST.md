@@ -20,7 +20,7 @@ NIST ACVP-Server commit `15c0f3de`.
 
 ## Where the work is
 
-316 rows, of which **147 are machine-checked and 169 are not**. Worth knowing
+319 rows, of which **150 are machine-checked and 169 are not**. Worth knowing
 before planning a release, because the manual share is not evenly spread:
 
 | § | Section | Rows | Automated | Manual |
@@ -28,7 +28,7 @@ before planning a release, because the manual share is not evenly spread:
 | 1 | Build and unit gates | 26 | **26** | 0 |
 | 2 | IPsec lane | 18 | **10** | 8 |
 | 3 | WireGuard lane | 8 | 2 | **6** |
-| 4 | Browser, every page | **203** | 74 | **129** |
+| 4 | Browser, every page | **206** | 77 | **129** |
 | 5 | Code quality | 13 | 4 | **9** |
 | 6 | Release | 23 | **12** | 11 |
 | 7 | Documentation | 25 | **19** | 6 |
@@ -362,6 +362,9 @@ change to the page and replace the dated result.
 | 4.4c.19 | **A tick plays back as what it did** | Press Step or Run at Normal or Slow: the parts of the tick light in order and each shows its outcome only once reached (done, waiting, failed or nothing due, in words as well as colours); the key crosses the route hop by hop, in amber at a trusted node (`key in the clear`), never at an endpoint. Fast (0.3 s per tick) lights no part and moves only the key. MadQCI (route-only accounting) moves no key, because nothing is counted there. **Pause freezes the picture**, where it stands, with the outcome shown. `npx vitest run src/lib/sim/protocolLab/playback.test.ts src/lib/sim/protocolLabTickTrace.test.ts src/components/topologyDrawsWhatCanBeRead.test.ts` -> passes, including that each mode runs exactly its parts in order and that the speed changes nothing the engine computes. **Seen in the browser 2026-11-06** on SECOQC and Tokyo at Slow: `key ⊕ pad 1` crossing a link with part 3 lit. |
 | 4.4c.20 | **State changes without a moving picture** | Fail a link on the active route while running: the link turns red with a cross in its caption, the key stops, the route just left stays in amber dashes for 2.5 s, the Route line (a `role="status"`) names the new route and the reason, and the history bar gains a white mark. With no way through, `NO ROUTE` appears on the drawing and the bar turns red. With the browser's reduced-motion setting on, the key and the stage sweep stay still and every outcome shows at once. |
 | 4.4c.21 | **An export says what it is** | The PNG, each WebM frame and each GIF frame carry the band under the network: "Simulation, not the running stack", the simulated time, the run state, the service state and the route. Thuringia's band adds that the paper relays no key, and the same sentence is under the drawing. Read one exported frame. **Measured on the deployed build 2026-11-06** (bundle `index-lYr_fJIL.js`, matching the origin per 4.8.18): the PNG and the GIF carry the band; Thuringia's says the paper relays no key. |
+| 4.4c.22 | **A slow route says what it waits for** | Thuringia, free play, Step seven times: the SND-ERF caption is outlined amber, its bar is 34 % full, and the band reads `t = 7 s; stepped; waiting for key on SND-ERF (next key 34 %)` (SND-ERF reports 12.7 bit/s and a key is 256 bits, so 7 x 12.7 / 256). At tick 21 a key crosses and the outline goes: a tick that relays is not waiting, even if it ran short afterwards. Under the network selects: `Supply: this route's slowest hop, SND-ERF, reports average 12.7 ± 10.3 bps; at that rate it makes one 256-bit key about every 20 s`, so the page's default of one request a second waits on 115 of the first 120 ticks. On Cambridge, SECOQC and Tokyo no caption is outlined (every tick relays). `npx vitest run src/components/protocolLabShowsTheWait.test.ts` -> passes. **Measured in the dev server 2026-11-20** (Chrome): at tick 9 the band read `next key 44 %` and the bar was 44 % full. |
+| 4.4c.23 | **Route only says so in the drawing** | MadQCI: the band's first line reads `Simulation, not the running stack. Route only: no rate is bound to a span, so no key is drawn.`, the note under the drawing adds that the green line is the route chosen from the spans that are up and that a failure shows it change, and the legend has no key, no bar and no latency line, because none is drawn. `npx vitest run src/components/protocolLabShowsTheWait.test.ts` -> passes: it holds the band and the legend's conditions. **Measured in the dev server 2026-11-20** (Chrome). |
+| 4.4c.24 | **Changing the network while a tick plays keeps the page** | Run Cambridge, and while the band reads `now 2 of 5` or later, choose MadQCI: the page draws MadQCI. Before the fix this showed `This page failed to render` and `Cannot read properties of undefined (reading 'label')`: the band looked up MadQCI's one-part tick by Cambridge's part (reproduced on the deployed build 2026-11-20). `npx vitest run src/components/protocolLabShowsTheWait.test.ts` -> passes: it replays parts 2, 3 and 5 on MadQCI and fails with the old lookup. **Measured in the dev server 2026-11-20** (Chrome): three switches at `now 4 of 5`, no failure. |
 
 ### 4.4d Physics parameters (`/physics`)
 
