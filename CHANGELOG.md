@@ -106,6 +106,23 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Security
 
+- The public site sends `Strict-Transport-Security` (one year, this host only),
+  `X-Content-Type-Options: nosniff` and an enforced `Content-Security-Policy`,
+  next to the `Server` deletion, in one deferred `header` block of the
+  `Caddyfile`, so proxied responses carry them too. The policy allows only this
+  origin, plus `'wasm-unsafe-eval'` for the BB84 kernel, the hash of the one
+  inline `<style>` in `index.html`, and `data:`/`blob:` images for the exporters;
+  no `'unsafe-inline'`, no `'unsafe-eval'`. It ran report-only first: the only
+  reports, on every route, were the two `<style>`s the bundled plotly.js inserts,
+  which two markers in `index.html` now stop (`plotly.css` is imported as a file
+  instead; no chart here is a map). `scripts/csp_smoke.py` loads every route of
+  the build under the policy in headless Chrome and fails on a violation or an
+  empty page, and CI runs it and shows it failing on a policy without the style
+  hash; `scripts/check-public-headers.sh`, check 11 of
+  `scripts/verify-demo-hardening.sh`, compares what a deployment sends with the
+  `Caddyfile`. Both deploy scripts now recreate caddy after `up`, because a
+  running container keeps reading a replaced single-file bind mount.
+
 - On the public host nothing that answers the internet shares a network with the
   KMEs, whose key API, `/internal/sync` and simulator controls have no
   authentication. The KMEs and `pqc-validator` are off `mgmt-net`, the network
