@@ -3,7 +3,8 @@
  * component so they can be tested without a DOM.
  */
 import type { PresetLink, PresetNode, TopologyPreset } from "./publishedNetworks";
-import type { Accounting, LinkState } from "../protocolLabSim";
+import { formatReported } from "../../formatRate";
+import type { Accounting, LinkState, ProtocolLabState } from "../protocolLabSim";
 
 /** Monospace-ish estimate: the label font is 12 px, about 7.2 px per glyph. */
 export const LABEL_FONT_PX = 12;
@@ -192,6 +193,18 @@ export function storeFill(l: LinkState, accounting: Accounting, scaleBits: numbe
 }
 
 /**
+ * The bar of the hop the relay waits on: how much of its next key it has made.
+ * That hop's store is empty -- that is why the relay waits -- so its bar shows
+ * the one key it is making, full width for a whole key, and fills tick by tick
+ * at the reported rate until the key is relayed. null outside keys accounting
+ * and while the link makes nothing.
+ */
+export function waitingKeyFill(l: LinkState, accounting: Accounting): number | null {
+  if (accounting !== "keys" || l.nextKeyFraction === null) return null;
+  return Math.max(0, Math.min(1, l.nextKeyFraction));
+}
+
+/**
  * Where a link's line starts and ends: on the border of each node's box, along
  * the line between the two centres (checklist row 4.2.6). Under an opaque box a
  * line to the centre looks the same on the page, but it is not what an export
@@ -216,4 +229,28 @@ export const BAND_LINE_PX = 13;
 export const COMPACT_BAND_LINE_PX = 22;
 export function bandHeight(lines: number, compact: boolean): number {
   return lines * (compact ? COMPACT_BAND_LINE_PX : BAND_LINE_PX) + 8;
+}
+
+/**
+ * What the current route can supply in keys accounting: its slowest hop, that
+ * hop's rate as the source printed it, and how often that rate makes one key
+ * of this project's size. Derived, not measured; null without a route or a
+ * rate. Shown so that a request rate the route cannot meet reads as that and
+ * not as a stalled page: Thuringia's slowest hop makes one key about every 20 s.
+ */
+export function routeSupply(
+  preset: TopologyPreset,
+  state: Pick<ProtocolLabState, "accounting" | "route" | "links" | "key_bits">,
+): { hop: string; reported: string; supply: string } | null {
+  const bps = state.route?.bottleneckBps ?? null;
+  if (state.accounting !== "keys" || !state.route || bps === null || !(bps > 0)) return null;
+  const slow = state.route.linkIds.map((id) => state.links.find((l) => l.id === id)).find((l) => l?.genBps === bps);
+  if (!slow) return null;
+  const perS = bps / state.key_bits;
+  const sig = (x: number) => Number(x.toPrecision(2));
+  return {
+    hop: slow.id,
+    reported: formatReported(preset.links.find((l) => l.id === slow.id)?.rate ?? null),
+    supply: perS >= 1 ? `about ${sig(perS)} keys/s` : `one ${state.key_bits}-bit key about every ${sig(1 / perS)} s`,
+  };
 }

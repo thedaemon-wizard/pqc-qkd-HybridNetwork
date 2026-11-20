@@ -14,6 +14,8 @@ import TopologyPresetSvg from "./TopologyPresetSvg";
 const PREVIOUS_ROUTE_MS = 2500;
 /** Below this time per hop a moving caption cannot be read, so it is left out. */
 const CAPTION_MIN_HOP_MS = 300;
+/** Said in the band under a network whose accounting moves no key. */
+export const ROUTE_ONLY_NOTE = "Route only: no rate is bound to a span, so no key is drawn.";
 /**
  * Keeps the drawing and the buttons above it on one screen, as a width so that
  * the drawing keeps its proportions. A height on the SVG itself would go out with
@@ -23,6 +25,36 @@ const DRAWING_MAX_VH = 58;
 
 interface View { stepIndex: number | null; hop: number | null; atNode: string | null; arrived: boolean }
 const AT_REST: View = { stepIndex: null, hop: null, atNode: null, arrived: false };
+
+/**
+ * The band under the network, as lines: what the drawing is, the run's state
+ * and the route. Pure, so it can be tested with the step a re-render may still
+ * carry from the previous network: a step past this network's pipeline -- the
+ * route-only one has a single part -- adds no "now" part. Indexing past the end
+ * threw, and the page failed to render when the network was changed while a
+ * tick was playing (measured on the deployed build 2026-11-20).
+ */
+export function topologyBand(preset: TopologyPreset, state: ProtocolLabState, stepIndex: number | null,
+                             compact: boolean): string[] {
+  const pipeline = TICK_PIPELINE[state.accounting];
+  const step = stepIndex === null ? undefined : pipeline[stepIndex];
+  const now = step && stepIndex !== null ? `; now ${stepIndex + 1} of ${pipeline.length}, ${step.label}` : "";
+  const waitingOn = state.last_tick?.waitingOn ?? null;
+  const waiting = waitingOn ? state.links.find((l) => l.id === waitingOn) : undefined;
+  // Floor, so a key that is not yet whole never reads as 100 %.
+  const waitText = !waitingOn ? ""
+    : compact || waiting?.nextKeyFraction == null ? ` on ${waitingOn}`
+    : ` on ${waitingOn} (next key ${Math.floor(waiting.nextKeyFraction * 100)} %)`;
+  const notes = compact ? "" : [
+    state.accounting === "route-only" ? ROUTE_ONLY_NOTE : "",
+    preset.drawingNote ?? "",
+  ].filter(Boolean).map((n) => ` ${n}`).join("");
+  return [
+    `Simulation, not the running stack.${notes}`,
+    `t = ${state.sim_time_s} s; ${state.status}; ${serviceState(state).label}${waitText}${compact ? "" : now}`,
+    ...(compact ? [] : [`Route: ${state.route ? state.route.nodes.join(" > ") : "none"}`]),
+  ];
+}
 
 /**
  * The topology and the status strip, played back tick by tick.
@@ -124,13 +156,12 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
     : view.arrived ? "key recovered"
     : hopMs >= CAPTION_MIN_HOP_MS || state.status !== "running" ? `key ⊕ pad ${view.hop + 1}` : null;
 
-  const pipeline = TICK_PIPELINE[state.accounting];
-  const now = view.stepIndex === null ? "" : `; now ${view.stepIndex + 1} of ${pipeline.length}, ${pipeline[view.stepIndex].label}`;
-  const band = [
-    `Simulation, not the running stack.${preset.drawingNote && !compact ? ` ${preset.drawingNote}` : ""}`,
-    `t = ${state.sim_time_s} s; ${state.status}; ${serviceState(state).label}${compact ? "" : now}`,
-    ...(compact ? [] : [`Route: ${state.route ? state.route.nodes.join(" > ") : "none"}`]),
-  ];
+  const band = topologyBand(preset, state, view.stepIndex, compact);
+  // A re-render can still carry the last network's step for a moment after the
+  // network changes; past the new pipeline's end it marks nothing.
+  const stepShown = view.stepIndex !== null && view.stepIndex < TICK_PIPELINE[state.accounting].length ? view.stepIndex : null;
+  const routeOnly = state.accounting === "route-only";
+  const hasBars = state.accounting === "keys" || state.accounting === "stores";
   const [W, H] = preset.viewBox;
   const aspect = W / (H + bandHeight(band.length, compact));
 
@@ -142,27 +173,36 @@ export default function LiveTopology({ preset, state, compact, scaleBits }: {
                            demand={{ from: state.demand.from, to: state.demand.to }}
                            previousLinks={leftBehind} atNode={view.atNode} arrived={view.arrived}
                            noRoute={state.route === null && state.last_tick !== null}
-                           packetRef={packet} packetLabel={packetLabel} band={band} />
+                           packetRef={packet} packetLabel={packetLabel} band={band}
+                           waitingOn={trace?.waitingOn ?? null} />
       </div>
       {preset.drawingNote && (
         <div style={{ fontSize: 12, color: colors.warn, marginTop: 4 }}>{preset.drawingNote}</div>
       )}
+      {routeOnly && (
+        <div style={{ fontSize: 12, color: colors.warn, marginTop: 4 }}>
+          {ROUTE_ONLY_NOTE} Nothing is generated or relayed here; the green line is the route chosen
+          from the spans that are up. Inject a failure to see it change.
+        </div>
+      )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: colors.textMute, marginTop: 4 }}>
-        <span><Dot color={colors.accent} /> key crossing a link under that hop's pad</span>
-        <span><Dot color={colors.warn} /> key in the clear at a trusted node</span>
+        {/* Only what this accounting draws: under route-only no key moves and no bar is drawn. */}
+        {!routeOnly && <span><Dot color={colors.accent} /> key crossing a link under that hop's pad</span>}
+        {!routeOnly && <span><Dot color={colors.warn} /> key in the clear at a trusted node</span>}
         <span style={{ color: colors.success }}>green line: active route</span>
         <span style={{ color: colors.warn }}>amber dashes: route just left</span>
         <span style={{ color: colors.danger }}>red dashes: down</span>
-        {!compact && <span style={{ color: colors.qkd }}>bar under a caption: that link's key store</span>}
+        {!compact && hasBars && <span style={{ color: colors.qkd }}>bar under a caption: that link's key store</span>}
+        {!compact && state.accounting === "keys" && <span style={{ color: colors.warn }}>amber caption: the hop the relay waits on; its bar is the key it is making</span>}
         <span>green box: demand endpoints</span>
-        <span>The time a key takes on screen is not a latency.</span>
+        {!routeOnly && <span>The time a key takes on screen is not a latency.</span>}
       </div>
       {compact && (
         <div style={{ fontSize: 11, color: colors.textMute, marginTop: 4 }}>
           Link lengths and losses do not fit at this width: they are in "Links as published" below.
         </div>
       )}
-      <RunStatusStrip state={state} stepIndex={view.stepIndex} routeJustChanged={leftBehind.length > 0} />
+      <RunStatusStrip state={state} stepIndex={stepShown} routeJustChanged={leftBehind.length > 0} />
     </>
   );
 }

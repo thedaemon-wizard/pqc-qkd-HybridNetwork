@@ -13,6 +13,16 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `/protocol-lab` shows what a slow route is waiting for. The hop whose empty store
+  holds the relay up is outlined amber, its bar fills as that hop makes its next key
+  at the reported rate, and the band under the drawing says it: `waiting for key on
+  SND-ERF (next key 34 %)`. In free play a supply line names the route's slowest hop,
+  its rate as printed and how often that rate makes one 256-bit key: on Thuringia,
+  one about every 20 s, against the page's default of one request a second, so 115
+  of the first 120 ticks wait.
+- Under route-only accounting (MadQCI) the band and a note under the drawing say that
+  no rate is bound to a span, so no key is drawn, and that a failure shows the route
+  change. The legend lists only what the accounting draws.
 - `VICI_REAUTH_RETRY_AFTER`, off unless set: the IPsec initiator's VICI writer
   confirms after each rotation that a newer IKE_SA reached ESTABLISHED within that
   time, and reauthenticates once more if none did. It targets the remaining
@@ -149,6 +159,11 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Fixed
 
+- `/protocol-lab` no longer fails to render when the network is changed while a tick
+  is playing. The band looked up the new network's tick by the part the old one had
+  reached, and MadQCI's tick has one part: switching from Cambridge at `now 2 of 5`
+  showed "This page failed to render" (reproduced on the deployed build,
+  2026-11-20). A part past the new tick's end is now left out of the band.
 - `/protocol-lab`'s subtitle sent the reader to `/e2e` for "the running stack", but
   `/e2e` also runs in the browser, on stand-in keys, and says so. It now names
   `/vpn` and `/topology`, which read the stack, and a test holds the subtitle to the
