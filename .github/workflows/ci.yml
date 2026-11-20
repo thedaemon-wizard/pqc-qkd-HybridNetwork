@@ -175,6 +175,27 @@ jobs:
         run: npx vite build
         working-directory: services/webui-frontend
 
+      # The demo enforces the Content-Security-Policy in deploy/Caddyfile. Load
+      # every route of this build under it in headless Chrome (the runner image
+      # ships Google Chrome); a CSP violation, or a route that renders nothing
+      # into #root, fails the job (VERIFICATION_CHECKLIST row 1.27). A new
+      # dependency that inserts an inline <style> or evaluates a string shows
+      # up here, not on the demo. --no-sandbox is for CI only, so the check
+      # does not depend on the runner allowing Chrome's sandbox; the page it
+      # opens is this build, served from 127.0.0.1.
+      - name: Every route loads under the Content-Security-Policy
+        run: python3 scripts/csp_smoke.py --no-sandbox
+
+      # ... and that gate can fail. Without the inline-style hash the policy
+      # refuses index.html's <style> on every route, so the check must exit 1:
+      # not 0, and not 2, which would mean it did not run at all.
+      - name: The CSP gate fails on a policy without the style hash
+        run: |
+          set +e
+          python3 scripts/csp_smoke.py --no-sandbox --policy "default-src 'self'"
+          rc=$?
+          test "$rc" -eq 1 || { echo "::error::expected exit 1 from the broken policy, got $rc"; exit 1; }
+
   go:
     name: arnika VICI adapter — vet, build, test
     runs-on: ubuntu-24.04

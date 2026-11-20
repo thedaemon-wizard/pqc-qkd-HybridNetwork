@@ -161,6 +161,18 @@ To confirm the update landed, check that the served bundle hash changed:
 curl -s https://$PUBLIC_HOST/ | grep -o '/assets/index-[^."]*'
 ```
 
+The response headers come from the `Caddyfile`: `Strict-Transport-Security`
+(one year, this host only), `X-Content-Type-Options: nosniff` and an enforced
+`Content-Security-Policy`. Caddy reads the file through a single-file bind
+mount, and git replaces the file rather than editing it, so a running caddy
+container keeps the old one; both scripts therefore recreate caddy after
+starting the stack. Check from outside that what the site sends matches the
+file (row 4.8.25 of the verification checklist):
+
+```sh
+sh scripts/check-public-headers.sh https://$PUBLIC_HOST
+```
+
 ## The firewall step
 
 Both scripts **add** UFW rules for the SSH port(s) `sshd -T` reports, 80/tcp,

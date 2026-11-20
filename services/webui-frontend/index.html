@@ -10,6 +10,19 @@
     </style>
   </head>
   <body>
+    <!--
+      Two markers for the Content-Security-Policy in deploy/Caddyfile, which
+      allows no inline <style> but the one above (by its hash). Without them the
+      bundled plotly.js inserts two <style> elements at start-up:
+        - its own rules, unless an element with this id and class exists
+          (plotly.js lib/dom.js); src/main.tsx imports dist/plotly.css instead;
+        - maplibre-gl's stylesheet, unless an element with this id exists. No
+          chart here is a map, so nothing needs those rules.
+      src/cspMarkers.test.ts reads the second id out of plotly.js, so an upgrade
+      that changes it fails the tests instead of the policy.
+    -->
+    <div id="plotly.js-style-global" class="no-inline-styles" hidden></div>
+    <div id="9f215cf04c5486422605d13261cb87401f4e7763b6296af81e98efbc0130da53" hidden></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

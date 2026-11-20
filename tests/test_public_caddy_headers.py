@@ -1,4 +1,4 @@
-"""The public Caddy site sends HSTS, nosniff and a report-only CSP, and drops nginx's Server header.
+"""The public Caddy site sends HSTS, nosniff and an enforced CSP, and drops nginx's Server header.
 
 All four are in one `header` block of the public site in deploy/Caddyfile.
 Because the block deletes a field, Caddy defers every operation in it until the
@@ -11,13 +11,14 @@ the block is checked as a whole.
 HSTS is for this hostname only and for one year: no includeSubDomains, no
 preload (RFC 6797; sending max-age=0 undoes it).
 
-The Content-Security-Policy is report-only: it blocks nothing, and the browser
-console names what an enforced copy would refuse. The checks below keep the
-candidate honest while it is being tried: every source is 'self' or a scheme the
-exporters need, the two exceptions stay tied to the code that needs them (the
-WebAssembly kernel, the one <style> block of index.html), and it carries neither
-'unsafe-inline' nor 'unsafe-eval'. Enforcing it is a separate change that renames
-the header, and the first test fails until that change says so.
+The Content-Security-Policy is enforced. It was sent report-only first (PR
+#148); on every route the only reports were two <style>s that plotly.js inserts,
+which two markers in index.html now stop (src/cspMarkers.test.ts). The checks
+below keep the policy narrow: every source is 'self' or a scheme the exporters
+need, the two exceptions stay tied to the code that needs them (the WebAssembly
+kernel, the one <style> block of index.html), it carries neither 'unsafe-inline'
+nor 'unsafe-eval', and no report-only copy is left beside it. Whether a browser
+then loads every route under it is scripts/csp_smoke.py, in CI's frontend job.
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SITE_OPENER = "{$PUBLIC_HOST} {"
-CSP_RO = "Content-Security-Policy-Report-Only"
+CSP = "Content-Security-Policy"
 
 
 def _public_site_lines() -> list[str]:
@@ -61,7 +62,7 @@ def _field(name: str) -> str:
 
 def _csp() -> dict[str, list[str]]:
     directives = {}
-    for part in _field(CSP_RO).split(";"):
+    for part in _field(CSP).split(";"):
         words = part.split()
         if words:
             assert words[0] not in directives, f"{words[0]} given twice"
@@ -79,7 +80,7 @@ def test_one_header_block_with_these_four_operations():
         "-Server",
         "Strict-Transport-Security",
         "X-Content-Type-Options",
-        CSP_RO,
+        CSP,
     ]
     assert _field("X-Content-Type-Options") == "nosniff"
 
@@ -124,3 +125,19 @@ def test_style_hash_is_the_one_inline_style_block_of_index_html():
 def test_the_site_still_proxies_only_to_the_frontend():
     site = _public_site_lines()
     assert [ln for ln in site if ln.startswith("reverse_proxy")] == ["reverse_proxy webui-frontend:80"]
+
+
+def test_the_deploy_scripts_recreate_caddy_after_starting_the_stack():
+    """A pulled Caddyfile takes effect only in a new caddy container.
+
+    The Caddyfile is a single-file bind mount; git replaces the file, so a
+    running container keeps the old inode, and `up -d --build` leaves caddy
+    alone because neither its image nor its definition changed. Measured
+    2026-11-20 on the public host: after a fast-forward, the running container
+    still read the old Caddyfile until it was recreated.
+    """
+    for name in ("deploy.sh", "deploy-demo.sh"):
+        src = (REPO / "deploy" / name).read_text()
+        up = src.index("up -d --build")
+        assert "up -d --no-deps --force-recreate caddy" in src[up:], (
+            f"deploy/{name} no longer recreates caddy after `up -d --build`")

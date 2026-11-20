@@ -237,5 +237,17 @@ case "$code" in
        fail=1 ;;
 esac
 
+# ---- 11) the response headers deploy/Caddyfile sends ---------------------
+# HSTS, nosniff and the enforced Content-Security-Policy come from the public
+# Caddy, so a deploy that did not recreate the caddy container still serves
+# every page, with the old headers. check-public-headers.sh compares what the
+# root sends with the Caddyfile; its exit status decides this check.
+if sh "$(dirname "$0")/check-public-headers.sh" "$BASE"; then
+    say "response headers match deploy/Caddyfile" "ok"
+else
+    echo "::error::the response headers differ from deploy/Caddyfile (above)"
+    fail=1
+fi
+
 [ "$fail" -eq 0 ] && echo "ok: $BASE is hardened"
 exit "$fail"

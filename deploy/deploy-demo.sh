@@ -124,6 +124,16 @@ docker compose \
   -f deploy/docker-compose.cloud.yml \
   -f deploy/docker-compose.demo.yml \
   up -d --build caddy webui-frontend webui-backend bb84-kme-a bb84-kme-b pqc-validator
+# The Caddyfile is a single-file bind mount, and git replaces the file rather
+# than editing it, so a running caddy container goes on reading the old one;
+# `up` recreates a container only when its image or definition changed, which
+# a Caddyfile edit is not. Recreate it, so a pulled Caddyfile (the headers and
+# the Content-Security-Policy) takes effect: about a second without the proxy.
+docker compose \
+  -f docker-compose.yml \
+  -f deploy/docker-compose.cloud.yml \
+  -f deploy/docker-compose.demo.yml \
+  up -d --no-deps --force-recreate caddy
 
 log "done. The four simulation pages run client-side; backend is DEMO_MODE (no Docker"
 log "socket on this profile, rate-limited). Watch logs with:"

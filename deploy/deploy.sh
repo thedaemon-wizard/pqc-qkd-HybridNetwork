@@ -143,6 +143,12 @@ ensure_swap
 # ---- 6) Build & start the full stack behind Caddy ----------
 log "building and starting the stack (this first build is slow: liboqs/rosenpass/strongSwan)"
 docker compose "${COMPOSE_FILES[@]}" up -d --build
+# The Caddyfile is a single-file bind mount, and git replaces the file rather
+# than editing it, so a running caddy container goes on reading the old one;
+# `up` recreates a container only when its image or definition changed, which
+# a Caddyfile edit is not. Recreate it, so a pulled Caddyfile (the headers and
+# the Content-Security-Policy) takes effect: about a second without the proxy.
+docker compose "${COMPOSE_FILES[@]}" up -d --no-deps --force-recreate caddy
 
 log "done. Watch logs with:"
 echo "    docker compose ${COMPOSE_FILES[*]} logs -f caddy alice bob"
