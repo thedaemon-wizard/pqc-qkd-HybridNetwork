@@ -26,8 +26,22 @@ import /etc/caddy/conf.d/*.caddy
 
 {$PUBLIC_HOST} {
 	encode zstd gzip
-	# Drop the Server header on the way out. Behind this proxy it is the
-	# frontend nginx's, and it carried nginx's exact version to every visitor.
-	header -Server
+	# One header block. Because it deletes a field, Caddy defers all of it
+	# until the response is written, so it also covers proxied responses.
+	#   -Server: behind this proxy it is the frontend nginx's, and it carried
+	#     nginx's exact version to every visitor.
+	#   Strict-Transport-Security: browsers that have reached the site over
+	#     HTTPS keep using HTTPS for a year (RFC 6797). No includeSubDomains
+	#     and no preload: this covers this hostname only, and can be undone by
+	#     sending max-age=0. Browsers ignore it over plain HTTP, so the ":80"
+	#     smoke test is unaffected.
+	#   X-Content-Type-Options: nosniff: the browser does not guess a type; a
+	#     script or stylesheet is refused unless its declared type is a
+	#     JavaScript or CSS one. Every script here is application/javascript.
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+	}
 	reverse_proxy webui-frontend:80
 }
