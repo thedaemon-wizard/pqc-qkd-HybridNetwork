@@ -129,7 +129,8 @@ export default function ProtocolLab() {
         title="Protocol Lab (trusted-node relay over published QKD networks)"
         subtitle={<>Key relay, re-routing and the ETSI GS QKD 014 / 004 application
           interfaces, simulated over five published networks. Compare the running
-          stack on <code>/e2e</code> and the multi-hop phases on <code>/paper-flow</code>.</>}
+          stack on <code>/vpn</code> and <code>/topology</code>, and the multi-hop phases
+          on <code>/paper-flow</code>.</>}
       />
 
       <div role="note" style={{ border: `1px solid ${colors.warn}`, background: colors.panelDark,

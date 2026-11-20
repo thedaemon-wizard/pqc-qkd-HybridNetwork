@@ -149,6 +149,10 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Fixed
 
+- `/protocol-lab`'s subtitle sent the reader to `/e2e` for "the running stack", but
+  `/e2e` also runs in the browser, on stand-in keys, and says so. It now names
+  `/vpn` and `/topology`, which read the stack, and a test holds the subtitle to the
+  pages that do.
 - The IPsec lane no longer loses its first intervals when alice starts as arnika's
   BACKUP. With no IKE_SA yet, the VICI writer initiated inside `SetPSK` and waited
   for IKE_AUTH, which in a BACKUP interval always failed: bob installs his key only
