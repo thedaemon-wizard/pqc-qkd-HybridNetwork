@@ -38,10 +38,20 @@ import /etc/caddy/conf.d/*.caddy
 	#   X-Content-Type-Options: nosniff: the browser does not guess a type; a
 	#     script or stylesheet is refused unless its declared type is a
 	#     JavaScript or CSS one. Every script here is application/javascript.
+	#   Content-Security-Policy-Report-Only: a candidate policy, sent report-
+	#     only, so nothing is blocked; the browser console names what an
+	#     enforced policy would refuse (there is no report endpoint). Each
+	#     resource is same-origin. The exceptions are what the SPA does on
+	#     purpose: 'wasm-unsafe-eval' for the BB84 kernel it instantiates from
+	#     inlined bytes (src/lib/sim/bb84Wasm.ts), the hash of the one <style>
+	#     block in index.html, and data:/blob: images for the PNG/GIF/SVG
+	#     exporters. No 'unsafe-inline' and no 'unsafe-eval': if a library
+	#     needs either, the reports show it before anything is enforced.
 	header {
 		-Server
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-NXBs9U7GqLTA7rWCDe8D/D7eONdkrID4BR9gxz7B/pw='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	}
 	reverse_proxy webui-frontend:80
 }
