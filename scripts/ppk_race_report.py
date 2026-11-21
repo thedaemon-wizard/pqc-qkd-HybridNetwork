@@ -12,8 +12,8 @@ Counts
       writes an invalidation caused (a random PPK is not a rotation). An
       invalidation write is the first PPK load after arnika's `configuring a
       random PSK to invalidate` line (`configure random PSK to invalidate` at
-      the previous pin), whatever made arnika fail closed: at f4cf9ba that
-      includes a BACKUP interval that ended with `no key_id from the peer` and
+      the previous pin), whatever made arnika fail closed: at f4cf9ba and
+      0bb8401 that includes a BACKUP interval that ended with `no key_id from the peer` and
       a PRIMARY whose peer never acknowledged (`the peer did not confirm the
       key_id`). Both triggers are counted by name in the report.
   F   alice's `N(AUTH_FAILED)` lines -- the same pattern /api/vpn/ppk-rotations
@@ -73,7 +73,7 @@ of rules to both arms:
 
   pin-era (3a8cc13)  Go `log` lines with bracketed tags and ANSI colour, e.g.
                      `PRIMARY[11] [SND] send key_id <id> to <peer>`
-  slog (f4cf9ba)     log/slog key=value records, e.g.
+  slog (f4cf9ba on)  log/slog key=value records, e.g.
                      `msg="sending the key_id to the peer" arnika_id=11
                      role=primary key_id=<id> peer=<peer>`
 
@@ -82,11 +82,18 @@ same in both; under slog they arrive wrapped in msg="...".
 
 Interval boundaries
 
-Each arnika process counts its intervals from its own start, and its ticker
-re-bases after its own processing (`ticker.Reset` at the top of the loop,
-main.go:327-333 at f4cf9ba), so the two ends' boundaries can drift against
-each other by milliseconds per interval whatever their start timing was. The
-report pairs the two ends' boundaries per wall-clock tick and prints:
+At f4cf9ba each arnika process counted its intervals from its own start, and
+its ticker re-based after its own processing (`ticker.Reset` at the top of the
+loop, main.go:327-333 at f4cf9ba), so the two ends' boundaries could drift
+against each other by milliseconds per interval whatever their start timing
+was. At 0bb8401, the pin since 2026-11-21, each process numbers its interval by
+the Unix time divided by the interval (`intervalAt`, main.go:132-138, called at
+the top of the loop, main.go:277-281) and sleeps to that interval's end, so
+each end's boundaries follow its own clock: the offset is then the two clocks'
+offset plus each end's scheduling and logging delay, and does not accumulate.
+That is read from the code; the offsets the report prints are what to check it
+against. The report pairs the two ends' boundaries per wall-clock tick and
+prints:
 
   * the offset, bob's boundary minus alice's: the median, 95th percentile and
     maximum of its size, the first and last offset, a least-squares slope,
@@ -101,9 +108,11 @@ report pairs the two ends' boundaries per wall-clock tick and prints:
     its `serving this interval` line;
   * the paired ticks whose interval numbers differ (count, first and last
     time, and each difference), and the ticks in which both ends hold the same
-    role. A restart of only one node, or two starts more than half an
-    interval apart, leaves the counters apart, and the role elections, which
-    hash the counter, then stop being complementary;
+    role. At f4cf9ba a restart of only one node, or two starts more than half
+    an interval apart, left the counters apart, and the role elections, which
+    hash the counter, then stopped being complementary. At 0bb8401 the counter
+    comes from the clock, so a mismatch needs two clocks more than half an
+    interval apart;
   * how many key_ids reached their receiver before the receiver's own boundary
     of the sender's tick (slog receivers only, see below).
 
@@ -119,7 +128,10 @@ A boundary is the first line a role logs in an interval: a BACKUP's `waiting
 for a key_id from the peer` and a PRIMARY's `requesting a new QKD key`. The
 PRIMARY's interval number comes from the `serving this interval` line that
 follows the KMS fetch; a PRIMARY interval whose KMS request failed logs no
-number and is left out. The pin-era lines are `BACKUP for interval N, waiting
+number and is left out. From 0bb8401 a failed request is retried inside its
+interval (main.go:288-299), so the boundary is the interval's first request and
+the fetch time spans the retries; the interval numbers themselves tell the
+two numberings apart (CLOCK_INTERVAL_RANGE_S). The pin-era lines are `BACKUP for interval N, waiting
 for key_id from peer`, `request QKD key from` and `PRIMARY for interval N`.
 Ticks pair as mutual nearest neighbours closer than half an interval, the
 interval being read from each node's boundaries and interval numbers, so an
@@ -137,13 +149,13 @@ arrivals are not counted for a pin-era receiver.
 Why the offset matters is an inference from the code, not a measurement. Per
 tick, let d be the BACKUP's boundary minus the PRIMARY's boundary: +offset
 when alice is PRIMARY, -offset when bob is. The PRIMARY sends its key_id at
-the next whole second after its KMS fetch (main.go:349), and the send also
+the next whole second after its KMS fetch (main.go:302), and the send also
 waits for the PSK build. For d below about a second, the chance that the
 PRIMARY's key_id arrives before the BACKUP's boundary ("early") is then
 roughly min(1, max(0, d - t_KMS) / 1 s), with t_KMS the PRIMARY's KMS fetch
 time, if over a long run the fraction of a second at which the fetch ends is
 spread evenly. An early key_id is counted in the BACKUP's previous interval
-(main.go:409-418). The BACKUP fails closed at the end of the current interval
+(main.go:348-353). The BACKUP fails closed at the end of the current interval
 only if the next interval's key_id is not early too, which in practice means
 at its BACKUP-to-PRIMARY transitions. In the one unaligned local run of
 2026-09-26 (13 paired ticks, about 6 minutes) the offset went from about
@@ -252,16 +264,16 @@ _PPK_APPLIED = re.compile(r"using PPK for PPK_ID")
 _PROCESS_START = re.compile(r"\[VICI\] connected to ")
 
 # arnika. Invalidation: pin main.go `[STOP] configure random PSK to invalidate`,
-# the pin-era adapter's own `[VICI] invalidating tunnel`, and f4cf9ba main.go
-# `configuring a random PSK to invalidate`.
+# the pin-era adapter's own `[VICI] invalidating tunnel`, and main.go from
+# f4cf9ba on `configuring a random PSK to invalidate`.
 _INVALIDATION = re.compile(
     r"configure random PSK to invalidate|configuring a random PSK to invalidate"
     r"|\[VICI\] invalidating tunnel")
 # The invalidation's own write failed, so no random PPK follows: pin main.go
-# `failed to configure random PSK`, f4cf9ba main.go `failed to configure the
-# random PSK`.
+# `failed to configure random PSK`, main.go from f4cf9ba on `failed to configure
+# the random PSK`.
 _INVALIDATION_WRITE_FAILED = re.compile(r"failed to configure (?:the )?random PSK")
-# What made arnika fail closed, when it is one of the two f4cf9ba paths this
+# What made arnika fail closed, when it is one of the two paths (f4cf9ba on) this
 # report names: main.go logs the trigger, then the reason buildPSK gives for
 # the missing key, then the invalidation line. Any other path (a KMS or PQC
 # failure, a failed write) is counted as "other".
@@ -270,12 +282,13 @@ INVALIDATION_TRIGGERS = (TRIGGER_NO_KEY_ID, "the peer did not confirm the key_id
 TRIGGER_OTHER = "other"
 _TRIGGER = re.compile(r'msg="(' + "|".join(map(re.escape, INVALIDATION_TRIGGERS)) + r')"')
 # The BACKUP interval a `no key_id from the peer` line names: main.go logs the
-# counter of the interval that just ended (main.go:409-418 at f4cf9ba).
+# counter of the interval that just ended (main.go:348-353; at f4cf9ba
+# main.go:409-418 logged `intervalCounter-1` once the ticker had fired).
 _SLOG_INTERVAL = re.compile(r"\binterval=(\d+)")
 # The only lines main.go logs between a trigger and the invalidation it causes.
 # Both triggers call setPSK with no QKD key; buildPSK then records why it has
 # no PSK, and invalidate() logs that reason just before the invalidation line
-# (main.go:86-94, :118-120 and :143-145 at f4cf9ba). Under a QKD-required MODE
+# (main.go:66-74, :102-105 and :123-125). Under a QKD-required MODE
 # the reason is `no QKD key received`; otherwise PQC is off, and the fallback
 # warning and `no key material available for a PSK` come instead. A trigger
 # stays pending across these and across lines that are not arnika's
@@ -294,7 +307,7 @@ _SLOG_ROUND = re.compile(r'msg="round agreed a fresh PQC key".*?\bround=(\d+)')
 _PIN_ROLE = re.compile(r"\b(PRIMARY|BACKUP)\[\d+\]")
 _PIN_KEY_ID = re.compile(r"\bkey_id (\S+)")
 _PIN_SENT = re.compile(r"\[SND\] send key_id ")
-# A key_id as the receiving end logs it (transport/server.go at f4cf9ba,
+# A key_id as the receiving end logs it (transport/server.go from f4cf9ba on,
 # udpserver.go at the previous pin).
 _SLOG_RECEIVED = re.compile(r'msg="received a key_id from the peer"')
 _PIN_RECEIVED = re.compile(r"\[RCV\] received key_id ")
@@ -308,6 +321,48 @@ _SLOG_PRIMARY_NUMBER = re.compile(r'msg="serving this interval".*?\binterval=(\d
 _PIN_BACKUP_BOUNDARY = re.compile(r"\[REQ\] BACKUP for interval (\d+), waiting for key_id from peer")
 _PIN_PRIMARY_REQUEST = re.compile(r"\[REQ\] request QKD key from ")
 _PIN_PRIMARY_NUMBER = re.compile(r"\[REQ\] PRIMARY for interval (\d+)")
+# From 0bb8401 an interval's number is the Unix time divided by the interval
+# (main.go:132-138), so number x interval is when the interval began; at
+# f4cf9ba it was a per-process count from 0. A number whose line time implies
+# an interval of 1 s to 1 h is read as clock-numbered: a per-process counter
+# reaches that only after about 173 days of 30 s intervals.
+CLOCK_INTERVAL_RANGE_S = (1.0, 3600.0)
+# Docker stamps a line when the daemon reads it, after arnika wrote it, so a
+# request is stamped at or after its interval's start. A retry comes at least
+# KMS_RETRY_INTERVAL before the interval's end (main.go:288-299), so a second
+# of slack cannot move a request into the wrong interval.
+CLOCK_SLACK_NS = 1_000_000_000
+
+
+def _clock_interval_s(t_ns: int, number: int) -> int | None:
+    """The interval in whole seconds that a clock-numbered interval number implies, else None."""
+    if number <= 0:
+        return None
+    ratio = t_ns / 1e9 / number
+    lo, hi = CLOCK_INTERVAL_RANGE_S
+    return round(ratio) if lo <= ratio <= hi else None
+
+
+def _requests_by_interval(requests: list[Line], interval_s: int) -> dict[int, list[Line]]:
+    """KMS request lines grouped by the clock-numbered interval each one falls in."""
+    out: dict[int, list[Line]] = {}
+    for r in requests:
+        out.setdefault((r.t + CLOCK_SLACK_NS) // (interval_s * 1_000_000_000), []).append(r)
+    return out
+
+
+def _failed_primary_intervals(requests: list[Line], t_ns: int, number: int) -> int:
+    """How many PRIMARY intervals the pending requests opened, none of which logged a number.
+
+    At f4cf9ba every request opened an interval of its own; from 0bb8401 the
+    retries of a failed request stay in its interval, so the intervals are
+    counted, not the requests. `number` is the interval number of the line that
+    closes them, which tells the two numberings apart.
+    """
+    if not requests:
+        return 0
+    interval_s = _clock_interval_s(t_ns, number)
+    return len(requests) if interval_s is None else len(_requests_by_interval(requests, interval_s))
 
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
@@ -464,9 +519,10 @@ def parse_node(name: str, text: str, since: int | None = None, until: int | None
     # The line of the last trigger and the interval number it names; read
     # only while last_trigger still says which trigger that was.
     trigger_at: tuple[Line, int | None] | None = None
-    # A PRIMARY's KMS request line, until the `serving this interval` line
-    # that numbers its interval.
-    pending_request: Line | None = None
+    # A PRIMARY's KMS request lines, until the `serving this interval` line
+    # that numbers its interval (from 0bb8401 a failed request is retried in
+    # the same interval, so there can be several).
+    pending_requests: list[Line] = []
 
     for ln in lines:
         s = ln.text
@@ -518,19 +574,33 @@ def parse_node(name: str, text: str, since: int | None = None, until: int | None
         backup_m = (_SLOG_BACKUP_BOUNDARY if slog else _PIN_BACKUP_BOUNDARY).search(s)
         number_m = (_SLOG_PRIMARY_NUMBER if slog else _PIN_PRIMARY_NUMBER).search(s)
         if backup_m:
-            node.unnumbered_primary += pending_request is not None
+            node.unnumbered_primary += _failed_primary_intervals(pending_requests, ln.t,
+                                                                 int(backup_m.group(1)))
             node.boundaries.append(Boundary(ln, int(backup_m.group(1)), "backup"))
-            pending_request = None
+            pending_requests = []
         elif (_SLOG_PRIMARY_REQUEST if slog else _PIN_PRIMARY_REQUEST).search(s):
-            node.unnumbered_primary += pending_request is not None
-            pending_request = ln
+            pending_requests.append(ln)
         elif number_m:
-            if pending_request is None:
+            number = int(number_m.group(1))
+            if not pending_requests:
                 node.number_without_request += 1
             else:
-                node.boundaries.append(Boundary(pending_request, int(number_m.group(1)), "primary",
-                                                ln.t - pending_request.t))
-            pending_request = None
+                interval_s = _clock_interval_s(ln.t, number)
+                if interval_s is None:
+                    # f4cf9ba and earlier: a failed request ended its interval
+                    # and the retry opened the next, so every request but the
+                    # last opened an interval that logged no number.
+                    opened = pending_requests[-1]
+                    node.unnumbered_primary += len(pending_requests) - 1
+                else:
+                    # From 0bb8401: the interval opened with its first request,
+                    # and the fetch time spans its retries; requests in earlier
+                    # intervals opened intervals that failed.
+                    groups = _requests_by_interval(pending_requests, interval_s)
+                    opened = (groups.pop(number, None) or [pending_requests[-1]])[0]
+                    node.unnumbered_primary += len(groups)
+                node.boundaries.append(Boundary(opened, number, "primary", ln.t - opened.t))
+            pending_requests = []
 
         # A trigger is credited only to the invalidation it causes; see
         # TRIGGER_TO_INVALIDATION for the lines that may come between them.

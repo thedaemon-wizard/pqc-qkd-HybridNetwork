@@ -101,9 +101,9 @@ describe("the container log is readable", () => {
     expect(stripAnsi(plain)).toBe(plain);
   });
 
-  // The arnika pin since release 0.2.0 (f4cf9ba) logs through slog as
-  // key=value lines. The message strings below are the ones in its main.go
-  // and repositories/pqchpke/pqchpke.go; the attribute values are
+  // The arnika pin since release 0.2.0 logs through slog as key=value lines
+  // (f4cf9ba, then 0bb8401). The message strings below are the ones in its
+  // main.go and repositories/pqchpke/pqchpke.go; the attribute values are
   // placeholders of the right shape.
   const SLOG_LINE =
     'time=2026-09-26T10:00:00.000Z level=INFO msg="sending the key_id to the peer" '
@@ -117,8 +117,9 @@ describe("the container log is readable", () => {
   });
 
   it("strips the whole-record colour slog uses on a terminal", () => {
-    // f4cf9ba's colorWriter wraps each record in one code and a reset, and
-    // only when stderr is a terminal: `\x1b[36m` for an odd ARNIKA_ID.
+    // The colorWriter of f4cf9ba and 0bb8401 wraps each record in one code
+    // and a reset, and only when stderr is a terminal: `\x1b[36m` for an odd
+    // ARNIKA_ID.
     expect(stripAnsi(`\x1b[36m${SLOG_LINE}\x1b[0m`)).toBe(SLOG_LINE);
   });
 

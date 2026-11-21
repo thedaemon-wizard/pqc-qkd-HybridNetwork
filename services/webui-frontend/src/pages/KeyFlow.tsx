@@ -187,16 +187,15 @@ export default function KeyFlow() {
         overflowX: "auto",
       }}>
 {`secret.Do(func() {
-    // Build a combined input without mutating the caller's slices.
     combined := make([]byte, 0, len(qkdKey)+len(pqcKey))
     combined = append(combined, qkdKey...)
     combined = append(combined, pqcKey...)
     defer clear(combined)
 
-    hkdf := hkdf.New(sha3.New256, combined, nil, nil)
+    hkdfReader := hkdf.New(sha3.New256, combined, nil, nil)
 
-    derivedKey := make([]byte, 32) // Output key length
-    if _, err := io.ReadFull(hkdf, derivedKey); err != nil { ... }
+    derivedKey := make([]byte, 32)
+    if _, err := io.ReadFull(hkdfReader, derivedKey); err != nil { ... }
     // derivedKey becomes the WireGuard PSK for this rotation interval
 })`}
       </pre>

@@ -825,8 +825,9 @@ def logs(name: str, tail: int = Query(200, ge=1, le=LOGS_MAX_TAIL)) -> dict[str,
     """Container stdout and stderr, redacted and bounded (see _redact_log).
 
     Both streams: stack-status asks Docker for stdout and stderr explicitly,
-    because at the current pin (f4cf9ba) arnika writes every record to stderr
-    through its slog handler, so a stdout-only read would show no arnika line.
+    because at the current pin (0bb8401, as at f4cf9ba before it) arnika
+    writes every record to stderr through its slog handler, so a stdout-only
+    read would show no arnika line.
 
     Only for LOG_CONTAINERS; any other name is 404 before stack-status is
     asked. A container stack-status could not read is 404 with Docker's
@@ -1877,9 +1878,10 @@ def vpn_protocols():
 # because the prefix changed with the arnika pin. At 3a8cc13 the adapter's
 # `log.Printf` line was the whole line:
 #   2026/09/25 06:48:38 [INFO] [VICI] PPK rotated (id=qkd-alice-3 ppk_id=... bytes=32)
-# At f4cf9ba arnika installs an slog TextHandler as the default logger
-# (logging.go:42 and :63 there), which routes the standard `log` package
-# through it, so the same text arrives as the quoted `msg` of a key=value line:
+# From f4cf9ba on arnika installs an slog TextHandler as the default logger
+# (logging.go:28 and :41 at the pin, 0bb8401; :42 and :63 at f4cf9ba), which
+# routes the standard `log` package through it, so the same text arrives as
+# the quoted `msg` of a key=value line:
 #   time=... level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-alice-3 ppk_id=... bytes=32)" arnika_id=11
 # The text inside the quotes is unchanged (no quote or backslash in it to
 # escape), so this pattern counts both forms. tests/test_wg_data_tunnel_is_reported.py

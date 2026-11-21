@@ -237,7 +237,7 @@ class Log:
                      mode="QkdAndPqcRequired")
         self.invalidates(t + 0.00202, "backup")
 
-    # -- interval boundaries, as the main loop logs them (main.go:331-350 at f4cf9ba)
+    # -- interval boundaries, as the main loop logs them (main.go:277-303 at 0bb8401)
     def primary_boundary(self, t, interval, fetch):
         """A PRIMARY interval opens with the KMS request; its number follows
         the fetch."""
@@ -1038,6 +1038,73 @@ def test_a_primary_interval_without_a_number_is_left_out_not_guessed():
     assert b["ticks"] == 5
 
 
+def _clock_number(t: float) -> int:
+    """The number 0bb8401 gives the interval starting t seconds after 12:00:00."""
+    return R.parse_time(_docker_stamp(t)) // (int(INTERVAL_S) * 10**9)
+
+
+def _primary(node) -> list:
+    return [b for b in node.boundaries if b.role == "primary"]
+
+
+def test_a_retried_kms_request_keeps_its_interval_from_0bb8401():
+    """From 0bb8401 a failed KMS request is retried inside its interval
+    (main.go:288-299): the interval opened with the first request, and the
+    fetch time spans the retry. Nothing is an unnumbered interval."""
+    alice, _ = _pair("slog")
+    start = 60.0  # 12:01:00, a whole number of 30 s intervals since the epoch
+    n = _clock_number(start)
+    alice.kms_request_fails(start)
+    alice.primary_boundary(start + 10.0, n, KMS_FETCH_S)
+    node = R.parse_node("alice", alice.text())
+    [b] = _primary(node)
+    assert b.interval == n and b.line.t == R.parse_time(_docker_stamp(start))
+    assert b.fetch_ns == R.parse_time(_docker_stamp(start + 10.0 + KMS_FETCH_S)) - b.line.t
+    assert node.unnumbered_primary == 0
+
+
+def test_a_clock_numbered_interval_that_failed_counts_once():
+    """An interval whose request and retry both failed logs no number; it is
+    one unnumbered interval, however many attempts it made, whether the next
+    interval is PRIMARY or BACKUP."""
+    alice, _ = _pair("slog")
+    start = 60.0
+    n = _clock_number(start)
+    alice.kms_request_fails(start)
+    alice.kms_request_fails(start + 10.0)
+    alice.primary_boundary(start + INTERVAL_S, n + 1, KMS_FETCH_S)
+    node = R.parse_node("alice", alice.text())
+    [b] = _primary(node)
+    assert b.interval == n + 1 and b.line.t == R.parse_time(_docker_stamp(start + INTERVAL_S))
+    assert node.unnumbered_primary == 1
+
+    alice, _ = _pair("slog")
+    alice.kms_request_fails(start)
+    alice.kms_request_fails(start + 10.0)
+    alice.backup_waits(start + INTERVAL_S, n + 1)
+    assert R.parse_node("alice", alice.text()).unnumbered_primary == 1
+
+
+def test_per_process_numbers_keep_the_f4cf9ba_reading():
+    """At f4cf9ba a failed request ended its interval and the retry opened the
+    next, so with per-process numbers each request but the last is an
+    unnumbered interval, as before."""
+    alice, _ = _pair("slog")
+    start = 60.0
+    alice.kms_request_fails(start)
+    alice.primary_boundary(start + 10.0, 7, KMS_FETCH_S)
+    node = R.parse_node("alice", alice.text())
+    [b] = _primary(node)
+    assert b.interval == 7 and b.line.t == R.parse_time(_docker_stamp(start + 10.0))
+    assert node.unnumbered_primary == 1
+
+    alice, _ = _pair("slog")
+    alice.kms_request_fails(start)
+    alice.kms_request_fails(start + 10.0)
+    alice.backup_waits(start + INTERVAL_S, 8)
+    assert R.parse_node("alice", alice.text()).unnumbered_primary == 2
+
+
 def test_a_node_without_boundary_lines_is_warned_about():
     alice, bob = _pair("slog")
     _healthy(alice, bob, 3.0, 1, True, _key(1))
@@ -1267,8 +1334,17 @@ def test_the_pinned_arnika_still_writes_the_lines_the_report_keys_on():
     assert 'With("role", "primary")' in src and 'With("role", "backup")' in src
     assert '"key_id", key.ID' in src, "the PRIMARY no longer logs the key_id attribute"
     assert '"round", round' in src, "the PQC round is no longer logged as round=N"
-    assert src.count('"interval", intervalCounter)') == 2, (
-        "the boundary lines no longer carry interval=N as the report reads it")
+    # The two boundary lines carry their interval's number, and the fail-closed
+    # line the number of the interval that just ended: at f4cf9ba that was
+    # `intervalCounter-1` after the ticker had fired; at 0bb8401 it is
+    # `intervalCounter` after sleeping to that interval's end and before the
+    # loop numbers the next one.
+    for msg in ("waiting for a key_id from the peer", "serving this interval"):
+        assert f'"{msg}", "interval", intervalCounter)' in src, f"{msg!r} no longer carries interval=N"
+    ended = src.find("time.Sleep(time.Until(intervalEnd))")
+    failed = src.find('"no key_id from the peer", "interval", intervalCounter)')
+    assert 0 <= ended < failed and "intervalAt(" not in src[ended:failed], (
+        "`no key_id from the peer` no longer names the interval that just ended")
 
 
 # The line ranges of the pinned main.go that the report's text and the
@@ -1277,14 +1353,17 @@ def test_the_pinned_arnika_still_writes_the_lines_the_report_keys_on():
 # trigger bookkeeping cannot go stale silently. The 3a8cc13 range the report
 # also cites is not checked: that tree is not checked out.
 MAIN_GO_CITATIONS = {
-    (86, 94): ('"no QKD key received"', '"no QKD key, falling back to the PQC key"'),
-    (118, 120): ('"no key material available for a PSK"',),
-    (143, 145): ("logger.Error(reason, attrs...)",
+    (66, 74): ('"no QKD key received"', '"no QKD key, falling back to the PQC key"'),
+    (102, 105): ('"no key material available for a PSK"',),
+    (123, 125): ("logger.Error(reason, attrs...)",
                  '"configuring a random PSK to invalidate the WireGuard session"'),
-    (327, 333): ("time.NewTicker(interval)", "ticker.Reset(interval)", "cfg.IsPrimary(intervalCounter)"),
-    (349, 349): ("now.Truncate(time.Second).Add(time.Second)",),
-    (409, 418): ("peerSentKeyID.Swap(false)", "if backup && !sawKeyID", '"no key_id from the peer"',
-                 "setPSK(keyWriter, pqc, nil, cfg, backupLog)"),
+    (132, 138): ("n := uint64(now.UnixNano() / int64(interval))",),
+    (277, 281): ("intervalAt(time.Now(), interval, served)", "cfg.IsPrimary(intervalCounter)"),
+    (288, 299): ("for err != nil {", '"failed to retrieve a QKD key"', "time.Sleep(cfg.KMSRetryInterval)",
+                 '"requesting a new QKD key"'),
+    (302, 302): ("now.Truncate(time.Second).Add(time.Second)",),
+    (348, 353): ("time.Sleep(time.Until(intervalEnd))", "peerSentKeyID.Swap(false)", "if backup && !sawKeyID",
+                 '"no key_id from the peer"', "setPSK(keyWriter, pqc, nil, cfg, backupLog)"),
 }
 README = ROOT / "services" / "arnika-vici" / "README.md"
 

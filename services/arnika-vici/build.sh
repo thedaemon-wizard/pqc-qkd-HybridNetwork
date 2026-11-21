@@ -87,6 +87,7 @@ cp "$ADAPTER_SRC/$ADAPTER_WIRE" ./
 #   pin 3a8cc13   //go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)
 #   pin f4cf9ba   the same line, in wire_wireguard_netlink.go (PR #51 renamed
 #                 wireguardnetlink.go and the other writers to wire_*.go)
+#   pin 0bb8401   the same line, in the same file (main after #51 merged)
 #
 # Upstream added `&& !wireguard_netlink_netns` when it landed the netns writer
 # (PR #48). That fixes netns and leaves the shape intact: each new writer has to
@@ -154,7 +155,8 @@ if [ "${ARNIKA_VICI_VET_AND_TEST:-0}" = "1" ]; then
     # Every upstream writer tag, paired with ours, must fail -- and fail on the
     # duplicate definition, not on some unrelated compile error that would
     # make this check pass for the wrong reason. The list is upstream's
-    # WRITERS array at f4cf9ba; a writer upstream adds later is caught by
+    # WRITERS array at the pin, 0bb8401 (the same three as at f4cf9ba); a
+    # writer upstream adds later is caught by
     # tests/test_the_build_tag_narrowing_is_exhaustive.py, which derives the
     # set from the tree instead of from this list.
     for tag in wireguard_netlink wireguard_mikrotik wireguard_netlink_netns; do

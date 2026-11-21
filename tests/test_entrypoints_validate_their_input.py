@@ -356,10 +356,11 @@ def test_the_v010_waits_this_file_allows_are_the_ones_v010_had():
 # what each cited range must contain. A pin bump that moves the code fails
 # here, so the comments that explain the alignment cannot go stale silently.
 MAIN_GO_CITATIONS = {
-    (327, 333): ("time.NewTicker(interval)", "var intervalCounter uint64", "cfg.IsPrimary(intervalCounter)"),
-    (349, 349): ("now.Truncate(time.Second).Add(time.Second)",),
-    (409, 418): ("peerSentKeyID.Swap(false)", "if backup && !sawKeyID", '"no key_id from the peer"',
-                 "setPSK(keyWriter, pqc, nil, cfg, backupLog)"),
+    (132, 138): ("n := uint64(now.UnixNano() / int64(interval))",),
+    (277, 281): ("intervalAt(time.Now(), interval, served)", "cfg.IsPrimary(intervalCounter)"),
+    (302, 302): ("now.Truncate(time.Second).Add(time.Second)",),
+    (348, 353): ("time.Sleep(time.Until(intervalEnd))", "peerSentKeyID.Swap(false)", "if backup && !sawKeyID",
+                 '"no key_id from the peer"', "setPSK(keyWriter, pqc, nil, cfg, backupLog)"),
 }
 
 

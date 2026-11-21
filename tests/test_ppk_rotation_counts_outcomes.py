@@ -71,11 +71,12 @@ def test_counts_failures_and_applications_not_only_attempts(client):
     assert set(body["counts"]) == {"count", "auth_failed", "ppk_applied"}
 
 
-# The same three rotations as the pinned arnika (f4cf9ba) writes them. It logs
-# through log/slog, and the VICI adapter's log.Printf reaches the slog handler
-# through the standard library's bridge, so each adapter line arrives as the
-# msg="..." value of a key=value record. The counters must not depend on which
-# arnika wrote the log: the before/after comparison of the pin reads both.
+# The same three rotations as the pinned arnika (0bb8401, as f4cf9ba before it)
+# writes them. It logs through log/slog, and the VICI adapter's log.Printf
+# reaches the slog handler through the standard library's bridge, so each
+# adapter line arrives as the msg="..." value of a key=value record. The
+# counters must not depend on which arnika wrote the log: the before/after
+# comparison of 3a8cc13 and f4cf9ba reads both.
 SLOG_LOG = b"""\
 2026-09-26T12:00:05.001Z time=2026-09-26T12:00:05.001Z level=INFO msg="[INFO] [VICI] PPK rotated (id=qkd-bob-23383 ppk_id=ppk-qkd@pqcqkd.local bytes=32)" arnika_id=11
 2026-09-26T12:00:05.003Z 07[ENC] parsed IKE_AUTH response 2 [ N(AUTH_FAILED) ]

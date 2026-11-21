@@ -24,8 +24,9 @@ multihop overlay's charlie leg is one-sided by design -- only alice faces
 charlie -- so the pair is compared in the base file alone, and each extra wg1
 peer is checked against that peer's own settings instead.
 
-The file handover from Rosenpass to arnika is gone with the arnika pin
-(f4cf9ba, upstream PR #51): arnika agrees its own PQC key now. Its volumes
+The file handover from Rosenpass to arnika went with upstream PR #51 (pinned
+at f4cf9ba from release 0.2.0; the pin is now 0bb8401, main after #51 merged):
+arnika agrees its own PQC key now. Its volumes
 (`pqc-psk-*`) and its variable (PQC_PSK_FILE) must be gone too, while the
 Rosenpass identity keys (`rosenpass-keys-*`) and the WireGuard keypairs
 (`wg-keys-*`, which now hold wg0's and wg1's) keep persisting across recreates,

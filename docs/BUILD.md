@@ -181,7 +181,7 @@ it. Every variable in this table is referenced by a compose file.
 
 | Variable | Default | Purpose | Source of truth |
 |---|---|---|---|
-| `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 4 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired`. Both peers of a pair must use the same one; `QkdAndPqcRequired` installs a random key when either half is missing | `submodules/arnika/config/config.go` |
+| `ARNIKA_MODE` | `QkdAndPqcRequired` | One of 5 modes: `QkdAndPqcRequired` / `AtLeastQkdRequired` / `AtLeastPqcRequired` / `EitherQkdOrPqcRequired` / `PqcOnly` (since the `0bb8401` pin: no QKD key, and `KMS_URL` is ignored). Both peers of a pair must use the same one; `QkdAndPqcRequired` installs a random key when either half is missing | `submodules/arnika/config/config.go` |
 | `ARNIKA_INTERVAL` | `30s` | PSK rotation period. arnika's own default is `10s`, and upstream recommends aligning with WireGuard's 120 s rekey; on the WireGuard lane that rekey bounds the key epoch whatever this is set to ([`threat-model.md` §2.1](threat-model.md)). The WireGuard entrypoint also reads it, to start arnika on an interval boundary (7.3), so it must be a Go duration in whole hours, minutes and seconds (`30s`, `2m`, `1m30s`, `1h`). That entrypoint refuses anything else, including `500ms` or `1.5s`, which arnika itself accepts but a whole-second boundary cannot honour | `submodules/arnika/config/config.go` |
 | `ARNIKA_ID_*` | `1` / `2` (`4` for charlie) | Per-node ID in the primary election; peers must differ in **parity** | `.env.example` |
 | `ARNIKA_PSK` | none | Keys the arnika peer channel (including the PQC-HPKE frames) and the election; must be identical on both peers, at least 32 bytes, and not the `.env.example` placeholder, or the node entrypoints refuse to start. Generate it with `openssl rand -base64 32` | `.env.example` |
@@ -274,102 +274,131 @@ entrypoint sets it.
 
 Only the WireGuard lane does this. `nodes/alice/entrypoint.sh` waits once,
 before it starts any of its arnika instances (one per `wg0` neighbour), until
-the next wall-clock multiple of `ARNIKA_INTERVAL`. With both containers of a
-pair past that point within the same interval, the two arnika tickers fire
-within milliseconds of each other. `nodes/strongswan/entrypoint.sh` starts the
-IPsec lane's arnika without that wait, on purpose.
+the next wall-clock multiple of `ARNIKA_INTERVAL`.
+`nodes/strongswan/entrypoint.sh` starts the IPsec lane's arnika without that
+wait, on purpose.
 
-**Why the WireGuard lane waits.** Because of two properties of the pinned
-arnika (`f4cf9ba`). Each process counts intervals from its own start
-(`main.go:327-333`), and the role election is an HMAC of that count. And under
-`QkdAndPqcRequired` a BACKUP whose interval ends with no `key_id` from its
-peer logs `no key_id from the peer` and installs a random key
-(`main.go:409-418`), where the previous pin kept the superseded key installed
-and logged nothing. Until release 0.2.0 the WireGuard entrypoint started
-arnika only once Rosenpass's first key existed, which happened on both nodes
-almost at once, so the two processes started together as a side effect. From
-0.2.0 on arnika no longer waits for Rosenpass, and the offset between two
+**At the pin since 2026-11-21 (`0bb8401`) the wait no longer decides where
+the boundaries fall.** arnika numbers each interval by the Unix time divided
+by the interval (`intervalAt`, `main.go:132-138`, taken at the top of its
+loop, `main.go:277-281`) and ends it by sleeping to that interval's end
+(`main.go:348`), so on either lane its boundaries are the wall-clock
+multiples of `ARNIKA_INTERVAL` whenever it starts. Two processes then agree
+on the interval number, and so on the role election that hashes it, whenever
+their clocks agree, whatever their start times, and a process restarted alone
+rejoins its peer's numbering. Started on a boundary, arnika's first interval
+is a whole one rather than the rest of the current one. All of this is read
+from the code, not measured; how the pin behaves on the public demo is to be
+observed after deployment. The rest of this section explains why the wait was
+added at `f4cf9ba`, and records what was observed there.
+
+**Why the wait was added, at `f4cf9ba`.** Because of two properties of arnika
+at that pin. Each process counted intervals from its own start
+(`main.go:327-333` at `f4cf9ba`), and the role election was an HMAC of that
+count. And under `QkdAndPqcRequired` a BACKUP whose interval ends with no
+`key_id` from its peer logs `no key_id from the peer` and installs a random
+key (`main.go:409-418` at `f4cf9ba`, `main.go:348-353` at `0bb8401`), where
+`3a8cc13`, the pin before, kept the superseded key installed and logged
+nothing. Until release 0.2.0 the WireGuard entrypoint started arnika only
+once Rosenpass's first key existed, which happened on both nodes almost at
+once, so the two processes started together as a side effect. From 0.2.0 on
+arnika no longer waits for Rosenpass, and at `f4cf9ba` the offset between two
 container starts became the offset between two interval counters. In short
 local runs without the alignment, the later-started node repeatedly logged
 `no key_id from the peer` and invalidated its tunnel at the end of a BACKUP
 interval, leaving the two ends on different keys for about 0.4 to 0.9 s each
 time: at the end of 13 of its 21 BACKUP intervals over three WireGuard runs,
 and twice in the one IPsec run described below. That is an observation, not a
-measurement. The wait restores the start synchronisation the old start order
+measurement. The wait restored the start synchronisation the old start order
 gave on this lane, which is not the lane the before/after measurement
-compares.
+compared. With both containers of a pair past that point within the same
+interval, the two arnika tickers then fired within milliseconds of each
+other.
 
 **Why the IPsec lane does not.** Its entrypoint starts arnika as soon as the
 connection is loaded, as at v0.1.0, when the lane's two nodes were never
 aligned: compose started them together, about 30 ms apart on the public demo
-host. The 168-hour before/after measurement compares this lane
+host. The 168-hour before/after measurement compared this lane
 ([`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race)),
 as a pure port plus a measurement with any mitigation left for later, so both
-arms run the same entrypoint start behaviour. The start offset itself is not
-assumed equal between the arms: arm B, at the new pin, also drops the IPsec
+arms ran the same entrypoint start behaviour. The start offset itself was not
+assumed equal between the arms: arm B, at `f4cf9ba`, also dropped the IPsec
 nodes' `depends_on` on the WireGuard nodes, which changes the order in which
-compose starts them, so the offset is measured in each arm (below). Whatever
-the new fail-closed path for an interval without a `key_id` does under that
-offset is a finding to measure, not something to hide with a start change
+compose starts them, so the offset was measured in each arm (below). Whatever
+the new fail-closed path for an interval without a `key_id` did under that
+offset was a finding to measure, not something to hide with a start change
 made in one arm only.
 
-**Alignment fixes the offset only at the start.** Each arnika ticker re-bases
-after its own processing: the loop resets it at its top (`main.go:331`),
-after the previous tick and whatever the end of that interval did, so each
-node's boundaries move later by its own processing time, and the offset
-between the two ends of a pair wanders by milliseconds per interval. The
-offset matters because of when the PRIMARY sends its `key_id`: at the next
-whole second after its own boundary plus its KMS fetch (`main.go:348-351`),
-and only once it has built its PSK (`main.go:369`). For each tick, let
-$`d`$ be the BACKUP's boundary minus the PRIMARY's, and $`t_{\mathrm{KMS}}`$
-the PRIMARY's KMS fetch time. For $`d`$ below about a second, the chance that
-the PRIMARY's `key_id` reaches the BACKUP before the BACKUP's own boundary
-("early") is roughly $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$,
-if over a long run the fraction of a second at which the fetch ends is spread
-evenly; the send also waits for the PSK build, which lowers it a little. An early `key_id` is
-counted in the BACKUP's previous interval. The BACKUP fails closed at the end
-of the current interval only if the next interval's `key_id` is not early
-too, which in practice means at its BACKUP-to-PRIMARY transitions: while it
-stays BACKUP, the next early `key_id` fills the interval the previous one
-left empty. All of this is an inference from the code, not a measurement. It
-concerns both lanes: the IPsec lane from its start offset on, and the
-WireGuard lane once drift has moved its offset past the fetch time.
+**At `f4cf9ba`, alignment fixed the offset only at the start.** Each arnika
+ticker re-based after its own processing: the loop reset it at its top
+(`main.go:331` at `f4cf9ba`), after the previous tick and whatever the end of
+that interval did, so each node's boundaries moved later by its own
+processing time, and the offset between the two ends of a pair wandered by
+milliseconds per interval. The offset matters because of when the PRIMARY
+sends its `key_id`: at the next whole second after its own boundary plus its
+KMS fetch (`main.go:302` at `0bb8401`, `main.go:348-351` at `f4cf9ba`), and
+only once it has built its PSK (`main.go:319` at `0bb8401`, `main.go:369` at
+`f4cf9ba`). For each tick, let $`d`$ be the BACKUP's boundary minus the
+PRIMARY's, and $`t_{\mathrm{KMS}}`$ the PRIMARY's KMS fetch time. At
+`f4cf9ba`, for $`d`$ below about a second, the chance that the PRIMARY's
+`key_id` reached the BACKUP before the BACKUP's own boundary ("early") was
+roughly $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$, if over a
+long run the fraction of a second at which the fetch ends is spread evenly;
+the send also waits for the PSK build, which lowers it a little. An early
+`key_id` is counted in the BACKUP's previous interval. The BACKUP fails closed
+at the end of the current interval only if the next interval's `key_id` is
+not early too, which in practice means at its BACKUP-to-PRIMARY transitions:
+while it stays BACKUP, the next early `key_id` fills the interval the
+previous one left empty. All of this is an inference from the code, not a
+measurement. At `f4cf9ba` it concerned both lanes: the IPsec lane from its
+start offset on, and the WireGuard lane once drift had moved its offset past
+the fetch time. At `0bb8401` the two ends' boundaries are the multiples of
+the interval on their own clocks, so $`d`$ is the two clocks' offset plus
+scheduling delay, whatever the start offset, and does not accumulate. With an
+interval of whole seconds, as the default `30s` is, the boundaries also fall
+on whole seconds, so a PRIMARY whose fetch ends within the second sends about
+a second after its boundary, and its `key_id` is early only where $`d`$
+exceeds about a second; that too is read from the code, not measured.
 
-The one local observation of it is an unaligned run of the IPsec lane on
-2026-09-26, about 6 minutes long, with bob's arnika started about 0.25 s
-after alice's. Each node's boundary moved by 0 to 12 ms per interval, and the
-offset between the two went from about 255 ms to about 217 ms over 12
-intervals. bob received early `key_id`s in intervals 2 to 8, 10 and 11, and
-invalidated only at the end of intervals 8 and 11, each followed by an
-interval in which bob was PRIMARY. One short run: an observation, not a
-measurement.
+The one local observation of it, at `f4cf9ba`, is an unaligned run of the
+IPsec lane on 2026-09-26, about 6 minutes long, with bob's arnika started
+about 0.25 s after alice's. Each node's boundary moved by 0 to 12 ms per
+interval, and the offset between the two went from about 255 ms to about
+217 ms over 12 intervals. bob received early `key_id`s in intervals 2 to 8,
+10 and 11, and invalidated only at the end of intervals 8 and 11, each
+followed by an interval in which bob was PRIMARY. One short run: an
+observation, not a measurement.
 
-Two more cases that neither lane's start timing covers:
+Two more cases that neither lane's start timing covered at `f4cf9ba`:
 
-- **A node restarted on its own.** Its count starts again at 0 while its
-  peer's has kept running (on the WireGuard lane it starts on a boundary
-  again, but that does not help). The election hashes the count, so the two
-  ends then elect the same role in about half of the intervals, and in each
-  interval where both come out BACKUP both ends fail closed.
+- **A node restarted on its own.** Its count started again at 0 while its
+  peer's had kept running (on the WireGuard lane it started on a boundary
+  again, but that did not help). The election hashes the count, so the two
+  ends then elected the same role in about half of the intervals, and in
+  each interval where both came out BACKUP both ends failed closed.
 - **A straddled boundary, on the WireGuard lane only.** If the two containers
-  of a pair reach the alignment on either side of a boundary, they start one
-  or more intervals apart, with the same result as a restart; two containers
-  that arrive $`s`$ seconds apart do so with a probability of about $`s / T`$
-  for an interval of $`T`$ seconds.
+  of a pair reached the alignment on either side of a boundary, they started
+  one or more intervals apart, with the same result as a restart; two
+  containers that arrive $`s`$ seconds apart do so with a probability of about
+  $`s / T`$ for an interval of $`T`$ seconds.
 
-Both are inferences from the code, not measurements. This is arnika #51's
-behaviour rather than this deployment's, and it is to be raised on #51
-together with a measurement ([`roadmap.md`](roadmap.md), "Follow-ups from
-adopting arnika #51"). Neither lane's start timing is a mitigation of the
-IPsec lane's PPK ordering race, and nothing claimed about that race depends on
-it
+Both were inferences from the code, not measurements. At `0bb8401` neither
+separates the two counts while the two clocks agree: a restarted node and a
+straddled start take their interval number from the clock, as the peer does.
+That is read from the code and not measured; what is left to observe is in
+[`roadmap.md`](roadmap.md), "Follow-ups from adopting arnika #51". Neither
+lane's start timing is a mitigation of the IPsec lane's PPK ordering race,
+and nothing claimed about that race depends on it
 ([`vici-ppk.md`](vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race)).
 
 **What the measurement records.** A boundary is the line each arnika logs as
 an interval starts: `waiting for a key_id from the peer` on a BACKUP, and
 `requesting a new QKD key` on a PRIMARY, whose interval number comes from the
-`serving this interval` line after its KMS fetch (at the pinned commit). For
-the IPsec pair, `scripts/ppk_race_report.py` reads the two nodes' logs and
+`serving this interval` line after its KMS fetch (at `f4cf9ba` and at
+`0bb8401`). At `0bb8401` a PRIMARY whose KMS request fails asks again within
+the same interval and logs `requesting a new QKD key` before each retry
+(`main.go:288-299`), so its boundary is the first such line of the interval.
+For the IPsec pair, `scripts/ppk_race_report.py` reads the two nodes' logs and
 prints, beside the `no key_id from the peer` invalidations: the offset
 between the two ends' boundaries (its size, trend and change from tick to
 tick), each PRIMARY's KMS fetch time, the ticks whose interval numbers differ

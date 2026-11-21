@@ -310,23 +310,32 @@ round, and each HKDF takes the key of the latest round it has published. On
 whichever node is the IKE initiator, its `load-shared` is followed by the
 queued reauthentication.
 
-The order is new with the `f4cf9ba` pin (arnika#51, commit `3e02741`): the
-BACKUP installs its key before it ACKs the `key_id`
-(`transport/server.go`, `RunKeyIDWorker`), and the PRIMARY installs only after
-the ACK arrives (`main.go`, the `SendKeyID` call and the `writePSK` after it).
-At the previous pin `3a8cc13` the BACKUP ACKed on receipt, before its
-`dec_keys` request, so the PRIMARY installed first and the BACKUP one KME round
-trip later -- the order behind the race measured below. Without an ACK, under
-`QkdAndPqcRequired`, the PRIMARY now installs a random key instead.
+The order is new with the `f4cf9ba` pin (arnika#51, commit `3e02741`) and
+unchanged at `0bb8401`: the BACKUP installs its key before it ACKs the
+`key_id` (`transport/server.go`, `RunKeyIDWorker`), and the PRIMARY installs
+only after the ACK arrives (`main.go`, the `SendKeyID` call and the
+`writePSK` after it). At `3a8cc13`, the pin before `f4cf9ba`, the BACKUP
+ACKed on receipt, before its `dec_keys` request, so the PRIMARY installed
+first and the BACKUP one KME round trip later -- the order behind the race
+measured below. Without an ACK, under `QkdAndPqcRequired`, the PRIMARY now
+installs a random key instead.
 
 Which node is PRIMARY is drawn afresh every interval: the pinned arnika takes
 an HMAC-SHA256 of the interval number, keyed with `ARNIKA_PSK`, and XORs it
 with `ARNIKA_ID` (`IsPrimary` in `submodules/arnika/config/config.go`), so the
-two nodes' IDs must differ in parity. The interval number is each process's
-own count since it started, so the two elections are complementary only
-while the two counts agree, which is why a pair is recreated together. This
-lane's entrypoint deliberately starts arnika without waiting for an interval
-boundary, as at v0.1.0; only the WireGuard lane's does
+two nodes' IDs must differ in parity. At `0bb8401` the interval number is the
+Unix time divided by the interval (`intervalAt`, `main.go:132-138`), so the
+two elections are complementary whenever the two nodes' clocks agree,
+whatever their start times; that is read from the code, not measured. At
+`f4cf9ba` and earlier it was each process's own count since it started, so
+the elections were complementary only while the two counts agreed, which is
+why a pair is recreated together, a rule this deployment keeps. An open
+arnika PR, [#60](https://github.com/arnika-project/arnika/pull/60)
+(2026-11-20), proposes a fixed PRIMARY chosen in the configuration instead of
+the per-interval draw. This lane's entrypoint deliberately starts arnika
+without waiting for an interval boundary, as at v0.1.0; only the WireGuard
+lane's does, and at `0bb8401` that wait no longer decides where the
+boundaries fall
 ([`BUILD.md` 7.3](BUILD.md#73-starting-arnika-on-the-interval-boundary)).
 arnika v1.x instead made whichever peer
 received a `key_id` first the backup; the QCI-CAT design document describes
@@ -357,7 +366,8 @@ So the identity is stable and the material behind it rotates.
 ## 6. Upstreaming
 
 The adapter is written against upstream arnika's key-writer port
-(`services/keywriter.go` at the `f4cf9ba` pin):
+(`services/keywriter.go` at the `0bb8401` pin; the port is the same at
+`f4cf9ba`):
 
 ```go
 type keyWriterRepository interface {
@@ -407,21 +417,26 @@ identity-bound MAC, `mac_psk(sender_id, receiver_id, session, data)`.
 
 arnika's UDP key-ID channel signs `[type][timestamp][payload]`
 (`auth/auth.go`, `signedPayload`), and no sender or receiver identity is in
-that input. At the previous pin `3a8cc13` the HMAC key was the same for both
-peers, so a node would have accepted **its own outbound packet reflected back**
-inside the timestamp window; this section raised that as a question for
-upstream.
+that input. At `3a8cc13`, the pin before `f4cf9ba`, the HMAC key was the same
+for both peers, so a node would have accepted **its own outbound packet
+reflected back** inside the timestamp window; this section raised that as a
+question for upstream.
 
-**The `f4cf9ba` pin answers the reflection half of it.** `auth/auth.go` now
-derives a separate HMAC key per direction, labelled by the sender's
-`ARNIKA_ID` parity (`DirectionFor`, `deriveHMACKey`), so a packet reflected to
-its sender fails verification there. That binds the direction, not the
-parties or the session: any node holding the same `ARNIKA_PSK` with an
-`ARNIKA_ID` of the opposite parity is accepted, which CM2's identity-bound MAC
-would not allow. The server accepts `PacketData` and, since #51, `PacketPQC`;
-a `D`→`A` type confusion is still not possible, and the timestamp window still
-bounds replay. None of this has been exercised against live nodes with packet
-injection here.
+**The pin answers the reflection half of it**, from `f4cf9ba` on and still at
+`0bb8401`. `auth/auth.go` now derives a separate HMAC key per direction,
+labelled by the sender's `ARNIKA_ID` parity (`DirectionFor`,
+`deriveHMACKey`), so a packet reflected to its sender fails verification
+there. That binds the direction, not the parties or the session: any node
+holding the same `ARNIKA_PSK` with an `ARNIKA_ID` of the opposite parity is
+accepted, which CM2's identity-bound MAC would not allow. The server accepts
+`PacketData` and, since #51, `PacketPQC`; a `D`→`A` type confusion is still
+not possible, and the timestamp window still bounds replay. At `0bb8401` the
+transport hardening of #54 to #57 adds to that: the listener drops a packet
+stamped before it started and a different `key_id` stamped earlier than the
+newest one, and it recognises a copy of a datagram it has already processed
+by its HMAC tag, answering a copied DATA packet without processing it again
+and dropping a copied PQC frame (`transport/server.go`, `Serve`). None of
+this has been exercised against live nodes with packet injection here.
 
 **Key-ID binding to the ciphertext.** arXiv:2607.06602 binds the ETSI `key_ID`
 into the AES-GCM AAD, so the identifier cannot be swapped independently of the
@@ -571,15 +586,20 @@ the requested window.
 
 ### 2026-09-26: arnika #51 head, what changes for the rotation race
 
-The arnika pin moved from `3a8cc13` to `f4cf9ba`, the head of the open PR #51
-as of 2026-09-24. (The PR has moved on since, to `e37d043` of 2026-11-05.
-Its `da00e6d` of 2026-09-30 removes comments and refactors some non-test code,
-behaviour-identical by our reading of its diff; its `000a72d` of 2026-11-05
-aligns the QKD intervals to the system clock instead of per-node tickers, which
-`f4cf9ba` does not do. A 48.3 h run of `e37d043` on one development
-host, with this repository's VICI writer unchanged, saw no interval-number
-mismatch and two races of the install order described here; the counts are on
-[#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6759071117).)
+The arnika pin moved from `3a8cc13` to `f4cf9ba`, the head of PR #51 as of
+2026-09-24, then open. (The PR moved on to `e37d043` of 2026-11-05 and
+merged on 2026-11-20 as `c850db6`, with the same code; on 2026-11-21 the pin
+moved again, to `0bb8401`, arnika's `main` after #51 and the transport
+hardening of #54 to #57. Past `f4cf9ba`, `da00e6d` of 2026-09-30 removes
+comments and refactors some non-test code, behaviour-identical by our reading
+of its diff, and `000a72d` of 2026-11-05 numbers the QKD intervals by the
+system clock instead of by each process's own ticker, which `f4cf9ba` does
+not do. A 48.3 h run of `e37d043` on one development host, with this
+repository's VICI writer unchanged, saw no interval-number mismatch and two
+races of the install order described here; the counts are on
+[#51](https://github.com/arnika-project/arnika/pull/51#issuecomment-6759071117).
+This section records the analysis of `f4cf9ba` made on 2026-09-26; where
+`0bb8401` differs, the item says so.)
 Its commit `3e02741` (2026-09-24) makes the BACKUP install before it ACKs and
 the PRIMARY install only after the ACK (section 5). Read against this lane,
 that **moves** the exposed intervals; it does not remove them. This is from
@@ -602,8 +622,8 @@ So `3e02741` is expected to move the window from alice-PRIMARY to alice-BACKUP
 intervals, at a rate not yet known. Describing it as a fix for the mismatch
 would get ahead of the evidence.
 
-The new pin brings three further sources of `AUTH_FAILED` on this lane, each
-visible in the logs:
+The `f4cf9ba` pin brings three further sources of `AUTH_FAILED` on this lane,
+each visible in the logs:
 
 - **New fail-closed paths.** Under `QkdAndPqcRequired`, arnika now installs a
   random key when a BACKUP interval ends with no `key_id`, when the PRIMARY
@@ -611,24 +631,31 @@ visible in the logs:
   VICI that is a random PPK, so the next reauthentication fails, and the adapter
   logs `PPK rotated` for it as for any write. arnika logs each one as
   `msg="configuring a random PSK to invalidate the WireGuard session"` (the
-  wording is upstream's, whatever the writer).
-- **Start offsets, drift and single-node restarts.** Each arnika process
-  counts its intervals from its own start (`main.go:327-333`), the election
-  is an HMAC of that count, and a BACKUP interval that ends without a
-  `key_id` now fails closed (`main.go:409-418`). Two processes started at
-  different moments therefore disagree about which interval a `key_id`
-  belongs to. From reading the code: for each tick, let $`d`$ be the
-  BACKUP's boundary minus the PRIMARY's and $`t_{\mathrm{KMS}}`$ the
-  PRIMARY's KMS fetch time. For $`d`$ below about a second, the chance that
-  the PRIMARY's `key_id` reaches the BACKUP before the BACKUP's own boundary
-  ("early") is roughly $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$,
-  since the PRIMARY sends at the next whole second after its fetch; the send
-  also waits for the PSK build. An early `key_id` is counted in the BACKUP's
-  previous interval, and the BACKUP fails closed at the end of the current
-  interval only if the next interval's `key_id` is not early too, which in
-  practice means at its BACKUP-to-PRIMARY transitions. That is an inference,
-  not a measurement
-  ([`BUILD.md` 7.3](BUILD.md#73-starting-arnika-on-the-interval-boundary)).
+  wording is upstream's, whatever the writer). `0bb8401` adds one more, from
+  #57: a PRIMARY whose KMS answers with less than `ARNIKA_PEER_TIMEOUT` left
+  in the interval logs
+  `the KMS answered too late in the interval, skipping it` and installs a
+  random key too (`main.go:312-317`).
+- **Start offsets, drift and single-node restarts.** At `f4cf9ba` each
+  arnika process counted its intervals from its own start (`main.go:327-333`
+  at `f4cf9ba`), the election hashed that count, and from that pin on a
+  BACKUP interval that ends without a `key_id` fails closed
+  (`main.go:409-418` at `f4cf9ba`, `main.go:348-353` at `0bb8401`). Two
+  processes started at different moments therefore disagreed about which
+  interval a `key_id` belongs to. From reading the code: for each tick, let
+  $`d`$ be the BACKUP's boundary minus the PRIMARY's and $`t_{\mathrm{KMS}}`$
+  the PRIMARY's KMS fetch time. For $`d`$ below about a second, the chance
+  that the PRIMARY's `key_id` reached the BACKUP before the BACKUP's own
+  boundary ("early") was roughly
+  $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$, since the
+  PRIMARY sends at the next whole second after its fetch; the send also waits
+  for the PSK build. An early `key_id` is counted in the BACKUP's previous
+  interval, and the BACKUP fails closed at the end of the current interval
+  only if the next interval's `key_id` is not early too, which in practice
+  means at its BACKUP-to-PRIMARY transitions. That is an inference, not a
+  measurement
+  ([`BUILD.md` 7.3](BUILD.md#73-starting-arnika-on-the-interval-boundary),
+  which also says what changes at `0bb8401`).
   Observed in one unaligned local two-node run of this lane on 2026-09-26,
   about 6 minutes long, with bob's arnika started about 0.25 s after
   alice's: the offset went from about 255 ms to about 217 ms over 12
@@ -645,19 +672,25 @@ visible in the logs:
   start offset is measured rather than hidden. The offset itself is measured
   in each arm, not assumed equal (see the measurement below). The WireGuard
   lane's entrypoint does align, which restores the start synchronisation
-  that lane had before 0.2.0, but alignment fixes the offset only at the
-  start: each ticker re-bases after its own processing, so the offset wanders
-  by milliseconds per interval, as in the run above. A node restarted alone
-  starts its count again at 0 while its peer's does not, the two elections
-  stop being complementary, and in each interval where both come out BACKUP
-  both ends fail closed. That residual is #51's behaviour and is to be raised
-  there with a measurement; the operating rule meanwhile is to recreate both
-  nodes of a pair together. Neither the WireGuard lane's alignment nor the
-  rule is a mitigation of the race above, and neither is claimed to change
-  it.
+  that lane had before 0.2.0, but at `f4cf9ba` alignment fixed the offset
+  only at the start: each ticker re-based after its own processing, so the
+  offset wandered by milliseconds per interval, as in the run above. A node
+  restarted alone started its count again at 0 while its peer's did not, the
+  two elections stopped being complementary, and in each interval where both
+  came out BACKUP both ends failed closed. At `0bb8401` the interval number
+  is the Unix time divided by the interval (`intervalAt`, `main.go:132-138`,
+  taken at the top of the loop, `main.go:277-281`), so the start alignment no
+  longer decides where the boundaries fall; while the two clocks agree, the
+  two ends agree on the number and on the election, and a node restarted
+  alone rejoins its peer's numbering. That is read from the code, not
+  measured. The operating rule stays: recreate both nodes of a pair
+  together. Neither the WireGuard lane's alignment nor the rule is a
+  mitigation of the race above, and neither is claimed to change it.
 - **The PQC-HPKE read gap.** Each peer reads the latest published PQC-HPKE key
   when it builds its PSK: the PRIMARY before it sends the `key_id`
-  (`main.go:369`), the BACKUP after its `dec_keys` request (`main.go:316-324`).
+  (`main.go:319` at `0bb8401`, `main.go:369` at `f4cf9ba`), the BACKUP after
+  its `dec_keys` request (`main.go:266-274` at `0bb8401`, `main.go:316-324`
+  at `f4cf9ba`).
   The two reads are therefore apart by the `key_id` delivery plus a KME round
   trip, and a round that publishes between them gives the peers different
   keys until the next rotation. Upstream's `docs/pqc-hpke.md` puts the
@@ -698,8 +731,8 @@ arms' logs:
   corroboration;
 - each failure belongs to the interval of alice's last rotation before it, and
   is split by alice's role in that interval (`PRIMARY[11]` or `BACKUP[11]` at
-  the old pin, `role=primary` or `role=backup` on the `key_id` lines at the
-  new one);
+  `3a8cc13`, `role=primary` or `role=backup` on the `key_id` lines at
+  `f4cf9ba`);
 - each is classed as an invalidation, a start-up failure, the race (bob's
   `MAC mismatched` before bob's own `PPK qkd-alice-N loaded`, compared within
   bob's log only), an input divergence, or a lag (bob never loads that
@@ -711,7 +744,7 @@ arms' logs:
   their interval numbers differ or both hold the same role, and its JSON
   output keeps these tick by tick, so that the invalidations can be read
   against the offset, the fetch time and the counters rather than against an
-  expectation. At the previous pin a BACKUP logs its boundary only when no
+  expectation. At `3a8cc13` a BACKUP logs its boundary only when no
   `key_id` has reached it first, so arm A's offsets are a biased sample.
 
 The 8.8-day figure above predates the 2026-09-25 health-check ping, so it is
@@ -809,7 +842,7 @@ artifact.
 pin on, this lane runs no Rosenpass and keeps no PQC key on disk: the PQC half
 is agreed by the two arnika instances themselves, round by round, and held in
 memory. So there is no `pqc.psk` to fingerprint. The PQC half is still not
-ruled out for the 2026-09-25 run, which was at the old pin; for new failing
+ruled out for the 2026-09-25 run, which was at `3a8cc13`; for new failing
 runs, the candidate on that side is the PQC-HPKE read gap described in the
 2026-09-26 section above, and each node's list of
 `msg="round agreed a fresh PQC key" round=N` lines is what to compare.
@@ -825,10 +858,10 @@ rotations until the bootstrap was unloaded.
 
 **Not implemented as of 2026-09-26**: the lane still uses one static
 `PPK_ID`, `ppk-qkd@pqcqkd.local`, on both nodes. It is one of two candidate
-mitigations for the alice-BACKUP exposure the new pin is expected to create;
-the other is delaying the initiator's reauthentication. Neither is taken
-before the measurement above shows that exposure, and neither can use the
-interval's role or `key_id`: the adapter sees only the 32 bytes `SetPSK`
+mitigations for the alice-BACKUP exposure the `f4cf9ba` pin is expected to
+create; the other is delaying the initiator's reauthentication. Neither is
+taken before the measurement above shows that exposure, and neither can use
+the interval's role or `key_id`: the adapter sees only the 32 bytes `SetPSK`
 hands it.
 
 Scope the `PPK_ID` to the generation, e.g. `ppk-qkd-26@pqcqkd.local`. RFC 8784
@@ -868,14 +901,26 @@ more flexible hybrid formatting, and SP 800-133 Rev. 3 is in draft -- so this
 analysis is against the current revisions ([`references.md`](references.md),
 NIST table).
 
-**What arnika does**, from `submodules/arnika/kdf/kdf.go` (byte-identical at
-the `f4cf9ba` pin and at the previous `3a8cc13`; arnika#51 did not touch it):
+**What arnika does**, from `submodules/arnika/kdf/kdf.go` at the `0bb8401`
+pin (lines 17-26, inside `DeriveKey`):
 
 ```go
-hkdf := hkdf.New(sha3.New256, combined, nil, nil)
+secret.Do(func() {
+	combined := make([]byte, 0, len(qkdKey)+len(pqcKey))
+	combined = append(combined, qkdKey...)
+	combined = append(combined, pqcKey...)
+	defer clear(combined)
+
+	hkdfReader := hkdf.New(sha3.New256, combined, nil, nil)
+
+	derivedKey := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, derivedKey); err != nil {
 ```
 
-i.e. `HKDF-SHA3-256(QKD ‖ PQC)` with a nil salt and no info string. What
+i.e. `HKDF-SHA3-256(QKD ‖ PQC)` with a nil salt and no info string, read to
+32 bytes. The file was byte-identical at `f4cf9ba` and at `3a8cc13`; the
+merged #51 (its commit `da00e6d`) only renamed the reader, which was `hkdf`,
+and dropped comments, so the derivation is the same at all three pins. What
 changed with #51 is the second input, not the combiner: `PQC` is now the
 32-byte export of arnika's own PQC-HPKE round, not the Rosenpass output file.
 
@@ -889,10 +934,10 @@ changed with #51 is the second input, not the combiner: `PQC` is now the
   salt nor FixedInfo" — the salt half of that carries no weight.
 - **FixedInfo is genuinely absent.** No domain separator, no protocol or party
   binding. That is a real gap against the approved forms §4.6.2 describes, and
-  it is the one to state. It is unchanged by #51, because `kdf/kdf.go` is. (The
-  PQC-HPKE round binds a context string and the round number into its own
-  HPKE key schedule, but that is inside the PQC input, not FixedInfo in the
-  combiner.)
+  it is the one to state. It is unchanged by #51 and at `0bb8401`, because the
+  HKDF call in `kdf/kdf.go` is. (The PQC-HPKE round binds a context string and
+  the round number into its own HPKE key schedule, but that is inside the PQC
+  input, not FixedInfo in the combiner.)
 - **The inputs are still not shown to be approved-KEM-derived; the reason
   changed.** Before release 0.2.0 the PQC input came from Rosenpass v0.2.3, whose
   Classic McEliece 460896 + Kyber512 is not an approved KEM (Kyber512 is the

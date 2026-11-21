@@ -270,9 +270,9 @@ class StackStatus:
         """A container's stdout and stderr over `window`, redacted.
 
         `window` is docker-py's `tail` (lines) or `since` (a Unix time). Both
-        streams, explicitly: the pinned arnika (f4cf9ba) writes every record to
-        stderr through its slog handler (logging.go:42 and :63 there), so a
-        stdout-only read would show no arnika line at all.
+        streams, explicitly: the pinned arnika (0bb8401, as f4cf9ba before it)
+        writes every record to stderr through its slog handler (logging.go:28
+        and :41 there), so a stdout-only read would show no arnika line at all.
         """
         try:
             c = self._docker().containers.get(name)

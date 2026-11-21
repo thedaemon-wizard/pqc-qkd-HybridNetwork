@@ -12,9 +12,9 @@ about. `strongswan_vici` is not among them, and every writer's wiring file
 defines `getKeyWriterService`, so `-tags strongswan_vici` yields two
 definitions. The narrowing adds `&& !strongswan_vici`.
 
-The layout is upstream PR #51's (the pin, f4cf9ba, is its head as of
-2026-09-24): one package per adapter under `repositories/<pkg>/` and one wiring
-file per backend at the root, named `wire_` plus the build tag (its
+The layout is upstream PR #51's, merged on 2026-11-20 (the pin, 0bb8401, is
+`main` after it): one package per adapter under `repositories/<pkg>/` and one
+wiring file per backend at the root, named `wire_` plus the build tag (its
 KEYCONTROL.md, "Naming and File Layout Conventions"). So the default writer's
 wiring is `wire_wireguard_netlink.go`, the adapter is `repositories/swanvici/`,
 and its wiring is `wire_strongswan_vici.go`. The first line of the default
@@ -35,7 +35,7 @@ Docker against golang:1.26-bookworm (the same image the node Dockerfiles use):
     strongswan_vici            FAILS         OK
 
 That table was measured on the pre-#51 file names; the expression it depends
-on is the same string at f4cf9ba.
+on is the same string at f4cf9ba and at 0bb8401.
 
 Two kinds of check follow. The SHAPE of the rewritten expression is asserted
 against the pinned tree, because a Docker build is not something a unit test

@@ -3,7 +3,8 @@
  *
  * Until 0.2.0 a Rosenpass sidecar on each node wrote a PQC key to a file,
  * arnika read that file as the PQC half of its HKDF, and both lanes consumed
- * the result. The arnika pin moved to the head of upstream PR #51, which
+ * the result. The arnika pin moved to upstream PR #51 (its head until #51
+ * merged on 2026-11-20, arnika's main since), which
  * removed that file interface: arnika now agrees the PQC half with its peer by
  * PQC-HPKE, and Rosenpass keys a second WireGuard interface, wg1, that runs
  * inside the wg0 hop tunnel. Every page that described the old wiring would
@@ -258,19 +259,19 @@ describe("the Rosenpass exchange is described with one initiator", () => {
   }
 });
 
-describe("the pin is an unmerged PR head, and no fix is claimed", () => {
+describe("the pin is arnika's main after #51 merged, and no fix is claimed", () => {
   for (const [name, text] of [["Overview.tsx", OVERVIEW], ["VpnProtocols.tsx", VPN]] as const) {
     it(`${name} says so`, () => {
       const t = norm(code(text));
-      expect(t).toMatch(/pull request #51, which is still open/);
-      expect(t).toMatch(/f4cf9ba<\/code>, that pull request&apos;s head commit on 2026-09-24/);
-      // The PR's head moved on 2026-09-30 and again on 2026-11-05, the second
-      // time with behaviour the pin lacks; a bare "the pin is the head" went
-      // stale the first day, so the current head is named with its date.
-      expect(t).toMatch(/to the head(\{" "\})? <code>e37d043<\/code>, 2026-11-05/);
-      expect(t).toMatch(/align the QKD intervals to the system clock, which the pin\s+does not do/);
-      expect(t).toMatch(/before\/after measurement of the pin\s+was reported on 2026-10-12/);
-      expect(t).toMatch(/re-pinned to the merge commit\s+once #51 merges/);
+      // Until 2026-11-21 the pin was #51's head of 2026-09-24 and these notes
+      // said the pull request was open; it merged on 2026-11-20.
+      expect(t).not.toMatch(/still open/);
+      expect(t).toMatch(/pull request #51, merged on 2026-11-20 as the commit(\{" "\})? <code>c850db6<\/code>/);
+      expect(t).toMatch(/The arnika pin is <code>0bb8401<\/code>, arnika&apos;s main after that merge/);
+      expect(t).toMatch(/four pull requests \(#54 to #57\) that harden its key_id exchange/);
+      // The measurement was made at the previous pin, so it is named with it.
+      expect(t).toMatch(/previous pin,(\{" "\})? <code>f4cf9ba<\/code> of 2026-09-24/);
+      expect(t).toMatch(/before\/after measurement of the previous pin was reported on 2026-10-12/);
     });
   }
 

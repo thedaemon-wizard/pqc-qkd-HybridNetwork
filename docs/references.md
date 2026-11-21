@@ -102,7 +102,7 @@ nodes, which the trusted nodes forward without holding its key. Since
 2026-09-26 the two-node WireGuard lane here has the same shape -- a `wg1` data
 tunnel keyed by Rosenpass, carried inside the `wg0` hop tunnel -- with one
 difference: arnika's hop key is not QKD-only, because the pinned arnika
-(`f4cf9ba`, the head of its PR #51 as of 2026-09-24) also HKDF-mixes in a
+(`0bb8401`, its `main` after PR #51 merged on 2026-11-20) also HKDF-mixes in a
 PQC-HPKE key it agrees with its peer. In the multi-hop compose the relay holds
 both legs' hop keys, as a trusted node does, and it also terminates each leg's
 `wg1`, so it holds each leg's Rosenpass key too: unlike the paper's, this
@@ -454,7 +454,7 @@ Licences for everything vendored under `submodules/` are recorded in
 
 | Project | Role | Licence |
 |---|---|---|
-| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management, including the PQC-HPKE key agreement of its open PR #51, whose head as of 2026-09-24 (`f4cf9ba`) is the pin; the key-writer port this project extends | Apache-2.0 |
+| [arnika](https://github.com/arnika-project/arnika) | QKD/PQC key management, including the PQC-HPKE key agreement of its PR #51, merged on 2026-11-20 (the pin, `0bb8401`, is `main` after it); the key-writer port this project extends | Apache-2.0 |
 | [strongSwan](https://github.com/strongswan/strongswan) | IKEv2 daemon (pinned 6.1.0) | GPL-2.0 + OpenSSL exception |
 | [govici](https://github.com/strongswan/govici) | Official VICI client (pinned v0.8.2) | MIT |
 | [Rosenpass](https://github.com/rosenpass/rosenpass) | Post-quantum key exchange for WireGuard; keys the `wg1` data tunnel here | MIT / Apache-2.0 |
@@ -470,8 +470,8 @@ on 2023-01-01, and the end date on its deliverable covers moved in stages --
 so the project has ended. The initial prototype and earlier versions were
 developed at CANCOM Converged Services GmbH; since **Q2 2026** the people behind
 arnika have maintained it at **XBC Digital GmbH**, and the pin is that later
-work rather than the QCI-CAT v1.x line: `f4cf9ba`, the head of the open PR #51
-as of 2026-09-24, built on `main`. The Credits section of
+work rather than the QCI-CAT v1.x line: `0bb8401`, arnika's `main` after PR #51
+merged on 2026-11-20. The Credits section of
 `submodules/arnika/README.md` records both.
 
 ### arnika v1.x's design document, and what it settles
@@ -519,10 +519,12 @@ repository, each with that scope:
    survives is the exchange itself: PRIMARY sends the `key_id` and BACKUP
    resolves it, and that handover is where this project's intermittent PPK
    mismatch was investigated ([`vici-ppk.md`](vici-ppk.md), "Known
-   limitation"). At the pin (`f4cf9ba`, #51's head as of 2026-09-24) the BACKUP
+   limitation"). At the pin (`0bb8401`, as at `f4cf9ba` before it) the BACKUP
    installs its key before it acknowledges the `key_id`, and the PRIMARY
-   installs only after the acknowledgement. D6.1's statement is v1.x design
-   intent, not evidence about the current code path.
+   installs only after the acknowledgement; at `0bb8401` the interval number
+   the election hashes also comes from the system clock rather than from a
+   count each process keeps from its own start. D6.1's statement is v1.x
+   design intent, not evidence about the current code path.
 3. **IPsec was evaluated and not chosen, partly over patents.** D6.1 says the
    use case *"favored WireGuard over IPSEC"* for its simplicity, efficiency and
    modern design, and records that several methods for post-quantum IPsec have

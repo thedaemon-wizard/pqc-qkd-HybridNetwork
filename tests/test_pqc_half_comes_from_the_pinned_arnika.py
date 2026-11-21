@@ -7,7 +7,9 @@ its INSTALL.md calls PQC_PSK_FILE "ignored" -- and has arnika agree the PQC key
 with its peer itself, over PQC-HPKE (HPKE Base mode, RFC 9180, KEM
 MLKEM1024-P384 from draft-ietf-hpke-pq), on the UDP channel it already uses for
 the key_id. The guard this file replaces failed on exactly that pin bump, which
-was its job; this one holds the deployment to what the new pin needs.
+was its job; this one holds the deployment to what the new pin needs. The pin
+is now 0bb8401, arnika's main after #51 merged on 2026-11-20, which keeps all
+of that.
 
 Derived from the pinned tree, so it skips without the submodule and runs in the
 CI `go` job, which checks it out:
@@ -33,8 +35,9 @@ From this repository alone, so it runs everywhere:
     every counter here reads are INFO records;
   * no arnika service is granted IPC_LOCK. With it, the pinned arnika's
     mlockall succeeds and pins its whole reserved heap arena, which upstream's
-    own comment measures at about 1.2 GB per process; without it the lock is
-    refused and arnika logs a warning and continues.
+    own comment at f4cf9ba measured at about 1.2 GB per process (the comment
+    is gone at 0bb8401); without it the lock is refused and arnika logs a
+    warning and continues.
 """
 from __future__ import annotations
 

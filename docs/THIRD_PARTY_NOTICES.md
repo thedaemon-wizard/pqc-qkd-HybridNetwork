@@ -8,7 +8,7 @@ are kept short; the longer history of a pin is under
 
 | Submodule | License | Project | Phase | Activity (verified 2026-09-25) |
 |---|---|---|---|---|
-| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `f4cf9ba` (2026-09-24), the head of the **open, unmerged** PR #51 (`pqc-hpke`) as of that date, not a `main` commit: post-v1.x work, not the `v1.x` branch. It contains all of `main` except its two newest commits, which touch only the README (`164ee4e`, and `3a8cc13`, the previous pin). The PR's later head, `da00e6d` (2026-09-30), is one commit on top of it that removes comments, refactors some non-test code, updates documentation and tests and adds Makefile `lint`/`fmt` targets; behaviour-identical by our reading of its diff (head re-read 2026-10-01). To be re-pinned to the merge commit once #51 merges, but not before the after-arm of the before/after measurement has been reported. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-09-26. See [arnika](#arnika). |
+| `arnika` | Apache-2.0 | [arnika-project/arnika](https://github.com/arnika-project/arnika) — initial prototype and v1.x developed at CANCOM Converged Services GmbH under EU EUROQCI / QCI-CAT (DIGITAL-2021-QCI-01, No. 101091642, co-funded by Austria's National Foundation for Research, Technology and Development; the project ran from 2023-01-01 to 2026-03-31); maintained at XBC Digital GmbH since Q2 2026 | 0–7, 9 | pinned to `0bb8401` (2026-11-20), a `main` commit: arnika's `main` after PR #51 (`pqc-hpke`) was merged as `c850db6` and the four pull requests #54 to #57, which harden its key_id exchange, were merged after it. Post-v1.x work, not the `v1.x` branch. `c850db6` carries the same code as `e37d043`, #51's last head (2026-11-05); only the README differs. The previous pin was `f4cf9ba`, #51's head as of 2026-09-24, at which the before/after measurement was made. Three fixes reported from this project are in it (#42, #44, #49). Checked 2026-11-21. See [arnika](#arnika). |
 | `liboqs` | MIT (LICENSE text; GitHub auto-detector shows NOASSERTION) | Open Quantum Safe project | 0–7 | pinned to `5a1a854b`, the tag **0.16.0** (2026-07-09), built into the `pqc-validator` and `pqc-tls-demo` images. It is not the liboqs in the Rosenpass exchange (see `oqs-sys` below), and arnika uses none. Inside the affected range of GHSA-wh5q-mpc8-67wf, whose code is not compiled here. See [liboqs](#liboqs). |
 | `oqs-provider` | **MIT** | Open Quantum Safe project | 0–7 | pinned to `7e9d095a`, the tag **0.12.0** (2026-10-08), the latest release. It carries the four memory-safety fixes the previous pin `5fd81fb` lacked; reached only through `make pqc-tls-demo-both`. See [oqs-provider](#oqs-provider). |
 | `rosenpass` | MIT / Apache-2.0 (dual) | Rosenpass project contributors | 0–7 | pinned to `512fe426`, the tag **v0.2.3** (2026-08-03); built from source into the `node-alice` image, where it performs the real post-quantum key exchange that keys the `wg1` data tunnel (since release 0.2.0; it no longer feeds arnika). Its KEM code is liboqs 0.8.0, statically linked through `oqs-sys` 0.8.0, not the liboqs pin. See [rosenpass](#rosenpass). |
@@ -68,9 +68,10 @@ fix that the image actually compiles: `nodes/alice/Dockerfile` asserts both
 (`found := false` for #42, the KMS sentinel for #44/#49), and
 `nodes/strongswan/Dockerfile` asserts the sentinel only, because the netlink
 peer lookup #42 fixed is not compiled into the VICI build. A future bump to a
-revision lacking either fix fails the build rather than shipping silently. At
-the `f4cf9ba` pin the checks read `repositories/wgnetlink/netlink.go` and
-`repositories/kms/kms.go`, where #51 moved them, and the sentinel is
+revision lacking either fix fails the build rather than shipping silently.
+Since the `f4cf9ba` pin, and still at `0bb8401`, the checks read
+`repositories/wgnetlink/netlink.go` and `repositories/kms/kms.go`, where #51
+moved them, and the sentinel is
 `ErrUnavailable` in package `kms`: #51 renamed `ErrKMSUnavailable` when it gave
 the reader its own package, with the message text unchanged. The assertion
 targets the sentinel rather than the message because
@@ -86,32 +87,40 @@ enumerated upstream, so the local narrowing is still required. `build.sh` now
 also stops if upstream ever ships a `wire_strongswan_vici.go` or a
 `repositories/swanvici/` of its own.
 
-**#51 is adopted, ahead of its merge.** The pin moved on 2026-09-26 from
-`3a8cc13` to `f4cf9ba`, the head of the open PR #51 as of 2026-09-24
-(`pqc-hpke`; 55 commits past the merge base, +10,721/-1,264 across 68 files).
-The PR's next commit, `da00e6d` (2026-09-30, *simplify comments update
-documentation*), removes comments; refactors
+**#51 is merged, and the pin is on `main`.** The pin moved on 2026-09-26 from
+`3a8cc13` to `f4cf9ba`, the head of the then-open PR #51 as of 2026-09-24
+(`pqc-hpke`; 55 commits past the merge base, +10,721/-1,264 across 68 files),
+ahead of its merge. The PR's next commit, `da00e6d` (2026-09-30, *simplify
+comments update documentation*), removes comments; refactors
 some non-test code (an `errAuth` sentinel, `43` written as `1+8+2+32`, variable
 renames, a `pqcInWindow` helper, a log-message constant with the same string);
 updates documentation (`KEYCONTROL.md`, `CONTRIBUTING.md`) and tests; and adds
 `lint` and `fmt` targets to the Makefile. It is behaviour-identical by our
 reading of its diff, compared as syntax trees with the comments stripped. The
-PR has moved on since, to `e37d043` (2026-11-05), five commits past the pin:
+PR's last head, `e37d043` (2026-11-05), was five commits past `f4cf9ba`:
 `ce0ad48` changes documentation only and `e37d043` the CI runner, but
 `a2d1734` (2026-10-02) adds a runtime `PqcOnly` mode and `000a72d`
-(2026-11-05) aligns the QKD intervals to the system clock instead of per-node
-tickers, which the pin does not do (file lists read with `gh api` on
-2026-11-10). The PR removes the file-based PQC source, `PQC_PSK_FILE`, which is how Rosenpass's
+(2026-11-05) numbers the QKD intervals by the system clock instead of
+per-node tickers (file lists read with `gh api` on 2026-11-10). On
+2026-11-20 #51 was merged as the squash commit `c850db6`, whose code is that
+of `e37d043` (only the README differs), and four pull requests by its author
+were merged after it in the same minute, each hardening the key_id exchange:
+#54 against spoofed and replayed packets, #55 closing the ICMP send and
+`key_id` replay gaps, #56 answering copies of a datagram without processing
+them twice, and #57 closing the ACK budget, empty `key_id`, deadline overrun
+and ACK crowd-out gaps; #57 also makes a PRIMARY skip an interval when the
+KMS answer leaves less than `ARNIKA_PEER_TIMEOUT` of it. The pin moved on
+2026-11-21 from `f4cf9ba` to `0bb8401`, `main` after #57. Between the two
+pins the environment variables arnika reads, its log format, the KDF and the
+key-writer port are unchanged. The PR removes the file-based PQC source, `PQC_PSK_FILE`, which is how Rosenpass's
 output used to reach arnika: arnika now agrees its PQC key with its peer over
 HPKE, and Rosenpass keys the separate `wg1` data tunnel instead. It also
 replaced the two-method key-writer port with
 `SetPSK(psk []byte) error`, which is why the VICI adapter moved to its own
-package. The pin is an unreviewed pull request head, so three things follow:
-the "on `main`" statements this row used to make no longer hold, a change to
-the branch before merge may alter what is pinned here, and the pin is re-pinned
-to the merge commit once #51 merges. The 168 h after-arm of the before/after
-measurement, which the pin had to wait for, was reported on #51 on 2026-10-12.
-See [`roadmap.md`](roadmap.md).
+package. The 168 h after-arm of the before/after measurement, which the move
+to `f4cf9ba` had to wait for, was reported on #51 on 2026-10-12; that
+measurement is of `f4cf9ba`, and how `0bb8401` behaves on the public demo has
+not been measured yet. See [`roadmap.md`](roadmap.md).
 
 **NOT post-v1.0.1.** `v1.0.1` (`ef5a5c6`) lives only on the `v1.x` branch and
 the two have **diverged**, so the pin does not contain what GitHub labels the
@@ -368,15 +377,15 @@ canonical one above -- it caught that on the first run of this section.)
   final `master` commit, 8 commits ahead of the last tag `v0.23.0-post1`.
   Nothing newer exists.
 
-- **arnika**, pin `f4cf9ba`, the head of the open PR #51 as of 2026-09-24, not
-  a release. The `v1.0.1` tag is a **divergent line**, not a newer release.
-  Its advisory, GHSA-rc6v-5rmx-w5mv, named three areas; at the pin,
-  `repositories/kms/kms.go` carries the comment removing `InsecureSkipVerify`
-  for it, the ACK path in
+- **arnika**, pin `0bb8401`, arnika's `main` after PR #51 and #54 to #57 were
+  merged on 2026-11-20, not a release. The `v1.0.1` tag is a **divergent
+  line**, not a newer release. Its advisory, GHSA-rc6v-5rmx-w5mv, named three
+  areas; at the pin, `repositories/kms/kms.go` sets no `InsecureSkipVerify`
+  and its comment there names the advisory, the ACK path in
   `transport/server.go` checks the timestamp window, and the PQC key file the
-  third area concerned no longer exists, because #51 removed it. (The previous
-  pin `3a8cc13` handled that third area by rejecting a PSK file looser than
-  0600.) No security gap from not taking `v1.0.1`.
+  third area concerned no longer exists, because #51 removed it. (`3a8cc13`,
+  the pin before `f4cf9ba`, handled that third area by rejecting a PSK file
+  looser than 0600.) No security gap from not taking `v1.0.1`.
 
 ### One genuine candidate, deliberately not taken
 

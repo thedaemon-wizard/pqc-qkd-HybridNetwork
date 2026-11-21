@@ -84,8 +84,8 @@ FROM golang:1.26-bookworm AS arnika-build
 COPY submodules/arnika /src/arnika
 COPY services/arnika-vici /src/arnika-vici
 
-# The pin is f4cf9ba, the head of arnika PR #51 as of 2026-09-24; the PR is
-# OPEN and not merged. .gitmodules says when to re-pin.
+# The pin is 0bb8401, arnika's main after PR #51 merged on 2026-11-20;
+# .gitmodules says what it contains and how to re-pin.
 #
 # Two assertions on the pinned tree, both run BEFORE build.sh, because build.sh
 # copies $ARNIKA_SRC/. wholesale -- checking afterwards would be checking a
