@@ -196,6 +196,29 @@ jobs:
           rc=$?
           test "$rc" -eq 1 || { echo "::error::expected exit 1 from the broken policy, got $rc"; exit 1; }
 
+      # The CSP smoke opens each route once; the Protocol Lab is played, in the
+      # same headless Chrome and under the same policy: every network and cited
+      # scenario stepped and read back against the rate it cites, the run and
+      # failure controls, and the network or scenario changed at every part of a
+      # tick, for every change one select can make (VERIFICATION_CHECKLIST rows
+      # 4.4c.25-27). That last change left the demo on "This page failed to
+      # render" until PR #152; on the build before it this step fails 37 times.
+      # About three and a half minutes, under the longest job's time.
+      - name: The Protocol Lab plays every network and survives every switch
+        timeout-minutes: 12
+        run: python3 scripts/protocol_lab_smoke.py --no-sandbox
+
+      # ... and it can fail: under a policy without the inline-style hash the page
+      # reports a violation as it loads, so the check must exit 1. Every run also
+      # plants an exception, a console error and a CSP violation and exits 2
+      # unless it sees all three.
+      - name: The Protocol Lab gate fails on a policy without the style hash
+        run: |
+          set +e
+          python3 scripts/protocol_lab_smoke.py --no-sandbox --only networks --policy "default-src 'self'"
+          rc=$?
+          test "$rc" -eq 1 || { echo "::error::expected exit 1 from the broken policy, got $rc"; exit 1; }
+
   go:
     name: arnika VICI adapter — vet, build, test
     runs-on: ubuntu-24.04
