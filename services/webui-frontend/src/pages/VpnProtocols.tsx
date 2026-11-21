@@ -326,15 +326,13 @@ export default function VpnProtocols() {
             with the KEM MLKEM1024-P384, a hybrid of ML-KEM-1024 and P-384
             (codepoint 0x0051, from draft-ietf-hpke-pq, not yet an RFC), the
             KDF HKDF-SHA384 and an export-only AEAD. Note: it comes from arnika
-            pull request #51, which is still open; the arnika pin is{" "}
-            <code>f4cf9ba</code>, that pull request&apos;s head commit on
-            2026-09-24, not a merge commit. The pull request has moved on
-            since, to the head{" "}
-            <code>e37d043</code>, 2026-11-05: later commits add a PqcOnly mode
-            and align the QKD intervals to the system clock, which the pin
-            does not do. The before/after measurement of the pin was reported
-            on 2026-10-12, and the pin will be re-pinned to the merge commit
-            once #51 merges.</li>
+            pull request #51, merged on 2026-11-20 as the commit{" "}
+            <code>c850db6</code>. The arnika pin is <code>0bb8401</code>,
+            arnika&apos;s main after that merge and four pull requests (#54 to
+            #57) that harden its key_id exchange. Since the previous pin,{" "}
+            <code>f4cf9ba</code> of 2026-09-24, arnika also has a PqcOnly mode
+            and numbers its QKD intervals by the system clock. The before/after
+            measurement of the previous pin was reported on 2026-10-12.</li>
       </ul>
       {/* Rows 2.3 and 2.11 are read from this page, and row 2.14's counts
           from the rotations panel, so it produces evidence and must be able

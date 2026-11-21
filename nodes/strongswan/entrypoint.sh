@@ -98,11 +98,14 @@ validate_arnika_input
 # drops the depends_on on the WireGuard nodes, which changes when compose
 # starts these nodes, so the offset is measured in each arm. Whatever the
 # pinned arnika's fail-closed path for an interval without a key_id
-# (submodules/arnika/main.go:409-418) does under that start offset is a
+# (submodules/arnika/main.go:348-353) does under that start offset is a
 # finding to measure, not something to hide with a start change made in one
-# arm only. The inference in that comment, about how the offset between the
-# two ends wanders after the start and when a BACKUP then fails closed,
-# applies here too, from whatever offset the start leaves.
+# arm only. At f4cf9ba the start offset set where each end's intervals fell
+# and then drifted. At the pin since 2026-11-21 (0bb8401) arnika numbers its
+# intervals by the wall clock (main.go:132-138, :277-281), so the start offset
+# no longer moves the boundaries and the two ends' offset is their clocks'
+# offset plus scheduling delay; that is read from the code, and the race
+# report's offsets are what to check it against.
 
 # Also needed before rendering: the control-plane bypass shunt is built from
 # these. They are re-exported for arnika further down.

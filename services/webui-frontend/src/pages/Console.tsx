@@ -31,19 +31,19 @@ const NAMES = [
  * render and the export read the same state, so both are fixed by cleaning it
  * on arrival.
  *
- * The current pin (f4cf9ba, the head of the still-open arnika PR #51 as of
- * 2026-09-24) logs through slog as key=value lines, with the role as an
- * attribute:
+ * The current pin (0bb8401, arnika's main after PR #51 merged on 2026-11-20),
+ * like f4cf9ba before it, logs through slog as key=value lines, with the role
+ * as an attribute:
  *
  *   time=... level=INFO msg="sending the key_id to the peer" arnika_id=1 role=primary key_id=<uuid> peer=...
  *
  * and colours a record only when stderr is a terminal (logging.go there), so
  * its lines normally carry no escapes and pass through unchanged. They arrive
  * on the container's stderr, not its stdout: that slog handler writes to
- * os.Stderr (logging.go:42 and :63 there), and the route returns both streams. When they do
+ * os.Stderr (logging.go:28 and :41 there), and the route returns both streams. When they do
  * -- a container run with a TTY -- the escape wraps the whole record, and this
- * strips it the same way. Kept for both reasons: a node rolled back to the old
- * pin still writes the old form.
+ * strips it the same way. Kept for both reasons: a node rolled back to 3a8cc13
+ * still writes the old form.
  *
  * Stripping rather than rendering as colour: the codes carry no information the
  * text does not already have -- the old form printed the role (PRIMARY/BACKUP)

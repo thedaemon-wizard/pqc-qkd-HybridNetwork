@@ -153,76 +153,50 @@ SERVER_ADDRESS="${SERVER_ADDRESS:?SERVER_ADDRESS must be set to the peer arnika 
 MODE="${ARNIKA_MODE:-QkdAndPqcRequired}"
 
 # ---- Start alignment (WireGuard lane only) ------------------
-# Every arnika instance starts at a wall-clock multiple of its interval, so
-# that the two ends of a pair start counting their intervals in step. Only this
-# lane does it. The IPsec entrypoint deliberately does not, because its lane is
-# the one the before/after PPK measurement compares and has to keep the start
-# behaviour it had at v0.1.0 ("No start alignment in this lane" in
+# arnika starts at a wall-clock multiple of its interval. Only this lane waits
+# for one. The IPsec entrypoint deliberately does not, because its lane is the
+# one the before/after PPK measurement compared and keeps the start behaviour
+# it had at v0.1.0 ("No start alignment in this lane" in
 # nodes/strongswan/entrypoint.sh).
 #
-# Why: the pinned arnika counts intervals per process, from its own start: a
-# ticker made when it starts and a counter from 0 that picks the role of each
-# interval (submodules/arnika/main.go:327-333). A PRIMARY fetches a key from
-# the KMS at its own boundary, waits for the next whole second (main.go:349)
-# and builds its PSK before it sends the key_id. A BACKUP now fails closed --
-# a random PSK -- at the end of any interval of its own in which no key_id
-# arrived (main.go:409-418).
+# At the pin since 2026-11-21 (0bb8401) the wait no longer decides where the
+# intervals fall. arnika numbers each interval by the Unix time divided by the
+# interval (submodules/arnika/main.go:132-138, called at the top of its loop,
+# main.go:277-281) and sleeps to that interval's end (main.go:348-353), so its
+# boundaries are these same wall-clock multiples whenever it starts. The two
+# ends then agree on the interval number, and so on the role election that
+# hashes it (config/config.go, IsPrimary), while their clocks agree; a node
+# restarted on its own picks up its peer's numbering. Started at a boundary,
+# arnika's first interval is a whole one rather than the rest of the current
+# one, which is all the wait still does. That is read from the code, not
+# measured.
 #
-# Per tick, let d be the BACKUP's boundary minus the PRIMARY's boundary for
-# that tick, and t_KMS the PRIMARY's KMS fetch time. For d below about a
-# second, the chance that the PRIMARY's key_id arrives before the BACKUP's
-# boundary ("early") is roughly min(1, max(0, d - t_KMS) / 1 s). That is an
-# inference from the code, not a measurement, and the send also waits for the
-# PSK build. An early key_id is counted in the BACKUP's previous interval. The
-# BACKUP fails closed at the end of the current interval only if the next
-# interval's key_id is not early too, which in practice means at its
-# BACKUP-to-PRIMARY transitions.
-#
-# Seen locally on 2026-09-26 without this wait, in three WireGuard runs of
-# about 4.5 to 7 minutes: the arnika instances that started about 0.9 to 1.9 s
-# after their peer ended 13 of their 21 BACKUP intervals in total with
-# `no key_id from the peer`, each followed by a window of about 0.4-0.9 s in
-# which the two ends held different wg0 PSKs. Dated local observations, not
-# measurements.
-#
-# The previous entrypoint started arnika only after the first Rosenpass key
+# Why it was added, at f4cf9ba: arnika then counted intervals per process,
+# from its own start, with a ticker made when it started and a counter from 0
+# that picked the role of each interval. A PRIMARY fetches a key from the KMS
+# at its own boundary, waits for the next whole second (main.go:302) and builds
+# its PSK before it sends the key_id; a BACKUP fails closed -- a random PSK --
+# at the end of any interval of its own in which no key_id arrived
+# (main.go:348-353). With per-process counting the offset between the two
+# ends' boundaries was set by their start offset, and each ticker re-based
+# after its own processing, so the offset also drifted. Seen locally on
+# 2026-09-26 without this wait, in three WireGuard runs of about 4.5 to 7
+# minutes: the arnika instances that started about 0.9 to 1.9 s after their
+# peer ended 13 of their 21 BACKUP intervals in total with `no key_id from the
+# peer`, each followed by a window of about 0.4-0.9 s in which the two ends
+# held different wg0 PSKs. Dated local observations, not measurements. The
+# previous entrypoint had started arnika only after the first Rosenpass key
 # appeared, which happened on both nodes within milliseconds and so started
-# both processes together as a side effect. arnika now starts as soon as
-# Rosenpass has bound its socket, so this wait restores that synchronisation;
-# without it the start offset would be whatever the containers' start offset
-# is.
+# both processes together as a side effect; arnika now starts as soon as
+# Rosenpass has bound its socket, and this wait restored that synchronisation.
 #
-# It holds the offset only at the start. Each node resets its ticker at the
-# top of its loop, after its own processing of the previous interval
-# (main.go:327-333), so each node's boundary moves later by milliseconds per
-# interval, d wanders, and so does the fraction of a second at which the
-# PRIMARY's fetch ends. Right after an aligned start that fetch ends just
-# after a whole second, so its key_id waits almost a second and is not early.
-# The estimate above assumes that fraction is spread evenly, which drift
-# brings about only over many intervals, so an aligned pair can be exposed
-# later, and early key_ids would then come in runs rather than spread evenly.
-# In one unaligned local IPsec run of about 6 minutes on 2026-09-26, the
-# offset went from about 255 ms to about 217 ms over 12 intervals; bob
-# received early key_ids in intervals 2-8, 10 and 11 and invalidated only at
-# 8 and 11. What this means for an aligned pair is inferred from the code and
-# these local runs, not measured.
-#
-# Residual, not fixed here (upstream #51 behaviour, to be raised there): a
-# node restarted on its own, and two nodes that reach this point on either side
-# of a boundary, start one or more whole intervals apart. Their counters then
-# differ, and since the role election hashes the counter (config/config.go,
-# IsPrimary), the two ends elect the same role in about half of the intervals;
-# in the both-BACKUP ones both ends fail closed. That is inferred from the
-# code, not measured. Nodes that reach this point g seconds apart straddle a
-# boundary with a probability of about g / INTERVAL, also an inference.
-#
-# To detect it: both ends log the interval number, interval=N, on every
+# To detect a split: both ends log the interval number, interval=N, on every
 # `waiting for a key_id from the peer` and `serving this interval` line.
 # Compare the numbers the two ends log for the same wall-clock tick; if they
-# differ, recreate both nodes. As a rule, both nodes of a pair are always
-# recreated together. This wait only restores the start synchronisation the
-# old start order gave; it is not a fix for any key rotation race
-# (docs/vici-ppk.md).
+# differ, recreate both nodes. At 0bb8401 they can differ only while the two
+# clocks are more than half an interval apart. As a rule, both nodes of a pair
+# are always recreated together. This wait is not a fix for any key rotation
+# race (docs/vici-ppk.md).
 #
 # Unit conversions for the interval parser and the wait below.
 SECONDS_PER_MINUTE=60

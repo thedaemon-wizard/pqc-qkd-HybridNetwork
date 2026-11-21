@@ -14,17 +14,20 @@ draft-ietf-hpke-pq, not yet an RFC), KDF HKDF-SHA384 and the export-only AEAD.
 ML-KEM-1024 + P-384 is a hybrid KEM. No Rosenpass runs on this lane, and no
 key file is mounted.
 
-## The pinned arnika is an open PR
+## The pinned arnika
 
-`submodules/arnika` is pinned to `f4cf9ba`, the head of upstream PR #51 as of
-2026-09-24; the PR is **open and not merged**. It has moved on since, to
-`e37d043` (2026-11-05): `a2d1734` adds a `PqcOnly` mode and `000a72d` aligns
-the QKD intervals to the system clock instead of per-node tickers, which the
-pin does not do; the other later commits change comments, documentation, tests
-and CI. The pin is re-pinned to the merge commit once #51 merges; the 168 h
-after-arm of the before/after measurement (checklist row 2.17) that it waited
-for was reported on #51 on 2026-10-12. Until the re-pin, "upstream" in this
-file means `f4cf9ba`, not arnika's `main`.
+`submodules/arnika` is pinned to `0bb8401`, arnika's `main` after upstream PR
+#51 (PQC-HPKE, RFC 9180) merged on 2026-11-20 as `c850db6` and after the four
+PRs #54 to #57 that harden its key_id exchange, merged after it in the same
+minute. `c850db6` carries the code of `e37d043`, #51's last head
+(2026-11-05). It was re-pinned on 2026-11-21 from `f4cf9ba`, #51's head as
+of 2026-09-24, at which the 168 h after-arm of the before/after measurement
+(checklist row 2.17) ran; it was reported on #51 on 2026-10-12.
+Past `f4cf9ba`, `a2d1734` adds a `PqcOnly` mode and `000a72d` numbers the QKD
+intervals by the system clock instead of by each process's own ticker; the
+environment variables arnika reads, its KDF and the port below are
+unchanged, and the adapter builds, vets and passes its tests against
+`0bb8401`. "Upstream" in this file means `0bb8401`.
 
 ## The port: one method
 
@@ -34,8 +37,8 @@ type keyWriterRepository interface {
 }
 ```
 
-That is the whole contract at `f4cf9ba` (`services/keywriter.go`). Three things
-moved out of the adapter with it:
+That is the whole contract, at `0bb8401` as at `f4cf9ba`
+(`services/keywriter.go`). Three things moved out of the adapter with it:
 
 - **Invalidation.** `KeyWriterService.InvalidateTunnel` generates 32 random
   bytes and calls `SetPSK` with them. Over VICI that is exactly what this
@@ -149,8 +152,8 @@ Upstream selects the netlink writer, at the pinned commit, in
 //go:build wireguard_netlink || (!wireguard_mikrotik && !wireguard_netlink_netns)
 ```
 
-The line is unchanged from the previous pin (`3a8cc13`); PR #51 only renamed the
-file from `wireguardnetlink.go`.
+The line is unchanged since `3a8cc13`, the pin before `f4cf9ba`; PR #51 only
+renamed the file from `wireguardnetlink.go`.
 
 The trailing negation means the file is compiled in for any adapter tag it
 does not name, so `-tags strongswan_vici` yields two definitions of
@@ -252,8 +255,9 @@ Both peers still *load* every rotated PPK — that is what lets the responder
 answer the initiator's IKE_AUTH. Loading happens on both sides; driving happens
 on exactly one.
 
-This is independent of arnika's PRIMARY/BACKUP election, which alternates every
-interval and decides who *generates* the key, not who owns the SA.
+This is independent of arnika's PRIMARY/BACKUP election, which is drawn anew each
+interval by a keyed hash of the interval number (`IsPrimary` in arnika's
+`config/config.go`) and decides who *generates* the key, not who owns the SA.
 
 Getting this wrong does not produce an obvious failure. With two drivers, each
 rotation triggers two make-before-break reauthentications that each create a
@@ -357,49 +361,58 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   described in §4.6.2 (SP 800-56C or SP 800-133). The gaps are analysed in one
   place,
   [`docs/vici-ppk.md`, "Appendix: SP 800-227"](../../docs/vici-ppk.md#appendix-sp-800-227-and-this-projects-key-combiner),
-  rather than in a second copy here that could drift from it. At `f4cf9ba` the
-  first gap is unchanged: `kdf/kdf.go` still calls HKDF with no FixedInfo. The
-  second gap's premise has changed: the PQC input is no longer a Rosenpass
-  key (Classic McEliece 460896 + Kyber512) but an HPKE export from the
-  MLKEM1024-P384 hybrid KEM. Whether that export satisfies §4.6.2's
-  approved-KEM premise has not been re-analysed yet, so nothing here claims
-  that it does. The adapter stays bit-compatible with upstream's KDF; changing
-  it is a wire-format break for upstream to decide on.
-- **The intermittent PPK mismatch is not resolved by this pin.** At `f4cf9ba`
-  the PRIMARY writes its key only after the BACKUP acknowledges the key_id.
-  Reading the code suggests that moves the exposed intervals from those where
-  alice (the IKE initiator) is PRIMARY to those where she is BACKUP, rather than
-  removing them. The 168-hour before/after measurement, reported on arnika#51
-  on 2026-10-12, found that: the race moved from intervals where alice is
-  PRIMARY to those where she is BACKUP. The adapter cannot see the arnika role
-  or the key_id through `SetPSK([]byte)`; `VICI_REAUTH_RETRY_AFTER` (above)
-  needs neither, because it checks the outcome rather than predicting it.
-- **Observation (2026-09-26): fail-closed writes at role changes.** This comes
-  from one unaligned local two-node run of the IPsec lane, about 6 minutes
-  long, and is not a measurement. alice's arnika started about 0.25 s before
-  bob's, because this lane's entrypoint does not align the start (below); that
-  start gap is where the run's offset came from. At `f4cf9ba` each process
-  counts intervals from its own start (`main.go` about :327-333), and a BACKUP
-  interval that ends without a key_id fails closed (about :409-418). In that
-  run every key_id alice sent as PRIMARY reached bob 0.13 to 0.15 s before
-  bob's own boundary of that tick and was counted in bob's previous interval:
-  bob received such early key_ids in intervals 2-8, 10 and 11. bob
-  invalidated only at the ends of intervals 8 and 11, each followed by a
-  bob-PRIMARY interval, so no next key_id came to fill the gap. Each time bob
-  logged `no key_id from the peer`, then `configuring a random PSK to
-  invalidate the WireGuard session`, and held a random PPK for about 0.85 s,
-  until its own PRIMARY interval's key arrived.
+  rather than in a second copy here that could drift from it. At `0bb8401`, as
+  at `f4cf9ba`, the first gap is unchanged: `kdf/kdf.go` still calls HKDF with
+  no FixedInfo. The second gap's premise has changed: the PQC input is no
+  longer a Rosenpass key (Classic McEliece 460896 + Kyber512) but an HPKE
+  export from the MLKEM1024-P384 hybrid KEM. Whether that export satisfies
+  §4.6.2's approved-KEM premise has not been re-analysed yet, so nothing here
+  claims that it does. The adapter stays bit-compatible with upstream's KDF;
+  changing it is a wire-format break for upstream to decide on.
+- **The intermittent PPK mismatch is not resolved by this pin.** From
+  `f4cf9ba` on, and still at `0bb8401`, the PRIMARY writes its key only after
+  the BACKUP acknowledges the key_id. Reading the code suggested that moves the
+  exposed intervals from those where alice (the IKE initiator) is PRIMARY to
+  those where she is BACKUP, rather than removing them. The 168-hour
+  before/after measurement at `f4cf9ba`, reported on arnika#51 on 2026-10-12,
+  found that: the race moved from intervals where alice is PRIMARY to those
+  where she is BACKUP. `0bb8401` keeps that order, and has not run on the
+  public demo yet. The adapter cannot see the arnika role or the key_id
+  through `SetPSK([]byte)`; `VICI_REAUTH_RETRY_AFTER` (above) needs neither,
+  because it checks the outcome rather than predicting it.
+- **Observation (2026-09-26, at `f4cf9ba`): fail-closed writes at role
+  changes.** This comes from one unaligned local two-node run of the IPsec
+  lane, about 6 minutes long, and is not a measurement. alice's arnika started
+  about 0.25 s before bob's, because this lane's entrypoint does not align the
+  start (below); that start gap is where the run's offset came from. At
+  `f4cf9ba` each process counted intervals from its own start
+  (`main.go:327-333` at `f4cf9ba`), and a BACKUP interval that ended without a
+  key_id failed closed (`main.go:409-418` at `f4cf9ba`). At `0bb8401` the
+  interval number is the Unix time divided by the interval (`intervalAt`,
+  `main.go:132-138`, taken at the top of the loop, `:277-281`), and each
+  interval ends by sleeping to its end before the same fail-closed check
+  (`:348-353`), so a start gap no longer sets the offset; that is read from
+  the code, not measured. In the 2026-09-26 run every key_id alice sent as
+  PRIMARY reached bob 0.13 to 0.15 s before bob's own boundary of that tick
+  and was counted in bob's previous interval: bob received such early key_ids
+  in intervals 2-8, 10 and 11. bob invalidated only at the ends of intervals 8
+  and 11, each followed by a bob-PRIMARY interval, so no next key_id came to
+  fill the gap. Each time bob logged `no key_id from the peer`, then
+  `configuring a random PSK to invalidate the WireGuard session`, and held a
+  random PPK for about 0.85 s, until its own PRIMARY interval's key arrived.
 
   The IPsec lane does not align the arnika start to the wall clock, on
   purpose. `nodes/strongswan/entrypoint.sh` starts arnika as v0.1.0 did,
   without waiting for an interval boundary; compose starts the two nodes
   together, about 30 ms apart on the live demo host. The 168-hour
-  before/after measurement compares this lane, so both arms keep that start
-  timing, and whatever #51's fail-closed path does under it is part of what
-  the measurement records. Only the WireGuard lane's entrypoint aligns its
-  start, which restores the synchronisation that lane got from waiting for
-  the first Rosenpass key; that lane is not the measured one. The reasons,
-  the WireGuard lane's own unaligned runs and the operating rule are in
+  before/after measurement compared this lane, so both arms kept that start
+  timing, and whatever the fail-closed path of `f4cf9ba` did under it is part
+  of what the measurement recorded. Only the WireGuard lane's entrypoint
+  aligns its start, which restored the synchronisation that lane got from
+  waiting for the first Rosenpass key; that lane is not the measured one. At
+  `0bb8401` the start alignment no longer decides where the boundaries fall,
+  because arnika numbers its intervals by the clock itself. The reasons, the
+  WireGuard lane's own unaligned runs and the operating rule are in
   [`docs/BUILD.md` 7.3](../../docs/BUILD.md#73-starting-arnika-on-the-interval-boundary).
   Neither lane's start timing is a mitigation of the rotation race above.
 
@@ -408,21 +421,27 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   `scripts/ppk_race_report.py` prints it. Per tick, let $`d`$ be the BACKUP's
   boundary minus the PRIMARY's boundary: the offset itself when alice is
   PRIMARY, and the offset with its sign flipped when bob is. The PRIMARY sends
-  its key_id at the next whole second after its own KMS fetch (about :349),
-  and the send also waits for the PSK build. For $`d`$ below about a second,
-  the chance that the PRIMARY's key_id arrives before the BACKUP's boundary
-  ("early") is roughly
-  $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$, with
+  its key_id at the next whole second after its own KMS fetch (`main.go:302`
+  at `0bb8401`, `main.go:349` at `f4cf9ba`), and the send also waits for the
+  PSK build. At `f4cf9ba`, for $`d`$ below about a second, the chance that
+  the PRIMARY's key_id arrives before the BACKUP's boundary ("early") was
+  roughly $`\min(1, \max(0, d - t_{\mathrm{KMS}}) / 1\,\mathrm{s})`$, with
   $`t_{\mathrm{KMS}}`$ the PRIMARY's KMS fetch time, if over a long run the
   fraction of a second at which the fetch ends is spread evenly. An early
   key_id is counted in the BACKUP's previous interval. The BACKUP fails closed
   at the end of the current interval only if the next interval's key_id is not
-  early too, which in practice means at its BACKUP-to-PRIMARY transitions. An
-  aligned start would fix the offset at the start only: each ticker re-bases
-  after its own processing (`ticker.Reset` at the top of the loop, about
-  :327-333), so the offset wanders by milliseconds per interval. In the run
-  above it went from about 255 ms to about 217 ms over 12 intervals and
-  reached about 265 ms in between.
+  early too, which in practice means at its BACKUP-to-PRIMARY transitions. At
+  `f4cf9ba` an aligned start would have fixed the offset at the start only:
+  each ticker re-based after its own processing (`ticker.Reset` at the top of
+  the loop, `main.go:327-333` at `f4cf9ba`), so the offset wandered by
+  milliseconds per interval. In the run above it went from about 255 ms to
+  about 217 ms over 12 intervals and reached about 265 ms in between. At
+  `0bb8401` each end's boundaries are the multiples of the interval on its own
+  clock, so the offset is the two clocks' offset plus scheduling delay and
+  does not accumulate. With an interval of whole seconds those boundaries fall
+  on whole seconds, a PRIMARY whose fetch ends within the second sends about a
+  second after its boundary, and its key_id is early only where $`d`$ exceeds
+  about a second; that is read from the code, not measured.
 
   `scripts/ppk_race_report.py` prints, for the two ends over the whole
   window, the boundary offset and its trend, each PRIMARY's KMS fetch time,
@@ -433,16 +452,19 @@ rotating QKD PPK. The node entrypoint runs it exactly once, before
   $`d`$, both ends' interval numbers and roles, the PRIMARY's fetch time,
   whether its key_id was early, and how each BACKUP interval ended.
 
-  The interval numbers differ after only one node of a pair restarts, or
-  after two starts more than half an interval apart. The per-interval roles
-  then stop being complementary, and in an interval where both ends are
-  BACKUP both fail closed. That is upstream #51 behaviour, to be raised there
-  with a measurement; both nodes of a pair are recreated together. None of
-  this addresses the intermittent mismatch above, and nothing here says these
-  writes caused it. Each of these writes logs `PPK rotated` like a rotation.
-  `scripts/ppk_race_report.py` counts it as an invalidation write and not as a
-  rotation, and files an authentication failure against it under C1
-  (invalidation).
+  At `f4cf9ba` the interval numbers differed after only one node of a pair
+  restarted, or after two starts more than half an interval apart. The
+  per-interval roles then stopped being complementary, and in an interval
+  where both ends were BACKUP both failed closed. At `0bb8401` the number
+  comes from the clock, so while the two clocks agree a node restarted alone
+  rejoins its peer's numbering and the start times no longer separate the
+  counts (read from the code, not measured); both nodes of a pair are still
+  recreated together.
+  None of this addresses the intermittent mismatch above, and nothing here
+  says these writes caused it. Each of these writes logs `PPK rotated` like a
+  rotation. `scripts/ppk_race_report.py` counts it as an invalidation write
+  and not as a rotation, and files an authentication failure against it under
+  C1 (invalidation).
 - `WIREGUARD_INTERFACE` and `WIREGUARD_PEER_PUBLIC_KEY` must still be set even
   though this adapter ignores them; upstream's config parser requires them
   unconditionally. Making them conditional on the selected adapter is a

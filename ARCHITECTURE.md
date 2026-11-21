@@ -13,7 +13,7 @@
 | its endpoint, so every wg1 packet is carried inside wg0             |
 +---------------------------------------------------------------------+
 | Layer 2 — Transport orchestration                                   |
-| arnika (Go; submodules/arnika at f4cf9ba, #51's head on 2026-09-24) |
+| arnika (Go; submodules/arnika at 0bb8401, main with #51 merged)     |
 | - ETSI 014 client (plain HTTP; mTLS not implemented)                |
 | - PQC-HPKE round with its peer over arnika's own UDP socket:        |
 |   HPKE Base mode (RFC 9180), MLKEM1024-P384, HKDF-SHA384            |
@@ -84,8 +84,9 @@ start every wg0 and wg1 peer is created with a random placeholder PSK that
       only its own node knows, so no handshake completes on either
       interface until arnika (wg0) or Rosenpass (wg1) has installed the same
       key on both ends; the WireGuard entrypoint starts arnika at the next
-      wall-clock multiple of ARNIKA_INTERVAL, so the two processes' interval
-      counters start ticking together (below the diagram)
+      wall-clock multiple of ARNIKA_INTERVAL, which is also where arnika's
+      own intervals begin, since it numbers them by the clock (below the
+      diagram)
 each  the two arnika peers run one PQC-HPKE round on their existing UDP
 round socket, every PQC_ROUND_INTERVAL (arnika's default is the rotation
       interval, 30 s here): the round's initiator sends a fresh
@@ -104,12 +105,14 @@ T+0.2 it receives {keys: [{key_ID, key}]}, builds its PSK =
       HKDF-SHA3-256(qkd || latest published PQC-HPKE key), and sends key_ID
       to the peer's :9999 over UDP, AES-256-GCM encrypted and HMAC-SHA256
       signed under keys derived from ARNIKA_PSK (the HMAC key also from the
-      sender's ARNIKA_ID parity), with a timestamp window against replay
+      sender's ARNIKA_ID parity), with a timestamp window and a cache of the
+      datagrams already processed against replay
 T+0.3 the BACKUP arnika receives key_ID, calls .../dec_keys?key_ID=...,
       builds the same PSK, writes it as the wg0 peer's preshared key via
       netlink, and only then ACKs
 T+0.3 the PRIMARY writes its PSK only after that ACK. In QkdAndPqcRequired a
-      missing ACK, a missing key_id or a missing PQC key installs a random
+      missing ACK, a missing key_id, a missing PQC key or a KMS answer that
+      leaves less than ARNIKA_PEER_TIMEOUT of the interval installs a random
       PSK instead, so a failed rotation invalidates wg0 rather than extending
       the previous key
 later The new PSK takes effect at WireGuard's NEXT handshake. arnika only
@@ -134,30 +137,37 @@ before it ACKs and the PRIMARY after, the two nodes no longer install at the
 same moment. What the second means for the IPsec lane is in
 [`docs/vici-ppk.md`](docs/vici-ppk.md#2026-09-26-arnika-51-head-what-changes-for-the-rotation-race).
 
-The interval number that elects PRIMARY and BACKUP is counted by each arnika
-process from its own start, and since #51 a BACKUP whose interval ends
-without a `key_id` fails closed. When the BACKUP's boundary lags the
-PRIMARY's by more than the PRIMARY's KMS fetch time, the PRIMARY's `key_id`
-can arrive before the BACKUP's boundary ("early") and is then counted in the
-BACKUP's previous interval. The BACKUP fails closed at the end of the current
-interval only if the next interval's `key_id` is not early too, which in
-practice means at its BACKUP-to-PRIMARY transitions. That is an inference
-from the code. In short local runs without alignment the later-started node
-did this at the end of 13 of its 21 BACKUP intervals over three WireGuard
-runs, and in one IPsec run of about 6 minutes it received early `key_id`s
-in nine intervals and invalidated at two of them, each before an interval in
-which it was PRIMARY (observations, not a measurement). So the WireGuard
-entrypoint holds arnika back to the next wall-clock multiple of the interval,
-which restores the start synchronisation that lane had while arnika waited
-for the first Rosenpass key. The IPsec entrypoint deliberately does not: the
-before/after measurement compares that lane, so its two arms run the same
+Since #51 a BACKUP whose interval ends without a `key_id` fails closed, so
+the two ends have to agree on where the intervals fall and on their numbers,
+which the role election hashes. At the pin arnika numbers each interval by
+the system clock, the Unix time divided by the interval (`intervalAt`,
+`main.go:132-138`, called at the top of its loop, `:277-281`), and sleeps to
+that interval's end (`:348`). Two processes whose clocks agree therefore
+agree on the interval number, and so on the election, whatever their start
+times; that is read from the code, not measured here. At `f4cf9ba`, the pin
+until 2026-11-21, each process instead counted the ticks of its own ticker
+from its own start (`main.go:327-333` there), and the ticker re-based after
+its own processing. When the BACKUP's boundary lagged the PRIMARY's by more
+than the PRIMARY's KMS fetch time, the PRIMARY's `key_id` could arrive before
+the BACKUP's boundary ("early") and was then counted in the BACKUP's previous
+interval. The BACKUP failed closed at the end of the current interval only if
+the next interval's `key_id` was not early too, which in practice meant at
+its BACKUP-to-PRIMARY transitions. That is an inference from that code. In
+short local runs at `f4cf9ba` without alignment the later-started node did
+this at the end of 13 of its 21 BACKUP intervals over three WireGuard runs,
+and in one IPsec run of about 6 minutes it received early `key_id`s in nine
+intervals and invalidated at two of them, each before an interval in which it
+was PRIMARY, while the offset between the two ends went from about 255 ms to
+about 217 ms over 12 intervals (observations, not a measurement). So the
+WireGuard entrypoint holds arnika back to the next wall-clock multiple of the
+interval, which restored the start synchronisation that lane had while arnika
+waited for the first Rosenpass key; at the pin the wait no longer decides
+where the intervals fall. The IPsec entrypoint deliberately does not wait:
+the before/after measurement compares that lane, so its two arms run the same
 entrypoint start behaviour, and the start offset itself is measured in each
-arm. The alignment holds only at the start, since each ticker re-bases after
-its own processing and the offset between the two ends wanders by
-milliseconds per interval (in that IPsec run, from about 255 ms to about
-217 ms over 12 intervals). The two nodes of a pair are always recreated
-together: after one node restarts alone the two counters differ, and the
-elections stop being complementary
+arm. The two nodes of a pair are still recreated together; at `f4cf9ba` a
+node restarted alone came back with a different count from its peer's, and
+the elections stopped being complementary
 ([`docs/BUILD.md`](docs/BUILD.md#73-starting-arnika-on-the-interval-boundary)).
 
 ## 4. The IPsec lane
@@ -195,31 +205,34 @@ The mechanism, the rotation sequence and the open issues are in
 
 These are the points we depend on; changing them in upstream arnika would require
 contract updates here. Line numbers are at the pinned submodule commit,
-`f4cf9ba`, the head of the open PR #51 as of 2026-09-24. The PR's later
-commits, up to its head `e37d043` (2026-11-05), shift these line numbers, so
-they hold at `f4cf9ba` only; two of those commits also change `main.go`'s
-behaviour (`a2d1734` adds a `PqcOnly` mode, `000a72d` aligns the QKD intervals
-to the system clock).
+`0bb8401`, arnika's `main` after PR #51 merged on 2026-11-20 (as `c850db6`)
+and the four pull requests #54 to #57 that harden its key_id exchange after it.
+They differ from the numbers at the previous pin, `f4cf9ba` (#51's head as of
+2026-09-24): #51's later commit `da00e6d` dropped comments, and two others
+changed `main.go`'s behaviour (`a2d1734` adds a `PqcOnly` mode, `000a72d`
+numbers the QKD intervals by the system clock); #54 to #57 rework
+`transport/server.go`, and #57 also adds a branch to `main.go`'s PRIMARY path
+that skips an interval when the KMS answers too late in it.
 
 | Symbol | File:Lines | Why we depend |
 |---|---|---|
-| `setPSK()`, `buildPSK()`, `writePSK()` | `submodules/arnika/main.go:62-65`, `:68-123`, `:126-141` | Drive the rotation; `writePSK` logs `msg="PSK configured on WireGuard interface"` (`:138`), the line the smoke tests grep |
-| `kms.Repository.GetNewKey()` | `submodules/arnika/repositories/kms/kms.go:94-96` | Defines `enc_keys?number=1&size=256` URL |
-| `kms.Repository.GetKeyByID()` | `submodules/arnika/repositories/kms/kms.go:98-104` | Defines `dec_keys?key_ID=...` URL (`:102`) |
+| `setPSK()`, `buildPSK()`, `writePSK()` | `submodules/arnika/main.go:42-45`, `:48-107`, `:109-121` | Drive the rotation; `writePSK` logs `msg="PSK configured on WireGuard interface"` (`:118`), the line the smoke tests grep |
+| `kms.Repository.GetNewKey()` | `submodules/arnika/repositories/kms/kms.go:93-95` | Defines `enc_keys?number=1&size=256` URL |
+| `kms.Repository.GetKeyByID()` | `submodules/arnika/repositories/kms/kms.go:97-103` | Defines `dec_keys?key_ID=...` URL (`:101`) |
 | `type kmsKey struct` | `submodules/arnika/repositories/kms/kms.go:43-46` | JSON field names `key_ID` + `key` — exactly what our Python KME emits |
-| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:17-39` | HKDF-SHA3-256 contract shown in the `/keyflow` Sankey (the Manim scene in `animations/` is not rendered or shipped); byte-identical to the previous pin `3a8cc13` |
-| `pqcSuite()` | `submodules/arnika/repositories/pqchpke/pqchpke.go:222-224` | The PQC half: MLKEM1024-P384, HKDF-SHA384, export-only |
-| `keyWriterRepository` | `submodules/arnika/services/keywriter.go:23-25` | The one-method port (`SetPSK(psk []byte) error`) the VICI adapter implements |
-| `RunKeyIDWorker()` | `submodules/arnika/transport/server.go:361-377` | The BACKUP installs its key before it ACKs; the PRIMARY writes after the ACK (`main.go:369-394`) |
-| `IsPrimary()` | `submodules/arnika/config/config.go:102-113` | Per-interval PRIMARY/BACKUP election; why the two `ARNIKA_ID`s must differ in parity (since #51 the parity also picks each direction's HMAC key) |
-| Operational modes | `submodules/arnika/config/config.go:42`, validated at `:280-283` | 4 modes; every node of this deployment runs `QkdAndPqcRequired`, and both peers must use the same one. The WebUI does not select a mode |
+| `DeriveKey()` | `submodules/arnika/kdf/kdf.go:14-33` | HKDF-SHA3-256 contract shown in the `/keyflow` Sankey (the Manim scene in `animations/` is not rendered or shipped); the same derivation as at the earlier pins `f4cf9ba` and `3a8cc13`, whose copies of the file are byte-identical; the pin's copy differs from theirs only in a renamed local variable and dropped comments |
+| `pqcSuite()` | `submodules/arnika/repositories/pqchpke/pqchpke.go:152-154` | The PQC half: MLKEM1024-P384, HKDF-SHA384, export-only |
+| `keyWriterRepository` | `submodules/arnika/services/keywriter.go:12-14` | The one-method port (`SetPSK(psk []byte) error`) the VICI adapter implements |
+| `RunKeyIDWorker()` | `submodules/arnika/transport/server.go:365-381` | The BACKUP installs its key before it ACKs; the PRIMARY writes after the ACK (`main.go:319-343`) |
+| `IsPrimary()` | `submodules/arnika/config/config.go:90-100` | Per-interval PRIMARY/BACKUP election, still per interval at the pin (the open upstream PR #60, not merged, proposes a fixed PRIMARY chosen in the configuration instead); why the two `ARNIKA_ID`s must differ in parity (since #51 the parity also picks each direction's HMAC key) |
+| Operational modes | `submodules/arnika/config/config.go:40`, validated at `:249-254` | 5 modes (`PqcOnly` is new since `f4cf9ba`); every node of this deployment runs `QkdAndPqcRequired`, and both peers must use the same one. The WebUI does not select a mode |
 
 ## 6. Why this matches the paper
 
 | Paper claim | Implementation correspondence |
 |---|---|
 | WireGuard PSK rotated periodically per hop | `ARNIKA_INTERVAL` (default 30s in PoC, 120s in paper) |
-| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...`, which is the `KMS_URL` base arnika is configured with; arnika appends `/enc_keys?number=1&size=256` (`repositories/kms/kms.go:95`) or `/dec_keys?key_ID=...` (`kms.go:102`) and issues the request at `kms.go:121` (`r.conn.Get(r.baseURL + path)`) |
+| ETSI GS QKD 014 between KME and Arnika | `services/bb84-kme/app/etsi014.py` mounts `/api/v1/keys/{SAE}/...`, which is the `KMS_URL` base arnika is configured with; arnika appends `/enc_keys?number=1&size=256` (`repositories/kms/kms.go:94`) or `/dec_keys?key_ID=...` (`kms.go:101`) and issues the request at `kms.go:113` (`r.conn.Get(r.baseURL + path)`) |
 | PQC E2E via Rosenpass, carried over the QKD-secured hop tunnel (4.2) | Rosenpass in alice and bob exchanges between the two `wg0` addresses, the lower address initiating and the other answering, and writes the preshared key of `wg1`, the end-to-end data tunnel whose packets travel inside `wg0`. It does not feed arnika: arnika's PQC half is its own PQC-HPKE round, fused with the QKD key via HKDF (`kdf/kdf.go`) into `wg0`'s key, which the paper's hop key does not include |
 | Layered composability (compromise of one layer ≠ catastrophe) | Three Docker networks isolate planes; data in `wg1` is encrypted under `wg1`'s session keys, which mix in Rosenpass's key, and then again under `wg0`'s, which mix in arnika's; mode `QkdAndPqcRequired` makes `wg0` require both the QKD and the PQC-HPKE key |
 | Setup time scales with slowest QKD hop, not cumulative | **Not measured.** `benchmarks/handshake_timer.py` samples ONE container's handshake age over time (`--container`, `--duration`; output `epoch,handshake_age_s`). It varies no chain length and has no hop dimension, so nothing in it could distinguish scaling-with-slowest-hop from scaling-cumulatively. No handshake-age series has been captured, so `tools/compare_to_paper.py` reports this project's side as `"ours": {"n": 0}` with a note saying why. |
@@ -244,7 +257,7 @@ pqc-qkd-HybridNetwork/
 ├── .github/workflows/ci.yml           # CI
 ├── references/                        # Reference papers (only where the licence permits)
 ├── submodules/                        # Git submodules, pinned and unmodified
-│   ├── arnika/                        # Go; built into the node images (open PR #51, f4cf9ba)
+│   ├── arnika/                        # Go; built into the node images (main with PR #51 merged, 0bb8401)
 │   ├── rosenpass/                     # PQC handshake daemon keying wg1, built into the node image
 │   ├── strongswan/                    # IKEv2 daemon, built into the IPsec image
 │   ├── wgephemeralpeer/               # Mullvad ephemeral-peer reference (not built)

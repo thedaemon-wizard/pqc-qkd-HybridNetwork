@@ -10,21 +10,20 @@
 	path = submodules/arnika
 	url = https://github.com/arnika-project/arnika.git
 	branch = main
-	# The pin is f4cf9ba40747f3d85936ff101133e962eb417482, the head of upstream
-	# PR #51 (PQC-HPKE key agreement, wire_*.go layout, one-method key-writer
-	# port) as of 2026-09-24. The PR has moved on since, to e37d043
-	# (2026-11-05), five commits past the pin: da00e6d and ce0ad48 change
-	# comments, documentation and tests and refactor some non-test code
-	# (behaviour-identical by our reading of their diffs), a2d1734 adds a
-	# PqcOnly mode and 000a72d aligns the QKD intervals to the system clock
-	# instead of per-node tickers, which the pin does not do. That PR is OPEN and NOT
-	# merged, so the pin is not on `main` even though `branch = main` stays for
-	# the day it is. Do not run `git submodule update --remote` on this entry:
-	# it would move the pin to main's head and silently drop the PQC-HPKE reader
-	# the IPsec and WireGuard lanes depend on. The 168 h after-arm of the
-	# before/after measurement (VERIFICATION_CHECKLIST.md row 2.17), which the
-	# pin had to wait for, was reported on #51 on 2026-10-12; re-pin to the
-	# merge commit once #51 merges (docs/roadmap.md lists the steps).
+	# The pin is 0bb840185a27a78dfb4ebfdd2975754de0e39279, arnika's main on
+	# 2026-11-20 after upstream PR #51 (PQC-HPKE key agreement, wire_*.go layout,
+	# one-method key-writer port) merged as c850db6 and the four PRs #54 to #57
+	# that harden its key_id exchange merged after it. c850db6 carries the same code as
+	# e37d043, #51's last head (2026-11-05), which ran for 48.3 h on a development
+	# host. Re-pinned on 2026-11-21 from f4cf9ba, #51's head as of 2026-09-24, at
+	# which the 168 h before/after measurement (VERIFICATION_CHECKLIST.md row
+	# 2.17) was made and reported on #51 on 2026-10-12. Since f4cf9ba arnika has a
+	# PqcOnly mode and numbers the QKD intervals by the system clock instead of
+	# per-process tickers. `branch = main` now names the branch the pin is on, but
+	# do not run `git submodule update --remote` on this entry: a later main would
+	# change what the build guards, the line citations into arnika and the
+	# notices describe without any of them being re-checked (docs/roadmap.md
+	# lists the steps of a re-pin).
 [submodule "submodules/liboqs"]
 	path = submodules/liboqs
 	url = https://github.com/open-quantum-safe/liboqs.git

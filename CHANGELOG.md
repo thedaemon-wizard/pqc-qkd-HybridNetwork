@@ -75,6 +75,21 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Changed
 
+- arnika is pinned to `0bb8401`, its `main` after upstream PR #51 (PQC-HPKE) merged on
+  2026-11-20 as `c850db6` and the four pull requests #54 to #57 that harden its key_id
+  exchange merged after it. The pin was `f4cf9ba`, #51's head of 2026-09-24, at which
+  the before/after measurement was made. Since then arnika has a `PqcOnly` mode and
+  numbers its QKD intervals by the system clock instead of per-process tickers, so the
+  WireGuard entrypoint's wait for an interval boundary no longer decides where the
+  intervals fall. The KDF, the key-writer port, the environment variables arnika
+  reads, its log format and every message this repository reads are unchanged, and
+  the VICI adapter builds and passes its tests against the new tree. New are a PQC-only
+  PSK when QKD is not required and a PRIMARY that skips an interval in which its KMS
+  answered too late (#57); `scripts/ppk_race_report.py` now places a PRIMARY's
+  boundary at the first of its KMS requests, because 0bb8401 retries a failed request
+  inside the same interval. The line citations into arnika, the `/keyflow` quote of
+  its KDF and the notes on `/` and `/vpn` follow the new pin.
+
 - Upstream facts brought up to date (read 2026-11-10). NIST IR 8547 is final
   (October 2026), with its 2030 deprecation and 2035 disallowance of
   quantum-vulnerable public-key schemes; the documents no longer call it a draft.

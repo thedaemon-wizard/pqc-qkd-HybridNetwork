@@ -545,9 +545,10 @@ def test_the_topology_draws_both_alice_bob_tunnels():
 
 
 # ---- 5. the rotation counter after the move to slog --------------------
-# At the old pin the adapter's log.Printf line was the whole line. At f4cf9ba
-# arnika installs an slog TextHandler as the default logger, which carries the
-# standard `log` package's output as the quoted msg of a key=value record.
+# At 3a8cc13 the adapter's log.Printf line was the whole line. From f4cf9ba on
+# (0bb8401 is the pin) arnika installs an slog TextHandler as the default
+# logger, which carries the standard `log` package's output as the quoted msg
+# of a key=value record.
 _OLD_FORM = ("2026/09/25 06:48:38 [INFO] [VICI] PPK rotated "
              "(id=qkd-alice-7 ppk_id=ppk-qkd bytes=32)")
 _SLOG_FORM = ('time=2026-09-26T10:00:00.000Z level=INFO msg="[INFO] [VICI] PPK rotated '

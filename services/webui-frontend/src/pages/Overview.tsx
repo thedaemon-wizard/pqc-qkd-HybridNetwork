@@ -365,13 +365,12 @@ function ArchPanel() {
         The paper&apos;s own layering is on <Link to="/paper-flow">/paper-flow</Link>.
       </p>
       <p style={{ fontSize: 11, color: "#6b7796", margin: "6px 0 0", lineHeight: 1.5 }}>
-        Note: PQC-HPKE comes from arnika pull request #51, which is still open. The arnika
-        pin is <code>f4cf9ba</code>, that pull request&apos;s head commit on 2026-09-24, not
-        a merge commit. The pull request has moved on since, to the head <code>e37d043</code>,
-        2026-11-05: later commits add a PqcOnly mode and align the QKD intervals to the
-        system clock, which the pin does not do. The before/after measurement of the pin
-        was reported on 2026-10-12, and the pin will be re-pinned to the merge commit once
-        #51 merges.
+        Note: PQC-HPKE comes from arnika pull request #51, merged on 2026-11-20 as the
+        commit <code>c850db6</code>. The arnika pin is <code>0bb8401</code>, arnika&apos;s
+        main after that merge and four pull requests (#54 to #57) that harden its key_id
+        exchange. Since the previous pin, <code>f4cf9ba</code> of 2026-09-24, arnika also
+        has a PqcOnly mode and numbers its QKD intervals by the system clock. The
+        before/after measurement of the previous pin was reported on 2026-10-12.
       </p>
     </div>
   );
