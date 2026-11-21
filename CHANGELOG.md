@@ -13,6 +13,13 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `scripts/protocol_lab_smoke.py`, run by CI's frontend job: headless Chrome plays
+  `/protocol-lab` under the enforced Content-Security-Policy. Every network and cited
+  scenario is stepped and read back against the rate it cites, the run and failure
+  controls are pressed, and the network or scenario is changed at every part of a
+  tick, for every change one select can make: 177 changes. On the build before the
+  fix below for changing the network while a tick plays, 37 of them end on `This page
+  failed to render`. After a deploy, `--base` runs it against the deployed page.
 - `/protocol-lab` shows what a slow route is waiting for. The hop whose empty store
   holds the relay up is outlined amber, its bar fills as that hop makes its next key
   at the reported rate, and the band under the drawing says it: `waiting for key on
