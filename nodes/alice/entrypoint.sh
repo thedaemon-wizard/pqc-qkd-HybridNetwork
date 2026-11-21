@@ -368,7 +368,33 @@ create_wg_iface() {  # <iface>
 #
 # Consequence for monitoring: a `preshared key` on a peer is therefore not by
 # itself evidence that arnika or Rosenpass wrote it; a completed handshake is.
+# A peer's endpoint is its container name, which Docker's DNS answers only
+# while that container runs, and both nodes of a pair start together and look
+# each other up. `wg set` resolving the name once made that a race. On
+# 2026-11-21 a recreate of both nodes left the previous run's key files in
+# $SHARED_DIR, so neither waited for the other's keys; each looked the other up
+# before it had started, `wg set` failed, the container exited, and the two
+# restarted in step for six minutes, until the old key files were moved aside.
+# Waiting here, as for the keys above, keeps a node running until its peer is
+# up, so the two come up together. `getent ahosts` asks getaddrinfo, as `wg set`
+# does, so a numeric endpoint (wg1's are wg0 addresses) answers at once; `getent
+# hosts` would reverse-resolve it and wait for nothing.
+wait_for_name() {  # <host:port>
+  local host="${1%:*}"
+  host="${host#[}"; host="${host%]}"
+  for i in $(seq 1 "$PEER_KEY_WAIT_S"); do
+    if getent ahosts "$host" >/dev/null; then
+      return 0
+    fi
+    (( i == 1 )) && echo "[entrypoint] waiting for $host to resolve ..."
+    sleep 1
+  done
+  echo "[entrypoint] ERROR: $host does not resolve after ${PEER_KEY_WAIT_S}s" >&2
+  exit 1
+}
+
 add_wg_peer() {  # <iface> <peer public key> <endpoint host:port> <peer tunnel ip>
+  wait_for_name "$3"
   wg genpsk | wg set "$1" peer "$2" \
       preshared-key /dev/stdin \
       endpoint "$3" \

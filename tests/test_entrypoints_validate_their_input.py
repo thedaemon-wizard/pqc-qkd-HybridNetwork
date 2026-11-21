@@ -384,6 +384,71 @@ def test_the_main_go_lines_the_entrypoints_cite_still_say_that():
             "the 'No start alignment in this lane' comment in the IPsec entrypoint.")
 
 
+# ------------------------------------------------ peer name resolution --
+# The WireGuard nodes reach each other by container name, which Docker's DNS
+# answers only while that container runs. On 2026-11-21 a recreate of both
+# nodes left the previous run's key files behind, neither waited for the other,
+# and the two restarted in step: `wg set` resolved the peer once and exited.
+
+NAME_WAIT = "wait_for_name"
+PEER = "add_wg_peer"
+
+
+def _name_wait_script(resolves_after: int, wait_s: int) -> str:
+    """getent fails `resolves_after` times and then answers; sleep is a no-op."""
+    return "\n".join([
+        f"PEER_KEY_WAIT_S={wait_s}",
+        f"n=0; getent() {{ n=$((n + 1)); echo \"GETENT $2\" >&2; (( n > {resolves_after} )); }}",
+        "sleep() { :; }",
+        shell_function(ALICE, NAME_WAIT),
+    ])
+
+
+def test_a_peer_name_is_waited_for_until_it_resolves():
+    out = run_bash(_name_wait_script(2, 5) + f'\n{NAME_WAIT} "bob:51821"', {})
+    assert out.returncode == 0, out.stderr
+    assert out.stderr.count("GETENT bob") == 3, out.stderr
+    assert "waiting for bob to resolve" in out.stdout
+
+
+def test_a_peer_name_that_never_resolves_fails_loudly():
+    out = run_bash(_name_wait_script(99, 3) + f'\n{NAME_WAIT} "charlie:51821"', {})
+    assert out.returncode == 1
+    assert out.stderr.count("GETENT charlie") == 3
+    assert "charlie does not resolve after 3s" in out.stderr
+
+
+@pytest.mark.parametrize("endpoint", ["10.13.0.2:51822", "127.0.0.1:51821", "[::1]:51821"])
+def test_a_numeric_endpoint_does_not_wait(endpoint):
+    """wg1's endpoints are wg0 addresses. The real getent answers a numeric host
+    at once; a lookup that reverse-resolved it found nothing and waited out the
+    whole PEER_KEY_WAIT_S before failing the node (seen locally on 2026-11-21)."""
+    if not shutil.which("getent"):
+        pytest.skip("no getent on this host")
+    script = "\n".join(["PEER_KEY_WAIT_S=2", "sleep() { exit 9; }", shell_function(ALICE, NAME_WAIT),
+                        f'{NAME_WAIT} "{endpoint}"'])
+    out = run_bash(script, {})
+    assert out.returncode == 0, out.stderr
+    assert "waiting for" not in out.stdout
+
+
+def test_every_wg0_peer_waits_for_its_name_before_wg_set():
+    """The main peer and each WG_EXTRA_PEERS entry go through add_wg_peer, which
+    must look the name up first: wg is stubbed to record its calls."""
+    script = "\n".join([
+        _name_wait_script(1, 5),
+        'wg() { if [[ "$1" == genpsk ]]; then echo KEY; else cat >/dev/null; echo "WG $*" >&2; fi; }',
+        "WG_PERSISTENT_KEEPALIVE_S=25",
+        shell_function(ALICE, PEER),
+        f'{PEER} wg0 PUB "bob:51821" 10.13.0.2',
+    ])
+    out = run_bash(script, {})
+    assert out.returncode == 0, out.stderr
+    calls = [ln.split()[0] for ln in out.stderr.splitlines() if ln.startswith(("GETENT", "WG"))]
+    assert calls == ["GETENT", "GETENT", "WG"], out.stderr
+    assert "endpoint bob:51821" in out.stderr
+
+
 # ------------------------------------------------ bootstrap derivation --
 
 def hkdf_sha256(ikm: bytes, info: bytes, length: int = 32) -> bytes:

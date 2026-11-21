@@ -181,6 +181,13 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Fixed
 
+- The WireGuard nodes no longer exit when both are recreated together. Each looked its
+  peer up by container name once, in `wg set`, which fails until the peer has started;
+  when the previous run's key files were still in the shared volume neither node
+  waited for the other, and on the demo on 2026-11-21 both restarted in step for about
+  six minutes. `add_wg_peer` now waits for the endpoint to resolve, as the entrypoint
+  already waits for the peer's keys, and a numeric endpoint answers at once.
+
 - `/protocol-lab` no longer fails to render when the network is changed while a tick
   is playing. The band looked up the new network's tick by the part the old one had
   reached, and MadQCI's tick has one part: switching from Cambridge at `now 2 of 5`
