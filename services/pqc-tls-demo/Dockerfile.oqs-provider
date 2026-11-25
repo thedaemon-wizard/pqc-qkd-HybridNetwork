@@ -39,10 +39,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY submodules/liboqs /src/liboqs
 WORKDIR /src/liboqs
 # The pinned liboqs 0.16.0 is inside the affected range of GHSA-wh5q-mpc8-67wf
-# (out-of-bounds read in LMS/HSS verification; fixed in 0.17.0). LMS is a
-# stateful signature that liboqs leaves OFF by default and this build does not
-# enable, so the check after the install asserts it stayed off rather than
-# assuming it: an upstream default flip would otherwise ship the flaw silently.
+# (out-of-bounds read in LMS/HSS verification) and GHSA-xv6c-h66p-6mfq (LM-OTS
+# key reuse in LMS signing when the lock callback fails), both fixed in 0.17.0.
+# LMS is a stateful signature that liboqs leaves OFF by default and this build
+# does not enable, so the check after the install asserts it stayed off rather
+# than assuming it: an upstream default flip would otherwise ship the flaws
+# silently.
 RUN cmake -S . -B build -GNinja \
         -DCMAKE_INSTALL_PREFIX=/opt/oqs \
         -DBUILD_SHARED_LIBS=ON -DOQS_USE_OPENSSL=ON && \

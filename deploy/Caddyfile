@@ -30,6 +30,11 @@ import /etc/caddy/conf.d/*.caddy
 	# until the response is written, so it also covers proxied responses.
 	#   -Server: behind this proxy it is the frontend nginx's, and it carried
 	#     nginx's exact version to every visitor.
+	#   -Via: since v2.10.0 Caddy, as a reverse proxy, names itself in a Via
+	#     field ("1.1 Caddy") on the responses it forwards, so without this the
+	#     proxy was still named after -Server. RFC 9110 section 7.6.3 lets a gateway
+	#     leave Via off forwarded responses ("MAY"); the Via it MUST send on the
+	#     request to the upstream is untouched by a response header operation.
 	#   Strict-Transport-Security: browsers that have reached the site over
 	#     HTTPS keep using HTTPS for a year (RFC 6797). No includeSubDomains
 	#     and no preload: this covers this hostname only, and can be undone by
@@ -50,6 +55,7 @@ import /etc/caddy/conf.d/*.caddy
 	#     and fails on any violation; CI runs it on each change.
 	header {
 		-Server
+		-Via
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-NXBs9U7GqLTA7rWCDe8D/D7eONdkrID4BR9gxz7B/pw='; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

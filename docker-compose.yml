@@ -14,11 +14,11 @@
 #   wg1  data tunnel keyed by Rosenpass (Classic McEliece 460896 + Kyber512),
 #        carried inside wg0, with the Rosenpass exchange itself inside wg0
 # (nodes/alice/entrypoint.sh). arnika is built by nodes/alice/Dockerfile from
-# submodules/arnika, pinned to f4cf9ba: the head of the open, unmerged upstream
-# PR arnika-project/arnika#51 as of 2026-09-24 (.gitmodules says when it is
-# re-pinned). PQC-HPKE is HPKE Base mode (RFC 9180) with the hybrid KEM
-# MLKEM1024-P384 (draft-ietf-hpke-pq, not yet an RFC), HKDF-SHA384 and an
-# export-only AEAD.
+# submodules/arnika, pinned to 0bb8401: arnika's main after upstream PR
+# arnika-project/arnika#51 was merged on 2026-11-20, with #54 to #57 after it
+# (.gitmodules says why and when it was re-pinned). PQC-HPKE is HPKE Base mode
+# (RFC 9180) with the hybrid KEM MLKEM1024-P384 (draft-ietf-hpke-pq, not yet an
+# RFC), HKDF-SHA384 and an export-only AEAD.
 # BB84-KME is a Python service implementing QuTiP + ETSI GS QKD 014 REST.
 # ===================================================================
 name: pqcqkd

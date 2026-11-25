@@ -70,11 +70,14 @@ RUN cmake -S /src/liboqs -B /build -GNinja \
     cmake --build /build --parallel && \
     cmake --install /build
 
-# The pinned liboqs 0.16.0 is inside the affected range of GHSA-wh5q-mpc8-67wf
-# (heap out-of-bounds read in LMS/HSS signature verification; fixed in 0.17.0,
-# not yet released). This image is not exposed because LMS is not compiled:
-# OQS_ENABLE_SIG_STFL_LMS defaults OFF and the cmake line above does not turn
-# it on. That is a property of a default, so it is checked rather than assumed:
+# The pinned liboqs 0.16.0 is inside the affected range of two LMS advisories,
+# both fixed only in 0.17.0, not yet released on 2026-11-25:
+# GHSA-wh5q-mpc8-67wf (heap out-of-bounds read in LMS/HSS signature
+# verification) and GHSA-xv6c-h66p-6mfq (LMS signing goes ahead when the
+# application's lock callback fails, so an LM-OTS one-time key can be used
+# twice, and verification accepts a signature of another parameter set). This
+# image is not exposed because LMS is not compiled: OQS_ENABLE_SIG_STFL_LMS
+# defaults OFF and the cmake line above does not turn it on. That is a property of a default, so it is checked rather than assumed:
 # the build fails if the installed configuration header enables LMS.
 RUN test -f /opt/liboqs/include/oqs/oqsconfig.h \
  && ! grep -q '^#define OQS_ENABLE_SIG_STFL_LMS' /opt/liboqs/include/oqs/oqsconfig.h
