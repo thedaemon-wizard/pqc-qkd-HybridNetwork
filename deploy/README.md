@@ -173,6 +173,22 @@ file (row 4.8.25 of the verification checklist):
 sh scripts/check-public-headers.sh https://$PUBLIC_HOST
 ```
 
+Then use the deployed page with the two browser checks, from any machine with
+Chrome. Neither sends the host a request other than GET or HEAD, and neither
+saves a file:
+
+```sh
+python3 scripts/protocol_lab_smoke.py --base https://$PUBLIC_HOST   # the Protocol Lab in depth (rows 4.4c.25-27)
+python3 scripts/spa_tabs_smoke.py --base https://$PUBLIC_HOST       # every tab, every control, the exports (rows 4.3.8-4.3.11)
+```
+
+CI runs both against the build on every pull request. Run them against the
+host after every deploy that changes the frontend, because CI cannot see what
+the host adds: its policy as sent, and its backend's answers. The second one's
+first run, on 2026-11-25, found that every PNG export on the deployed page had
+failed since the policy was enforced, and that one field on `/qkd-protocols`
+could freeze the tab. Together they take about fifteen minutes.
+
 ## The firewall step
 
 Both scripts **add** UFW rules for the SSH port(s) `sshd -T` reports, 80/tcp,
