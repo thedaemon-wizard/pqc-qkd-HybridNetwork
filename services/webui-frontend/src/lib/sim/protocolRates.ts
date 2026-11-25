@@ -32,14 +32,23 @@ export interface RateParams {
 
 export type RateProtocol = "bb84" | "bbm92" | "mdi";
 
-/** Modified Bessel function I0, by its power series. */
+/**
+ * Modified Bessel function I0, by its power series.
+ *
+ * The series stops when a term no longer moves the sum, which never happens once
+ * the sum is NaN (an argument of NaN) or Infinity (an infinite argument, or one
+ * past about 713, where I0 overflows a double): `term < 1e-17 * total` is then
+ * false for ever. So a sum that is no longer finite is returned as it is. Until
+ * 2026-11-25 an MDI rate with a NaN argument span here without end, and with it
+ * the tab of /qkd-protocols that asked for it.
+ */
 export function besselI0(x: number): number {
   let term = 1;
   let total = 1;
   for (let k = 1; ; k++) {
     term *= (x * x / 4) / (k * k);
     total += term;
-    if (term < 1e-17 * total) return total;
+    if (!Number.isFinite(total) || term < 1e-17 * total) return total;
   }
 }
 
@@ -181,6 +190,12 @@ export function ratePoint(protocol: RateProtocol, lengthKm: number, p: RateParam
       const y0 = backgroundPerSide(p.pd);
       fn = (lambda) => bbm92Rate(etaA, etaB, lambda, y0, p.eD, p.f);
     } else {
+      // No light reaches the relay along one arm -- a detector efficiency of 0, or
+      // a fibre whose transmittance underflows to 0 (above about 6 dB/km over
+      // 500 km) -- so no key, and the balance below would be 0 / 0 or x / 0.
+      // /qkd-protocols froze on a detector efficiency of 0 until 2026-11-25:
+      // the NaN balance reached besselI0, which then never returned.
+      if (!(etaA > 0 && etaB > 0)) return { rate: 0, intensity: null };
       const balance = etaA / etaB;
       fn = (mu) => mdiRate(etaA, etaB, mu, mu * balance, p.pd, p.eD, p.f);
     }

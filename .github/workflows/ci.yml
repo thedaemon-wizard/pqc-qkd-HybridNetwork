@@ -219,6 +219,35 @@ jobs:
           rc=$?
           test "$rc" -eq 1 || { echo "::error::expected exit 1 from the broken policy, got $rc"; exit 1; }
 
+      # Between those two, the breadth: every tab reached by its menu link, as a
+      # reader does, in the same headless Chrome and under the same policy. The
+      # menu walked forward, backward and at speed; every control on every tab
+      # used (each option of each select, each number at and past its limits,
+      # each button and checkbox); each tab left for /hil while its simulation
+      # runs, with nothing it started still running there; and the Logs, JSON,
+      # CSV and PNG exports read back as files of their kind
+      # (VERIFICATION_CHECKLIST rows 4.3.8-4.3.11). It sends no request but GET
+      # or HEAD. On its first run, on 2026-11-25, it found two defects the gates
+      # above did not: /qkd-protocols froze for good on a detector efficiency of
+      # 0, and every PNG export had failed since the policy was enforced on
+      # 2026-11-20 (connect-src refused the fetch of its own data: URL). About
+      # four minutes here.
+      - name: Every tab survives its controls, stops what it started and exports
+        timeout-minutes: 15
+        run: python3 scripts/spa_tabs_smoke.py --no-sandbox
+
+      # ... and it can fail: under a policy without the inline-style hash the first
+      # tab reports a violation as it loads, so the check must exit 1. Every run
+      # also plants an exception, a console error, a CSP violation, text a reader
+      # should not see, a timer left running and a write, and exits 2 unless it
+      # sees them all.
+      - name: The every-tab gate fails on a policy without the style hash
+        run: |
+          set +e
+          python3 scripts/spa_tabs_smoke.py --no-sandbox --only tabs --policy "default-src 'self'"
+          rc=$?
+          test "$rc" -eq 1 || { echo "::error::expected exit 1 from the broken policy, got $rc"; exit 1; }
+
   go:
     name: arnika VICI adapter — vet, build, test
     runs-on: ubuntu-24.04
