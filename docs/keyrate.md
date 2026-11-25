@@ -307,7 +307,15 @@ by about 10-15 % (TNO's changelog). The cross-check here uses only the
 asymptotic estimators, whose code changed only in how a one-element array is
 converted to a float, and its numbers did not move: at 13 distances from 0 to
 300 km on the shipped configuration, v2.0.4 and v2.0.5 give the same rates and
-optimal intensities to the last digit (2026-11-25, in the `bb84-kme` image).
+optimal intensities to the last digit (2026-11-25, in the `bb84-kme` image, on
+one machine). Across machines TNO's *optimum* is less exact. It is found by
+`trust-constr` over finite differences of a linear program, along a direction
+that is flat in the decoy intensities, and where it stops depends on the CPU:
+the same image on two x86-64 machines gave optima 0.03 % apart at 10 km,
+0.23 % at 50 km and 5.6 % at 150 km, while TNO's rate at fixed intensities
+agreed to 4e-10. So the TNO number on `/verify` can differ by that much between
+hosts; the `verdict`, a ratio test against [0.1, 10], cannot.
+`tests/test_tno_asymptotic_rates_are_pinned.py` pins each to what it can hold.
 This repository's own finite-key code (`_skr.py`, Lim et al. 2014) has neither
 error: `_v1` takes the upper bound of the single-photon bit errors from
 `m2+` and `m3-` (Lim Eq. (4)), and the phase-error term passes the rate

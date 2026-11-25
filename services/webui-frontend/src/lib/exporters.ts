@@ -65,6 +65,26 @@ function timestamp(): string {
     + `-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
 }
 
+/**
+ * A data: URL's bytes as a Blob, decoded here rather than by `fetch(dataUrl)`.
+ *
+ * The site's Content-Security-Policy (deploy/Caddyfile) has `connect-src 'self'`,
+ * and a fetch of a data: URL is a connection that 'self' does not match. Once the
+ * policy was enforced (2026-11-20), every PNG export failed with "Failed to
+ * fetch" after the image was drawn; scripts/spa_tabs_smoke.py found it on
+ * 2026-11-25. Decoding keeps the policy as it is.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const m = /^data:([^,]*),(.*)$/s.exec(dataUrl);
+  if (!m) throw new Error("not a data: URL");
+  const meta = m[1];
+  const type = meta.split(";")[0] || "text/plain";
+  const bytes = /;base64$/i.test(meta)
+    ? Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0))
+    : new TextEncoder().encode(decodeURIComponent(m[2]));
+  return new Blob([bytes], { type });
+}
+
 function triggerDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -319,14 +339,14 @@ export async function downloadPNG(name: string,
     const w = vb && vb.width ? vb.width : (target.getBoundingClientRect().width || 1240);
     const h = vb && vb.height ? vb.height : (target.getBoundingClientRect().height || 620);
     const dataUrl = await svgToPngDataUrl(target, Math.round(w), Math.round(h));
-    const blob = await (await fetch(dataUrl)).blob();
+    const blob = dataUrlToBlob(dataUrl);
     await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`, opts);
     return;
   }
   const mod = await import("html-to-image");
   // pixelRatio 2 → high-DPI/retina-quality PNG (default ~1 was low quality).
   const dataUrl = await mod.toPng(target, { backgroundColor: "#0a0e17", pixelRatio: 2 });
-  const blob = await (await fetch(dataUrl)).blob();
+  const blob = dataUrlToBlob(dataUrl);
   await saveToBackendAndDownload(blob, name, "png", `${name}-${timestamp()}.png`, opts);
 }
 

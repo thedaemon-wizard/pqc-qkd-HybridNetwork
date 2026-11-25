@@ -13,14 +13,27 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `scripts/spa_tabs_smoke.py`, run by CI's frontend job: headless Chrome reaches every
+  tab by its menu link under the enforced Content-Security-Policy. The menu is walked
+  forward, backward and at speed; every control on every tab is used (each option of
+  each select, each number at, between and past its limits, each button and
+  checkbox); each tab is left for `/hil` while its simulation runs, and nothing it
+  started may still run there; and the Logs, JSON, CSV and PNG exports are read back
+  as files of their kind. It sends no request but GET or HEAD and saves nothing.
+  `--base` runs it against the deployed page. Checklist rows 4.3.8-4.3.11;
+  `tests/test_spa_tabs_smoke_reads_the_page.py` holds the labels and literals it reads.
+
 - `tests/test_tno_asymptotic_rates_are_pinned.py`, run inside the bb84-kme image by the
-  `live-stack` job: TNO's asymptotic decoy rates on the shipped configuration at 10, 50,
-  100 and 150 km, and no key at 300 km. A bump of tno-qkd-key-rate, or of NumPy or
-  SciPy under it, now says whether the numbers on `/verify` moved.
+  `live-stack` job: TNO's asymptotic decoy rate at fixed intensities at 10, 50, 100 and
+  150 km, to 1e-6, and the optimum it reports there, to the spread its optimiser shows
+  between CPUs (1 % up to 100 km, 10 % at 150 km), and no key at 300 km. A bump of
+  tno-qkd-key-rate, or of NumPy or SciPy under it, now says whether the numbers on
+  `/verify` moved.
 - `tests/test_lms_stays_out_of_every_liboqs_build.py`: every build of
-  `submodules/liboqs` passes no option that turns a stateful signature on and reads
-  `oqsconfig.h` after the install, and the pin still defaults LMS, XMSS and stateful
-  key generation to OFF. The Makefile's `build-liboqs` target now fails if LMS was
+  `submodules/liboqs` passes no option that turns a stateful signature on, and reads
+  the installed `oqsconfig.h` after the install, so a default flipped upstream fails
+  the build (CI's `images` job builds the validator from the pin, which is where the
+  default itself is read). The Makefile's `build-liboqs` target now fails if LMS was
   compiled, as the two Dockerfiles already did.
 - `deploy/README.md` says what to do on a host without UFW (firewalld) and how to
   keep sshd to keys only with root and X11 forwarding refused (checklist row 6.16).
@@ -210,6 +223,30 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   ([`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)).
 
 ### Fixed
+
+- `tests/test_tno_asymptotic_rates_are_pinned.py` no longer fails on a CI runner with a
+  different CPU. Its first version held TNO's optimum to 1e-4; the optimiser lands on
+  different points of a flat optimum on different vector units (5.6 % apart at 150 km
+  on two machines), and the test failed at three distances on `main`. It now pins the
+  rate at fixed intensities, which agreed to 4e-10, and gives the optimum the spread.
+
+- The browser gates' self-check waited a fixed 0.4 s for the exception it planted. On
+  a slow runner it came later, and on `main` the step meant to show the Protocol Lab
+  gate failing (exit 1) reported that it could not run (exit 2). Both gates now read
+  for up to 5 s until everything they planted has come in.
+
+- `/qkd-protocols` no longer freezes on a detector efficiency of 0, which its field
+  allows, or on a fibre long and lossy enough that one arm transmits nothing. MDI's
+  arm balance was then 0 / 0, and the power series of `besselI0` never ends on NaN
+  (nor on Infinity, nor past about 713, where I0 overflows). `besselI0` now returns a
+  sum that is no longer finite, and an arm that transmits nothing gives no key. Found
+  by `scripts/spa_tabs_smoke.py` on its first run, on the deployed page as well.
+
+- PNG exports work again on every tab. Since the Content-Security-Policy was enforced
+  on 2026-11-20, each one drew its image and then failed with "Failed to fetch":
+  `downloadPNG` turned the canvas's data: URL into a Blob with `fetch`, and
+  `connect-src 'self'` does not match data:. The URL is now decoded in the page
+  (`dataUrlToBlob`); the policy is unchanged.
 
 - The WireGuard nodes no longer exit when both are recreated together. Each looked its
   peer up by container name once, in `wg set`, which fails until the peer has started;

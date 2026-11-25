@@ -3,24 +3,39 @@
 tno-qkd-key-rate v2.0.5 (2026-11-18) corrected TNO's *finite-key* estimator.
 The `tno` backend and the cross-check on /verify use only the asymptotic
 estimators, so on 2026-11-25 `compute_tno_rate` was run under v2.0.4 and under
-v2.0.5 in the bb84-kme image at 13 distances from 0 to 300 km: the rates and the
-optimal intensities were identical to the last digit. This pins four of those
-rates, so the next bump of the submodule -- or of NumPy or SciPy underneath it,
-which the image does not pin -- says whether the numbers the page shows moved,
-instead of that being found by reading TNO's changelog.
+v2.0.5 in the bb84-kme image at 13 distances from 0 to 300 km: on one machine,
+the rates and the optimal intensities were identical to the last digit. This
+pins what a later bump of the submodule -- or of NumPy or SciPy underneath it,
+which the image does not pin -- could move, instead of that being found by
+reading TNO's changelog.
+
+Two things are pinned, because they are reproducible to very different degrees:
+
+  * TNO's rate at fixed intensities (`compute_rate`): the decoy bounds, a
+    linear program, and the key-rate formula. On two machines with different
+    vector units it agreed to 4e-10 relative (2026-11-25), so it is held to
+    1e-6. A change to TNO's model shows up here first.
+  * The optimum `compute_tno_rate` reports. TNO finds it with `trust-constr`
+    over finite differences of that linear program, and the optimum is flat
+    in the decoy intensities, which it drives towards zero; where it stops
+    depends on the CPU. The same image on those two machines gave optima
+    0.03 % apart at 10 km, 0.23 % at 50 km and 5.6 % at 150 km, and CI runners
+    follow one or the other (PR #160's run matched the machine these numbers
+    came from; PR #161's run matched the other one, and the version of this
+    test that held the optimum to 1e-4 failed there at three distances). So
+    the optimum is held to 1 % up to 100 km and 10 % at 150 km, its signal
+    intensity to 0.05, and it must not fall below the rate at the fixed
+    intensities, a point any working optimiser beats. The verdict on /verify
+    tests the ratio against [0.1, 10], far wider than either spread.
 
 It runs where TNO is installed: inside the bb84-kme image, in CI's step
 "Backend physics inside the image that has SimQN and SeQUeNCe", which fails on
 any skip. Outside the image it skips.
 
 If it fails, read which test failed first. A changed configuration value means
-the numbers below have to be recomputed, not that TNO changed. A moved rate with
-an unchanged configuration is the finding: record what moved it.
-
-Tolerances: 1e-4 relative on the rate and 5e-3 absolute on the intensity. The
-optimum is flat in the intensity, so an optimiser that stops a little elsewhere
-moves the intensity far more than the rate; a change of the kind v2.0.5 made to
-the finite-key rates (10-15 %) is three orders of magnitude outside both.
+the numbers below have to be recomputed, not that TNO changed. A moved rate at
+fixed intensities with an unchanged configuration is the finding: record what
+moved it.
 """
 from __future__ import annotations
 
@@ -51,24 +66,32 @@ CONFIG = {
     "detector.detection_window": 5,
 }
 
-#: link length (km) -> (rate per pulse, optimal mu), from `compute_tno_rate`.
-#: Computed 2026-11-25 in the bb84-kme image: Python 3.12.13, NumPy 2.5.3,
-#: SciPy 1.18.1, tno-qkd-key-rate v2.0.4 and v2.0.5 (the same to the last digit).
-RATES = {
-    10.0: (0.04571317747870629, 0.946638867196751),
-    50.0: (0.0071273653427372345, 0.944085752750927),
-    100.0: (0.0006212221189419873, 0.9444684104103023),
-    150.0: (1.1199908508336723e-05, 0.615938691827998),
+#: link length (km) -> (intensities: signal, decoy, decoy; TNO's rate per pulse at them).
+#: Computed 2026-11-25 in the bb84-kme image: Python 3.12.13, NumPy 2.5.3, SciPy 1.18.1,
+#: tno-qkd-key-rate v2.0.4 and v2.0.5.
+AT_FIXED = {
+    10.0: ([0.9, 0.1, 0.01], 0.04275297865016177),
+    50.0: ([0.9, 0.1, 0.01], 0.00659918611977818),
+    100.0: ([0.9, 0.1, 0.01], 0.0005673801509574356),
+    150.0: ([0.6, 0.1, 0.01], 8.494924592233176e-06),
+}
+
+#: link length (km) -> (the optimum's rate per pulse, its signal intensity, the relative
+#: spread allowed on the rate), from `compute_tno_rate` on the same day and image.
+OPTIMUM = {
+    10.0: (0.04571317747870629, 0.946638867196751, 0.01),
+    50.0: (0.0071273653427372345, 0.944085752750927, 0.01),
+    100.0: (0.0006212221189419873, 0.9444684104103023, 0.01),
+    150.0: (1.1199908508336723e-05, 0.615938691827998, 0.10),
 }
 
 
-def _rate(km: float) -> dict:
+def _cfg(km: float):
     from app.backends.base import cfg_from_yaml
-    from app.backends.tno_backend import compute_tno_rate
 
     cfg = copy.copy(cfg_from_yaml())
     cfg.link_length_km = km
-    return compute_tno_rate(cfg)
+    return cfg
 
 
 def test_the_configuration_is_the_one_the_numbers_came_from():
@@ -77,21 +100,42 @@ def test_the_configuration_is_the_one_the_numbers_came_from():
     changed = {k: (v, cl.require(k)) for k, v in CONFIG.items() if float(cl.require(k)) != v}
     assert not changed, (
         "config/qkd_params.yaml changed since the rates in this file were computed; "
-        f"recompute RATES with the new values (pinned, now): {changed}")
+        f"recompute AT_FIXED and OPTIMUM with the new values (pinned, now): {changed}")
 
 
-@pytest.mark.parametrize("km", sorted(RATES))
-def test_the_asymptotic_rate_has_not_moved(km):
-    want_rate, want_mu = RATES[km]
-    got = _rate(km)
+@pytest.mark.parametrize("km", sorted(AT_FIXED))
+def test_tnos_rate_at_fixed_intensities_has_not_moved(km):
+    from app.backends.tno_backend import _build_detector
+    from tno.quantum.communication.qkd_key_rate.quantum.bb84 import BB84AsymptoticKeyRateEstimate
+
+    mu, want = AT_FIXED[km]
+    cfg = _cfg(km)
+    est = BB84AsymptoticKeyRateEstimate(detector=_build_detector(cfg), number_of_decoy=2)
+    got = est.compute_rate(mu=mu, attenuation=float(cfg.fiber_attenuation_db_per_km) * km)
+    assert got == pytest.approx(want, rel=1e-6), (
+        f"{km} km: TNO's asymptotic decoy rate at intensities {mu} moved from {want!r} to {got!r}")
+
+
+@pytest.mark.parametrize("km", sorted(OPTIMUM))
+def test_the_optimum_is_where_it_was_within_the_spread_between_cpus(km):
+    from app.backends.tno_backend import compute_tno_rate
+
+    want_rate, want_mu, spread = OPTIMUM[km]
+    got = compute_tno_rate(_cfg(km))
     assert got["protocol"] == "BB84 decoy (asymptotic)", got
-    assert got["rate_per_pulse"] == pytest.approx(want_rate, rel=1e-4), (
-        f"{km} km: TNO's asymptotic decoy rate moved from {want_rate!r} to {got['rate_per_pulse']!r}")
-    assert got["mu_opt"] == pytest.approx(want_mu, abs=5e-3), (
-        f"{km} km: the optimal intensity moved from {want_mu!r} to {got['mu_opt']!r}")
+    assert got["rate_per_pulse"] == pytest.approx(want_rate, rel=spread), (
+        f"{km} km: TNO's optimum moved from {want_rate!r} to {got['rate_per_pulse']!r}, "
+        f"more than the {spread:.0%} that CPUs spread it by")
+    assert got["rate_per_pulse"] >= AT_FIXED[km][1], (
+        f"{km} km: the optimiser returned {got['rate_per_pulse']!r}, less than the rate "
+        f"{AT_FIXED[km][1]!r} at the fixed intensities {AT_FIXED[km][0]}")
+    assert got["mu_opt"] == pytest.approx(want_mu, abs=0.05), (
+        f"{km} km: the optimal signal intensity moved from {want_mu!r} to {got['mu_opt']!r}")
 
 
 def test_far_out_there_is_still_no_key():
-    got = _rate(300.0)
+    from app.backends.tno_backend import compute_tno_rate
+
+    got = compute_tno_rate(_cfg(300.0))
     assert got["rate_per_pulse"] == 0.0, got
     assert got["skr_bps"] == 0.0, got

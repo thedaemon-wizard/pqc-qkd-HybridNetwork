@@ -73,6 +73,35 @@ describe("the pieces", () => {
     close(besselI0(5), 27.239871823604442, 1e-14);
   });
 
+  it("I0 returns for an argument its series cannot sum: NaN, Infinity, and past the overflow", () => {
+    // Each of these looped for ever before 2026-11-25: the sum stops being finite,
+    // and a term never falls below 1e-17 of it.
+    expect(besselI0(Number.NaN)).toBeNaN();
+    expect(besselI0(Number.POSITIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
+    expect(besselI0(800)).toBe(Number.POSITIVE_INFINITY);
+    close(besselI0(700), 1.5295933476718737e302, 1e-12);
+  });
+
+  it("a detector that sees nothing gives no key, and the curves still come back", () => {
+    // /qkd-protocols accepts any number from 0 up in its fields. A detector
+    // efficiency of 0 made MDI's balance 0 / 0, and the page froze.
+    const blind = { ...PUBLISHED_RATE_PARAMS, etaD: 0 };
+    for (const name of ["bb84", "bbm92", "mdi"] as const) {
+      expect(ratePoint(name, 10, blind)).toEqual({ rate: 0, intensity: null });
+      expect(maxDistanceKm(name, blind)).toBe(0);
+    }
+  });
+
+  it("an arm whose transmittance underflows to 0 gives no key at that length", () => {
+    // 10 dB/km: 900 km on Alice's side transmits 1e-900, which is 0 in a double,
+    // while Bob's 100 km do not -- the balance was then 0 / x or x / 0.
+    const lossy = { ...PUBLISHED_RATE_PARAMS, alphaDbPerKm: 10 };
+    for (const share of [0.1, 0.5, 0.9]) {
+      expect(ratePoint("mdi", 1000, lossy, share)).toEqual({ rate: 0, intensity: null });
+      expect(Number.isFinite(maxDistanceKm("mdi", lossy, share))).toBe(true);
+    }
+  });
+
   it("no key at a dark channel, and no rate is ever negative where a curve is drawn", () => {
     const dark = { ...PUBLISHED_RATE_PARAMS, alphaDbPerKm: 5 };
     for (const name of ["bb84", "bbm92", "mdi"] as const) {
