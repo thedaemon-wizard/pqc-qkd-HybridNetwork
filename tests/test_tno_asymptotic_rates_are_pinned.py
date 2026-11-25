@@ -105,9 +105,8 @@ def test_the_configuration_is_the_one_the_numbers_came_from():
 
 @pytest.mark.parametrize("km", sorted(AT_FIXED))
 def test_tnos_rate_at_fixed_intensities_has_not_moved(km):
-    from tno.quantum.communication.qkd_key_rate.quantum.bb84 import BB84AsymptoticKeyRateEstimate
-
     from app.backends.tno_backend import _build_detector
+    from tno.quantum.communication.qkd_key_rate.quantum.bb84 import BB84AsymptoticKeyRateEstimate
 
     mu, want = AT_FIXED[km]
     cfg = _cfg(km)
