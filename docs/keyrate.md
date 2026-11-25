@@ -311,11 +311,25 @@ optimal intensities to the last digit (2026-11-25, in the `bb84-kme` image, on
 one machine). Across machines TNO's *optimum* is less exact. It is found by
 `trust-constr` over finite differences of a linear program, along a direction
 that is flat in the decoy intensities, and where it stops depends on the CPU:
-the same image on two x86-64 machines gave optima 0.03 % apart at 10 km,
-0.23 % at 50 km and 5.6 % at 150 km, while TNO's rate at fixed intensities
-agreed to 4e-10. So the TNO number on `/verify` can differ by that much between
-hosts; the `verdict`, a ratio test against [0.1, 10], cannot.
+the same image on two x86-64 machines gave optima 0.02 % apart at 10 km,
+0.05 % at 50 km, 0.9 % at 100 km and 8.9 % at 150 km, while TNO's rate at
+fixed intensities agreed to 2e-9. So the TNO number on `/verify` can differ by
+that much between hosts; the `verdict`, a ratio test against [0.1, 10], cannot.
 `tests/test_tno_asymptotic_rates_are_pinned.py` pins each to what it can hold.
+
+What TNO is given matters as much. Its `polarization_drift` is an angle, and
+the error it adds is the square of its sine (`compute_gain_and_error_rate`;
+TNO's own default is `arcsin(sqrt(0.015))`, which is this configuration's e_d).
+Until 2026-11-25 `_build_detector` passed e_d itself, so TNO computed with
+sin²(0.015) = 2.25e-4: its error rate at 10 km was 0.04 % where the
+configuration says 1.5 %, and its optimum there 0.0457 per pulse instead of
+0.0295. The cross-check's ratio at the default 10 km was 3.7 for that reason
+more than any other. With the angle it is 2.4, and the factor of about 2 that
+is left at the same intensities is a convention, not a disagreement: TNO's
+asymptotic rate, read in its code, is the bound on the vacuum and single-photon
+yield less `gain · h(E)`, with neither BB84's sifting factor of 1/2 nor an
+error-correction inefficiency, and the closed form here has both
+($`\tfrac{1}{2}`$ and $`f_{\mathrm{EC}}`$).
 This repository's own finite-key code (`_skr.py`, Lim et al. 2014) has neither
 error: `_v1` takes the upper bound of the single-photon bit errors from
 `m2+` and `m3-` (Lim Eq. (4)), and the phase-error term passes the rate

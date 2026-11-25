@@ -66,7 +66,7 @@ STEP_PLAY_WAIT_MS = 1600
 RUN_PLAY_WAIT_MS = 4000
 PART_TRIES = 3
 SETTLE_S = 0.12
-PLANT_WAIT_S = 5.0  # how long the self-check waits for what it planted
+PLANT_WAIT_S = 15.0  # how long the self-check waits, at most, for what it planted
 # What a cited replay must show once stepped past its end, from its source.
 REPLAYS = {
     # Peev et al. 2009, section 5.1.2: the three published routes in turn, then none.
@@ -383,7 +383,10 @@ class Page:
         # Read until all three have come in, for up to PLANT_WAIT_S. A fixed 0.4 s
         # was too short on a slow CI runner: on main on 2026-11-25 the planted
         # exception had not arrived by then, and the run that was meant to show the
-        # gate failing (exit 1) said it could not run (exit 2).
+        # gate failing (exit 1) said it could not run (exit 2). The exception comes
+        # from a timer, which waits for the page's main thread: the same day a run
+        # against the deployed page, on a machine busy with other work, missed it
+        # after 5 s. The loop leaves as soon as all three are in.
         found: list[str] = []
         deadline = time.monotonic() + PLANT_WAIT_S
         while True:
