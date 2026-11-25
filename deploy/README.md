@@ -182,6 +182,36 @@ ports, or SSH on a non-standard port -- on every redeploy. The default-deny
 policy is set only when UFW was inactive, i.e. when the script is the one
 turning the firewall on. `SKIP_UFW=1` leaves the firewall untouched.
 
+A host without UFW is left as it is: the step logs `ufw not installed; firewall
+left as is`. On a RHEL-family host that runs firewalld instead, open the same
+ports yourself; SSH is already in firewalld's default `public` zone:
+
+```sh
+sudo firewall-cmd --permanent --add-service=http --add-service=https --add-port=443/udp
+sudo firewall-cmd --reload
+```
+
+## SSH on the host
+
+The scripts do not touch sshd. Keep it to keys only, and refuse root and X11
+forwarding, in a drop-in that sorts before the distribution's own files under
+`/etc/ssh/sshd_config.d/`, because sshd keeps the first value it reads:
+
+```sh
+# /etc/ssh/sshd_config.d/10-hardening.conf
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+```
+
+Then `sudo sshd -t && sudo systemctl reload sshd` (the unit is `ssh` on Debian
+and Ubuntu), and keep the current session open until a new login works.
+`sudo sshd -T | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|x11forwarding) '`
+should then print four lines ending in `no` (row 6.16 of the verification
+checklist). A cloud image that gives root's key a forced "log in as another
+user" command already denies a root shell; this refuses the login itself.
+
 ## Why a virtual machine (not managed PaaS)
 
 The real WireGuard end-to-end tunnel needs the `wireguard` kernel module and

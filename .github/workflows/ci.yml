@@ -653,6 +653,10 @@ jobs:
       # This job already builds and starts that image, so running them here
       # costs one `docker run`. Mirrors what `images` does for liboqs.
       #
+      # TNO's key-rate engine is installed only in this image too, so the test
+      # that pins its asymptotic rates (tests/test_tno_asymptotic_rates_are_pinned.py,
+      # added 2026-11-25 after the v2.0.5 bump) runs here, where a skip fails.
+      #
       # A bare `git submodule update --init` would NOT lift the skip:
       # simqn_backend.py resolves the package from $SIMQN_PATH or a
       # container-absolute path, and the Dockerfile installs both with
@@ -667,6 +671,7 @@ jobs:
                 tests/test_backend_cross_qber.py \
                 tests/test_sequence_backend_actually_uses_sequence.py \
                 tests/test_skr_is_not_a_sifting_ratio.py \
+                tests/test_tno_asymptotic_rates_are_pinned.py \
                 -v -p no:cacheprovider -o cache_dir=/tmp/pytest-cache \
                 > /tmp/out 2>&1 || rc=$?
               cat /tmp/out
@@ -674,7 +679,7 @@ jobs:
               # carry, which is the condition this step exists to detect. It
               # must fail rather than report green on nothing.
               if grep -qE "^SKIPPED|[0-9]+ skipped" /tmp/out; then
-                echo "::error::backend physics skipped INSIDE the image; SimQN or SeQUeNCe is missing from it"
+                echo "::error::backend physics skipped INSIDE the image; SimQN, SeQUeNCe or TNO is missing from it"
                 exit 1
               fi
               # The status of pytest itself. This was `pytest | tee`, whose
