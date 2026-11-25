@@ -250,6 +250,10 @@ build-liboqs: ## Build & install liboqs into /opt/oqs (requires sudo)
 		-DOQS_USE_OPENSSL=ON
 	cmake --build submodules/liboqs/build --parallel
 	sudo cmake --install submodules/liboqs/build
+	@# LMS stays off: GHSA-wh5q-mpc8-67wf and GHSA-xv6c-h66p-6mfq are fixed only in liboqs 0.17.0.
+	@test -f /opt/oqs/include/oqs/oqsconfig.h || { echo "no oqsconfig.h under /opt/oqs" >&2; exit 1; }
+	@! grep -q '^#define OQS_ENABLE_SIG_STFL_LMS' /opt/oqs/include/oqs/oqsconfig.h || \
+		{ echo "liboqs was built with LMS: see GHSA-wh5q-mpc8-67wf and GHSA-xv6c-h66p-6mfq" >&2; exit 1; }
 
 .PHONY: build-oqs-provider
 build-oqs-provider: ## Build & install oqs-provider (requires liboqs)

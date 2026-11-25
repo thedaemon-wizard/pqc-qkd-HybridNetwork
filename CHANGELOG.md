@@ -13,6 +13,17 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Added
 
+- `tests/test_tno_asymptotic_rates_are_pinned.py`, run inside the bb84-kme image by the
+  `live-stack` job: TNO's asymptotic decoy rates on the shipped configuration at 10, 50,
+  100 and 150 km, and no key at 300 km. A bump of tno-qkd-key-rate, or of NumPy or
+  SciPy under it, now says whether the numbers on `/verify` moved.
+- `tests/test_lms_stays_out_of_every_liboqs_build.py`: every build of
+  `submodules/liboqs` passes no option that turns a stateful signature on and reads
+  `oqsconfig.h` after the install, and the pin still defaults LMS, XMSS and stateful
+  key generation to OFF. The Makefile's `build-liboqs` target now fails if LMS was
+  compiled, as the two Dockerfiles already did.
+- `deploy/README.md` says what to do on a host without UFW (firewalld) and how to
+  keep sshd to keys only with root and X11 forwarding refused (checklist row 6.16).
 - `scripts/protocol_lab_smoke.py`, run by CI's frontend job: headless Chrome plays
   `/protocol-lab` under the enforced Content-Security-Policy. Every network and cited
   scenario is stepped and read back against the rate it cites, the run and failure
