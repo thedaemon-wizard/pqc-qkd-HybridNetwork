@@ -66,6 +66,7 @@ STEP_PLAY_WAIT_MS = 1600
 RUN_PLAY_WAIT_MS = 4000
 PART_TRIES = 3
 SETTLE_S = 0.12
+PLANT_WAIT_S = 5.0  # how long the self-check waits for what it planted
 # What a cited replay must show once stepped past its end, from its source.
 REPLAYS = {
     # Peev et al. 2009, section 5.1.2: the three published routes in turn, then none.
@@ -377,11 +378,20 @@ class Page:
         self.js("setTimeout(() => { throw new Error('protocol-lab-smoke planted exception'); }, 0);"
                 "console.error('protocol-lab-smoke planted console error');"
                 "new Image().src = 'https://protocol-lab-smoke.invalid/planted.png'; 0")
-        time.sleep(0.4)
-        found = self.problems()
         need = {"exception": "planted exception", "console error": "planted console error",
                 "CSP violation": "protocol-lab-smoke.invalid"}
-        missing = [k for k, v in need.items() if not any(v in f for f in found)]
+        # Read until all three have come in, for up to PLANT_WAIT_S. A fixed 0.4 s
+        # was too short on a slow CI runner: on main on 2026-11-25 the planted
+        # exception had not arrived by then, and the run that was meant to show the
+        # gate failing (exit 1) said it could not run (exit 2).
+        found: list[str] = []
+        deadline = time.monotonic() + PLANT_WAIT_S
+        while True:
+            time.sleep(0.2)
+            found += self.problems()
+            missing = [k for k, v in need.items() if not any(v in f for f in found)]
+            if not missing or time.monotonic() > deadline:
+                break
         if missing:
             raise CannotRun(f"a planted {', '.join(missing)} was not seen, so a real one would not be")
         return [f for f in found if not any(v in f for v in need.values())]

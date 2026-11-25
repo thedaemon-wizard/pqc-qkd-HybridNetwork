@@ -24,9 +24,11 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   `tests/test_spa_tabs_smoke_reads_the_page.py` holds the labels and literals it reads.
 
 - `tests/test_tno_asymptotic_rates_are_pinned.py`, run inside the bb84-kme image by the
-  `live-stack` job: TNO's asymptotic decoy rates on the shipped configuration at 10, 50,
-  100 and 150 km, and no key at 300 km. A bump of tno-qkd-key-rate, or of NumPy or
-  SciPy under it, now says whether the numbers on `/verify` moved.
+  `live-stack` job: TNO's asymptotic decoy rate at fixed intensities at 10, 50, 100 and
+  150 km, to 1e-6, and the optimum it reports there, to the spread its optimiser shows
+  between CPUs (1 % up to 100 km, 10 % at 150 km), and no key at 300 km. A bump of
+  tno-qkd-key-rate, or of NumPy or SciPy under it, now says whether the numbers on
+  `/verify` moved.
 - `tests/test_lms_stays_out_of_every_liboqs_build.py`: every build of
   `submodules/liboqs` passes no option that turns a stateful signature on, and reads
   the installed `oqsconfig.h` after the install, so a default flipped upstream fails
@@ -221,6 +223,17 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
   ([`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)).
 
 ### Fixed
+
+- `tests/test_tno_asymptotic_rates_are_pinned.py` no longer fails on a CI runner with a
+  different CPU. Its first version held TNO's optimum to 1e-4; the optimiser lands on
+  different points of a flat optimum on different vector units (5.6 % apart at 150 km
+  on two machines), and the test failed at three distances on `main`. It now pins the
+  rate at fixed intensities, which agreed to 4e-10, and gives the optimum the spread.
+
+- The browser gates' self-check waited a fixed 0.4 s for the exception it planted. On
+  a slow runner it came later, and on `main` the step meant to show the Protocol Lab
+  gate failing (exit 1) reported that it could not run (exit 2). Both gates now read
+  for up to 5 s until everything they planted has come in.
 
 - `/qkd-protocols` no longer freezes on a detector efficiency of 0, which its field
   allows, or on a fibre long and lossy enough that one arm transmits nothing. MDI's

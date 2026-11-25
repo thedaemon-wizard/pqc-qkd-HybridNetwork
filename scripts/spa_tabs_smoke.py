@@ -518,16 +518,23 @@ class Tabs:
                 "console.error('spa-tabs-smoke planted console error');"
                 "new Image().src = 'https://spa-tabs-smoke.invalid/planted.png'; 0")
         self.call("plantText")
-        time.sleep(0.4)
-        found = self.problems()
+        need = {"exception": "planted exception", "console error": "planted console error",
+                "CSP violation": "spa-tabs-smoke.invalid", "text a reader should not see": "planted NaN"}
+        # Read until each has come in, for up to plab.PLANT_WAIT_S: a slow runner
+        # can take longer than a fixed wait to report the exception.
+        found: list[str] = []
+        deadline = time.monotonic() + plab.PLANT_WAIT_S
+        while True:
+            time.sleep(0.2)
+            found += self.problems()
+            if all(any(v in f for f in found) for v in need.values()) or time.monotonic() > deadline:
+                break
         self.call("unplantText")
         status = self.call("plantWrite")
         held = self.call("takeWrites")
         self.call("plantTimer")
         timed = self.window()
         self.call("unplantTimer")
-        need = {"exception": "planted exception", "console error": "planted console error",
-                "CSP violation": "spa-tabs-smoke.invalid", "text a reader should not see": "planted NaN"}
         missing = [k for k, v in need.items() if not any(v in f for f in found)]
         if status != 403 or not any("spa-tabs-smoke-planted" in w for w in held):
             missing.append(f"held-back write (status {status}, held {held})")
