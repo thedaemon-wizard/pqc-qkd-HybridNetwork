@@ -294,9 +294,24 @@ from memory.
 
 ### Already in use
 
-`tno-qkd-key-rate` (TNO, **Apache-2.0**, v2.0.4) is the independent cross-check
+`tno-qkd-key-rate` (TNO, **Apache-2.0**, v2.0.5) is the independent cross-check
 on `/verify`. It is a genuinely separate implementation, which is what makes
 the comparison worth anything -- see section 5 and the `verdict` field.
+
+v2.0.5 (2026-11-18) corrects two errors in TNO's *finite-key* estimator,
+`BB84FiniteKeyRateEstimate`: the privacy-amplification term passed the number
+of single-photon errors, not their rate, to the binary entropy, which vanished,
+and the linear program bounding those errors minimised them where the secure
+rate needs the upper bound (Attema et al. 2021, Eq. 33). Finite BB84 rates fall
+by about 10-15 % (TNO's changelog). The cross-check here uses only the
+asymptotic estimators, whose code changed only in how a one-element array is
+converted to a float, and its numbers did not move: at 13 distances from 0 to
+300 km on the shipped configuration, v2.0.4 and v2.0.5 give the same rates and
+optimal intensities to the last digit (2026-11-25, in the `bb84-kme` image).
+This repository's own finite-key code (`_skr.py`, Lim et al. 2014) has neither
+error: `_v1` takes the upper bound of the single-photon bit errors from
+`m2+` and `m3-` (Lim Eq. (4)), and the phase-error term passes the rate
+`v_Z1 / s_Z1`, plus the sampling term, to the binary entropy.
 
 ### Not in use, and worth knowing about
 

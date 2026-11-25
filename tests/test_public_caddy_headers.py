@@ -1,6 +1,6 @@
-"""The public Caddy site sends HSTS, nosniff and an enforced CSP, and drops nginx's Server header.
+"""The public Caddy site sends HSTS, nosniff and an enforced CSP, and drops nginx's Server header and its own Via.
 
-All four are in one `header` block of the public site in deploy/Caddyfile.
+All five are in one `header` block of the public site in deploy/Caddyfile.
 Because the block deletes a field, Caddy defers every operation in it until the
 response is written ("header operations are performed immediately unless any of
 the headers are being deleted", Caddy's header directive docs), so the added
@@ -70,7 +70,7 @@ def _csp() -> dict[str, list[str]]:
     return directives
 
 
-def test_one_header_block_with_these_four_operations():
+def test_one_header_block_with_these_five_operations():
     site = _public_site_lines()
     assert not [ln for ln in site if re.match(r"header\s+\S", ln) and not ln.endswith("{")], (
         "a one-line header directive would run immediately and miss proxied responses"
@@ -78,6 +78,7 @@ def test_one_header_block_with_these_four_operations():
     (block,) = _header_blocks(site)
     assert [ln.split(" ", 1)[0] for ln in block] == [
         "-Server",
+        "-Via",
         "Strict-Transport-Security",
         "X-Content-Type-Options",
         CSP,

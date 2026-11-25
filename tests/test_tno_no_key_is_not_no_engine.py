@@ -5,7 +5,7 @@ Found on the live demo while verifying the fix for the collapsing
 
 TNO signals a converged no-key result by RAISING, not by returning a number::
 
-    submodules/tno-qkd-key-rate/.../quantum/bb84.py:593-595
+    submodules/tno-qkd-key-rate/.../quantum/bb84.py:594-596
         if rate < 0:
             error_msg = "Optimization resulted in a negative key rate."
             raise ValueError(error_msg)

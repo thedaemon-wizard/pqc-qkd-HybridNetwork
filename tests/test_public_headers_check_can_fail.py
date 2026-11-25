@@ -6,7 +6,7 @@ with yesterday's headers. Like tests/test_release_gates_can_actually_fail.py,
 each case runs the real script and asserts the direction: the headers the
 Caddyfile sets exit 0, and each way of getting them wrong exits 1 -- a
 report-only policy, a policy that differs, HSTS widened to subdomains, nosniff
-missing, a Server header back. A Caddyfile with no enforced policy exits 2,
+missing, a Server header back, Caddy's Via back. A Caddyfile with no enforced policy exits 2,
 because then there is nothing to compare with, which is not a pass.
 
 The site is a local HTTP server that sends exactly the headers a case names
@@ -86,6 +86,7 @@ def test_the_caddyfile_headers_pass():
     ("HSTS widened to subdomains", {**GOOD, "Strict-Transport-Security": "max-age=31536000; includeSubDomains"}),
     ("nosniff missing", {k: v for k, v in GOOD.items() if k != "X-Content-Type-Options"}),
     ("a Server header", {**GOOD, "Server": "nginx/1.31.9"}),
+    ("a Via header", {**GOOD, "Via": "1.1 Caddy"}),
 ])
 def test_each_wrong_header_fails(name, headers):
     r = _run(headers)

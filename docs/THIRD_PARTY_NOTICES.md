@@ -17,7 +17,7 @@ are kept short; the longer history of a pin is under
 | `qkdnetsim` | GPL-2.0-only (SPDX headers; `LICENSE` is the GPL v2 text) | QKDNetSim project (Mehic et al.) | 8 | pinned to `1cda34cb` (2026-05-03), 4 commits behind `v3.1.4` (`e6330fe6`, 2026-09-21). Not bumped: no qkdnetsim binary is executed here. Compiled together with ns-3 (below) by `services/qkdnetsim-kme/Dockerfile`. See [qkdnetsim](#qkdnetsim). |
 | `openQKDsecurity` | MIT | Lütkenhaus group / U. Waterloo | 8 (offline) | pinned to `f952c355`, the tag **v2.2.0** (2026-06-17). Vendored for the roadmap; nothing shipped is produced from it. |
 | `strawberryfields` | Apache-2.0 | Xanadu | 8 | pinned to `162125d8`, the final `master` commit, 8 commits past the last tag `v0.23.0-post1`. **Archived on GitHub** (read-only; last push 2026-01-16) and the Xanadu cloud is decommissioned. Local simulation still runs and backs the `cvqkd` backend. |
-| `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned to `4cac9df0`, the tag **v2.0.4** (2026-02); `tno` backend and key-rate cross-check. |
+| `tno-qkd-key-rate` | Apache-2.0 | TNO (Netherlands Org. for Applied Scientific Research) | 8 | pinned to `7266c35e`, the tag **v2.0.5** (2026-11-18); `tno` backend and key-rate cross-check. v2.0.5 fixes two errors in `BB84FiniteKeyRateEstimate` that overestimated finite BB84 rates; nothing here calls that class (`tno_backend.py` uses `BB84AsymptoticKeyRateEstimate`, then `BB84FullyAsymptoticKeyRateEstimate`), and on the shipped configuration the backend's rates and optimal intensities at 13 distances from 0 to 300 km are identical under v2.0.4 and v2.0.5 (compared 2026-11-25 in the `bb84-kme` image). |
 | `strongswan` | **GPL-2.0-or-later** (+ OpenSSL/LGPL linking exception; des/md4/md5 plugins differ) | strongSwan project | 9 | pinned to `b43f6bfe`, the annotated tag **6.1.0** (tagged 2026-09-06, released 2026-09-07), moved up from 6.0.7 for [`50177b40`](https://github.com/strongswan/strongswan/commit/50177b4004d1fec4299cd7bed4a3c7fb0f4208d7), which enforces `ppk_required` on the initiator (see [`vici-ppk.md`](vici-ppk.md)). 6.1.0 is also this lane's **security floor**: it fixes CVE-2026-78133 (6.0.0 and later, reachable here because the lane accepts multiple key exchanges) and CVE-2026-78127 (4.1.2 and later). Built into the `alice-ipsec` / `bob-ipsec` image only. See [strongswan](#strongswan). |
 | `qkd-pqc-paper-supplementary` | **NONE — no licence file of any kind** | aparcar / Spooren et al. | 9 | pinned to `712e4b36`. Reference only: not redistributed, not built into any image, and not to be vendored into a derived work without the authors' permission. |
 | `wgephemeralpeer` | GPL-3.0 | Mullvad VPN | 11 | pinned to `0080bf8d` (2026-05-08), 45 commits past the latest release v1.0.6 (2025-02-03), which is an ancestor of the pin rather than a newer release. Vendored as a benchmark reference; not built or integrated. |
@@ -139,8 +139,16 @@ as a missing ctypes symbol rather than a clear error. Bump both together.
 
 **GHSA-wh5q-mpc8-67wf** (published 2026-09-22, medium): a heap out-of-bounds
 read in LMS/HSS signature verification, affecting liboqs 0.11.0 through 0.16.0
-and fixed in 0.17.0, which was not yet released on 2026-09-25. The pin is inside
-the affected range, but nothing built here compiles the affected code:
+and fixed in 0.17.0, which was not yet released on 2026-09-25.
+**GHSA-xv6c-h66p-6mfq** (CVE-2026-104255, published 2026-10-06, medium): the
+LMS signing, signature-counting and key-serialisation paths call the
+application's lock callbacks directly and ignore their return values, so
+signing goes ahead and consumes a one-time key when the lock fails; reusing an
+LM-OTS key breaks unforgeability (the advisory forges a signature from eight
+made at one leaf), and verification accepts a signature and public key of
+another LMS parameter set. It covers liboqs up to 0.16.0 and is also fixed only
+in 0.17.0, still unreleased on 2026-11-25. The pin is inside both ranges, but
+nothing built here compiles the affected code:
 `OQS_ENABLE_SIG_STFL_LMS` defaults to OFF, and neither
 `services/pqc-validator/Dockerfile` nor
 `services/pqc-tls-demo/Dockerfile.oqs-provider` passes any stateful-signature
@@ -322,7 +330,7 @@ moved to its latest tag that day.
 
 **Six pins are exactly on the latest semver tag:** `SimQN` v0.2.3,
 `liboqs` 0.16.0, `openQKDsecurity` v2.2.0, `rosenpass` v0.2.3,
-`tno-qkd-key-rate` v2.0.4, and since 2026-11-10 `oqs-provider` 0.12.0. `strongswan` is on the annotated `6.1.0`.
+`tno-qkd-key-rate` v2.0.5 (since 2026-11-25), and since 2026-11-10 `oqs-provider` 0.12.0. `strongswan` is on the annotated `6.1.0`.
 
 **Two upstreams publish no semver tags at all**, by the release-tag filter of
 trap 1 below, so "behind" has no meaning for them: `qkd-pqc-paper-supplementary`, `qkd_kme_server`.

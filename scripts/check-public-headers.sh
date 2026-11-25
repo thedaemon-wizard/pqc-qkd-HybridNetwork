@@ -16,7 +16,9 @@
 #   - X-Content-Type-Options "nosniff";
 #   - Content-Security-Policy equal to the line in deploy/Caddyfile, enforced:
 #     a Content-Security-Policy-Report-Only header is a failure;
-#   - no Server header.
+#   - no Server header;
+#   - no Via header (Caddy adds "1.1 Caddy" to proxied responses unless the
+#     site's header block deletes it).
 # Exit status 2 if the check cannot run (no URL, no policy in the Caddyfile).
 set -eu
 
@@ -62,6 +64,9 @@ else say "no report-only policy" "ok"; fi
 
 if has server; then echo "::error::a Server header is sent: $(field server)"; fail=1
 else say "no Server header" "ok"; fi
+
+if has via; then echo "::error::a Via header is sent: $(field via)"; fail=1
+else say "no Via header" "ok"; fi
 
 [ "$fail" -eq 0 ] && echo "ok: $BASE sends the headers in deploy/Caddyfile"
 exit "$fail"

@@ -75,6 +75,20 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Changed
 
+- `tno-qkd-key-rate` is pinned to v2.0.5 (`7266c35e`, 2026-11-18). That release fixes
+  two errors in TNO's finite-key estimator that overestimated finite BB84 rates; the
+  cross-check and the `tno` backend use only the asymptotic estimators, and on the
+  shipped configuration they give the same rates and optimal intensities as under
+  v2.0.4 at 13 distances from 0 to 300 km.
+- The comments that named the arnika pin as `f4cf9ba`, "the head of the open, unmerged
+  upstream PR #51", in the headers of `docker-compose.yml` and
+  `docker-compose.strongswan.yml` and in section 7 of `docs/threat-model.md`, now name
+  `0bb8401`. `tests/test_the_pin_is_named_as_it_is.py` fails when a statement of the pin
+  names an earlier one.
+- The LMS notes in the two images that build liboqs, and in the notices, name the second
+  advisory too: GHSA-xv6c-h66p-6mfq (an LM-OTS key reused when the signing lock fails),
+  like GHSA-wh5q-mpc8-67wf fixed only in the unreleased liboqs 0.17.0. LMS is still not
+  compiled, and both builds still fail if it ever is.
 - arnika is pinned to `0bb8401`, its `main` after upstream PR #51 (PQC-HPKE) merged on
   2026-11-20 as `c850db6` and the four pull requests #54 to #57 that harden its key_id
   exchange merged after it. The pin was `f4cf9ba`, #51's head of 2026-09-24, at which
@@ -138,6 +152,11 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Security
 
+- The public site no longer sends `Via: 1.1 Caddy`. Caddy's `reverse_proxy` adds it to
+  forwarded responses from v2.10.0 on, so the proxy was still named after the `Server`
+  deletion; RFC 9110 section 7.6.3 lets a gateway leave Via off responses. The same
+  deferred `header` block deletes it, and `scripts/check-public-headers.sh` fails if it
+  comes back.
 - The public site sends `Strict-Transport-Security` (one year, this host only),
   `X-Content-Type-Options: nosniff` and an enforced `Content-Security-Policy`,
   next to the `Server` deletion, in one deferred `header` block of the

@@ -2,7 +2,7 @@
 
 Wraps `tno.quantum.communication.qkd_key_rate` — an independently-developed,
 peer-reviewed (Attema et al. 2021; Ma et al. 2007) decoy-state BB84 / BBM92
-key-rate engine, actively maintained (v2.0.4, 2026-02). It is used here two ways:
+key-rate engine, actively maintained (v2.0.5, 2026-11-18). It is used here two ways:
 
   1. As a selectable bb84-kme backend (`SIMULATOR_BACKEND=tno`) producing keys
      whose secret-key rate comes from TNO's asymptotic decoy-state optimisation.
@@ -51,7 +51,7 @@ def _build_detector(cfg: BackendConfig):
     )
 
 
-_SOURCE = "tno.quantum.communication.qkd_key_rate v2.0.4 (Apache-2.0)"
+_SOURCE = "tno.quantum.communication.qkd_key_rate v2.0.5 (Apache-2.0)"
 
 # TNO signals "I converged, and the answer is that no key is extractable" by
 # RAISING, not by returning a number:
