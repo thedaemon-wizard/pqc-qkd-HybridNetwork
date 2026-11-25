@@ -224,6 +224,18 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 
 ### Fixed
 
+- The TNO cross-check on `/verify` computes the channel the configuration describes.
+  `_build_detector` passed the misalignment e_d = 0.015 as TNO's `polarization_drift`,
+  which is an angle whose sine squared is the error, so TNO worked with 2.25e-4: its
+  error rate at 10 km was 0.04 % against the configuration's 1.5 %, and its rate 55 %
+  higher than with the right channel. The drift is now `asin(sqrt(e_d))`, TNO's own
+  default for 0.015, and the detector error 0, TNO's default, not e_d a second time.
+  At the default 10 km TNO now gives 29.5 Mbps against the closed form's 12.3 Mbps
+  (ratio 2.4, was 3.7); the factor of about 2 that remains at the same intensities is
+  TNO's rate having neither the sifting factor of 1/2 nor an error-correction
+  inefficiency. The pinned rates in `tests/test_tno_asymptotic_rates_are_pinned.py`
+  were recomputed, and it now holds the mapping.
+
 - `tests/test_tno_asymptotic_rates_are_pinned.py` no longer fails on a CI runner with a
   different CPU. Its first version held TNO's optimum to 1e-4; the optimiser lands on
   different points of a flat optimum on different vector units (5.6 % apart at 150 km

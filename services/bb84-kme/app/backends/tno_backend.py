@@ -15,6 +15,7 @@ hardcoded. Heavy import is lazy so selecting another backend never imports it.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from typing import Any
@@ -36,13 +37,24 @@ def _build_detector(cfg: BackendConfig):
     """
     from tno.quantum.communication.qkd_key_rate.quantum import Detector
 
+    e_d = float(cfg.misalignment_error_ed)
+    if not 0.0 <= e_d <= 0.5:
+        raise ValueError(f"misalignment_error_ed must lie in [0, 0.5] for TNO's drift angle, got {e_d}")
     return Detector(
         name="pqcqkd",
         efficiency_detector=float(cfg.detector_efficiency),
         efficiency_system=float(cl.require("detector.efficiency_system")),
         dark_count_frequency=float(cfg.dark_count_rate_hz),
-        polarization_drift=float(cfg.misalignment_error_ed),
-        error_detector=float(cfg.misalignment_error_ed),
+        # TNO models misalignment as a polarisation drift ANGLE, in radians, and
+        # the error it adds is the square of its sine (bb84.compute_gain_and_error_rate;
+        # TNO's own default is arcsin(sqrt(0.015)), this configuration's e_d). Until
+        # 2026-11-25 e_d itself went in, so TNO computed with sin^2(0.015) = 2.25e-4
+        # where the configuration says 0.015, and the cross-check on /verify
+        # compared two channels: TNO's error rate at 10 km was 0.04 %, not 1.5 %.
+        polarization_drift=math.asin(math.sqrt(e_d)),
+        # A detector error on top of the drift; this project's model has only e_d,
+        # so it is 0, TNO's default, and not e_d a second time (BBM92 would add it).
+        error_detector=0.0,
         jitter_source=float(cl.require("detector.jitter_source_s")),
         jitter_detector=float(cl.require("detector.jitter_detector_s")),
         dead_time=float(cl.require("detector.dead_time_s")),

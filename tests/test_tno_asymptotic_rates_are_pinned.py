@@ -17,16 +17,21 @@ Two things are pinned, because they are reproducible to very different degrees:
     1e-6. A change to TNO's model shows up here first.
   * The optimum `compute_tno_rate` reports. TNO finds it with `trust-constr`
     over finite differences of that linear program, and the optimum is flat
-    in the decoy intensities, which it drives towards zero; where it stops
-    depends on the CPU. The same image on those two machines gave optima
-    0.03 % apart at 10 km, 0.23 % at 50 km and 5.6 % at 150 km, and CI runners
-    follow one or the other (PR #160's run matched the machine these numbers
-    came from; PR #161's run matched the other one, and the version of this
-    test that held the optimum to 1e-4 failed there at three distances). So
-    the optimum is held to 1 % up to 100 km and 10 % at 150 km, its signal
-    intensity to 0.05, and it must not fall below the rate at the fixed
-    intensities, a point any working optimiser beats. The verdict on /verify
-    tests the ratio against [0.1, 10], far wider than either spread.
+    in the decoy intensities; where it stops depends on the CPU, and CI
+    runners follow one machine or the other (the version of this test that
+    held the optimum to 1e-4 passed in PR #160's run and failed on `main`).
+    With the drift passed as an angle (below), the two machines' optima were
+    0.02 % apart at 10 km, 0.05 % at 50 km, 0.9 % at 100 km and 8.9 % at
+    150 km. So the optimum is held to 1 % at 10 and 50 km, 5 % at 100 km and
+    30 % at 150 km, its signal intensity to 0.05, and it must not fall below
+    the rate at the fixed intensities, a point any working optimiser beats.
+    The verdict on /verify tests the ratio against [0.1, 10], far wider.
+
+And one thing about what TNO is given: `polarization_drift` is an angle, and
+the error it adds is its sine squared. `_build_detector` passed e_d itself until
+2026-11-25, so TNO's error rate at 10 km was 0.04 % where the configuration
+says 1.5 %; `test_tno_sees_the_misalignment_the_configuration_states` holds the
+mapping, and every number below was recomputed with it.
 
 It runs where TNO is installed: inside the bb84-kme image, in CI's step
 "Backend physics inside the image that has SimQN and SeQUeNCe", which fails on
@@ -67,22 +72,23 @@ CONFIG = {
 }
 
 #: link length (km) -> (intensities: signal, decoy, decoy; TNO's rate per pulse at them).
-#: Computed 2026-11-25 in the bb84-kme image: Python 3.12.13, NumPy 2.5.3, SciPy 1.18.1,
-#: tno-qkd-key-rate v2.0.4 and v2.0.5.
+#: Computed 2026-11-25 in the bb84-kme image (Python 3.12.13, NumPy 2.5.3, SciPy 1.18.1,
+#: tno-qkd-key-rate v2.0.5), with the drift passed as an angle; a second machine agreed
+#: to 2e-9 relative.
 AT_FIXED = {
-    10.0: ([0.9, 0.1, 0.01], 0.04275297865016177),
-    50.0: ([0.9, 0.1, 0.01], 0.00659918611977818),
-    100.0: ([0.9, 0.1, 0.01], 0.0005673801509574356),
-    150.0: ([0.6, 0.1, 0.01], 8.494924592233176e-06),
+    10.0: ([0.9, 0.1, 0.01], 0.025673707996832516),
+    50.0: ([0.9, 0.1, 0.01], 0.00385820921314073),
+    100.0: ([0.9, 0.1, 0.01], 0.0003248509679873259),
+    150.0: ([0.45, 0.05, 0.005], 1.4484154955986172e-06),
 }
 
 #: link length (km) -> (the optimum's rate per pulse, its signal intensity, the relative
 #: spread allowed on the rate), from `compute_tno_rate` on the same day and image.
 OPTIMUM = {
-    10.0: (0.04571317747870629, 0.946638867196751, 0.01),
-    50.0: (0.0071273653427372345, 0.944085752750927, 0.01),
-    100.0: (0.0006212221189419873, 0.9444684104103023, 0.01),
-    150.0: (1.1199908508336723e-05, 0.615938691827998, 0.10),
+    10.0: (0.02946496465458687, 0.7544460156185032, 0.01),
+    50.0: (0.0045509546128638684, 0.7372672941262531, 0.01),
+    100.0: (0.0003985702574223266, 0.7189483836760616, 0.05),
+    150.0: (2.5795538231308866e-06, 0.43433653417629947, 0.30),
 }
 
 
@@ -92,6 +98,27 @@ def _cfg(km: float):
     cfg = copy.copy(cfg_from_yaml())
     cfg.link_length_km = km
     return cfg
+
+
+def test_tno_sees_the_misalignment_the_configuration_states():
+    """The drift is the angle whose sine squared is e_d, and TNO's error rate near zero length is e_d."""
+    import math
+
+    from app.backends.tno_backend import _build_detector
+    from tno.quantum.communication.qkd_key_rate.quantum import _detector
+    from tno.quantum.communication.qkd_key_rate.quantum.bb84 import compute_gain_and_error_rate
+
+    cfg = _cfg(1.0)
+    e_d = float(cfg.misalignment_error_ed)
+    det = _build_detector(cfg)
+    assert det.polarization_drift == pytest.approx(math.asin(math.sqrt(e_d)), rel=1e-12)
+    assert det.error_detector == 0.0
+    if e_d == 0.015:  # TNO's own default drift is this configuration's e_d, as an angle
+        assert det.polarization_drift == pytest.approx(float(_detector.DEFAULT_POLARIZATION_DRIFT), rel=1e-12)
+    _, error = compute_gain_and_error_rate(det, [0.5], float(cfg.fiber_attenuation_db_per_km) * 1.0)
+    # e_d plus the dark counts' share, which at 1 km is about 1e-4 of it.
+    assert float(error[0]) == pytest.approx(e_d, abs=1e-3), (
+        f"TNO's error rate at 1 km is {float(error[0])!r}, the configuration's misalignment {e_d}")
 
 
 def test_the_configuration_is_the_one_the_numbers_came_from():
