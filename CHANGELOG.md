@@ -245,7 +245,8 @@ verified at the time, is [`docs/phases.md`](docs/phases.md).
 - The browser gates' self-check waited a fixed 0.4 s for the exception it planted. On
   a slow runner it came later, and on `main` the step meant to show the Protocol Lab
   gate failing (exit 1) reported that it could not run (exit 2). Both gates now read
-  for up to 5 s until everything they planted has come in.
+  for up to 15 s until everything they planted has come in, and stop as soon as it has
+  (the planted exception comes from a timer, which waits for a busy page).
 
 - `/qkd-protocols` no longer freezes on a detector efficiency of 0, which its field
   allows, or on a fibre long and lossy enough that one arm transmits nothing. MDI's
